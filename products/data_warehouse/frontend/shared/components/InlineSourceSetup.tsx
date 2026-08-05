@@ -1,14 +1,16 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { router } from 'kea-router'
+import { useEffect, useState } from 'react'
 
 import { IconDatabase, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-general'
 
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
-import { NewSourcesWizard } from '../../scenes/NewSourceScene/NewSourceScene'
+import { AvailableSourcesError, NewSourcesWizard } from '../../scenes/NewSourceScene/NewSourceScene'
 import { sourceWizardLogic } from '../../scenes/NewSourceScene/sourceWizardLogic'
+import { DataWarehouseWizardBlock } from './DataWarehouseWizardBlock'
 import { SourceIcon } from './SourceIcon'
 
 export type InlineSourceSetupView = 'selection' | 'connecting'
@@ -23,53 +25,84 @@ export interface InlineSourceSetupProps {
     onComplete?: () => void
     /** When true, show only featured sources initially with an expand option to show all */
     featured?: boolean
-    /** Custom title for the source selection */
+    /** Custom title for the source selection. Defaults to the live source count. */
     title?: string
     /** Custom subtitle for the source selection */
     subtitle?: string
+    /** When true, show the CLI wizard block as a fast path above the source grid (cloud/dev only) */
+    showWizard?: boolean
+    /** Pre-select all syncable tables with smart defaults so the user can sync in one click */
+    autoConfigureTables?: boolean
+}
+
+interface InternalInlineSourceSetupProps extends InlineSourceSetupProps {
+    currentView: InlineSourceSetupView
+    selectedSource: ExternalDataSourceType | null
+    onSourceSelect: (sourceId: ExternalDataSourceType) => void
+    onBack: () => void
+    onFormSuccess: () => void
 }
 
 function InternalInlineSourceSetup({
-    onComplete,
     featured = false,
-    title = 'Connect a data source',
+    title,
     subtitle = 'Choose a source to import data from',
-}: InlineSourceSetupProps): JSX.Element {
+    showWizard = false,
+    autoConfigureTables = false,
+    currentView,
+    selectedSource,
+    onSourceSelect,
+    onBack,
+    onFormSuccess,
+}: InternalInlineSourceSetupProps): JSX.Element {
     const { connectors } = useValues(sourceWizardLogic)
-    const { onClear } = useActions(sourceWizardLogic)
+    const { searchParams, location } = useValues(router)
+    const { replace } = useActions(router)
 
-    const [currentView, setCurrentView] = useState<InlineSourceSetupView>('selection')
-    const [selectedSource, setSelectedSource] = useState<ExternalDataSourceType | null>(null)
     const [expanded, setExpanded] = useState(!featured)
+    const [searchQuery, setSearchQuery] = useState('')
 
     // Filter out unreleased sources
     const availableConnectors = connectors.filter((c: SourceConfig) => !c.unreleasedSource)
+
+    // Resume an OAuth round-trip: an OAuth source redirects the whole page to the provider and
+    // back to this onboarding URL with ?kind=<source>. On mount, re-open the wizard for that
+    // source so the user lands back where they left off (credentials are restored by the wizard
+    // from the state saved before the redirect). Runs once — subsequent picks use the grid.
+    useEffect(() => {
+        const kind = searchParams.kind
+        if (!kind) {
+            return
+        }
+        const match = availableConnectors.find((c) => c.name.toLowerCase() === String(kind).toLowerCase())
+        if (match) {
+            onSourceSelect(match.name)
+        }
+        // Consume the param so a later remount (refresh, back-navigation, cancel) doesn't force the
+        // wizard back open after the connection has already been handled.
+        const { kind: _kind, ...restParams } = searchParams
+        replace(location.pathname, restParams)
+        // oxlint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
     const featuredSources = availableConnectors.filter((c: SourceConfig) => c.featured)
     const hiddenSources = availableConnectors.filter((c: SourceConfig) => !c.featured)
-    const sourcesToShow = expanded ? availableConnectors : featuredSources
+
+    const trimmedQuery = searchQuery.trim().toLowerCase()
+    const isSearching = trimmedQuery.length > 0
+    // While searching, match across every source — the featured/expand split only applies
+    // to the default (unsearched) view.
+    const sourcesToShow = isSearching
+        ? availableConnectors.filter((c: SourceConfig) => (c.label ?? c.name).toLowerCase().includes(trimmedQuery))
+        : expanded
+          ? availableConnectors
+          : featuredSources
 
     const sourceItems: SourceItem[] = sourcesToShow.map((source: SourceConfig) => ({
         id: source.name,
         label: source.label ?? source.name,
     }))
 
-    const handleSourceSelect = (sourceId: ExternalDataSourceType): void => {
-        setSelectedSource(sourceId)
-        setCurrentView('connecting')
-    }
-
-    const handleFormSuccess = (): void => {
-        setCurrentView('selection')
-        setSelectedSource(null)
-        onClear()
-        onComplete?.()
-    }
-
-    const handleBack = (): void => {
-        setCurrentView('selection')
-        setSelectedSource(null)
-        onClear()
-    }
+    const effectiveTitle = title ?? `Choose from ${availableConnectors.length} sources`
 
     return (
         <div className="space-y-6">
@@ -82,25 +115,42 @@ function InternalInlineSourceSetup({
                                 <IconDatabase className="w-7 h-7" style={{ color: 'var(--primary-3000)' }} />
                             </div>
                             <div>
-                                <h4 className="text-lg font-semibold">{title}</h4>
+                                <h4 className="text-lg font-semibold">{effectiveTitle}</h4>
                                 <p className="text-sm text-muted-alt">{subtitle}</p>
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                            {sourceItems.map((source) => (
-                                <div
-                                    key={source.id}
-                                    className="flex items-center gap-3 p-3 rounded-lg border border-border bg-bg-light cursor-pointer"
-                                    onClick={() => handleSourceSelect(source.id)}
-                                >
-                                    <SourceIcon type={source.id} size="small" disableTooltip />
-                                    <span className="font-medium text-sm">{source.label}</span>
-                                </div>
-                            ))}
-                        </div>
+                        {showWizard && <DataWarehouseWizardBlock />}
 
-                        {featured && !expanded && hiddenSources.length > 0 && (
+                        <LemonInput
+                            type="search"
+                            placeholder="Search sources..."
+                            value={searchQuery}
+                            onChange={setSearchQuery}
+                            fullWidth
+                            autoFocus
+                        />
+
+                        {sourceItems.length > 0 ? (
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                                {sourceItems.map((source) => (
+                                    <div
+                                        key={source.id}
+                                        className="flex items-center gap-3 p-3 rounded-lg border border-border bg-bg-light cursor-pointer"
+                                        onClick={() => onSourceSelect(source.id)}
+                                    >
+                                        <SourceIcon type={source.id} size="small" disableTooltip />
+                                        <span className="font-medium text-sm">{source.label}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-sm text-muted-alt text-center py-4">
+                                No sources match "{searchQuery.trim()}".
+                            </p>
+                        )}
+
+                        {!isSearching && featured && !expanded && hiddenSources.length > 0 && (
                             <div className="flex justify-center pt-2">
                                 <LemonButton
                                     type="secondary"
@@ -122,15 +172,16 @@ function InternalInlineSourceSetup({
                 <LemonCard hoverEffect={false}>
                     <div className="space-y-4">
                         <div className="flex items-center justify-between mb-4">
-                            <LemonButton type="secondary" size="small" onClick={handleBack}>
+                            <LemonButton type="secondary" size="small" onClick={onBack}>
                                 ← Back to sources
                             </LemonButton>
                         </div>
                         <NewSourcesWizard
                             hideBackButton
-                            onComplete={handleFormSuccess}
+                            onComplete={onFormSuccess}
                             allowedSources={availableConnectors.map((c: SourceConfig) => c.name)}
                             initialSource={selectedSource}
+                            autoConfigureTables={autoConfigureTables}
                         />
                     </div>
                 </LemonCard>
@@ -141,14 +192,54 @@ function InternalInlineSourceSetup({
 
 export function InlineSourceSetup(props: InlineSourceSetupProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
+    const { onClear } = useActions(sourceWizardLogic)
 
-    if (availableSourcesLoading || availableSources === null) {
+    const [currentView, setCurrentView] = useState<InlineSourceSetupView>('selection')
+    const [selectedSource, setSelectedSource] = useState<ExternalDataSourceType | null>(null)
+
+    // Defined once here and bound as the logic's `onComplete` below, so the wizard's step-5
+    // completion listener always sees this same callback — never the logic's unbound default —
+    // regardless of which of this component's `BindLogic` mounts happens to be active at that
+    // moment (see `NewSourcesWizard`'s own nested `BindLogic`, which receives this same callback).
+    const handleFormSuccess = (): void => {
+        setCurrentView('selection')
+        setSelectedSource(null)
+        onClear()
+        props.onComplete?.()
+    }
+
+    const handleSourceSelect = (sourceId: ExternalDataSourceType): void => {
+        setSelectedSource(sourceId)
+        setCurrentView('connecting')
+    }
+
+    const handleBack = (): void => {
+        setCurrentView('selection')
+        setSelectedSource(null)
+        onClear()
+    }
+
+    if (availableSourcesLoading) {
         return <LemonSkeleton />
     }
 
+    if (availableSources === null) {
+        return <AvailableSourcesError />
+    }
+
     return (
-        <BindLogic logic={sourceWizardLogic} props={{ availableSources }}>
-            <InternalInlineSourceSetup {...props} />
+        <BindLogic
+            logic={sourceWizardLogic}
+            props={{ availableSources, onComplete: handleFormSuccess, autoConfigureTables: props.autoConfigureTables }}
+        >
+            <InternalInlineSourceSetup
+                {...props}
+                currentView={currentView}
+                selectedSource={selectedSource}
+                onSourceSelect={handleSourceSelect}
+                onBack={handleBack}
+                onFormSuccess={handleFormSuccess}
+            />
         </BindLogic>
     )
 }

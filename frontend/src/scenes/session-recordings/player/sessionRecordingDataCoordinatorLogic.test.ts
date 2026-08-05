@@ -3,7 +3,7 @@ import { api } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { HttpResponse } from 'msw'
 
-import { processAllSnapshots, SourceKey, ViewportResolution } from '@posthog/replay-shared'
+import { processAllSnapshots, SnapshotSourceType, SourceKey, ViewportResolution } from '@posthog/replay-shared'
 
 import { dayjs } from 'lib/dayjs'
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
@@ -14,12 +14,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { HogQLQueryResponse } from '~/queries/schema/schema-general'
-import {
-    RecordingSnapshot,
-    SessionRecordingSnapshotSource,
-    SessionRecordingSnapshotSourceResponse,
-    SnapshotSourceType,
-} from '~/types'
+import { RecordingSnapshot, SessionRecordingSnapshotSource, SessionRecordingSnapshotSourceResponse } from '~/types'
 
 import { sortedRecordingSnapshots } from '../__mocks__/recording_snapshots'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -227,7 +222,6 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             expect(queries[1]).toMatch(/WHERE timestamp > '2023-05-01 14:41:20'/)
             expect(queries[1]).toMatch(/AND timestamp < '2023-05-01 14:51:32'/)
 
-            expect(api.create.mock.calls).toMatchSnapshot()
             expect(logic.values.sessionEventsData).toHaveLength(recordingEventsJson.results.length)
         })
     })
@@ -443,12 +437,6 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             expect(await callProcessing([...verySimilarSnapshots, ...verySimilarSnapshots])).toEqual(
                 verySimilarSnapshots
             )
-        })
-
-        it('should match snapshot', async () => {
-            const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
-
-            expect(await callProcessing(snapshots)).toMatchSnapshot()
         })
     })
 })

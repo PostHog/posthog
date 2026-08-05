@@ -1,6 +1,6 @@
+import { parseJSON } from '~/common/utils/json-parse'
 import { Meta, PluginAttachment, PluginEvent } from '~/plugin-scaffold'
 
-import { parseJSON } from '../../../../utils/json-parse'
 import { LegacyTransformationPluginMeta } from '../../types'
 
 export interface Filter {

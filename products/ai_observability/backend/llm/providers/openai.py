@@ -16,15 +16,17 @@ from posthoganalytics.ai.openai import (
     AzureOpenAI as WrappedAzureOpenAI,
     OpenAI,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContextWindowExceededError,
     ModelNotFoundError,
     ModelPermissionError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
+    is_context_window_error_message,
 )
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
@@ -70,9 +72,9 @@ class OpenAIConfig:
         }
     )
 
-    # Models available to trial users (PostHog pays). Excludes expensive
+    # Models available in the PostHog-funded playground. Excludes expensive
     # "pro" tiers and includes one flagship model for quality evaluation.
-    TRIAL_MODELS: list[str] = [
+    PLAYGROUND_MODELS: list[str] = [
         "gpt-4.1",
         "gpt-4.1-mini",
         "gpt-4.1-nano",
@@ -81,6 +83,8 @@ class OpenAIConfig:
         "o3-mini",
         "o4-mini",
     ]
+
+    DEFAULT_MODEL: str = "gpt-5-mini"
 
     SUPPORTED_MODELS_WITH_THINKING: list[str] = [
         "gpt-5.4",
@@ -164,10 +168,16 @@ class OpenAIAdapter:
                         parsed=parsed,
                     )
                 except openai.BadRequestError as e:
+                    if is_context_window_error_message(str(e)):
+                        raise ContextWindowExceededError(str(e)) from e
                     # Fall back to manual JSON parsing for older models that don't support json_schema
                     if "response_format" in str(e).lower() or "json_schema" in str(e).lower():
                         return self._complete_with_json_fallback(client, request, messages, analytics)
                     raise
+                except (ValidationError, openai.LengthFinishReasonError) as e:
+                    # json_schema does not enforce cross-field validators, while the SDK raises a separate
+                    # exception for length-limited output. Normalize both so callers skip invalid output.
+                    raise StructuredOutputParseError(f"Failed to parse structured output: {e}") from e
             else:
                 create_response = client.chat.completions.create(
                     model=request.model,
@@ -196,6 +206,8 @@ class OpenAIAdapter:
                 raise QuotaExceededError(str(e))
             raise RateLimitError(str(e))
         except openai.APIStatusError as e:
+            if isinstance(e, openai.BadRequestError) and is_context_window_error_message(str(e)):
+                raise ContextWindowExceededError(str(e)) from e
             # OpenRouter returns 402 when the key can't afford the requested
             # max_tokens (or is out of credits). Retrying never helps — mirror
             # the quota path so the workflow marks the key errored and stops.

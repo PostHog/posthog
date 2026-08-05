@@ -16,7 +16,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
+from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.permissions import AccessControlPermission
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
@@ -204,7 +204,7 @@ class AIObservabilityOfflineEvaluationsViewSet(TeamAndOrgViewSetMixin, viewsets.
 
                 heavy_query = parse_select(_OFFLINE_EXPERIMENT_ITEMS_HEAVY_SQL)
                 try:
-                    heavy_result = execute_with_ai_events_fallback(
+                    heavy_result = query_ai_events(
                         query=heavy_query,
                         placeholders={
                             "trace_ids": ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids]),
@@ -213,6 +213,7 @@ class AIObservabilityOfflineEvaluationsViewSet(TeamAndOrgViewSetMixin, viewsets.
                         },
                         team=self.team,
                         query_type="LLMOfflineEvaluationItems",
+                        fall_back_to_events=True,
                         limit_context=LimitContext.QUERY,
                     )
                 except Exception as e:

@@ -1,8 +1,18 @@
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
-import { IconBolt, IconDatabase, IconDocument, IconEndpoints, IconFolder, IconPlug, IconPlus } from '@posthog/icons'
+import {
+    IconBolt,
+    IconDatabase,
+    IconDocument,
+    IconEndpoints,
+    IconFolder,
+    IconPlug,
+    IconPlus,
+    IconRefresh,
+    IconWarning,
+} from '@posthog/icons'
 import { LemonMenuItem } from '@posthog/lemon-ui'
 import { Spinner } from '@posthog/lemon-ui'
 
@@ -37,10 +47,12 @@ import { SourceIcon, mapUrlToProvider } from 'products/data_warehouse/frontend/s
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 
+import type { PaginatedResponse } from '../../../../lib/api'
+import type { DatabaseSchemaViewTable } from '../../../../queries/schema/schema-general'
+import type { ExternalDataSource, UserType } from '../../../../types'
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { viewLinkLogic } from '../../viewLinkLogic'
 import { draftsLogic } from '../draftsLogic'
-import type { queryDatabaseLogicType } from './queryDatabaseLogicType'
 
 export type EditorSidebarTreeRef = React.RefObject<LemonTreeRef> | null
 
@@ -356,6 +368,31 @@ const createLazyTablePlaceholderNode = (lazyNodeId: string): TreeDataItem => {
         type: 'loading-indicator',
     }
 }
+
+// A failed schema load must not look like an empty project: say it failed and offer the retry.
+const createSchemaErrorNodes = (prefix: string, onRetry: () => void): TreeDataItem[] => [
+    {
+        id: `${prefix}-error/`,
+        name: "Couldn't load your schema",
+        displayName: <span className="text-danger">Couldn't load your schema</span>,
+        icon: <IconWarning className="text-danger" />,
+        disableSelect: true,
+        type: 'node',
+        record: {
+            type: 'schema-load-error',
+        },
+    },
+    {
+        id: `${prefix}-error-retry/`,
+        name: 'Try again',
+        displayName: <>Try again</>,
+        icon: <IconRefresh />,
+        onClick: onRetry,
+        record: {
+            type: 'schema-load-retry',
+        },
+    },
+]
 
 const createLazyTableEmptyNode = (lazyNodeId: string): TreeDataItem => {
     return {
@@ -871,7 +908,8 @@ const createViewNode = (
     options?: {
         expandedLazyNodeIds?: Set<string>
     },
-    schemaTable?: DatabaseSchemaTable
+    schemaTable?: DatabaseSchemaTable,
+    isMaterializing = false
 ): TreeDataItem => {
     const viewChildren: TreeDataItem[] = []
     const isMaterializedView = view.is_materialized === true
@@ -896,7 +934,9 @@ const createViewNode = (
         id: viewId,
         name: view.name,
         type: 'node',
-        icon: isManagedViewsetView ? (
+        icon: isMaterializing ? (
+            <Spinner />
+        ) : isManagedViewsetView ? (
             <IconBolt />
         ) : isManagedView || isMaterializedView ? (
             <IconDatabase />
@@ -907,6 +947,7 @@ const createViewNode = (
             type: 'view',
             view: view,
             isSavedQuery: !isManagedView,
+            certification: schemaTable?.certification,
             ...(matches && { searchMatches: matches }),
         },
         children: viewChildren,
@@ -1011,6 +1052,21 @@ const createSourceFolderNode = (
         ? `search-${sourceType === 'PostHog' ? 'posthog' : sourceType}`
         : `source-${sourceType === 'PostHog' ? 'posthog' : sourceType}`
 
+    // Distinct ExternalDataSources behind this type folder, so it can link each to its edit page.
+    // A type can have several sources (e.g. two Postgres connections), distinguished by prefix.
+    const sourceTables = isSearch ? matches.map(([table]) => table) : tables
+    const sources: { id: string; label: string }[] = []
+    const seenSourceIds = new Set<string>()
+    sourceTables.forEach((table) => {
+        const source = (table as DatabaseSchemaDataWarehouseTable).source
+        if (source?.id && !seenSourceIds.has(source.id)) {
+            seenSourceIds.add(source.id)
+            // Prefixes are stored with a trailing underscore (e.g. "stripe_"); strip it for display.
+            const label = source.prefix?.trim().replace(/_+$/, '') || source.source_type
+            sources.push({ id: source.id, label })
+        }
+    })
+
     return {
         id: sourceFolderId,
         name: sourceType,
@@ -1020,9 +1076,9 @@ const createSourceFolderNode = (
                 type={
                     sourceType === 'Self-managed' && (tables.length > 0 || matches.length > 0)
                         ? mapUrlToProvider(
-                              tables.length > 0
+                              (tables.length > 0
                                   ? (tables[0] as DatabaseSchemaDataWarehouseTable).url_pattern
-                                  : (matches[0][0] as DatabaseSchemaDataWarehouseTable).url_pattern
+                                  : (matches[0][0] as DatabaseSchemaDataWarehouseTable).url_pattern) ?? ''
                           )
                         : sourceType
                 }
@@ -1033,6 +1089,7 @@ const createSourceFolderNode = (
         record: {
             type: 'source-folder',
             sourceType,
+            sources,
         },
         children: sourceChildren,
     }
@@ -1283,6 +1340,41 @@ const findTreeItem = (items: TreeDataItem[], targetId: string): TreeDataItem | n
     return path ? path[path.length - 1] : null
 }
 
+const getTreeItemDataSourceName = (item: TreeDataItem): string | null => {
+    switch (item.record?.type) {
+        case 'table':
+            return item.record.table?.name ?? item.name
+        case 'view':
+        case 'managed-view':
+            return item.record.view?.name ?? item.name
+        case 'endpoint':
+            return item.record.tableName ?? item.record.table?.name ?? item.name
+        default:
+            return null
+    }
+}
+
+const findDataSourceTreePath = (
+    items: TreeDataItem[],
+    tableName: string,
+    path: TreeDataItem[] = []
+): TreeDataItem[] | null => {
+    for (const item of items) {
+        const nextPath = [...path, item]
+        if (getTreeItemDataSourceName(item) === tableName) {
+            return nextPath
+        }
+        if (item.children) {
+            const foundPath = findDataSourceTreePath(item.children, tableName, nextPath)
+            if (foundPath) {
+                return foundPath
+            }
+        }
+    }
+
+    return null
+}
+
 const getFolderIdFromDropTarget = (items: TreeDataItem[], dropTargetId: string | null): string | null | undefined => {
     if (dropTargetId === '') {
         return null
@@ -1308,6 +1400,454 @@ const getFolderIdFromDropTarget = (items: TreeDataItem[], dropTargetId: string |
     return undefined
 }
 
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface queryDatabaseLogicValues {
+    dataWarehouseSavedQueries: DataWarehouseSavedQuery[] // dataWarehouseViewsLogic
+    dataWarehouseSavedQueriesLoading: boolean // dataWarehouseViewsLogic
+    dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[] // dataWarehouseViewsLogic
+    dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery> // dataWarehouseViewsLogic
+    materializingViewIds: string[] // dataWarehouseViewsLogic
+    allPosthogTables: DatabaseSchemaTable[] // databaseTableListLogic
+    allTablesMap: Record<string, DatabaseSchemaTable> // databaseTableListLogic
+    connectionId: string | null // databaseTableListLogic
+    dataWarehouseTables: DatabaseSchemaDataWarehouseTable[] // databaseTableListLogic
+    dataWarehouseTablesMap: Record<string, DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable> // databaseTableListLogic
+    databaseLoadError: string | null // databaseTableListLogic
+    databaseLoading: boolean // databaseTableListLogic
+    latestEndpointTables: DatabaseSchemaEndpointTable[] // databaseTableListLogic
+    managedViews: DatabaseSchemaManagedViewTable[] // databaseTableListLogic
+    posthogTables: DatabaseSchemaTable[] // databaseTableListLogic
+    posthogTablesMap: Record<string, DatabaseSchemaTable> // databaseTableListLogic
+    systemTables: DatabaseSchemaTable[] // databaseTableListLogic
+    systemTablesMap: Record<string, DatabaseSchemaTable> // databaseTableListLogic
+    viewsMapById: Record<string, DatabaseSchemaEndpointTable | DatabaseSchemaManagedViewTable | DatabaseSchemaViewTable> // databaseTableListLogic
+    drafts: DataWarehouseSavedQueryDraft[] // draftsLogic
+    draftsResponseLoading: boolean // draftsLogic
+    hasMoreDrafts: boolean // draftsLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
+    joins: DataWarehouseViewLink[] // joinsLogic
+    joinsLoading: boolean // joinsLogic
+    dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourceManagementLogic
+    user: UserType | null // userLogic
+    activeDraggedViewId: string | null
+    activeExpandedFolderIds: string[]
+    defaultExpandedRootIds: string[]
+    displayedTreeData: TreeDataItem[]
+    editingDraftId: string | null
+    effectiveDataWarehouseSavedQueries: DataWarehouseSavedQuery[]
+    expandedFolders: string[]
+    expandedFoldersByConnection: Record<string, string[]>
+    expandedItemIds: string[]
+    expandedSearchFolders: string[]
+    hasNonPosthogSources: boolean
+    highlightViewsSectionDrop: boolean
+    highlightedDropFolderId: string | null
+    joinsByFieldName: Record<string, DataWarehouseViewLink>
+    pendingViewFolderOverrides: Record<string, string | null>
+    queryTabState: QueryTabState | null
+    queryTabStateLoading: boolean
+    relevantDataWarehouseTables: [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][]
+    relevantDrafts: [DataWarehouseSavedQueryDraft, FuseSearchMatch[] | null][]
+    relevantEndpointTables: [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][]
+    relevantManagedViews: [DatabaseSchemaManagedViewTable, FuseSearchMatch[] | null][]
+    relevantPosthogTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][]
+    relevantSavedQueries: [DataWarehouseSavedQuery, FuseSearchMatch[] | null][]
+    relevantSavedQueryFolders: [DataWarehouseSavedQueryFolder, FuseSearchMatch[] | null][]
+    relevantSystemTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][]
+    searchTerm: string
+    searchTreeData: TreeDataItem[]
+    searchTreeMatches: SearchTreeMatches
+    searchTreeSourceContext: SearchTreeSourceContext
+    selectedDirectSource:
+        | {
+              job_inputs?: Record<string, any>
+          }
+        | undefined
+    selectedSchema: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery | null
+    sidebarOverlayTreeItems: TreeItem[]
+    syncMoreNoticeDismissed: boolean
+    tableToLocate: string | null
+    treeData: TreeDataItem[]
+    treeDataContext: TreeDataContext
+    treeRef: EditorSidebarTreeRef
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface queryDatabaseLogicActions {
+    createDataWarehouseSavedQuerySuccess: (
+        dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
+        payload?:
+            | (Partial<DataWarehouseSavedQuery> & {
+                  dag_id?: string
+                  folder_id?: string | null
+                  types: string[][]
+              })
+            | undefined
+    ) => {
+        dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
+        payload?: Partial<DataWarehouseSavedQuery> & {
+            dag_id?: string
+            folder_id?: string | null
+            types: string[][]
+        }
+    } // dataWarehouseViewsLogic
+    updateDataWarehouseSavedQuery: (
+        view: Partial<DataWarehouseSavedQuery> & {
+            edited_history_id?: string
+            folder_id?: string | null
+            id: string
+            lifecycle?: string
+            shouldRematerialize?: boolean
+            soft_update?: boolean
+            sync_frequency?: string
+            types?: string[][]
+        }
+    ) => Partial<DataWarehouseSavedQuery> & {
+        edited_history_id?: string
+        folder_id?: string | null
+        id: string
+        lifecycle?: string
+        shouldRematerialize?: boolean
+        soft_update?: boolean
+        sync_frequency?: string
+        types?: string[][]
+    } // dataWarehouseViewsLogic
+    updateDataWarehouseSavedQueryFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    } // dataWarehouseViewsLogic
+    updateDataWarehouseSavedQuerySuccess: (
+        dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
+        payload?:
+            | (Partial<DataWarehouseSavedQuery> & {
+                  edited_history_id?: string
+                  folder_id?: string | null
+                  id: string
+                  lifecycle?: string
+                  shouldRematerialize?: boolean
+                  soft_update?: boolean
+                  sync_frequency?: string
+                  types?: string[][]
+              })
+            | undefined
+    ) => {
+        dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
+        payload?: Partial<DataWarehouseSavedQuery> & {
+            edited_history_id?: string
+            folder_id?: string | null
+            id: string
+            lifecycle?: string
+            shouldRematerialize?: boolean
+            soft_update?: boolean
+            sync_frequency?: string
+            types?: string[][]
+        }
+    } // dataWarehouseViewsLogic
+    refreshDatabaseSchema: () => {
+        value: true
+    } // databaseTableListLogic
+    loadDrafts: () => any // draftsLogic
+    loadMoreDrafts: () => any // draftsLogic
+    renameDraft: (
+        draftId: string,
+        name: string
+    ) => {
+        draftId: string
+        name: string
+    } // draftsLogic
+    deleteJoin: (join: DataWarehouseViewLink) => {
+        join: DataWarehouseViewLink
+    } // sourceManagementLogic
+    toggleEditJoinModal: (join: DataWarehouseViewLink) => {
+        join: DataWarehouseViewLink
+    } // viewLinkLogic
+    toggleJoinTableModal: () => {
+        value: true
+    } // viewLinkLogic
+    clearDraggedViewState: () => {
+        value: true
+    }
+    clearPendingViewFolderOverride: (viewId: string) => {
+        viewId: string
+    }
+    clearPendingViewFolderOverrides: () => {
+        value: true
+    }
+    clearSearch: () => {
+        value: true
+    }
+    clearTableToLocate: () => {
+        value: true
+    }
+    deleteUnsavedQuery: (record: Record<string, any>) => {
+        record: Record<string, any>
+    }
+    deleteUnsavedQueryFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    deleteUnsavedQuerySuccess: (
+        queryTabState:
+            | QueryTabState
+            | {
+                  id: string
+                  state: {
+                      editorModelsStateKey: string
+                  }
+              }
+            | null,
+        payload?: {
+            record: Record<string, any>
+        }
+    ) => {
+        queryTabState:
+            | QueryTabState
+            | {
+                  id: string
+                  state: {
+                      editorModelsStateKey: string
+                  }
+              }
+            | null
+        payload?: {
+            record: Record<string, any>
+        }
+    }
+    loadQueryTabState: () => any
+    loadQueryTabStateFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadQueryTabStateSuccess: (
+        queryTabState: QueryTabState | null,
+        payload?: any
+    ) => {
+        queryTabState: QueryTabState | null
+        payload?: any
+    }
+    locateTable: (tableName: string) => {
+        tableName: string
+    }
+    moveDraggedViewToDropTarget: (
+        viewId: string,
+        dropTargetId: string | null
+    ) => {
+        dropTargetId: string | null
+        viewId: string
+    }
+    openUnsavedQuery: (record: Record<string, any>) => {
+        record: Record<string, any>
+    }
+    selectSchema: (schema: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery) => {
+        schema: DatabaseSchemaTable | DataWarehouseSavedQuery
+    }
+    selectSourceTable: (tableName: string) => {
+        tableName: string
+    }
+    setDraggedViewDropState: (
+        folderId: string | null,
+        isViewsSectionDrop: boolean
+    ) => {
+        folderId: string | null
+        isViewsSectionDrop: boolean
+    }
+    setEditingDraft: (draftId: string) => {
+        draftId: string
+    }
+    setExpandedFolders: (
+        folderIds: string[],
+        connectionId?: string | null
+    ) => {
+        connectionId: string | null | undefined
+        folderIds: string[]
+    }
+    setExpandedSearchFolders: (folderIds: string[]) => {
+        folderIds: string[]
+    }
+    setPendingViewFolderOverride: (
+        viewId: string,
+        folderId: string | null
+    ) => {
+        folderId: string | null
+        viewId: string
+    }
+    setSearchTerm: (searchTerm: string) => {
+        searchTerm: string
+    }
+    setSyncMoreNoticeDismissed: (dismissed: boolean) => {
+        dismissed: boolean
+    }
+    setTreeRef: (ref: EditorSidebarTreeRef | null) => {
+        ref: EditorSidebarTreeRef
+    }
+    startDraggingView: (viewId: string) => {
+        viewId: string
+    }
+    toggleFolderOpen: (
+        folderId: string,
+        isExpanded: boolean
+    ) => {
+        folderId: string
+        isExpanded: boolean
+    }
+    updateDraggedViewDropTarget: (dropTargetId: string | null) => {
+        dropTargetId: string | null
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface queryDatabaseLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        hasNonPosthogSources: (dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]) => boolean
+        relevantPosthogTables: (
+            posthogTables: DatabaseSchemaTable[],
+            searchTerm: string
+        ) => [DatabaseSchemaTable, FuseSearchMatch[] | null][]
+        relevantSystemTables: (
+            systemTables: DatabaseSchemaTable[],
+            searchTerm: string
+        ) => [DatabaseSchemaTable, FuseSearchMatch[] | null][]
+        relevantDataWarehouseTables: (
+            dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
+            searchTerm: string
+        ) => [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][]
+        relevantSavedQueries: (
+            effectiveDataWarehouseSavedQueries: DataWarehouseSavedQuery[],
+            searchTerm: string
+        ) => [DataWarehouseSavedQuery, FuseSearchMatch[] | null][]
+        relevantSavedQueryFolders: (
+            dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[],
+            searchTerm: string
+        ) => [DataWarehouseSavedQueryFolder, FuseSearchMatch[] | null][]
+        effectiveDataWarehouseSavedQueries: (
+            dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
+            pendingViewFolderOverrides: Record<string, string | null>
+        ) => DataWarehouseSavedQuery[]
+        relevantManagedViews: (
+            managedViews: DatabaseSchemaManagedViewTable[],
+            searchTerm: string
+        ) => [DatabaseSchemaManagedViewTable, FuseSearchMatch[] | null][]
+        relevantDrafts: (
+            drafts: DataWarehouseSavedQueryDraft[],
+            searchTerm: string
+        ) => [DataWarehouseSavedQueryDraft, FuseSearchMatch[] | null][]
+        relevantEndpointTables: (
+            latestEndpointTables: DatabaseSchemaEndpointTable[],
+            searchTerm: string
+        ) => [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][]
+        selectedDirectSource: (
+            dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
+            connectionId: string | null
+        ) =>
+            | {
+                  job_inputs?: Record<string, any>
+              }
+            | undefined
+        searchTreeSourceContext: (
+            allPosthogTables: DatabaseSchemaTable[],
+            systemTables: DatabaseSchemaTable[],
+            dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
+            effectiveDataWarehouseSavedQueries: DataWarehouseSavedQuery[],
+            dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[],
+            managedViews: DatabaseSchemaManagedViewTable[],
+            allTablesMap: Record<string, DatabaseSchemaTable>
+        ) => SearchTreeSourceContext
+        searchTreeMatches: (
+            relevantPosthogTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][],
+            relevantSystemTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][],
+            relevantDataWarehouseTables: [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][],
+            relevantSavedQueries: [DataWarehouseSavedQuery, FuseSearchMatch[] | null][],
+            relevantSavedQueryFolders: [DataWarehouseSavedQueryFolder, FuseSearchMatch[] | null][],
+            relevantManagedViews: [DatabaseSchemaManagedViewTable, FuseSearchMatch[] | null][],
+            relevantDrafts: [DataWarehouseSavedQueryDraft, FuseSearchMatch[] | null][],
+            relevantEndpointTables: [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][]
+        ) => SearchTreeMatches
+        searchTreeData: (
+            searchTreeSourceContext: SearchTreeSourceContext,
+            searchTreeMatches: SearchTreeMatches,
+            searchTerm: string,
+            featureFlags: FeatureFlagsSet,
+            expandedSearchFolders: string[],
+            materializingViewIds: string[]
+        ) => TreeDataItem[]
+        treeDataContext: (
+            allPosthogTables: DatabaseSchemaTable[],
+            posthogTables: DatabaseSchemaTable[],
+            systemTables: DatabaseSchemaTable[],
+            dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
+            effectiveDataWarehouseSavedQueries: DataWarehouseSavedQuery[],
+            dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[],
+            managedViews: DatabaseSchemaManagedViewTable[],
+            latestEndpointTables: DatabaseSchemaEndpointTable[],
+            allTablesMap: Record<string, DatabaseSchemaTable>
+        ) => TreeDataContext
+        treeData: (
+            treeDataContext: TreeDataContext,
+            databaseLoading: boolean,
+            databaseLoadError: string | null,
+            dataWarehouseSavedQueriesLoading: boolean,
+            drafts: DataWarehouseSavedQueryDraft[],
+            draftsResponseLoading: boolean,
+            hasMoreDrafts: boolean,
+            featureFlags: FeatureFlagsSet,
+            queryTabState: QueryTabState | null,
+            expandedFolders: string[],
+            materializingViewIds: string[]
+        ) => TreeDataItem[]
+        displayedTreeData: (
+            searchTerm: string,
+            searchTreeData: TreeDataItem[],
+            treeData: TreeDataItem[],
+            connectionId: string | null,
+            selectedDirectSource:
+                | {
+                      job_inputs?: Record<string, any>
+                  }
+                | undefined
+        ) => TreeDataItem[]
+        activeExpandedFolderIds: (
+            searchTerm: string,
+            expandedSearchFolders: string[],
+            expandedFolders: string[]
+        ) => string[]
+        expandedFolders: (
+            connectionId: string | null,
+            expandedFoldersByConnection: Record<string, string[]>
+        ) => string[]
+        defaultExpandedRootIds: (connectionId: string | null, displayedTreeData: TreeDataItem[]) => string[]
+        expandedItemIds: (activeExpandedFolderIds: string[], defaultExpandedRootIds: string[]) => string[]
+        joinsByFieldName: (joins: DataWarehouseViewLink[]) => Record<string, DataWarehouseViewLink>
+        sidebarOverlayTreeItems: (
+            selectedSchema: DatabaseSchemaTable | DataWarehouseSavedQuery | null,
+            posthogTablesMap: Record<string, DatabaseSchemaTable>,
+            systemTablesMap: Record<string, DatabaseSchemaTable>,
+            dataWarehouseTablesMap: Record<string, DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable>,
+            dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery>,
+            viewsMapById: Record<
+                string,
+                DatabaseSchemaEndpointTable | DatabaseSchemaManagedViewTable | DatabaseSchemaViewTable
+            >,
+            joinsByFieldName: Record<string, DataWarehouseViewLink>
+        ) => TreeItem[]
+    }
+}
+
+export type queryDatabaseLogicType = MakeLogicType<
+    queryDatabaseLogicValues,
+    queryDatabaseLogicActions,
+    Record<string, any>,
+    queryDatabaseLogicMeta
+>
+
 export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'queryDatabaseLogic']),
     actions({
@@ -1320,6 +1860,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         setTreeRef: (ref: EditorSidebarTreeRef | null) => ({ ref }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         clearSearch: true,
+        clearTableToLocate: true,
+        locateTable: (tableName: string) => ({ tableName }),
         selectSourceTable: (tableName: string) => ({ tableName }),
         setSyncMoreNoticeDismissed: (dismissed: boolean) => ({ dismissed }),
         setEditingDraft: (draftId: string) => ({ draftId }),
@@ -1351,6 +1893,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'viewsMapById',
                 'managedViews',
                 'databaseLoading',
+                'databaseLoadError',
                 'systemTables',
                 'systemTablesMap',
                 'allTablesMap',
@@ -1363,6 +1906,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'dataWarehouseSavedQueryFolders',
                 'dataWarehouseSavedQueryMapById',
                 'dataWarehouseSavedQueriesLoading',
+                'materializingViewIds',
             ],
             draftsLogic,
             ['drafts', 'draftsResponseLoading', 'hasMoreDrafts'],
@@ -1387,6 +1931,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             ],
             draftsLogic,
             ['loadDrafts', 'renameDraft', 'loadMoreDrafts'],
+            databaseTableListLogic,
+            ['refreshDatabaseSchema'],
         ],
     })),
     reducers({
@@ -1431,6 +1977,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             null as EditorSidebarTreeRef,
             {
                 setTreeRef: (_, { ref }) => ref,
+            },
+        ],
+        tableToLocate: [
+            null as string | null,
+            {
+                locateTable: (_, { tableName }) => tableName,
+                clearTableToLocate: () => null,
             },
         ],
 
@@ -1527,6 +2080,40 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             actions.clearPendingViewFolderOverrides()
         },
     })),
+    listeners(({ actions, values }) => {
+        const revealLocatedTable = (tableName: string): void => {
+            actions.clearSearch()
+            const path = findDataSourceTreePath(values.displayedTreeData, tableName)
+            if (!path) {
+                return
+            }
+
+            const tableId = path[path.length - 1].id
+            actions.setExpandedFolders(
+                Array.from(new Set([...values.expandedFolders, ...path.map((item) => item.id)])),
+                values.connectionId
+            )
+
+            if (values.treeRef?.current) {
+                values.treeRef.current.focusItem(tableId, {
+                    scrollPosition: 'top-third',
+                    behavior: 'smooth',
+                })
+                actions.clearTableToLocate()
+            }
+        }
+
+        return {
+            locateTable: ({ tableName }) => {
+                revealLocatedTable(tableName)
+            },
+            setTreeRef: ({ ref }) => {
+                if (ref?.current && values.tableToLocate) {
+                    revealLocatedTable(values.tableToLocate)
+                }
+            },
+        }
+    }),
     loaders(({ values }) => ({
         queryTabState: [
             null as QueryTabState | null,
@@ -1571,7 +2158,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             },
         ],
     })),
-    selectors(({ actions }) => ({
+    selectors(({ actions, cache }) => ({
         hasNonPosthogSources: [
             (s) => [s.dataWarehouseTables],
             (dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]): boolean => {
@@ -1707,7 +2294,10 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         ],
         selectedDirectSource: [
             (s) => [s.dataWarehouseSources, s.connectionId],
-            (dataWarehouseSources, connectionId): { job_inputs?: Record<string, any> } | undefined => {
+            (
+                dataWarehouseSources: null | import('lib/api').PaginatedResponse<import('~/types').ExternalDataSource>,
+                connectionId: string | null
+            ): { job_inputs?: Record<string, any> } | undefined => {
                 return dataWarehouseSources?.results.find((source) => source.id === connectionId)
             },
         ],
@@ -1777,13 +2367,15 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.searchTerm,
                 s.featureFlags,
                 s.expandedSearchFolders,
+                s.materializingViewIds,
             ],
             (
                 searchTreeSourceContext: SearchTreeSourceContext,
                 searchTreeMatches: SearchTreeMatches,
                 searchTerm: string,
                 featureFlags: FeatureFlagsSet,
-                expandedSearchFolders: string[]
+                expandedSearchFolders: string[],
+                materializingViewIds: string[]
             ): TreeDataItem[] => {
                 if (!searchTerm) {
                     return []
@@ -1883,9 +2475,18 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 })
 
                 // Add saved queries
+                const materializingViewIdSet = new Set(materializingViewIds)
                 relevantSavedQueries.forEach(([view, matches]) => {
                     const schemaTable = getSavedQuerySchemaTable(view, allTablesMap)
-                    const viewNode = createViewNode(view, matches, true, tableLookup, tableNodeOptions, schemaTable)
+                    const viewNode = createViewNode(
+                        view,
+                        matches,
+                        true,
+                        tableLookup,
+                        tableNodeOptions,
+                        schemaTable,
+                        materializingViewIdSet.has(view.id)
+                    )
                     if (view.folder_id) {
                         const currentChildren = viewChildrenByFolderId.get(view.folder_id) ?? []
                         currentChildren.push(viewNode)
@@ -1944,10 +2545,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     searchResults.push(createTopLevelFolderNode('drafts', draftsChildren, true))
                 }
 
+                // Auto-expand matching groups once per search term, so the user can freely collapse
+                // them afterwards without the selector immediately re-expanding them.
                 const expandedIdSet = new Set(expandedSearchFolders)
                 const missingRequiredExpansion = expandedIds.some((id) => !expandedIdSet.has(id))
 
-                if (missingRequiredExpansion) {
+                if (missingRequiredExpansion && cache.lastAutoExpandedSearchTerm !== searchTerm) {
+                    cache.lastAutoExpandedSearchTerm = searchTerm
                     // Auto-expand only parent folders, not the matching nodes themselves.
                     setTimeout(() => {
                         actions.setExpandedSearchFolders(
@@ -1997,6 +2601,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             (s) => [
                 s.treeDataContext,
                 s.databaseLoading,
+                s.databaseLoadError,
                 s.dataWarehouseSavedQueriesLoading,
                 s.drafts,
                 s.draftsResponseLoading,
@@ -2004,17 +2609,20 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.featureFlags,
                 s.queryTabState,
                 s.expandedFolders,
+                s.materializingViewIds,
             ],
             (
                 treeDataContext: TreeDataContext,
                 databaseLoading: boolean,
+                databaseLoadError: string | null,
                 dataWarehouseSavedQueriesLoading: boolean,
                 drafts: DataWarehouseSavedQueryDraft[],
                 draftsResponseLoading: boolean,
                 hasMoreDrafts: boolean,
                 featureFlags: FeatureFlagsSet,
                 queryTabState: QueryTabState | null,
-                expandedFolders: string[]
+                expandedFolders: string[],
+                materializingViewIds: string[]
             ): TreeDataItem[] => {
                 const {
                     allPosthogTables,
@@ -2038,9 +2646,12 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 })
                 const expandedLazyNodeIds = new Set(expandedFolders.filter(isLazyNodeId))
                 const tableNodeOptions = { expandedLazyNodeIds }
+                const schemaFailedWithNoTables =
+                    !!databaseLoadError && !databaseLoading && Object.keys(allTablesMap).length === 0
 
-                // Add loading indicator for sources if still loading
-                if (databaseLoading && posthogTables.length === 0 && dataWarehouseTables.length === 0) {
+                if (schemaFailedWithNoTables) {
+                    sourcesChildren.push(...createSchemaErrorNodes('sources', () => actions.refreshDatabaseSchema()))
+                } else if (databaseLoading && posthogTables.length === 0 && dataWarehouseTables.length === 0) {
                     sourcesChildren.push({
                         id: 'sources-loading/',
                         name: 'Loading...',
@@ -2115,11 +2726,20 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     })
                 } else {
                     const viewChildrenByFolderId = new Map<string, TreeDataItem[]>()
+                    const materializingViewIdSet = new Set(materializingViewIds)
 
                     // Add saved queries
                     dataWarehouseSavedQueries.forEach((view) => {
                         const schemaTable = getSavedQuerySchemaTable(view, allTablesMap)
-                        const viewNode = createViewNode(view, null, false, tableLookup, tableNodeOptions, schemaTable)
+                        const viewNode = createViewNode(
+                            view,
+                            null,
+                            false,
+                            tableLookup,
+                            tableNodeOptions,
+                            schemaTable,
+                            materializingViewIdSet.has(view.id)
+                        )
                         if (view.folder_id) {
                             const folderChildren = viewChildrenByFolderId.get(view.folder_id) ?? []
                             folderChildren.push(viewNode)
@@ -2152,6 +2772,15 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 viewsChildren.sort((a, b) => a.name.localeCompare(b.name))
                 managedViewsChildren.sort((a, b) => a.name.localeCompare(b.name))
+
+                // Managed views come from the same schema request as sources, so they're missing for
+                // the same reason. Replaces the saved-query spinner, which tracks a different request.
+                if (schemaFailedWithNoTables && managedViews.length === 0) {
+                    managedViewsChildren.length = 0
+                    managedViewsChildren.push(
+                        ...createSchemaErrorNodes('managed-views', () => actions.refreshDatabaseSchema())
+                    )
+                }
 
                 const states = queryTabState?.state?.editorModelsStateKey
                 const unsavedChildren: TreeDataItem[] = []
@@ -2359,13 +2988,21 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.joinsByFieldName,
             ],
             (
-                selectedSchema,
-                posthogTablesMap,
-                systemTablesMap,
-                dataWarehouseTablesMap,
-                dataWarehouseSavedQueryMapById,
-                viewsMapById,
-                joinsByFieldName
+                selectedSchema: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery | null,
+                posthogTablesMap: Record<string, DatabaseSchemaTable>,
+                systemTablesMap: Record<string, DatabaseSchemaTable>,
+                dataWarehouseTablesMap: Record<
+                    string,
+                    DatabaseSchemaDataWarehouseTable | import('~/queries/schema/schema-general').DatabaseSchemaViewTable
+                >,
+                dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery>,
+                viewsMapById: Record<
+                    string,
+                    | DatabaseSchemaEndpointTable
+                    | DatabaseSchemaManagedViewTable
+                    | import('~/queries/schema/schema-general').DatabaseSchemaViewTable
+                >,
+                joinsByFieldName: Record<string, DataWarehouseViewLink>
             ): TreeItem[] => {
                 if (selectedSchema === null) {
                     return []

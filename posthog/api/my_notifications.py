@@ -18,7 +18,7 @@ from posthog.models.comment import Comment
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.notebooks.backend.models import Notebook
+from products.notebooks.backend.facade import api as notebooks
 from products.product_analytics.backend.models.insight import Insight
 
 
@@ -35,15 +35,12 @@ class MyNotificationsSerializer(serializers.ModelSerializer):
         if "user" not in self.context:
             return False
 
-        user_bookmark: Optional[NotificationViewed] = NotificationViewed.objects.filter(
-            user=self.context["user"]
-        ).first()
+        bookmark_date: Optional[datetime] = self.context.get("last_read_date")
 
-        if user_bookmark is None:
+        if bookmark_date is None:
             return True
         else:
             # API call from browser only includes milliseconds but python datetime in created_at includes microseconds
-            bookmark_date = user_bookmark.last_viewed_activity_date
             return bookmark_date < obj.created_at.replace(microsecond=obj.created_at.microsecond // 1000 * 1000)
 
 
@@ -77,11 +74,7 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     created_by=user, team__project_id=self.team.project_id
                 ).values_list("id", flat=True)
             )
-            my_notebooks = list(
-                Notebook.objects.filter(created_by=user, team__project_id=self.team.project_id).values_list(
-                    "short_id", flat=True
-                )
-            )
+            my_notebooks = notebooks.get_notebook_short_ids_for_creator(self.team.project_id, user.id)
             my_comments = list(
                 Comment.objects.filter(created_by=user, team__project_id=self.team.project_id).values_list(
                     "id", flat=True
@@ -256,7 +249,9 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             page_of_data = other_peoples_changes[:10]
 
         with timer("serialize"):
-            serialized_data = MyNotificationsSerializer(instance=page_of_data, many=True, context={"user": user}).data
+            serialized_data = MyNotificationsSerializer(
+                instance=page_of_data, many=True, context={"user": user, "last_read_date": last_read_date}
+            ).data
 
         response = Response(
             status=status.HTTP_200_OK,

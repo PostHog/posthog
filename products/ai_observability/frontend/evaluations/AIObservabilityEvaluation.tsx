@@ -19,17 +19,19 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { userLogic } from 'scenes/userLogic'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { urls } from '~/scenes/urls'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType, HogQLMathType } from '~/types'
+
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
@@ -40,13 +42,33 @@ import { EvaluationReportConfig } from './components/EvaluationReportConfig'
 import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
-import { LLMEvaluationLogicProps, llmEvaluationLogic } from './llmEvaluationLogic'
-import { statusReasonLabel } from './statusDisplay'
-import { EvaluationType } from './types'
+import { EVALUATION_PASSED_HOGQL, EVALUATION_SUMMARY_MAX_RUNS } from './constants'
+import {
+    evaluationOffersSessionTarget,
+    evaluationSupportsReports,
+    evaluationSupportsRunSummary,
+    evaluationTypeHasEditableCriteria,
+    evaluationTypeUsesModelConfiguration,
+    isBooleanEvaluationOutput,
+} from './evaluationCapabilities'
+import { evaluationReportLogic } from './evaluationReportLogic'
+import {
+    DEFAULT_SESSION_MAX_AGE_SECONDS,
+    DEFAULT_SESSION_QUIET_PERIOD_SECONDS,
+    DEFAULT_SESSION_WINDOW_SECONDS,
+    DEFAULT_TRACE_MAX_AGE_SECONDS,
+    DEFAULT_TRACE_QUIET_PERIOD_SECONDS,
+    DEFAULT_TRACE_WINDOW_SECONDS,
+    LLMEvaluationLogicProps,
+    llmEvaluationLogic,
+} from './llmEvaluationLogic'
+import { statusReasonLabel, statusReasonRecoveryLabel } from './statusDisplay'
+import { EvaluationSettleStrategy, EvaluationTarget, EvaluationType } from './types'
 
 export function AIObservabilityEvaluation(): JSX.Element {
     const {
         evaluation,
+        evaluationBackTarget,
         evaluationLoading,
         evaluationFormSubmitting,
         hasUnsavedChanges,
@@ -54,14 +76,14 @@ export function AIObservabilityEvaluation(): JSX.Element {
         isNewEvaluation,
         runsSummary,
         evaluationProviderKeyIssue,
-        signalEmissionEnabled,
         activeTab,
         canEnable,
         canEnableReason,
+        modelSelectionRequired,
     } = useValues(llmEvaluationLogic)
-    const { user } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const settlingStrategyEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_SETTLING_STRATEGY]
     const {
         setEvaluationName,
         setEvaluationDescription,
@@ -70,12 +92,18 @@ export function AIObservabilityEvaluation(): JSX.Element {
         saveEvaluation,
         resetEvaluation,
         setEvaluationType,
-        setSignalEmission,
+        setEvaluationTarget,
+        setSettleStrategy,
+        patchTargetConfig,
         setActiveTab,
     } = useActions(llmEvaluationLogic)
     const { push } = useActions(router)
     const triggersRef = useRef<HTMLDivElement>(null)
     const settingsUrl = combineUrl(urls.aiObservabilityEvaluations(), { ...searchParams, tab: 'settings' }).url
+
+    useAttachedContext(
+        evaluation ? [{ type: 'evaluation', key: evaluation.id || 'new', label: evaluation.name ?? undefined }] : null
+    )
 
     if (evaluationLoading) {
         return <LemonSkeleton className="w-full h-96" />
@@ -85,12 +113,27 @@ export function AIObservabilityEvaluation(): JSX.Element {
         return <NotFound object="evaluation" />
     }
     const openInPlaygroundUrl =
-        evaluation.evaluation_type === 'llm_judge' && evaluation.id
+        evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) && evaluation.id
             ? combineUrl(urls.aiObservabilityPlayground(), { source_evaluation_id: evaluation.id }).url
             : null
 
+    const isHog = evaluation.evaluation_type === 'hog'
+    const isSentiment = evaluation.evaluation_type === 'sentiment'
+    const isAggregateTarget = evaluation.target === 'trace' || evaluation.target === 'session'
+    const isSessionTarget = evaluation.target === 'session'
+    const offersSessionTarget = evaluationOffersSessionTarget(evaluation, settlingStrategyEnabled)
+    // Read the stored strategy whether or not the flag is on. The flag gates the *picker*, not what
+    // the row contains: an API- or MCP-created session eval is inactivity, and forcing fixed_window
+    // here rendered a "wait 30 minutes" field holding a default the config never had.
+    const effectiveStrategy: EvaluationSettleStrategy =
+        evaluation.target_config.strategy ?? (isSessionTarget ? 'inactivity' : 'fixed_window')
+    const isReportableEvaluation = evaluationSupportsReports(evaluation)
+    const supportsRunSummary = evaluationSupportsRunSummary(evaluation)
+    const isBooleanOutput = isBooleanEvaluationOutput(evaluation.output_type)
+    const hasEditableCriteria = evaluationTypeHasEditableCriteria(evaluation.evaluation_type)
+
     const trendInsightUrl =
-        !isNewEvaluation && evaluation.id
+        supportsRunSummary && !isNewEvaluation && evaluation.id
             ? urls.insightNew({
                   query: {
                       kind: NodeKind.InsightVizNode,
@@ -102,7 +145,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                   event: '$ai_evaluation',
                                   custom_name: `${evaluation.name} — Pass rate`,
                                   math: HogQLMathType.HogQL,
-                                  math_hogql: `if(countIf(properties.$ai_evaluation_result IS NOT NULL) > 0, countIf(properties.$ai_evaluation_result = 1) / countIf(properties.$ai_evaluation_result IS NOT NULL) * 100, 0)`,
+                                  math_hogql: `if(countIf(properties.$ai_evaluation_result IS NOT NULL) > 0, countIf(${EVALUATION_PASSED_HOGQL}) / countIf(properties.$ai_evaluation_result IS NOT NULL) * 100, 0)`,
                                   properties: [
                                       {
                                           key: '$ai_evaluation_id',
@@ -144,10 +187,12 @@ export function AIObservabilityEvaluation(): JSX.Element {
               })
             : null
 
-    const isHog = evaluation.evaluation_type === 'hog'
     const configValid = isHog
         ? evaluation.evaluation_config.source.trim().length > 0
-        : evaluation.evaluation_config.prompt.trim().length > 0
+        : isSentiment
+          ? true
+          : evaluation.evaluation_config.prompt.trim().length > 0
+    const hasSelectedJudgeModel = !modelSelectionRequired || Boolean(evaluation.model_configuration?.model.trim())
     const hasName = evaluation.name.length > 0
     const basicFieldsValid = hasName && configValid
     const percentageUnset = evaluation.conditions.some((c) => (c.rollout_percentage ?? 0) === 0)
@@ -161,7 +206,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
           ? isHog
               ? 'Add evaluation code before saving'
               : 'Add an evaluation prompt before saving'
-          : undefined
+          : !hasSelectedJudgeModel
+            ? 'Select a judge model before saving'
+            : undefined
 
     const focusTriggers = (): void => {
         setActiveTab('configuration')
@@ -189,6 +236,12 @@ export function AIObservabilityEvaluation(): JSX.Element {
             return
         }
 
+        const reportLogic = evaluationReportLogic({ evaluationId: isNewEvaluation ? 'new' : evaluation.id })
+        if (isReportableEvaluation && reportLogic.isMounted() && reportLogic.values.configError) {
+            lemonToast.error(reportLogic.values.configError)
+            return
+        }
+
         saveEvaluation()
     }
 
@@ -196,8 +249,26 @@ export function AIObservabilityEvaluation(): JSX.Element {
         if (hasUnsavedChanges) {
             resetEvaluation()
         }
-        push(combineUrl(urls.aiObservabilityEvaluations(), searchParams).url)
+        push(evaluationBackTarget.path)
     }
+
+    const hogEvaluationMethodOptions: { value: EvaluationType; label: string }[] = [
+        {
+            value: 'hog',
+            label: 'Hog code',
+        },
+    ]
+    const evaluationMethodOptions: { value: EvaluationType; label: string }[] = [
+        {
+            value: 'llm_judge',
+            label: 'LLM as a judge',
+        },
+        ...hogEvaluationMethodOptions,
+        {
+            value: 'sentiment',
+            label: 'Sentiment analysis',
+        },
+    ]
 
     return (
         <div className="space-y-6">
@@ -273,10 +344,17 @@ export function AIObservabilityEvaluation(): JSX.Element {
                     <div className="space-y-1">
                         <p className="font-semibold">This evaluation was automatically disabled</p>
                         <p>
-                            {statusReasonLabel(evaluation.status_reason)}. Update the configuration below (e.g. choose a
-                            supported model or add a provider API key in settings), then re-enable the evaluation to
-                            resume running.
+                            {statusReasonLabel(evaluation.status_reason)}.{' '}
+                            {statusReasonRecoveryLabel(evaluation.status_reason)}
                         </p>
+                        {evaluation.status_reason_detail && (
+                            <div className="space-y-1">
+                                <p className="font-semibold">Error details</p>
+                                <pre className="m-0 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border bg-bg-light p-2 font-mono text-xs">
+                                    {evaluation.status_reason_detail}
+                                </pre>
+                            </div>
+                        )}
                     </div>
                 </LemonBanner>
             )}
@@ -310,33 +388,41 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                 <div className="flex justify-between items-center mb-4">
                                     <p className="text-muted text-sm m-0">
                                         History of when this evaluation has been executed.
+                                        {runsSummary && runsSummary.total > EVALUATION_SUMMARY_MAX_RUNS && (
+                                            <> The table below shows the latest {EVALUATION_SUMMARY_MAX_RUNS} runs.</>
+                                        )}
                                     </p>
                                     {runsSummary && (
-                                        <div className="flex gap-4 text-sm">
-                                            <div className="text-center">
-                                                <div className="font-semibold text-lg">{runsSummary.total}</div>
-                                                <div className="text-muted">Total runs</div>
-                                            </div>
-                                            <div className="text-center">
-                                                <div className="font-semibold text-lg text-success">
-                                                    {runsSummary.successRate}%
-                                                </div>
-                                                <div className="text-muted">Success rate</div>
-                                            </div>
-                                            {evaluation.output_config.allows_na && (
+                                        <div className="flex flex-col items-end gap-1">
+                                            <div className="flex gap-4 text-sm">
                                                 <div className="text-center">
-                                                    <div className="font-semibold text-lg">
-                                                        {runsSummary.applicabilityRate}%
+                                                    <div className="font-semibold text-lg">{runsSummary.total}</div>
+                                                    <div className="text-muted">Total runs</div>
+                                                </div>
+                                                {supportsRunSummary && (
+                                                    <div className="text-center">
+                                                        <div className="font-semibold text-lg text-success">
+                                                            {runsSummary.successRate}%
+                                                        </div>
+                                                        <div className="text-muted">Success rate</div>
                                                     </div>
-                                                    <div className="text-muted">Applicable</div>
+                                                )}
+                                                {supportsRunSummary && evaluation.output_config.allows_na && (
+                                                    <div className="text-center">
+                                                        <div className="font-semibold text-lg">
+                                                            {runsSummary.applicabilityRate}%
+                                                        </div>
+                                                        <div className="text-muted">Applicable</div>
+                                                    </div>
+                                                )}
+                                                <div className="text-center">
+                                                    <div className="font-semibold text-lg text-danger">
+                                                        {runsSummary.errors}
+                                                    </div>
+                                                    <div className="text-muted">Errors</div>
                                                 </div>
-                                            )}
-                                            <div className="text-center">
-                                                <div className="font-semibold text-lg text-danger">
-                                                    {runsSummary.errors}
-                                                </div>
-                                                <div className="text-muted">Errors</div>
                                             </div>
+                                            <div className="text-muted text-xs">Across all runs, all time</div>
                                         </div>
                                     )}
                                 </div>
@@ -345,7 +431,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         ),
                     },
                     !isNewEvaluation &&
-                        !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && {
+                        isReportableEvaluation && {
                             key: 'reports',
                             label: 'Reports',
                             'data-attr': 'llma-evaluation-reports-tab',
@@ -377,38 +463,191 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 />
                                             </Field>
 
-                                            {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_HOG_CODE] && (
+                                            {evaluationMethodOptions.length > 1 && (
                                                 <Field name="evaluation_type" label="Method">
                                                     <LemonSelect
                                                         value={evaluation.evaluation_type}
                                                         onChange={(value) => setEvaluationType(value as EvaluationType)}
-                                                        options={[
-                                                            {
-                                                                value: 'llm_judge',
-                                                                label: 'LLM as a judge',
-                                                            },
-                                                            {
-                                                                value: 'hog',
-                                                                label: 'Hog code',
-                                                            },
-                                                        ]}
+                                                        options={evaluationMethodOptions}
                                                         fullWidth
                                                     />
                                                 </Field>
                                             )}
                                             <p className="text-muted text-sm -mt-2">
-                                                {isHog ? (
+                                                {isSentiment ? (
+                                                    'Classify the sentiment of only the last user message on each matching generation event with a sentiment classifier, not LLM calls.'
+                                                ) : isHog ? (
                                                     <>
                                                         Run deterministic{' '}
                                                         <Link to="https://posthog.com/docs/hog" target="_blank">
                                                             Hog code
                                                         </Link>{' '}
-                                                        against each generation. No LLM cost, instant results.
+                                                        against{' '}
+                                                        {isSessionTarget
+                                                            ? 'the whole session'
+                                                            : evaluation.target === 'trace'
+                                                              ? 'the whole trace'
+                                                              : 'each generation'}
+                                                        . No LLM cost.
                                                     </>
                                                 ) : (
-                                                    'Use an LLM to evaluate each generation against a natural-language prompt.'
+                                                    `Use an LLM to evaluate ${
+                                                        isSessionTarget
+                                                            ? 'the whole session'
+                                                            : evaluation.target === 'trace'
+                                                              ? 'the whole trace'
+                                                              : 'each generation'
+                                                    } against a natural-language prompt.`
                                                 )}
                                             </p>
+
+                                            {!isSentiment && (
+                                                <>
+                                                    <Field name="target" label="Evaluate">
+                                                        <LemonSelect<EvaluationTarget>
+                                                            value={evaluation.target ?? 'generation'}
+                                                            onChange={setEvaluationTarget}
+                                                            options={[
+                                                                {
+                                                                    value: 'generation',
+                                                                    label: 'Each generation',
+                                                                },
+                                                                {
+                                                                    value: 'trace',
+                                                                    label: 'Whole trace',
+                                                                },
+                                                                ...(offersSessionTarget
+                                                                    ? [
+                                                                          {
+                                                                              value: 'session' as const,
+                                                                              label: 'Whole session',
+                                                                          },
+                                                                      ]
+                                                                    : []),
+                                                            ]}
+                                                            fullWidth
+                                                        />
+                                                    </Field>
+                                                    <p className="text-muted text-sm -mt-2">
+                                                        {isSessionTarget
+                                                            ? 'Runs once per session on every trace it contains, after the session settles. Only fires for events that carry an AI session id.'
+                                                            : evaluation.target === 'trace'
+                                                              ? 'Runs once per trace on all of its events together, after it settles.'
+                                                              : 'Runs on each matching generation event individually, right after it is ingested.'}
+                                                    </p>
+                                                    {isAggregateTarget && (
+                                                        <>
+                                                            {settlingStrategyEnabled && (
+                                                                <Field name="settle_strategy" label="Evaluate when">
+                                                                    <LemonSelect<EvaluationSettleStrategy>
+                                                                        value={effectiveStrategy}
+                                                                        onChange={setSettleStrategy}
+                                                                        options={[
+                                                                            {
+                                                                                value: 'fixed_window',
+                                                                                label: 'A fixed delay has passed',
+                                                                            },
+                                                                            {
+                                                                                value: 'inactivity',
+                                                                                label: isSessionTarget
+                                                                                    ? 'The session goes quiet'
+                                                                                    : 'The trace goes quiet',
+                                                                            },
+                                                                        ]}
+                                                                        fullWidth
+                                                                    />
+                                                                </Field>
+                                                            )}
+                                                            {effectiveStrategy === 'fixed_window' ? (
+                                                                <Field
+                                                                    name="settle_window"
+                                                                    label="Wait before evaluating"
+                                                                >
+                                                                    <div className="space-y-1">
+                                                                        <DurationPicker
+                                                                            value={
+                                                                                evaluation.target_config
+                                                                                    .window_seconds ??
+                                                                                (isSessionTarget
+                                                                                    ? DEFAULT_SESSION_WINDOW_SECONDS
+                                                                                    : DEFAULT_TRACE_WINDOW_SECONDS)
+                                                                            }
+                                                                            onChange={(value) => {
+                                                                                if (
+                                                                                    evaluation.target_config
+                                                                                        .strategy === 'inactivity'
+                                                                                ) {
+                                                                                    setSettleStrategy('fixed_window')
+                                                                                }
+                                                                                patchTargetConfig({
+                                                                                    window_seconds: value,
+                                                                                })
+                                                                            }}
+                                                                        />
+                                                                        <p className="text-muted text-xs">
+                                                                            {isSessionTarget
+                                                                                ? "How long to wait after the first matching generation before pulling the whole session (10s to 7 days). Captured when the run is scheduled, so changing it won't affect runs already in flight."
+                                                                                : "How long to wait after the first matching generation before pulling the whole trace (10s–2h). Captured when the run is scheduled — changing it won't affect trace runs already in flight."}
+                                                                        </p>
+                                                                    </div>
+                                                                </Field>
+                                                            ) : (
+                                                                <>
+                                                                    <Field
+                                                                        name="settle_quiet_period"
+                                                                        label="Quiet period"
+                                                                    >
+                                                                        <div className="space-y-1">
+                                                                            <DurationPicker
+                                                                                value={
+                                                                                    evaluation.target_config
+                                                                                        .quiet_period_seconds ??
+                                                                                    (isSessionTarget
+                                                                                        ? DEFAULT_SESSION_QUIET_PERIOD_SECONDS
+                                                                                        : DEFAULT_TRACE_QUIET_PERIOD_SECONDS)
+                                                                                }
+                                                                                onChange={(value) =>
+                                                                                    patchTargetConfig({
+                                                                                        quiet_period_seconds: value,
+                                                                                    })
+                                                                                }
+                                                                            />
+                                                                            <p className="text-muted text-xs">
+                                                                                {isSessionTarget
+                                                                                    ? 'Evaluate once the session has had no new activity for this long (10s to 24 hours). Sessions often pause for a while mid-conversation, so a longer quiet period means fewer verdicts on a session that was not finished.'
+                                                                                    : 'Evaluate once the trace has had no new activity for this long (10s–30m).'}
+                                                                            </p>
+                                                                        </div>
+                                                                    </Field>
+                                                                    <Field name="settle_max_age" label="Evaluate by">
+                                                                        <div className="space-y-1">
+                                                                            <DurationPicker
+                                                                                value={
+                                                                                    evaluation.target_config
+                                                                                        .max_age_seconds ??
+                                                                                    (isSessionTarget
+                                                                                        ? DEFAULT_SESSION_MAX_AGE_SECONDS
+                                                                                        : DEFAULT_TRACE_MAX_AGE_SECONDS)
+                                                                                }
+                                                                                onChange={(value) =>
+                                                                                    patchTargetConfig({
+                                                                                        max_age_seconds: value,
+                                                                                    })
+                                                                                }
+                                                                            />
+                                                                            <p className="text-muted text-xs">
+                                                                                {isSessionTarget
+                                                                                    ? 'Always evaluate once the session is this old, even if it is still active (1m to 7 days).'
+                                                                                    : "Always evaluate once the trace is this old, even if it's still active (1m–2h)."}
+                                                                            </p>
+                                                                        </div>
+                                                                    </Field>
+                                                                </>
+                                                            )}
+                                                        </>
+                                                    )}
+                                                </>
+                                            )}
 
                                             <Field name="description" label="Description (optional)">
                                                 <LemonTextArea
@@ -436,71 +675,63 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 </Tooltip>
                                                 <span className="text-muted text-sm">
                                                     {!canEnable && !evaluation.enabled
-                                                        ? 'Add a provider API key to re-enable this evaluation'
+                                                        ? canEnableReason
                                                         : evaluation.enabled
                                                           ? 'This evaluation will run automatically based on triggers'
                                                           : 'This evaluation is paused and will not run'}
                                                 </span>
                                             </div>
 
-                                            <Field
-                                                name="allows_na"
-                                                label={
-                                                    <div className="flex items-center gap-1">
-                                                        <span>Allow N/A responses</span>
-                                                        <Tooltip
-                                                            title={
-                                                                isHog
-                                                                    ? 'When enabled, returning null from your Hog code means "not applicable" instead of being treated as an error.'
-                                                                    : 'Sometimes forcing a True or False is not enough and you want the LLM to decide if the evaluation is applicable or not. Enable this when the evaluation criteria may not apply to all generations.'
-                                                            }
-                                                        >
-                                                            <IconInfo className="text-muted text-base" />
-                                                        </Tooltip>
+                                            {isBooleanOutput && (
+                                                <Field
+                                                    name="allows_na"
+                                                    label={
+                                                        <div className="flex items-center gap-1">
+                                                            <span>Allow N/A responses</span>
+                                                            <Tooltip
+                                                                title={
+                                                                    isHog
+                                                                        ? 'When enabled, returning null from your Hog code means "not applicable" instead of being treated as an error.'
+                                                                        : 'Sometimes forcing a True or False is not enough and you want the LLM to decide if the evaluation is applicable or not. Enable this when the evaluation criteria may not apply to all generations.'
+                                                                }
+                                                            >
+                                                                <IconInfo className="text-muted text-base" />
+                                                            </Tooltip>
+                                                        </div>
+                                                    }
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        <LemonSwitch
+                                                            checked={evaluation.output_config.allows_na ?? false}
+                                                            onChange={setAllowsNA}
+                                                        />
+                                                        <span className="text-muted text-sm">
+                                                            {evaluation.output_config.allows_na
+                                                                ? isHog
+                                                                    ? 'Returning null means "Not Applicable"'
+                                                                    : 'Evaluation can return "Not Applicable" when criteria doesn\'t apply'
+                                                                : isHog
+                                                                  ? 'Evaluation must return true or false'
+                                                                  : 'Evaluation returns true or false'}
+                                                        </span>
                                                     </div>
-                                                }
-                                            >
-                                                <div className="flex items-center gap-2">
-                                                    <LemonSwitch
-                                                        checked={evaluation.output_config.allows_na ?? false}
-                                                        onChange={setAllowsNA}
-                                                    />
-                                                    <span className="text-muted text-sm">
-                                                        {evaluation.output_config.allows_na
-                                                            ? isHog
-                                                                ? 'Returning null means "Not Applicable"'
-                                                                : 'Evaluation can return "Not Applicable" when criteria doesn\'t apply'
-                                                            : isHog
-                                                              ? 'Evaluation must return true or false'
-                                                              : 'Evaluation returns true or false'}
-                                                    </span>
-                                                </div>
-                                            </Field>
-                                            {!isNewEvaluation && user?.is_staff && (
-                                                <div className="flex items-center gap-2">
-                                                    <LemonSwitch
-                                                        checked={signalEmissionEnabled}
-                                                        onChange={setSignalEmission}
-                                                    />
-                                                    <span>Emit signals</span>
-                                                    <Tooltip title="When enabled, true verdicts from this evaluation will be emitted as signals for clustering and investigation.">
-                                                        <IconInfo className="text-muted text-base" />
-                                                    </Tooltip>
-                                                </div>
+                                                </Field>
                                             )}
                                         </div>
                                     </div>
 
                                     {/* Prompt / Code Configuration */}
-                                    <div className="bg-bg-light border rounded p-6">
-                                        <h3 className="text-lg font-semibold mb-4">
-                                            {isHog ? 'Evaluation code' : 'Evaluation prompt'}
-                                        </h3>
-                                        {isHog ? <EvaluationCodeEditor /> : <EvaluationPromptEditor />}
-                                    </div>
+                                    {hasEditableCriteria && (
+                                        <div className="bg-bg-light border rounded p-6">
+                                            <h3 className="text-lg font-semibold mb-4">
+                                                {isHog ? 'Evaluation code' : 'Evaluation prompt'}
+                                            </h3>
+                                            {isHog ? <EvaluationCodeEditor /> : <EvaluationPromptEditor />}
+                                        </div>
+                                    )}
 
                                     {/* Judge Model Configuration (LLM judge only) */}
-                                    {!isHog && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CUSTOM_MODELS] && (
+                                    {evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) && (
                                         <EvaluationModelPicker />
                                     )}
 
@@ -514,14 +745,13 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     </div>
 
                                     {/* Scheduled Reports (inline config for new evaluations) */}
-                                    {isNewEvaluation &&
-                                        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && (
-                                            <EvaluationReportConfig evaluationId="new" />
-                                        )}
+                                    {isNewEvaluation && isReportableEvaluation && (
+                                        <EvaluationReportConfig evaluationId="new" />
+                                    )}
                                 </Form>
 
                                 {/* Scheduled Reports (for existing evaluations, outside the form) */}
-                                {!isNewEvaluation && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && (
+                                {!isNewEvaluation && isReportableEvaluation && (
                                     <div className="mt-6">
                                         <EvaluationReportConfig evaluationId={evaluation.id} />
                                     </div>
@@ -536,23 +766,15 @@ export function AIObservabilityEvaluation(): JSX.Element {
 }
 
 function EvaluationModelPicker(): JSX.Element {
-    const {
-        hasByokKeys,
-        byokModels,
-        trialModels,
-        providerModelGroups,
-        trialProviderModelGroups,
-        byokModelsLoading,
-        trialModelsLoading,
-        providerKeysLoading,
-    } = useValues(modelPickerLogic)
-    const { selectedModel, selectedPickerProviderKeyId } = useValues(llmEvaluationLogic)
+    const { hasByokKeys, byokModels, providerModelGroups, byokModelsLoading, providerKeysLoading } =
+        useValues(modelPickerLogic)
+    const { selectedModel, selectedPickerProviderKeyId, modelSelectionRequired } = useValues(llmEvaluationLogic)
     const { selectModelFromPicker } = useActions(llmEvaluationLogic)
 
-    const allModels = hasByokKeys ? byokModels : trialModels
-    const selectedModelName = allModels.find((m) => m.id === selectedModel)?.name
-    const groups = hasByokKeys ? providerModelGroups : trialProviderModelGroups
-    const loading = hasByokKeys ? byokModelsLoading || providerKeysLoading : trialModelsLoading
+    // Evals always run on the team's own provider key, so only BYOK models are offered.
+    const selectedModelName = byokModels.find((m) => m.id === selectedModel)?.name
+    const groups = providerModelGroups
+    const loading = byokModelsLoading || providerKeysLoading
 
     const footerLink = getModelPickerFooterLink(hasByokKeys)
 
@@ -565,16 +787,21 @@ function EvaluationModelPicker(): JSX.Element {
 
             <div className="space-y-4">
                 <Field name="model" label="Model">
-                    <ModelPicker
-                        model={selectedModel}
-                        selectedProviderKeyId={selectedPickerProviderKeyId}
-                        onSelect={selectModelFromPicker}
-                        groups={groups}
-                        loading={loading}
-                        footerLink={footerLink}
-                        selectedModelName={selectedModelName}
-                        data-attr="evaluation-model-selector"
-                    />
+                    <div>
+                        <ModelPicker
+                            model={selectedModel}
+                            selectedProviderKeyId={selectedPickerProviderKeyId}
+                            onSelect={selectModelFromPicker}
+                            groups={groups}
+                            loading={loading}
+                            footerLink={footerLink}
+                            selectedModelName={selectedModelName}
+                            data-attr="evaluation-model-selector"
+                        />
+                        {modelSelectionRequired && !selectedModel && (
+                            <p className="text-sm text-danger mt-1">Select a judge model.</p>
+                        )}
+                    </div>
                 </Field>
             </div>
         </div>
@@ -587,5 +814,6 @@ export const scene: SceneExport<LLMEvaluationLogicProps> = {
     paramsToProps: ({ params: { id }, searchParams }) => ({
         evaluationId: id && id !== 'new' ? id : 'new',
         templateKey: typeof searchParams.template === 'string' ? searchParams.template : undefined,
+        evaluationType: searchParams.type === 'sentiment' ? 'sentiment' : undefined,
     }),
 }

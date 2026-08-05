@@ -6,6 +6,7 @@ from django.conf import settings
 
 from temporalio.testing._activity import ActivityEnvironment
 
+from posthog.models.integration import Integration, S3CredentialIntegrationError
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
@@ -14,6 +15,7 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
     FILE_FORMAT_EXTENSIONS,
     SUPPORTED_COMPRESSIONS,
     S3InsertInputs,
+    _get_s3_integration,
     s3_default_fields,
 )
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import (
@@ -26,13 +28,33 @@ from products.batch_exports.backend.tests.temporal.utils.s3 import assert_files_
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 
+async def test_get_s3_integration_rejects_wrong_kind(ateam):
+    """An integration whose kind is neither aws-s3 nor s3-compatible can't be resolved as an S3 one.
+
+    The serializer validates the kind on create/update, so this only happens if the integration's
+    kind is changed out from under an existing export (unlikely, but worth checking).
+    """
+    integration = await Integration.objects.acreate(
+        team_id=ateam.pk,
+        kind=Integration.IntegrationKind.SLACK,
+        integration_id="not-s3",
+        config={},
+        sensitive_config={},
+    )
+
+    with pytest.raises(S3CredentialIntegrationError) as exc_info:
+        await _get_s3_integration(integration.id, ateam.pk)
+    assert "not an S3 integration" in str(exc_info.value)
+    assert "kind='slack'" in str(exc_info.value)
+
+
 @pytest.mark.parametrize("compression", COMPRESSION_EXTENSIONS.keys(), indirect=True)
 @pytest.mark.parametrize("model", TEST_S3_MODELS)
 @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys())
 async def test_insert_into_s3_activity_puts_data_into_s3(
     clickhouse_client,
     bucket_name,
-    minio_client,
+    object_storage_client,
     activity_environment: ActivityEnvironment,
     compression,
     exclude_events,
@@ -113,7 +135,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         sort_key = "session_id"
 
     await assert_clickhouse_records_in_s3(
-        s3_compatible_client=minio_client,
+        s3_compatible_client=object_storage_client,
         clickhouse_client=clickhouse_client,
         bucket_name=bucket_name,
         key_prefix=prefix,
@@ -130,6 +152,80 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
     )
 
 
+@pytest.mark.parametrize("exclude_events", [None], indirect=True)
+@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("compression", [None], indirect=True)
+@pytest.mark.parametrize("file_format", ["JSONLines"], indirect=True)
+async def test_insert_into_s3_activity_resolves_credentials_from_integration(
+    clickhouse_client,
+    bucket_name,
+    object_storage_client,
+    activity_environment: ActivityEnvironment,
+    compression,
+    exclude_events,
+    file_format,
+    data_interval_start,
+    data_interval_end,
+    model: BatchExportModel,
+    generate_test_data,
+    ateam,
+):
+    """An integration-backed S3-compatible export resolves credentials and endpoint_url from the
+    linked Integration at run time, with none of them present on the activity inputs.
+    """
+    integration = await Integration.objects.acreate(
+        team_id=ateam.pk,
+        kind=Integration.IntegrationKind.S3_COMPATIBLE,
+        integration_id="object-storage-test",
+        config={"name": "object-storage-test", "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT},
+        sensitive_config={
+            "aws_access_key_id": "object_storage_root_user",
+            "aws_secret_access_key": "object_storage_root_password",
+        },
+    )
+
+    prefix = str(uuid.uuid4())
+
+    insert_inputs = S3InsertInputs(
+        bucket_name=bucket_name,
+        region="us-east-1",
+        prefix=prefix,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        # No inline credentials or endpoint_url — both are resolved from the integration.
+        integration_id=integration.id,
+        compression=compression,
+        exclude_events=exclude_events,
+        file_format=file_format,
+        batch_export_model=model,
+        batch_export_id=str(uuid.uuid4()),
+        destination_default_fields=s3_default_fields(),
+    )
+
+    result = await run_activity(activity_environment, insert_inputs)
+    assert result.error is None
+    assert result.records_completed is not None and result.records_completed > 0
+    assert result.bytes_exported is not None and result.bytes_exported > 0
+
+    await assert_clickhouse_records_in_s3(
+        s3_compatible_client=object_storage_client,
+        clickhouse_client=clickhouse_client,
+        bucket_name=bucket_name,
+        key_prefix=prefix,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        exclude_events=exclude_events,
+        include_events=None,
+        compression=compression,
+        file_format=file_format,
+        backfill_details=None,
+        sort_key="uuid",
+    )
+
+
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 @pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
 @pytest.mark.parametrize("compression", [None], indirect=True)
@@ -137,7 +233,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
 async def test_insert_into_s3_activity_with_exclude_events(
     clickhouse_client,
     bucket_name,
-    minio_client,
+    object_storage_client,
     activity_environment: ActivityEnvironment,
     compression,
     exclude_events,
@@ -205,7 +301,7 @@ async def test_insert_into_s3_activity_with_exclude_events(
         sort_key = "session_id"
 
     await assert_clickhouse_records_in_s3(
-        s3_compatible_client=minio_client,
+        s3_compatible_client=object_storage_client,
         clickhouse_client=clickhouse_client,
         bucket_name=bucket_name,
         key_prefix=prefix,
@@ -229,7 +325,7 @@ async def test_insert_into_s3_activity_with_exclude_events(
 async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
     clickhouse_client,
     bucket_name,
-    minio_client,
+    object_storage_client,
     activity_environment,
     compression,
     max_file_size_mb,
@@ -312,7 +408,7 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
     assert bytes_exported > 0
 
     s3_data, s3_keys = await assert_files_in_s3(
-        s3_compatible_client=minio_client,
+        s3_compatible_client=object_storage_client,
         bucket_name=bucket_name,
         key_prefix=prefix,
         file_format=file_format,
@@ -363,10 +459,10 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
 
     manifest_key = f"{prefix}/{data_interval_start.isoformat()}-{data_interval_end.isoformat()}_manifest.json"
     if max_file_size_mb is None:
-        with pytest.raises(minio_client.exceptions.NoSuchKey):
-            await read_json_file_from_s3(minio_client, bucket_name, manifest_key)
+        with pytest.raises(object_storage_client.exceptions.NoSuchKey):
+            await read_json_file_from_s3(object_storage_client, bucket_name, manifest_key)
     else:
-        manifest_data: dict | list = await read_json_file_from_s3(minio_client, bucket_name, manifest_key)
+        manifest_data: dict | list = await read_json_file_from_s3(object_storage_client, bucket_name, manifest_key)
         assert isinstance(manifest_data, dict)
         assert manifest_data["files"] == expected_keys
 
@@ -376,7 +472,7 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
 async def test_insert_into_s3_activity_fails_on_invalid_file_format(
     clickhouse_client,
     bucket_name,
-    minio_client,
+    object_storage_client,
     activity_environment,
     compression,
     exclude_events,
@@ -420,7 +516,7 @@ async def test_insert_into_s3_activity_fails_on_invalid_file_format(
 async def test_insert_into_s3_activity_fails_on_invalid_compression(
     clickhouse_client,
     bucket_name,
-    minio_client,
+    object_storage_client,
     activity_environment,
     compression,
     exclude_events,

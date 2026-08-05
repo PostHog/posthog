@@ -3,8 +3,6 @@ import { useEffect, useRef } from 'react'
 
 import { LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
@@ -32,18 +30,16 @@ export function LineWithNumber({
     onCopyPermalink,
 }: LineWithNumberProps): JSX.Element {
     const lineRef = useRef<HTMLSpanElement>(null)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
 
-    const showDiscussions = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS] && !!traceId
-    const showTranslation = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRANSLATION]
+    const showDiscussions = !!traceId
 
     const commentsLogicProps = {
         scope: ActivityScope.LLM_TRACE,
         item_id: traceId || '',
     }
     const commentsLogicInstance = commentsLogic(commentsLogicProps)
-    const { maybeLoadComments } = useActions(commentsLogicInstance)
+    const { maybeLoadComments, startNewComment } = useActions(commentsLogicInstance)
 
     const lineText = `L${padding > 0 ? lineNumber.toString().padStart(padding, '0') : lineNumber}:${content}`
     const logic = messageActionsMenuLogic({ content: lineText })
@@ -68,6 +64,11 @@ export function LineWithNumber({
     }
 
     const insertQuoteIntoEditor = (quotedContent: string, retries = 0): void => {
+        // The logic can be unmounted before this deferred callback runs (e.g. the user navigates
+        // away or switches traces), so bail out rather than reading `.values` off a torn-down store.
+        if (!commentsLogicInstance.isMounted()) {
+            return
+        }
         const editor = commentsLogicInstance.values.richContentEditor
         if (editor) {
             editor.clear()
@@ -83,6 +84,9 @@ export function LineWithNumber({
             return
         }
         maybeLoadComments()
+        // Exit any in-progress reply and deregister its editor, so the retry loop below
+        // waits for the footer composer instead of pasting into a thread's reply composer
+        startNewComment()
         openSidePanel(SidePanelTab.Discussion)
 
         const quotedContent = `> L${lineNumber}: ${content.trim()}`
@@ -111,21 +115,17 @@ export function LineWithNumber({
                   },
               ]
             : []),
-        ...(showTranslation
-            ? [
-                  {
-                      label: 'Translate',
-                      onClick: () => {
-                          if (dataProcessingAccepted) {
-                              setShowTranslatePopover(true)
-                          } else {
-                              setShowConsentPopover(true)
-                          }
-                      },
-                      'data-attr': 'llma-line-translate',
-                  },
-              ]
-            : []),
+        {
+            label: 'Translate',
+            onClick: () => {
+                if (dataProcessingAccepted) {
+                    setShowTranslatePopover(true)
+                } else {
+                    setShowConsentPopover(true)
+                }
+            },
+            'data-attr': 'llma-line-translate',
+        },
     ]
 
     return (

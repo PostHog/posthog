@@ -3,9 +3,9 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { filterGroups, findSelectedProvider, parseTrialProviderKeyId } from './ModelPicker'
+import { filterGroups, findSelectedProvider, parsePlaygroundProviderKeyId } from './ModelPicker'
 import {
-    buildTrialProviderModelGroups,
+    buildPlaygroundProviderModelGroups,
     modelPickerLogic,
     type ModelOption,
     type ProviderModelGroup,
@@ -114,6 +114,7 @@ describe('modelPickerLogic', () => {
         it('should return empty array when no valid keys exist', async () => {
             useMocks({
                 get: {
+                    '/api/llm_proxy/models/': () => [200, []],
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'key-1', provider: 'openai', state: 'invalid' }],
                     },
@@ -235,6 +236,7 @@ describe('modelPickerLogic', () => {
         it('should return false when all keys are non-ok', async () => {
             useMocks({
                 get: {
+                    '/api/llm_proxy/models/': () => [200, []],
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [
                             { id: 'key-1', provider: 'openai', state: 'invalid' },
@@ -257,6 +259,7 @@ describe('modelPickerLogic', () => {
         it('should return false when no keys exist', async () => {
             useMocks({
                 get: {
+                    '/api/llm_proxy/models/': () => [200, []],
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [],
                     },
@@ -365,15 +368,29 @@ const GROUPS: ProviderModelGroup[] = [
     { provider: 'anthropic', providerKeyId: 'key-2', label: 'Anthropic', models: [MODEL_B] },
 ]
 
-describe('parseTrialProviderKeyId', () => {
+describe('parsePlaygroundProviderKeyId', () => {
+    // The 'playground:' case exercises the unknown-provider path, which logs a console.error by design.
+    let consoleErrorSpy: jest.SpyInstance
+
+    beforeEach(() => {
+        consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    })
+
+    afterEach(() => {
+        consoleErrorSpy.mockRestore()
+    })
+
     it.each([
-        ['trial:openai', 'openai'],
-        ['trial:anthropic', 'anthropic'],
+        ['playground:openai', 'openai'],
+        ['playground:anthropic', 'anthropic'],
         ['key-123', null],
         ['', null],
-        ['trial:', null],
-    ])('parseTrialProviderKeyId(%s) => %s', (input, expected) => {
-        expect(parseTrialProviderKeyId(input)).toBe(expected)
+        ['playground:', null],
+    ])('parsePlaygroundProviderKeyId(%s) => %s', (input, expected) => {
+        expect(parsePlaygroundProviderKeyId(input)).toBe(expected)
+        if (input === 'playground:') {
+            expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('Unknown LLM provider'))
+        }
     })
 })
 
@@ -412,22 +429,22 @@ describe('filterGroups', () => {
     })
 })
 
-describe('buildTrialProviderModelGroups', () => {
-    it('groups models by provider with trial: prefix keys', () => {
+describe('buildPlaygroundProviderModelGroups', () => {
+    it('groups models by provider with playground: prefix keys', () => {
         const models: ModelOption[] = [MODEL_A, MODEL_C, MODEL_B]
-        const groups = buildTrialProviderModelGroups(models)
+        const groups = buildPlaygroundProviderModelGroups(models)
 
         expect(groups).toHaveLength(2)
         expect(groups[0].provider).toBe('openai')
-        expect(groups[0].providerKeyId).toBe('trial:openai')
+        expect(groups[0].providerKeyId).toBe('playground:openai')
         expect(groups[0].models).toHaveLength(2)
         expect(groups[1].provider).toBe('anthropic')
-        expect(groups[1].providerKeyId).toBe('trial:anthropic')
+        expect(groups[1].providerKeyId).toBe('playground:anthropic')
         expect(groups[1].models).toHaveLength(1)
     })
 
     it('returns empty array for empty input', () => {
-        expect(buildTrialProviderModelGroups([])).toEqual([])
+        expect(buildPlaygroundProviderModelGroups([])).toEqual([])
     })
 
     it('sorts groups by provider order', () => {
@@ -435,7 +452,7 @@ describe('buildTrialProviderModelGroups', () => {
             { ...MODEL_B, provider: 'Anthropic' },
             { ...MODEL_A, provider: 'OpenAI' },
         ]
-        const groups = buildTrialProviderModelGroups(models)
+        const groups = buildPlaygroundProviderModelGroups(models)
         expect(groups.map((g) => g.provider)).toEqual(['openai', 'anthropic'])
     })
 })

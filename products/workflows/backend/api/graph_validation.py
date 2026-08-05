@@ -74,6 +74,18 @@ def validate_graph(actions: list[dict], edges: list[dict], abort_action: Optiona
     if abort_action and abort_action not in actions_by_id:
         errors.append(f"abort_action references unknown action '{abort_action}'.")
 
+    # Every wait_until_condition needs its single resolution edge: a `branch` edge at index 0, taken when
+    # the condition matches or an events entry fires. Without it the node only advances on the
+    # max_wait_duration timeout (the `continue` edge) and silently ignores resolution — a footgun the
+    # frontend never produces (it always wires this edge). seen_branch_keys holds only valid branch edges.
+    for action in actions:
+        if action.get("type") == "wait_until_condition" and (action.get("id"), 0) not in seen_branch_keys:
+            errors.append(
+                f"wait_until_condition '{action.get('id')}' is missing its resolution edge: add a 'branch' edge "
+                f"with index 0 (taken when the condition matches or an events entry fires). Without it the wait "
+                f"only ever advances on the max_wait_duration timeout, never on resolution."
+            )
+
     if errors:
         raise serializers.ValidationError({"graph": errors})
 

@@ -20,12 +20,11 @@ from django.db import (
     connection as db_connection,
     transaction,
 )
-from django.db.models import Count, Exists, F, OuterRef, Q, QuerySet
+from django.db.models import Count, Exists, F, Max, OuterRef, Q, QuerySet
 from django.db.models.functions import Substr
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from posthog.api.embedding_worker import generate_embedding
@@ -34,6 +33,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import with_team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.ph_client import feature_enabled_or_false
 from posthog.security.url_validation import is_url_allowed
 
 from ee.hogai.llm import MaxChatAnthropic
@@ -60,6 +60,7 @@ from .constants import (
     DEFAULT_MAX_PAGES,
     EMBEDDING_STABLE_TS_MAX_AGE,
     EMBEDDING_TTL_REFRESH_WINDOW,
+    MAX_ALWAYS_ON_CONTEXT_CHARS,
     MAX_CHUNKS_PER_TEAM,
     MAX_SOURCES_PER_TEAM,
     MAX_TEXT_SIZE_BYTES,
@@ -72,8 +73,10 @@ from .constants import (
 from .models import (
     REFRESH_INTERVAL_TIMEDELTAS,
     CrawlMode,
+    GapStatus,
     KnowledgeChunk,
     KnowledgeDocument,
+    KnowledgeGapSuggestion,
     KnowledgeSource,
     RefreshInterval,
     SafetyVerdict,
@@ -396,6 +399,7 @@ def create_text_source(
     created_by_id: int | None,
     name: str,
     text: str,
+    always_include: bool = False,
 ) -> KnowledgeSource:
     """
     Create source + 1 document + N chunks synchronously.
@@ -413,6 +417,7 @@ def create_text_source(
         name=name,
         source_type=SourceType.TEXT,
         status=SourceStatus.PROCESSING,
+        always_include=always_include,
     )
 
     # One text source == one document. Stable_id is the document's own UUID,
@@ -460,6 +465,7 @@ def update_text_source(
     team_id: int,
     name: str | None,
     text: str | None,
+    always_include: bool | None = None,
 ) -> KnowledgeSource | None:
     """
     Edit path.
@@ -479,6 +485,9 @@ def update_text_source(
     except KnowledgeSource.DoesNotExist:
         return None
 
+    if always_include is not None:
+        source.always_include = always_include
+
     if text is not None:
         if len(text.encode("utf-8")) > MAX_TEXT_SIZE_BYTES:
             raise TextTooLargeError(f"Text exceeds {MAX_TEXT_SIZE_BYTES} bytes.")
@@ -494,6 +503,8 @@ def update_text_source(
         if name is not None:
             source.name = name
             update_fields.append("name")
+        if always_include is not None:
+            update_fields.append("always_include")
         source.save(update_fields=update_fields)
 
         KnowledgeChunk.objects.filter(team_id=team_id, source_id=source_id).delete()
@@ -518,9 +529,14 @@ def update_text_source(
         _bulk_create_chunks(source=source, document=document, team_id=team_id, chunks=chunks)
         source.status = SourceStatus.READY
         source.save(update_fields=["status", "updated_at"])
-    elif name is not None:
-        source.name = name
-        source.save(update_fields=["name", "updated_at"])
+    elif name is not None or always_include is not None:
+        update_fields = ["updated_at"]
+        if name is not None:
+            source.name = name
+            update_fields.append("name")
+        if always_include is not None:
+            update_fields.append("always_include")
+        source.save(update_fields=update_fields)
 
     return get_for_team(source.id, team_id) or source
 
@@ -535,6 +551,7 @@ def update_url_source(
     crawl_mode: str | None = None,
     crawl_config: dict | None = None,
     refresh_interval: str | None = None,
+    always_include: bool | None = None,
 ) -> KnowledgeSource | None:
     """
     Update a URL source's metadata and optionally re-crawl.
@@ -562,6 +579,10 @@ def update_url_source(
     if refresh_interval is not None and refresh_interval != source.refresh_interval:
         source.refresh_interval = refresh_interval
         update_fields.append("refresh_interval")
+
+    if always_include is not None and always_include != source.always_include:
+        source.always_include = always_include
+        update_fields.append("always_include")
 
     if url is not None and url != source.source_url:
         normalized = _validate_url(url)
@@ -623,6 +644,7 @@ def create_file_source(
     name: str,
     file_data: bytes,
     original_filename: str,
+    always_include: bool = False,
 ) -> KnowledgeSource:
     """
     Detect type → parse → chunk. Inline, not Temporal.
@@ -658,6 +680,7 @@ def create_file_source(
             original_filename=file_parse.sanitize_filename(original_filename),
             file_content_type=parsed.content_type,
             file_size_bytes=len(file_data),
+            always_include=always_include,
         )
 
         if _count_chunks(team_id) + len(chunks) > MAX_CHUNKS_PER_TEAM:
@@ -835,6 +858,7 @@ def claim_url_source(
     crawl_mode: str | None = None,
     crawl_config: dict | None = None,
     refresh_interval: str | None = None,
+    always_include: bool = False,
 ) -> KnowledgeSource:
     """
     Create the PROCESSING claim row for a URL/crawl source *without* fetching.
@@ -859,6 +883,7 @@ def claim_url_source(
             crawl_mode=crawl_mode or CrawlMode.SINGLE,
             crawl_config=crawl_config or {},
             refresh_interval=refresh_interval or RefreshInterval.MANUAL,
+            always_include=always_include,
         )
     return source
 
@@ -1546,12 +1571,63 @@ def has_ready_sources(team_id: int) -> bool:
     return KnowledgeSource.objects.filter(team_id=team_id, status=SourceStatus.READY).exists()
 
 
+@with_team_scope(canonical=True)
+def get_always_on_context(team_id: int) -> "list[KnowledgeSearchResult]":
+    """Return all SAFE/READY chunks from always_include sources, hard-capped by chars.
+
+    Same safety gate as search — fails closed for UNKNOWN/unsafe/tombstoned/non-READY.
+    Output is truncated to MAX_ALWAYS_ON_CONTEXT_CHARS worth of chunk content so
+    always-on injection can't blow the prompt budget.
+    """
+    chunks = (
+        _safe_chunks_qs(team_id)
+        .filter(source__always_include=True)
+        .select_related("source", "document")
+        .only(
+            "id",
+            "source_id",
+            "document_id",
+            "heading_path",
+            "ordinal",
+            "content",
+            "source__name",
+            "source__source_type",
+            "document__title",
+        )
+        .order_by("source_id", "document_id", "ordinal")
+    )
+
+    results: list[KnowledgeSearchResult] = []
+    total_chars = 0
+    for c in chunks:
+        # Account for the "\n\n" separator the caller joins chunks with, so the
+        # assembled text honors the cap precisely (no mid-sentence slice downstream).
+        separator = 2 if results else 0
+        if total_chars + separator + len(c.content) > MAX_ALWAYS_ON_CONTEXT_CHARS:
+            break
+        total_chars += separator + len(c.content)
+        results.append(
+            KnowledgeSearchResult(
+                chunk_id=c.id,
+                source_id=c.source_id,
+                source_name=c.source.name,
+                source_type=c.source.source_type,
+                document_id=c.document_id,
+                document_title=c.document.title,
+                heading_path=c.heading_path,
+                ordinal=c.ordinal,
+                content=c.content,
+            )
+        )
+    return results
+
+
 def has_feature_flag(team: Team) -> bool:
     """The `product-business-knowledge` flag check, org-keyed. Canonical home for the
     check — `ee/hogai/utils/feature_flags.py` delegates here."""
     if settings.DEBUG:
         return True
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         "product-business-knowledge",
         str(team.organization_id),
         groups={"organization": str(team.organization_id)},
@@ -2489,3 +2565,118 @@ def clear_document_embeddings_emitted(*, team_id: int, document_id: UUID) -> Non
     KnowledgeDocument.objects.filter(team_id=team_id, id=document_id).update(
         embeddings_emitted_at=None, updated_at=timezone.now()
     )
+
+
+# ---------------------------------------------------------------------------
+# Knowledge gap suggestions
+# ---------------------------------------------------------------------------
+
+_GAP_NOISE_TOPICS = frozenset({"parse_failure"})
+
+
+def _normalize_topic(topic: str) -> str:
+    return topic.strip().lower()[:255]
+
+
+def upsert_knowledge_gaps(
+    team_id: int,
+    ticket_id: str,
+    topics: list[str],
+    ticket_type: str = "",
+    outcome: str = "",
+) -> int:
+    """Create one KnowledgeGapSuggestion per (ticket, normalized topic).
+
+    Idempotent via the unique constraint — safe under Temporal activity retries.
+    Returns the number of rows created (not the total including existing ones).
+    """
+    created_count = 0
+    for raw_topic in topics:
+        normalized = _normalize_topic(raw_topic)
+        if not normalized or normalized in _GAP_NOISE_TOPICS:
+            continue
+        _, created = KnowledgeGapSuggestion.objects.for_team(team_id).get_or_create(
+            team_id=team_id,
+            ticket_id=ticket_id,
+            normalized_topic=normalized,
+            defaults={
+                "topic": raw_topic.strip(),
+                "ticket_type": ticket_type,
+                "outcome": outcome,
+            },
+        )
+        if created:
+            created_count += 1
+    return created_count
+
+
+def list_gap_suggestions_for_ticket(
+    team_id: int,
+    ticket_id: str,
+) -> QuerySet[KnowledgeGapSuggestion]:
+    return KnowledgeGapSuggestion.objects.for_team(team_id).filter(ticket_id=ticket_id).order_by("-created_at")
+
+
+@dataclass
+class AggregatedGap:
+    normalized_topic: str
+    topic: str
+    ticket_count: int
+
+
+def aggregate_gap_suggestions(
+    team_id: int,
+    status: str = GapStatus.PENDING,
+    limit: int = 50,
+) -> list[AggregatedGap]:
+    """Group pending gaps by normalized_topic, ranked by ticket count."""
+    rows = (
+        KnowledgeGapSuggestion.objects.for_team(team_id)
+        .filter(status=status)
+        .values("normalized_topic")
+        .annotate(
+            ticket_count=Count("ticket_id", distinct=True),
+            representative_topic=Substr(Max("topic"), 1, 500),
+        )
+        .order_by("-ticket_count")[:limit]
+    )
+    return [
+        AggregatedGap(
+            normalized_topic=r["normalized_topic"],
+            topic=r["representative_topic"],
+            ticket_count=r["ticket_count"],
+        )
+        for r in rows
+    ]
+
+
+def set_gap_status(
+    team_id: int,
+    *,
+    suggestion_id: UUID | None = None,
+    normalized_topic: str | None = None,
+    status: str,
+    resolved_source_id: UUID | None = None,
+    only_pending: bool = False,
+) -> int:
+    """Accept or dismiss gap suggestions. Returns updated row count.
+
+    Pass suggestion_id for a single row, or normalized_topic to flip the whole
+    cluster (all tickets with that topic). Set only_pending=True to restrict
+    the update to rows still in PENDING status.
+    """
+    qs = KnowledgeGapSuggestion.objects.for_team(team_id)
+    if suggestion_id is not None:
+        qs = qs.filter(id=suggestion_id)
+    elif normalized_topic is not None:
+        qs = qs.filter(normalized_topic=normalized_topic)
+    else:
+        raise ValueError("One of suggestion_id or normalized_topic is required")
+
+    if only_pending:
+        qs = qs.filter(status=GapStatus.PENDING)
+
+    update_kwargs: dict[str, object] = {"status": status}
+    if resolved_source_id is not None:
+        update_kwargs["resolved_source_id"] = resolved_source_id
+    return qs.update(**update_kwargs)

@@ -58,6 +58,39 @@ export function RGBToRGBA(rgb: string, a: number): string {
     return `rgba(${[r, g, b, a].join(',')})`
 }
 
+/**
+ * Strip any alpha channel and return an opaque `#rrggbb` hex string.
+ * Accepts `rgb(...)`, `rgba(...)`, and 8-digit `#rrggbbaa` hex; opaque hex,
+ * `var(--…)`, or anything unparseable is returned unchanged. Dimming a series
+ * color only changes its alpha, so this losslessly recovers the opaque color.
+ */
+export function toOpaqueHex(color: string): string {
+    const toHex = (r: number, g: number, b: number): string =>
+        `#${[r, g, b]
+            .map((c) =>
+                Math.max(0, Math.min(255, Math.round(c)))
+                    .toString(16)
+                    .padStart(2, '0')
+            )
+            .join('')}`
+
+    const rgbMatch = color.match(/^rgba?\(([^)]+)\)$/i)
+    if (rgbMatch) {
+        const channels = rgbMatch[1]
+            .split(',')
+            .slice(0, 3)
+            .map((part) => parseFloat(part.trim()))
+        if (channels.length < 3 || channels.some((c) => !Number.isFinite(c))) {
+            return color
+        }
+        return toHex(channels[0], channels[1], channels[2])
+    }
+    if (/^#[0-9a-f]{8}$/i.test(color)) {
+        return color.slice(0, 7)
+    }
+    return color
+}
+
 export function RGBToHSL(r: number, g: number, b: number): { h: number; s: number; l: number } {
     // Convert RGB values to the range 0-1
     r /= 255

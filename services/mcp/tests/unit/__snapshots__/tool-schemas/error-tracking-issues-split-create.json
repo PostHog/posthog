@@ -24,7 +24,6 @@
             "type": "array"
         },
         "id": {
-            "description": "A UUID string identifying this error tracking issue.",
             "type": "string"
         }
     },

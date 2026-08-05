@@ -40,8 +40,8 @@ class TestBuildExecutionMessage(SimpleTestCase):
             ),
             (
                 "success_partial_tokens_omitted",
-                {"succeeded": True, "execution_type": "ducklake", "version": 1},
-                "Endpoint executed · path=ducklake version=1",
+                {"succeeded": True, "execution_type": "inline", "version": 1},
+                "Endpoint executed · path=inline version=1",
             ),
         ]
     )
@@ -76,7 +76,7 @@ class TestEndpointExecutionLogs(ClickhouseTestMixin, APIBaseTest):
     def test_successful_run_emits_info_log(self):
         endpoint = self._create_hogql_endpoint("logs_ok", "SELECT 1")
 
-        with mock.patch("products.endpoints.backend.services.execution.log_endpoint_execution") as mock_log:
+        with mock.patch("products.endpoints.backend.logic.execution.log_endpoint_execution") as mock_log:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
             )
@@ -95,7 +95,7 @@ class TestEndpointExecutionLogs(ClickhouseTestMixin, APIBaseTest):
     def test_failed_run_emits_error_log(self):
         endpoint = self._create_hogql_endpoint("logs_fail", "SELECT nonexistent_column_xyz FROM events")
 
-        with mock.patch("products.endpoints.backend.services.execution.log_endpoint_execution") as mock_log:
+        with mock.patch("products.endpoints.backend.logic.execution.log_endpoint_execution") as mock_log:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
             )
@@ -111,7 +111,7 @@ class TestEndpointExecutionLogs(ClickhouseTestMixin, APIBaseTest):
     def test_successful_run_returns_execution_id_matching_log(self):
         endpoint = self._create_hogql_endpoint("logs_exec_id", "SELECT 1")
 
-        with mock.patch("products.endpoints.backend.services.execution.log_endpoint_execution") as mock_log:
+        with mock.patch("products.endpoints.backend.logic.execution.log_endpoint_execution") as mock_log:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
             )
@@ -125,7 +125,7 @@ class TestEndpointExecutionLogs(ClickhouseTestMixin, APIBaseTest):
     def test_invalid_refresh_mode_emits_error_log_and_clean_message(self):
         endpoint = self._create_hogql_endpoint("logs_bad_refresh", "SELECT 1")
 
-        with mock.patch("products.endpoints.backend.services.execution.log_endpoint_execution") as mock_log:
+        with mock.patch("products.endpoints.backend.logic.execution.log_endpoint_execution") as mock_log:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
                 {"refresh": "hey"},
@@ -161,7 +161,7 @@ class TestEndpointExecutionLogs(ClickhouseTestMixin, APIBaseTest):
         # must still surface in the logs.
         endpoint = self._create_hogql_endpoint(f"logs_reject_{_name}", "SELECT 1")
 
-        with mock.patch("products.endpoints.backend.services.execution.log_endpoint_execution") as mock_log:
+        with mock.patch("products.endpoints.backend.logic.execution.log_endpoint_execution") as mock_log:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", body, format="json"
             )
@@ -178,7 +178,7 @@ class TestEndpointExecutionLogs(ClickhouseTestMixin, APIBaseTest):
         # non-materialized endpoint — this failure must still surface in the logs.
         endpoint = self._create_hogql_endpoint("logs_bad_validate", "SELECT 1")
 
-        with mock.patch("products.endpoints.backend.services.execution.log_endpoint_execution") as mock_log:
+        with mock.patch("products.endpoints.backend.logic.execution.log_endpoint_execution") as mock_log:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
                 {"refresh": "direct"},

@@ -177,7 +177,7 @@ GROUP BY day ORDER BY day
 
 Attribute total cluster resource use across **all** `is_initial_query` queries, not just the slow set:
 this catches consumers that cost the cluster through many cheap queries without ever crossing the slow
-threshold (and so are invisible to 4a/4b). Report top teams, top API keys, and top apps by **all three of
+threshold (and so are invisible to 4a/4b). Report top teams, top API keys, and top tools by **all three of
 bytes / CPU / wall-time** (the leader differs by metric). Use the typed
 `ProfileEvents_OSCPUVirtualTimeMicroseconds` column, not the `Map` lookup (§1b). Re-run each block with a
 different `ORDER BY` (`cpu_hours`, `sum(read_bytes)`, `query_hours`) to get the per-metric leaders. The
@@ -210,7 +210,7 @@ GROUP BY lc_api_key_label ORDER BY cpu_hours DESC LIMIT 15
 ```
 
 ```sql
--- top apps (lc_product), cluster-wide (this is the all-query counterpart to the §3 slow-set categories)
+-- top tools (lc_product), cluster-wide (this is the all-query counterpart to the §3 slow-set categories)
 SELECT lc_product,
     round(sum(query_duration_ms)/3600000, 0)                       AS query_hours,
     round(sum(ProfileEvents_OSCPUVirtualTimeMicroseconds)/3.6e9, 0) AS cpu_hours,

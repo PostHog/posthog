@@ -8,7 +8,13 @@ import structlog
 from anthropic.types import MessageParam
 
 from posthog.helpers.tiktoken_encoding import TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
-from posthog.llm.gateway_client import get_async_anthropic_gateway_client
+from posthog.llm.gateway_client import (
+    build_async_anthropic_client,
+    get_async_anthropic_gateway_client,
+    resolve_ai_gateway_config,
+)
+
+from products.signals.backend.temporal import metrics
 
 logger = structlog.get_logger(__name__)
 
@@ -84,10 +90,23 @@ async def call_llm(
     temperature: Optional[float] = 0.2,
     retries: int = MAX_RETRIES,
     stage: Optional[str] = None,
+    ai_product: Optional[str] = None,
 ) -> T:
     # Native Anthropic Messages endpoint so prefilling and extended thinking carry over unchanged.
     thinking = thinking and MATCHING_MODEL in ANTHROPIC_THINKING_MODELS
-    client = get_async_anthropic_gateway_client(product="signals", team_id=team_id)
+    # A call site opts onto the Go ai-gateway by passing ai_product, which both routes it through
+    # the gateway-capable client and tags the generation. Without it the call stays on the Python
+    # gateway, so each product is switched (and reverted) independently.
+    if ai_product is not None:
+        client = build_async_anthropic_client(
+            product="signals",
+            ai_product=ai_product,
+            ai_stage=stage,
+            team_id=team_id,
+            use_bedrock_fallback=True,
+        )
+    else:
+        client = get_async_anthropic_gateway_client(product="signals", team_id=team_id, use_bedrock_fallback=True)
 
     messages: list[MessageParam] = [
         {"role": "user", "content": user_prompt},
@@ -108,7 +127,12 @@ async def call_llm(
     }
     if team_id is not None:
         create_kwargs["metadata"] = {"user_id": f"team-{team_id}"}
-    if stage:
+    # The per-key ai_stage header is what the Python gateway reads. Send it whenever the request
+    # lands there: an un-opted call site, or an opted one before the gateway env is set. Skip it
+    # only when an opted call site actually reaches the Go gateway, which reads ai_stage from the
+    # X-PostHog-Properties blob instead.
+    on_go_gateway = ai_product is not None and resolve_ai_gateway_config() is not None
+    if stage and not on_go_gateway:
         create_kwargs["extra_headers"] = {"x-posthog-property-ai_stage": stage}
 
     # Later, we'll want to tune how many tokens we give over to thinking vs. producing output. Hard-coded for now.
@@ -118,18 +142,22 @@ async def call_llm(
         create_kwargs["temperature"] = 1  # Required for thinking
 
     last_exception: Exception | None = None
+    stage_label = stage or "unknown"
     for attempt in range(retries):
-        response = None
         # NOTE - we explicitly don't want to retry if we fail to call the llm, or fail to extract text content,
-        # only if we fail to validate the response.
-        response = await client.messages.create(**create_kwargs)
-        text_content = _extract_text_content(response)
+        # only if we fail to validate the response. A transport/extraction failure is a hot-path LLM error.
+        try:
+            response = await client.messages.create(**create_kwargs)
+            text_content = _extract_text_content(response)
+        except Exception:
+            metrics.increment_llm_call(stage_label, metrics.LLM_STATUS_ERROR)
+            raise
         text_content = _strip_markdown_json_fences(text_content)
         if not thinking:
             # Prepend the `{` we pre-filled
             text_content = "{" + text_content
         try:
-            return validate(text_content)
+            result = validate(text_content)
         except Exception as e:
             logger.warning(
                 f"LLM call failed (attempt {attempt + 1}/{retries}): {e}",
@@ -142,8 +170,7 @@ async def call_llm(
                 logger.warning(
                     f"LLM response that failed validation:\n{text_content}",
                 )
-            if response:
-                messages.append({"role": "assistant", "content": response.content})
+            messages.append({"role": "assistant", "content": response.content})
             messages.append(
                 {
                     "role": "user",
@@ -157,4 +184,8 @@ async def call_llm(
             last_exception = e
             continue
 
+        metrics.increment_llm_call(stage_label, metrics.LLM_STATUS_OK)
+        return result
+
+    metrics.increment_llm_call(stage_label, metrics.LLM_STATUS_ERROR)
     raise last_exception or ValueError(f"LLM call failed after {retries} attempts")

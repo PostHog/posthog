@@ -39,7 +39,7 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { NewMenu } from '../../menus/NewMenu'
 import { panelLayoutLogic } from '../../panelLayoutLogic'
-import { editCustomProductsModalLogic } from '../../PinnedFolder/editCustomProductsModalLogic'
+import { customProductsLogic } from '../customProductsLogic'
 import { projectTreeDataLogic } from '../projectTreeDataLogic'
 import { projectTreeLogic } from '../projectTreeLogic'
 import { joinPath, splitPath } from '../utils'
@@ -72,7 +72,7 @@ export function MenuItems({
     const { deleteShortcut, addShortcutItem } = useActions(projectTreeDataLogic)
     const { groupTypes } = useValues(groupAnalyticsConfigLogic)
     const { deleteGroupType } = useActions(groupAnalyticsConfigLogic)
-    const { selectedPaths: customProductsSelectedPaths } = useValues(editCustomProductsModalLogic)
+    const { enabledToolPaths: customProductsSelectedPaths } = useValues(customProductsLogic)
 
     const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root }
     const { checkedItems, checkedItemCountNumeric, checkedItemsArray } = useValues(
@@ -91,7 +91,7 @@ export function MenuItems({
     } = useActions(projectTreeLogic(projectTreeLogicProps))
     const { openMoveToModal } = useActions(moveToLogic)
     const { openLinkToModal } = useActions(linkToLogic)
-    const { toggleProduct } = useActions(editCustomProductsModalLogic)
+    const { setToolEnabled } = useActions(customProductsLogic)
 
     const { resetPanelLayout } = useActions(panelLayoutLogic)
 
@@ -284,7 +284,7 @@ export function MenuItems({
                     asChild
                     onClick={(e) => {
                         e.stopPropagation()
-                        toggleProduct(item.record?.path as string)
+                        setToolEnabled(item.record!.path as string, false)
                     }}
                 >
                     <ButtonPrimitive menuItem>Remove from sidebar panel</ButtonPrimitive>
@@ -296,7 +296,7 @@ export function MenuItems({
                     asChild
                     onClick={(e) => {
                         e.stopPropagation()
-                        toggleProduct(item.record?.path as string)
+                        setToolEnabled(item.record!.path as string, true)
                     }}
                 >
                     <ButtonPrimitive menuItem>Add to sidebar panel</ButtonPrimitive>

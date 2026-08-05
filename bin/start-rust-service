@@ -93,6 +93,7 @@ case "$RS_SVC" in
     export RUST_BACKTRACE=1
     export ADDRESS=0.0.0.0:3309 # avoid port conflict in local dev (3308 is used by llm-gateway)
     export KAFKA_HOSTS="$DEFAULT_KAFKA"
+    export KAFKA_TOPIC=ai_events_ingestion
     export REDIS_URL="$DEFAULT_REDIS"
     export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}"
     export CAPTURE_MODE=events
@@ -125,8 +126,10 @@ case "$RS_SVC" in
     # output is still noisy. Unconditional export — flox activate exports its
     # own RUST_LOG, so a conditional default would silently inherit that and
     # match no cymbal modules.
-    export RUST_LOG=info,cymbal=debug,cymbal_resolution=debug,cymbal_proto=debug,rdkafka=warn
+    export RUST_LOG=info,cymbal=debug,cymbal_proto=debug,rdkafka=warn
     export RUST_BACKTRACE=1
+    # Default mode, but set explicitly now that cymbal is multi-mode.
+    export CYMBAL_MODE=processing
     export OBJECT_STORAGE_BUCKET=posthog
     export FRAME_CACHE_TTL_SECONDS=1
     export FRAME_RESULT_TTL_MINUTES=0
@@ -139,15 +142,7 @@ case "$RS_SVC" in
     export ISSUE_BUCKETS_REDIS_URL="$DEFAULT_REDIS"
     export SIGNALS_API_BASE_URL="${SIGNALS_API_BASE_URL:-http://localhost:8000}" # Used to emit signals, via the internal API
     export INTERNAL_API_SECRET="${INTERNAL_API_SECRET:-posthog123}"
-    # Route exception resolution through the local cymbal-resolution pod so
-    # the new gRPC seam is exercised end-to-end during dev. Flip
-    # CYMBAL_REMOTE_RESOLUTION_ENABLED=false to fall back to inline local
-    # resolution if cymbal-resolution isn't running.
-    export CYMBAL_REMOTE_RESOLUTION_ENABLED="${CYMBAL_REMOTE_RESOLUTION_ENABLED:-true}"
-    # Production defaults to SAMPLE_RATE=0.0 so flipping ENABLED is a no-op
-    # until rollout is ramped explicitly. In dev we want every event to
-    # exercise the remote path so the seam is actually tested.
-    export CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE="${CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE:-1.0}"
+    # Processing always routes exception resolution through cymbal-resolution.
     export CYMBAL_REMOTE_RESOLUTION_HOST="${CYMBAL_REMOTE_RESOLUTION_HOST:-127.0.0.1}"
     export CYMBAL_REMOTE_RESOLUTION_PORT="${CYMBAL_REMOTE_RESOLUTION_PORT:-50061}"
     # Keep cadence tight on the dev box so routing reacts quickly to
@@ -157,15 +152,16 @@ case "$RS_SVC" in
     ;;
 
   cymbal-resolution)
-    # Symbol-resolution service that cymbal offloads to via cymbal.resolution.v1.
-    # Uses cymbal::app_context::build_symbol_resolver which only connects to
-    # Postgres and S3 — NOT Kafka, NOT Redis, NOT signals. That's why this
-    # block is so much narrower than the cymbal block: anything cymbal needs
-    # for the fingerprinting / issue path is genuinely irrelevant here.
+    # The cymbal binary in resolution mode (gRPC symbol-resolution service that
+    # cymbal offloads to). Resolution mode only needs Postgres and S3 — no
+    # Kafka/Redis/signals — hence the narrower env than the cymbal block.
+    export CYMBAL_MODE=resolution
+    # Run the `cymbal` binary; mode is selected via CYMBAL_MODE above.
+    export DEV_RUST_SVC_OVERRIDE=cymbal
     # Only cymbal crates at debug; everything else at info. Unconditional
     # export — flox activate exports its own RUST_LOG, so a conditional
     # default would silently inherit that and match no cymbal modules.
-    export RUST_LOG=info,cymbal=debug,cymbal_resolution=debug,cymbal_proto=debug,rdkafka=warn
+    export RUST_LOG=info,cymbal=debug,cymbal_proto=debug,rdkafka=warn
     export RUST_BACKTRACE=1
     # S3 / MinIO bucket for symbol-file fetches.
     export OBJECT_STORAGE_BUCKET=posthog
@@ -182,6 +178,20 @@ case "$RS_SVC" in
     export INTERNAL_API_SECRET="${INTERNAL_API_SECRET:-posthog123}"
     # Match the dev cymbal cadence so the load bus updates often.
     export SUBSCRIBE_TICK_INTERVAL_MS="${SUBSCRIBE_TICK_INTERVAL_MS:-500}"
+    ;;
+
+  cymbal-notifications)
+    # The notifications mode starts Temporal lifecycle workflows for notifications from processing mode.
+    export CYMBAL_MODE=notifications
+    export DEV_RUST_SVC_OVERRIDE=cymbal
+    export RUST_LOG=debug,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export KAFKA_HOSTS="$DEFAULT_KAFKA"
+    export KAFKA_CONSUMER_OFFSET_RESET="${KAFKA_CONSUMER_OFFSET_RESET:-earliest}"
+    export METRICS_PORT="${METRICS_PORT:-9107}"
+    export POSTHOG_API_KEY="${CYMBAL_NOTIFICATIONS_POSTHOG_API_KEY:-phc_localposthogprojecttoken}"
+    export POSTHOG_ENDPOINT="${CYMBAL_NOTIFICATIONS_POSTHOG_ENDPOINT:-http://localhost:3307}"
+    export TEMPORAL_HOST="${TEMPORAL_HOST:-temporal}"
     ;;
 
   embedding-worker)
@@ -264,6 +274,16 @@ case "$RS_SVC" in
     export METRICS_PORT=9101
     ;;
 
+  personhog-identity)
+    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-trace}
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL
+    export RUST_BACKTRACE=1
+    export GRPC_ADDRESS=127.0.0.1:50055
+    export PRIMARY_DATABASE_URL="${PRIMARY_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}"
+    export ROUTER_URL=http://127.0.0.1:50054
+    export METRICS_PORT=9108
+    ;;
+
   flags-consumer)
     SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
     export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
@@ -272,6 +292,34 @@ case "$RS_SVC" in
     export KAFKA_HOSTS="${KAFKA_HOSTS:-localhost:9092}"
     export KAFKA_CONSUMER_OFFSET_RESET="${KAFKA_CONSUMER_OFFSET_RESET:-earliest}"
     export METRICS_PORT=9105
+    export DEBUG=1
+    ;;
+
+  cohort-event-shuffler)
+    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export KAFKA_HOSTS="$DEFAULT_KAFKA"
+    export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}" # reads posthog_cohort for the realtime team gate
+    # Code default gates to team 2 (the parity baseline); dev uses the local team, so open the gate.
+    export REALTIME_COHORT_TEAM_ALLOWLIST="${REALTIME_COHORT_TEAM_ALLOWLIST:-all}"
+    # earliest replays existing local events; prod defaults to "latest".
+    export KAFKA_CONSUMER_OFFSET_RESET="${KAFKA_CONSUMER_OFFSET_RESET:-earliest}"
+    export BIND_PORT=3310
+    export DEBUG=1
+    ;;
+
+  cohort-stream-processor)
+    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}" # reads posthog_cohort for the realtime filter catalog
+    # Code default gates to team 2 (the parity baseline); dev uses the local team, so open the gate.
+    export REALTIME_COHORT_TEAM_ALLOWLIST="${REALTIME_COHORT_TEAM_ALLOWLIST:-all}"
+    # Fast refresh in dev so window/threshold edits surface a new LeafStateKey quickly.
+    export FILTER_CATALOG_REFRESH_SECS="${FILTER_CATALOG_REFRESH_SECS:-30}"
+    export FILTER_CATALOG_REFRESH_JITTER_SECS="${FILTER_CATALOG_REFRESH_JITTER_SECS:-5}"
+    export BIND_PORT=3311
     export DEBUG=1
     ;;
 

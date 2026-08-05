@@ -32,21 +32,25 @@ from posthog.event_usage import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import validate_display_name
+from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR
 from posthog.models import Organization, User
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.permissions import (
     CREATE_ACTIONS,
     APIScopePermission,
     OrganizationAdminWritePermissions,
+    OrganizationMemberPermissions,
     TimeSensitiveActionPermission,
     extract_organization,
 )
+from posthog.rate_limit import PostHogAIAccessRequestIPThrottle, PostHogAIAccessRequestUserThrottle
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
 from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
-from posthog.tasks.tasks import delete_organization_data_and_notify_task
+from posthog.tasks.email import send_posthog_ai_access_request
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_safe_cache, safe_cache_set
 
@@ -64,7 +68,7 @@ class PremiumMultiorganizationPermission(permissions.BasePermission):
                 user.organization is None
                 or not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
             )
-            and user.organizations.count() >= 1
+            and user.organizations.exists()
         ):
             return False
         return True
@@ -174,9 +178,11 @@ class OrganizationSerializer(
             "metadata",
             "customer_id",
             "enforce_2fa",
+            "enforce_verified_domains",
             "members_can_invite",
             "members_can_create_projects",
             "members_can_use_personal_api_keys",
+            "members_can_see_org_members",
             "allow_publicly_shared_resources",
             "member_count",
             "is_ai_data_processing_approved",
@@ -309,6 +315,43 @@ class OrganizationSerializer(
                 )
         return value
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # A blocked admin gets through the domain gates only to use the escape hatch: turning
+        # `enforce_verified_domains` off. Reject anything else they try to change on the way.
+        request = self.context.get("request")
+        if (
+            self.instance
+            and request
+            and isinstance(request.user, User)
+            and OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(request.user.email, self.instance)
+        ):
+            if set(attrs) != {"enforce_verified_domains"} or attrs["enforce_verified_domains"]:
+                raise exceptions.PermissionDenied(VERIFIED_DOMAIN_REQUIRED_ERROR, code="verified_domain_required")
+        return attrs
+
+    def validate_enforce_verified_domains(self, value: bool | None) -> bool | None:
+        # Only turning it on is gated. This setting denies access rather than prompting for setup, so
+        # an organization that lost the entitlement or ended up misconfigured must always be able to
+        # switch it off and let its members back in.
+        if not value or not self.instance or self.instance.enforce_verified_domains == value:
+            return value
+
+        if not self.instance.is_feature_available(AvailableFeature.AUTOMATIC_PROVISIONING):
+            raise serializers.ValidationError(
+                "You must upgrade your plan to restrict members to verified domains.",
+                code="payment_required",
+            )
+
+        if not OrganizationDomain.objects.is_domain_verified_for_organization(
+            self.context["request"].user.email, self.instance
+        ):
+            raise serializers.ValidationError(
+                "Your own email address isn't on a verified domain for this organization, so turning this on would lock you out. Verify the domain of your email address first.",
+                code="would_block_self",
+            )
+
+        return value
+
     def validate_allow_publicly_shared_resources(self, value: bool) -> bool:
         if self.instance and self.instance.allow_publicly_shared_resources != value:
             if not self.instance.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
@@ -341,6 +384,15 @@ class OrganizationSerializer(
                 )
         return value
 
+    def validate_members_can_see_org_members(self, value: bool) -> bool:
+        if self.instance and self.instance.members_can_see_org_members != value:
+            if not self.instance.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
+                raise serializers.ValidationError(
+                    "You must upgrade your plan to configure member list visibility.",
+                    code="payment_required",
+                )
+        return value
+
     @extend_schema_field(serializers.IntegerField())
     @tracer.start_as_current_span("organization_serializer.member_count")
     def get_member_count(self, organization: Organization) -> int:
@@ -349,6 +401,12 @@ class OrganizationSerializer(
     @tracer.start_as_current_span("organization_serializer.to_representation")
     def to_representation(self, instance):
         return super().to_representation(instance)
+
+
+class OrganizationAIAccessRequestResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(
+        help_text="Whether the access request was accepted and the organization admins were notified."
+    )
 
 
 @extend_schema(extensions={"x-product": "platform_features"})
@@ -391,6 +449,13 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 update_permissions.append(PremiumMultiorganizationPermission())
 
             return update_permissions
+
+        # Any org member may ask an admin to enable PostHog AI — enabling still requires admin.
+        if self.action == "request_ai_access":
+            return [
+                permission()
+                for permission in [permissions.IsAuthenticated, APIScopePermission, OrganizationMemberPermissions]
+            ]
 
         # We don't override for other actions
         raise NotImplementedError()
@@ -465,29 +530,16 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         organization.save(update_fields=["is_pending_deletion"])
 
         # Hand off all deletion work (bulky postgres, batch exports, org/team records,
-        # ClickHouse, email). Route to the durable Temporal workflow when the rollout flag
-        # is enabled for this org; otherwise keep the legacy Celery task.
-        from posthog.temporal.delete_teams.dispatch import (
-            delete_via_temporal_enabled,
-            start_delete_organization_workflow,
-        )
+        # ClickHouse, email) to the durable Temporal workflow.
+        from posthog.temporal.delete_teams.dispatch import start_delete_organization_workflow
 
-        if delete_via_temporal_enabled(str(organization_id)):
-            start_delete_organization_workflow(
-                team_ids=team_ids,
-                organization_id=str(organization_id),
-                user_id=user.id,
-                organization_name=organization_name,
-                project_names=project_names,
-            )
-        else:
-            delete_organization_data_and_notify_task.delay(
-                team_ids=team_ids,
-                organization_id=str(organization_id),
-                user_id=user.id,
-                organization_name=organization_name,
-                project_names=project_names,
-            )
+        start_delete_organization_workflow(
+            team_ids=team_ids,
+            organization_id=str(organization_id),
+            user_id=user.id,
+            organization_name=organization_name,
+            project_names=project_names,
+        )
 
     def get_serializer_context(self) -> dict[str, Any]:
         return {
@@ -566,3 +618,30 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"status": False, "error": "An internal error has occurred."}, status=500)
 
         return Response({"status": True})
+
+    @extend_schema(request=None, responses={200: OrganizationAIAccessRequestResponseSerializer})
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="request_ai_access",
+        throttle_classes=[PostHogAIAccessRequestUserThrottle, PostHogAIAccessRequestIPThrottle],
+    )
+    def request_ai_access(self, request: Request, **kwargs) -> Response:
+        """Notify organization admins that a member is requesting PostHog AI be enabled."""
+        organization = self.organization
+        user = cast(User, request.user)
+
+        # Nothing to request if PostHog AI is already enabled for the org.
+        if organization.is_ai_data_processing_approved:
+            raise exceptions.ValidationError("PostHog AI is already enabled for this organization.")
+
+        # Members only — admins can enable PostHog AI themselves, so there's nobody to ask.
+        membership = OrganizationMembership.objects.filter(user=user, organization=organization).first()
+        if membership is None or membership.level >= OrganizationMembership.Level.ADMIN:
+            raise exceptions.PermissionDenied("Only members can request access; admins can enable PostHog AI directly.")
+
+        send_posthog_ai_access_request.delay(
+            organization_id=str(organization.id),
+            requesting_user_id=user.id,
+        )
+        return Response({"success": True})

@@ -12,15 +12,24 @@ import sys
 import shlex
 import shutil
 from abc import ABC, abstractmethod
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
 from pydantic import BaseModel
 
+from .registry import create_mprocs_registry, find_repo_file
+
 if TYPE_CHECKING:
     from .registry import ProcessRegistry
     from .resolver import ResolvedEnvironment
+
+
+def _dev_sandbox_enabled() -> bool:
+    """Dev filesystem sandbox is on by default; opt out with POSTHOG_DEV_SANDBOX=0 (strict)."""
+    return os.getenv("POSTHOG_DEV_SANDBOX") != "0"
 
 
 class DevenvConfig(BaseModel):
@@ -42,7 +51,10 @@ class DevenvConfig(BaseModel):
 
 
 def _get_docker_compose_base() -> str:
-    return "docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml"
+    # Pin the project name so worktrees share one dev stack instead of each
+    # defaulting to its own directory name.
+    project_name = os.environ.get("COMPOSE_PROJECT_NAME") or "posthog"
+    return f"docker compose -p {shlex.quote(project_name)} -f docker-compose.dev.yml -f docker-compose.profiles.yml"
 
 
 def build_docker_compose_command(profiles: list[str], action: str = "up -d") -> str:
@@ -60,6 +72,104 @@ def build_docker_compose_command(profiles: list[str], action: str = "up -d") -> 
         profile_flags = " ".join(f"--profile {p}" for p in profiles)
         return f"{base} {profile_flags} {action}"
     return f"{base} {action}"
+
+
+# The proc's ready_pattern in bin/mprocs.yaml and bin/mprocs-e2e.yaml must match
+# this literal, or mprocs waits forever for a signal that never comes.
+_READY_MARKER = "docker-compose ready"
+
+
+def _build_docker_compose_shell(profiles: list[str]) -> str:
+    """Sandboxes have no docker CLI, so the shell short-circuits instead of failing on `docker compose`."""
+    up_cmd = build_docker_compose_command(profiles, "up --pull always -d")
+    logs_cmd = build_docker_compose_command(profiles, "logs --tail=100 -f")
+    sandbox_cmd = (
+        f'echo "Sandbox: infra managed by docker compose externally" && echo "{_READY_MARKER}" && sleep infinity'
+    )
+    # The `exit 1` is load-bearing: without it the `{ ...; }` group exits 0, the `||`
+    # is satisfied, and the ready marker fires against a stack that never came up.
+    fail_cmd = (
+        'echo "docker compose up failed (see the error above). A common cause: another stack or process '
+        'holding a required port (see the pre-flight output from bin/start). Inspect with: docker ps --all"; '
+        "exit 1"
+    )
+    dev_cmd = f'{up_cmd} || {{ {fail_cmd}; }} && echo "{_READY_MARKER}" && {logs_cmd}'
+    return f'if [ "${{POSTHOG_SANDBOX:-}}" = "1" ]; then {sandbox_cmd}; else {dev_cmd}; fi'
+
+
+# bin/mprocs.yaml has no intent resolution: every proc in it autostarts, so it
+# needs every profile those procs depend on (temporal-worker and
+# recording-rasterizer wait on `temporal`; personhog-etcd-init docker-execs
+# into `etcd`; session replay needs `replay`) — this reproduces master's
+# unprofiled `docker-compose.dev.yml` service set exactly.
+_STATIC_MPROCS_PROFILES = ["dev_tools", "etcd", "localstack", "observability", "replay", "temporal"]
+
+
+def build_static_docker_compose_shell() -> str:
+    """bin/mprocs.yaml's docker-compose shell — every proc autostarts, so every legacy profile is active."""
+    return _build_docker_compose_shell(_STATIC_MPROCS_PROFILES)
+
+
+def build_e2e_docker_compose_shell() -> str:
+    """bin/mprocs-e2e.yaml's docker-compose shell: never sandboxed, plus an explicit
+    `up` for personhog-replica/router under the ingestion profile."""
+    up_cmd = build_docker_compose_command([], "up --pull always -d")
+    personhog_cmd = build_docker_compose_command(["ingestion"], "up -d personhog-replica personhog-router")
+    logs_cmd = build_docker_compose_command([], "logs --tail=100 -f")
+    return f'{up_cmd} && {personhog_cmd} && echo "{_READY_MARKER}" && {logs_cmd}'
+
+
+# Matches the docker-compose proc's `shell:` scalar in a checked-in mprocs YAML
+# file (bin/mprocs.yaml or bin/mprocs-e2e.yaml). Anchored on the exact
+# indentation/key ordering of that block rather than parsed as YAML, so
+# regeneration can rewrite just this one line and leave the rest of the
+# hand-maintained file (comments, formatting, other procs) untouched.
+_DOCKER_COMPOSE_SHELL_LINE_RE = re.compile(r"(?P<prefix>^    docker-compose:\n        shell: )'[^\n]*'$", re.M)
+
+
+def is_mprocs_shell_up_to_date(mprocs_path: Path, expected: str) -> bool:
+    """Whether mprocs_path's docker-compose proc shell already matches expected."""
+    current_shell = create_mprocs_registry(mprocs_path).get_processes()["docker-compose"].shell
+    return current_shell == expected
+
+
+def regenerate_mprocs_shell(mprocs_path: Path, expected: str) -> bool:
+    """Sync mprocs_path's docker-compose proc shell with expected.
+
+    Returns True if the file was rewritten, False if it was already up to date.
+    """
+    if is_mprocs_shell_up_to_date(mprocs_path, expected):
+        return False
+    # The entry is single-quoted YAML; a literal `'` would need escaping this
+    # substitution doesn't do.
+    if "'" in expected:
+        raise ValueError("Generated docker-compose shell contains a single quote; update the YAML quoting logic")
+    text = mprocs_path.read_text()
+    new_text, replaced = _DOCKER_COMPOSE_SHELL_LINE_RE.subn(lambda m: f"{m.group('prefix')}'{expected}'", text, count=1)
+    if not replaced:
+        raise ValueError(
+            f"{mprocs_path}: no docker-compose `shell:` line matched _DOCKER_COMPOSE_SHELL_LINE_RE. "
+            "The proc's key order, indentation, or quoting changed; update the pattern."
+        )
+    mprocs_path.write_text(new_text)
+    return True
+
+
+@dataclass(frozen=True)
+class TrackedMprocsFile:
+    """A checked-in mprocs YAML file whose docker-compose proc shell is kept in
+    sync with a Python-built string, by `hogli dev:regenerate-mprocs` and the
+    ci_preflight "mprocs" check."""
+
+    name: str  # repo-relative path, for display and as a preflight trigger glob
+    path: Path
+    build_shell: Callable[[], str]
+
+
+TRACKED_MPROCS_FILES: list[TrackedMprocsFile] = [
+    TrackedMprocsFile("bin/mprocs.yaml", find_repo_file("bin/mprocs.yaml"), build_static_docker_compose_shell),
+    TrackedMprocsFile("bin/mprocs-e2e.yaml", find_repo_file("bin/mprocs-e2e.yaml"), build_e2e_docker_compose_shell),
+]
 
 
 class ConfigGenerator(ABC):
@@ -88,6 +198,7 @@ class MprocsConfig(BaseModel):
 
     procs: dict[str, dict[str, Any]]
     group_order: dict[str, list[str]] = {}  # display order per grouping dimension
+    default_group: str = ""  # grouping dimension the sidebar starts grouped by ("" = ungrouped)
     mouse_scroll_speed: int = 1
     scrollback: int = 10000
     posthog_config: DevenvConfig | None = None  # embedded source config
@@ -100,6 +211,8 @@ class MprocsConfig(BaseModel):
         result["procs"] = self.procs
         if self.group_order:
             result["group_order"] = self.group_order
+        if self.default_group:
+            result["default_group"] = self.default_group
         result["mouse_scroll_speed"] = self.mouse_scroll_speed
         result["scrollback"] = self.scrollback
         return result
@@ -207,6 +320,7 @@ class MprocsGenerator(ConfigGenerator):
         return MprocsConfig(
             procs=procs,
             group_order=global_settings.get("group_order", {}),
+            default_group=global_settings.get("default_group", ""),
             mouse_scroll_speed=global_settings.get("mouse_scroll_speed", 1),
             scrollback=global_settings.get("scrollback", 10000),
             posthog_config=source_config,
@@ -229,18 +343,18 @@ class MprocsGenerator(ConfigGenerator):
         bold = r"\033[1m"
         reset = r"\033[0m"
 
-        # Reflect the *effective* dependency-sandbox state: opted in via
-        # POSTHOG_DEV_SANDBOX=1 AND on macOS with sandbox-exec (the wrapper no-ops
-        # elsewhere). Mirrors the gate in _add_sandbox_wrapper, so the banner can't
-        # claim isolation the platform won't deliver.
-        sandbox_opted_in = os.getenv("POSTHOG_DEV_SANDBOX") == "1"
+        # Reflect the *effective* dependency-sandbox state: on by default (opt out
+        # with POSTHOG_DEV_SANDBOX=0) AND on macOS with sandbox-exec (the wrapper
+        # no-ops elsewhere). Mirrors the gate in _add_sandbox_wrapper, so the banner
+        # can't claim isolation the platform won't deliver.
+        sandbox_enabled = _dev_sandbox_enabled()
         sandbox_supported = sys.platform == "darwin" and shutil.which("sandbox-exec") is not None
-        if sandbox_opted_in and sandbox_supported:
+        if sandbox_enabled and sandbox_supported:
             sandbox_status = f"{green}on{reset}"
-        elif sandbox_opted_in:
-            sandbox_status = f"{gray}off — POSTHOG_DEV_SANDBOX set but unsupported on this platform{reset}"
+        elif sandbox_enabled:
+            sandbox_status = f"{gray}off — unsupported on this platform{reset}"
         else:
-            sandbox_status = f"{gray}off{reset} {gray}(set POSTHOG_DEV_SANDBOX=1 in .env.local){reset}"
+            sandbox_status = f"{gray}off{reset} {gray}(POSTHOG_DEV_SANDBOX=0; unset to re-enable){reset}"
 
         news_url = "https://raw.githubusercontent.com/posthog/posthog/master/devenv/news.txt"
         news_local = "devenv/news.txt"
@@ -316,11 +430,8 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         else:
             message = "echo '▶ docker-compose: core services only (configure via: hogli dev:setup)' && "
 
-        up_cmd = build_docker_compose_command(profiles, "up --pull always -d")
-        logs_cmd = build_docker_compose_command(profiles, "logs --tail=100 -f")
-
-        proc_config["shell"] = f"{message}{up_cmd} && echo 'docker-compose ready' && {logs_cmd}"
-        proc_config["ready_pattern"] = "docker-compose ready"
+        proc_config["shell"] = message + _build_docker_compose_shell(profiles)
+        proc_config["ready_pattern"] = _READY_MARKER
         return proc_config
 
     def _add_nodejs_capability_groups(
@@ -355,9 +466,7 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
 
         original_shell = proc_config.get("shell", "")
         if original_shell:
-            env_exports = (
-                "export PERSONHOG_ADDR='127.0.0.1:50052' PERSONHOG_ENABLED='true' PERSONHOG_ROLLOUT_PERCENTAGE='100'"
-            )
+            env_exports = "export PERSONHOG_ADDR='127.0.0.1:50052'"
             proc_config["shell"] = f"{env_exports} && {original_shell}"
 
         return proc_config
@@ -391,34 +500,55 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
     # code, so running them unsandboxed doesn't widen the untrusted attack surface.
     _SANDBOX_DOCKER_GATES = ("bin/wait-for-docker", "bin/wait-for-postgres-tables")
 
+    # Trusted helpers peeled out to run OUTSIDE the sandbox for a reason other than
+    # the docker socket. bin/dev-open-when-ready backgrounds a poller and opens the
+    # browser once a server is up — the OS browser-open path (open → LaunchServices)
+    # reads $HOME, which the sandbox denies. It self-backgrounds and returns 0
+    # immediately, so hoisting it to the front is safe. It takes a fixed URL from the
+    # proc def (never dependency input) and lives in $PROJECT/bin, which the profile
+    # write-denies, so a compromised dep can't tamper with it.
+    _SANDBOX_UNSANDBOXED_PREFIXES = ("bin/dev-open-when-ready",)
+
+    # Procs excluded from the sandbox by default: they need the docker socket the
+    # profile denies (e.g. temporal-worker running PostHog Desktop tasks with
+    # SANDBOX_PROVIDER=docker). POSTHOG_DEV_SANDBOX_EXCLUDE adds more on top.
+    _SANDBOX_DEFAULT_EXCLUDES = frozenset({"temporal-worker"})
+
     def _add_sandbox_wrapper(self, proc_config: dict[str, Any], name: str = "") -> dict[str, Any]:
-        """Wrap a service command in bin/dev-sandbox (macOS Seatbelt) when opted in.
+        """Wrap a service command in bin/dev-sandbox (macOS Seatbelt) by default.
 
-        Opt in globally with POSTHOG_DEV_SANDBOX=1 (e.g. in .env.local). A proc is
-        wrapped only if it declares ``sandbox: true`` in the registry — an explicit,
-        reviewable per-proc boundary rather than one inferred from the cosmetic
-        ``groups.tech`` field (which is optional, so a forgotten annotation silently
-        dropped a service out of the sandbox). Rust/Docker/migration procs simply
-        omit the flag. The sandbox restricts reads to the repo + toolchain caches so
-        a malicious dependency can't read credentials (~/.ssh, ~/.aws, ...) and denies
-        the docker/agent sockets so it can't escape via a container mount.
+        On by default; opt out globally with POSTHOG_DEV_SANDBOX=0 (e.g. in
+        .env.local). A proc is wrapped only if it declares ``sandbox: true`` in the
+        registry — an explicit, reviewable per-proc boundary rather than one inferred
+        from the cosmetic ``groups.tech`` field (which is optional, so a forgotten
+        annotation silently dropped a service out of the sandbox). Rust/Docker/migration
+        procs simply omit the flag. The sandbox restricts reads to the repo + toolchain
+        caches so a malicious dependency can't read credentials (~/.ssh, ~/.aws, ...)
+        and denies the docker/agent sockets so it can't escape via a container mount.
 
-        POSTHOG_DEV_SANDBOX_EXCLUDE (comma-separated proc names) opts individual
-        procs back out. Use sparingly — it exists for procs whose feature set
-        requires the docker socket the profile denies, e.g. temporal-worker running
-        PostHog Code tasks with SANDBOX_PROVIDER=docker. Excluded procs run fully
-        unsandboxed, so the dependency-isolation guarantee no longer covers them.
+        Some procs are excluded by default (``_SANDBOX_DEFAULT_EXCLUDES``) because
+        they need the docker socket the profile denies, e.g. temporal-worker running
+        PostHog Desktop tasks with SANDBOX_PROVIDER=docker. POSTHOG_DEV_SANDBOX_EXCLUDE
+        (comma-separated proc names) opts additional procs back out. Excluded procs
+        run fully unsandboxed, so the dependency-isolation guarantee no longer covers
+        them.
 
         The docker-gate preamble (bin/wait-for-docker) is peeled out to run
         unsandboxed, since it needs the very socket the sandbox denies; the actual
         server (which reaches infra over TCP) is what gets sandboxed. bin/dev-sandbox
         is a no-op passthrough on non-macOS, so the generated config stays portable.
+
+        bin/dev-open-when-ready (``_SANDBOX_UNSANDBOXED_PREFIXES``) is peeled out the
+        same way so a proc can auto-open its browser once it's listening — the OS
+        browser-open path the sandbox denies runs outside it, not by widening the
+        profile.
         """
         # `sandbox` is a registry-only selector; pop it so it never leaks into the
         # emitted proc config (which phrocs/mprocs would otherwise see).
         should_sandbox = bool(proc_config.pop("sandbox", False))
-        excluded = {p.strip() for p in os.getenv("POSTHOG_DEV_SANDBOX_EXCLUDE", "").split(",") if p.strip()}
-        if os.getenv("POSTHOG_DEV_SANDBOX") != "1" or not should_sandbox or (name and name in excluded):
+        excluded = set(self._SANDBOX_DEFAULT_EXCLUDES)
+        excluded |= {p.strip() for p in os.getenv("POSTHOG_DEV_SANDBOX_EXCLUDE", "").split(",") if p.strip()}
+        if not _dev_sandbox_enabled() or not should_sandbox or (name and name in excluded):
             return proc_config
 
         shell = proc_config.get("shell", "")
@@ -433,9 +563,11 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         # in place: _add_startup_message and _add_uv_groups prepend echo/uv-sync
         # preambles, so a gate is never the leading segment (a leading-run scan would
         # wrongly sandbox it). Hoisting reorders segments, which is safe because the
-        # only gates (wait-for-docker, wait-for-postgres-tables) just block until
-        # infra is ready and are order-independent w.r.t. install/echo/server steps.
-        # A future order-sensitive gate would need interleaving instead of hoisting.
+        # peeled-out helpers (wait-for-docker / wait-for-postgres-tables block until
+        # infra is ready; dev-open-when-ready self-backgrounds and returns at once)
+        # are all order-independent w.r.t. install/echo/server steps. A future
+        # order-sensitive helper would need interleaving instead of hoisting.
+        unsandboxed_prefixes = self._SANDBOX_DOCKER_GATES + self._SANDBOX_UNSANDBOXED_PREFIXES
         normalized = re.sub(r"\\\n\s*", " ", shell)
         gates: list[str] = []
         rest: list[str] = []
@@ -444,7 +576,7 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
             if not stripped:
                 continue
             first_token = stripped.split(maxsplit=1)[0]
-            (gates if first_token in self._SANDBOX_DOCKER_GATES else rest).append(stripped)
+            (gates if first_token in unsandboxed_prefixes else rest).append(stripped)
 
         rest_cmd = " && ".join(rest)
         if not rest_cmd:

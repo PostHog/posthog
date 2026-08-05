@@ -1,7 +1,7 @@
 from posthog.api import sharing
 from posthog.api.routing import RouterRegistry
 
-from products.notebooks.backend.api.notebook import NotebookViewSet
+from products.notebooks.backend.presentation.views.notebook import NotebookViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:

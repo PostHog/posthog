@@ -1,5 +1,7 @@
 from posthog.test.base import BaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
@@ -25,6 +27,7 @@ class TestExperimentMetricsRecalculationSerializer(BaseTest):
             "created_at": "2026-05-28T10:00:00Z",
             "started_at": "2026-05-28T10:00:01Z",
             "completed_at": None,
+            "query_to": "2026-05-28T10:00:01Z",
         }
         data = ExperimentMetricsRecalculationSerializer(payload).data
         assert data["status"] == "in_progress"
@@ -32,6 +35,7 @@ class TestExperimentMetricsRecalculationSerializer(BaseTest):
         assert data["experiment_id"] == 7
         assert data["trigger"] == "manual"
         assert data["completed_at"] is None
+        assert data["query_to"] == "2026-05-28T10:00:01Z"
         # Field is metric_errors (not errors) to avoid shadowing DRF's Serializer.errors property.
         assert data["metric_errors"] == {"m1": {"step": "calculation", "message": "boom"}}
         assert "errors" not in data
@@ -79,8 +83,20 @@ class TestExperimentMetricsRecalculationSerializer(BaseTest):
         data = ExperimentMetricsRecalculationSerializer({}).data
         assert "is_existing" not in data
 
+    def test_result_source_defaults_to_recalculation_when_absent(self):
+        # required=False + default means a real payload that never sets result_source still serializes it as
+        # "recalculation", so clients can always read a concrete source.
+        data = ExperimentMetricsRecalculationSerializer({"status": "completed"}).data
+        assert data["result_source"] == "recalculation"
 
-class TestRecalculateMetricsRequestSerializer(BaseTest):
+    def test_result_source_round_trips_timeseries_fallback(self):
+        data = ExperimentMetricsRecalculationSerializer(
+            {"status": "completed", "result_source": "timeseries_fallback"}
+        ).data
+        assert data["result_source"] == "timeseries_fallback"
+
+
+class TestRecalculateMetricsRequestSerializer(SimpleTestCase):
     def test_defaults_trigger_to_manual_when_omitted(self):
         s = RecalculateMetricsRequestSerializer(data={})
         assert s.is_valid(), s.errors
@@ -89,6 +105,10 @@ class TestRecalculateMetricsRequestSerializer(BaseTest):
     @parameterized.expand(
         [
             ("manual",),
+            ("cold_run",),
+            ("stale_refresh",),
+            ("auto_refresh",),
+            ("config_change",),
             ("experiment_launch",),
             ("experiment_stop",),
             ("experiment_update",),
@@ -105,7 +125,7 @@ class TestRecalculateMetricsRequestSerializer(BaseTest):
         assert "trigger" in s.errors
 
 
-class TestMetricRecalculationResultSerializer(BaseTest):
+class TestMetricRecalculationResultSerializer(SimpleTestCase):
     @parameterized.expand(
         [
             (

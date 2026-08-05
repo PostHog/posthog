@@ -1,26 +1,22 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { IconX } from '@posthog/icons'
-import { type ChartTheme } from '@posthog/quill-charts'
 import { Button } from '@posthog/quill-primitives'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartTheme } from 'lib/charts/hooks'
 import { TagsCombobox } from 'lib/components/Scenes/TagsCombobox'
 import { LinkPrimitive } from 'lib/lemon-ui/Link/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-
-import { mcpAnalyticsToolQualityLogic } from './mcpAnalyticsToolQualityLogic'
+import { McpDateFilter } from './components/McpDateFilter'
+import { mcpAnalyticsToolQualityLogic, mcpToolReportUrl } from './mcpAnalyticsToolQualityLogic'
 import { ToolQualityCharts } from './tool-quality/ToolQualityCharts'
-import { ToolQualityDateFilter } from './tool-quality/ToolQualityDateFilter'
 import { ToolQualityTable } from './tool-quality/ToolQualityTable'
 
 function FilterBar(): JSX.Element {
-    const { availableCategories, selectedCategories, scopeShare, dateFilter } = useValues(mcpAnalyticsToolQualityLogic)
+    const { availableCategories, selectedCategories, scopeShare, dateFilter, dateRangeLabel } =
+        useValues(mcpAnalyticsToolQualityLogic)
     const { setSelectedCategories, setDateFilter } = useActions(mcpAnalyticsToolQualityLogic)
 
     const hasScope = selectedCategories.length > 0
@@ -38,17 +34,18 @@ function FilterBar(): JSX.Element {
                     dataAttr="mcp-tool-quality-category-scope"
                 />
             </div>
-            <ToolQualityDateFilter
+            <McpDateFilter
                 dateFrom={dateFilter.dateFrom}
                 dateTo={dateFilter.dateTo}
                 onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
+                dataAttr="mcp-tool-quality-date-filter"
             />
             {hasScope && sharePct !== null ? (
                 <Tooltip
-                    title={`${scopeShare.inScope.toLocaleString()} of ${scopeShare.total.toLocaleString()} MCP tool calls in the last 7 days were in the selected categories`}
+                    title={`${scopeShare.inScope.toLocaleString()} of ${scopeShare.total.toLocaleString()} MCP tool calls were in the selected categories (${dateRangeLabel})`}
                 >
                     <div className="text-sm text-muted">
-                        <span className="font-semibold text-default">{sharePct}%</span> of MCP usage (last 7d)
+                        <span className="font-semibold text-default">{sharePct}%</span> of MCP usage ({dateRangeLabel})
                     </div>
                 </Tooltip>
             ) : null}
@@ -57,7 +54,7 @@ function FilterBar(): JSX.Element {
 }
 
 function ChartsScopeHeader(): JSX.Element {
-    const { selectedTool } = useValues(mcpAnalyticsToolQualityLogic)
+    const { selectedTool, dateFilter } = useValues(mcpAnalyticsToolQualityLogic)
     const { setSelectedTool } = useActions(mcpAnalyticsToolQualityLogic)
 
     if (!selectedTool) {
@@ -77,7 +74,7 @@ function ChartsScopeHeader(): JSX.Element {
             <Button
                 variant="outline"
                 size="sm"
-                render={<LinkPrimitive to={urls.mcpAnalyticsTool(selectedTool)} />}
+                render={<LinkPrimitive to={mcpToolReportUrl(selectedTool, dateFilter)} />}
                 data-attr="mcp-tool-quality-full-report"
             >
                 Full tool report
@@ -96,19 +93,23 @@ function ChartsScopeHeader(): JSX.Element {
 }
 
 export function MCPAnalyticsToolQuality(): JSX.Element {
-    const { dailyChartData, dailyStatsLoading } = useValues(mcpAnalyticsToolQualityLogic)
-    const { isDarkModeOn } = useValues(themeLogic)
+    const { dailyChartData, dailyStatsLoading, interval, incompleteTail } = useValues(mcpAnalyticsToolQualityLogic)
     const { timezone } = useValues(teamLogic)
 
-    // buildTheme() reads CSS vars from the DOM; isDarkModeOn is the dep that forces a recompute when
-    // the theme flips (it isn't passed as an argument).
-    const theme = useMemo<ChartTheme>(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
 
     return (
         <div className="flex flex-col gap-4" data-quill>
             <FilterBar />
             <ChartsScopeHeader />
-            <ToolQualityCharts data={dailyChartData} loading={dailyStatsLoading} theme={theme} timezone={timezone} />
+            <ToolQualityCharts
+                data={dailyChartData}
+                loading={dailyStatsLoading}
+                theme={theme}
+                timezone={timezone}
+                interval={interval}
+                incompleteTail={incompleteTail}
+            />
             <ToolQualityTable />
         </div>
     )

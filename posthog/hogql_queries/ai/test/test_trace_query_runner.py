@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, TypedDict
 from uuid import UUID
 
@@ -20,6 +20,7 @@ from posthog.schema import (
 
 from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.models import PropertyDefinition, Team
+from posthog.models.ai_events.test_util import bulk_create_ai_events
 
 from products.event_definitions.backend.models.property_definition import PropertyType
 
@@ -196,6 +197,38 @@ def _create_ai_embedding_event(
     )
 
 
+def _create_ai_sentiment_evaluation_event(
+    *,
+    trace_id: str,
+    generation_id: str,
+    team: Team | None = None,
+    distinct_id: str | None = None,
+    timestamp: datetime | None = None,
+) -> None:
+    _create_event(
+        event="$ai_evaluation",
+        distinct_id=distinct_id,
+        team=team,
+        timestamp=timestamp,
+        properties={
+            "$ai_trace_id": trace_id,
+            "$ai_evaluation_runtime": "sentiment",
+            "$ai_target_event_id": generation_id,
+            "$ai_sentiment_label": "negative",
+            "$ai_sentiment_score": 0.8,
+            "$ai_sentiment_scores": {"positive": 0.1, "neutral": 0.1, "negative": 0.8},
+            "$ai_sentiment_messages": {
+                "0": {
+                    "label": "negative",
+                    "score": 0.8,
+                    "scores": {"positive": 0.1, "neutral": 0.1, "negative": 0.8},
+                }
+            },
+            "$ai_sentiment_message_count": 1,
+        },
+    )
+
+
 class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
@@ -309,6 +342,74 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
                 },
             },
         )
+
+    def test_stored_sentiment_evaluations_are_mapped_to_trace_and_generation(self):
+        event_uuid = uuid.uuid4()
+        generation_id = "generation-id-1"
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            input="Foo",
+            output="Bar",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 0),
+            event_uuid=event_uuid,
+            properties={"$ai_generation_id": generation_id},
+        )
+        _create_ai_sentiment_evaluation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            generation_id=generation_id,
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 0, 1),
+        )
+
+        response = TraceQueryRunner(
+            team=self.team,
+            query=TraceQuery(
+                traceId="trace1",
+                includeSentiment=True,
+                dateRange=DateRange(date_from="2025-01-15T00:00:00Z", date_to="2025-01-15T02:00:00Z"),
+            ),
+        ).calculate()
+
+        assert len(response.results) == 1
+        trace = response.results[0]
+        assert trace.sentiment is not None
+        assert trace.sentiment.label == "negative"
+        assert trace.sentiment.score == 0.8
+        assert trace.sentiment.messages is not None
+        assert trace.sentiment.messages[f"{generation_id}:0"].label == "negative"
+        assert len(trace.events) == 1
+        assert trace.events[0].sentiment is not None
+        assert trace.events[0].sentiment.label == "negative"
+        assert trace.events[0].sentiment.messages is not None
+        assert trace.events[0].sentiment.messages["0"].score == 0.8
+
+    @patch("posthog.hogql_queries.ai.trace_query_runner.load_generation_sentiment_evaluations_for_traces")
+    def test_stored_sentiment_evaluation_lookup_is_opt_in(self, mock_load_sentiment):
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            input="Foo",
+            output="Bar",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 0),
+        )
+
+        response = TraceQueryRunner(
+            team=self.team,
+            query=TraceQuery(
+                traceId="trace1",
+                dateRange=DateRange(date_from="2025-01-15T00:00:00Z", date_to="2025-01-15T02:00:00Z"),
+            ),
+        ).calculate()
+
+        assert len(response.results) == 1
+        assert response.results[0].sentiment is None
+        mock_load_sentiment.assert_not_called()
 
     def test_maps_all_fields(self):
         """Test that all fields are mapped correctly."""
@@ -474,6 +575,33 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         ).calculate()
         self.assertEqual(len(response.results), 1)
         self.assertEqual(len(response.results[0].events), 2)
+
+    def test_capture_range_includes_long_running_trace(self):
+        _create_person(distinct_ids=["person1"], team=self.team)
+        # Trace anchored at date_from with spans spread over days; every span must land in the
+        # tree even though the later ones fall well past the backward capture buffer (#43310).
+        # The multi-day offset covers a chat resumed after the first day, which a sub-day forward
+        # bound truncates.
+        forward_offsets_minutes = [0, 45, 180, 720, 3 * 24 * 60]
+        for offset in forward_offsets_minutes:
+            _create_ai_generation_event(
+                distinct_id="person1",
+                trace_id="trace1",
+                team=self.team,
+                timestamp=datetime(2024, 12, 1, 0, 0) + timedelta(minutes=offset),
+            )
+
+        # The frontend anchors date_from/date_to on the trace's first event timestamp.
+        response = TraceQueryRunner(
+            team=self.team,
+            query=TraceQuery(
+                traceId="trace1",
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:00:00Z"),
+            ),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(len(response.results[0].events), len(forward_offsets_minutes))
 
     def test_overlap_semantics_trace_started_before_window(self):
         _create_person(distinct_ids=["person1"], team=self.team)
@@ -773,6 +901,70 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         ).calculate()
         self.assertEqual(len(response.results), 1)
         self.assertEqual(len(response.results[0].events), 1)
+
+    def test_deduplicates_ai_events_rows_for_the_same_generation(self):
+        trace_id = str(uuid.uuid4())
+        generation_uuid = str(uuid.uuid4())
+        timestamp = datetime(2024, 12, 1, 0, 0, tzinfo=UTC)
+        generation_properties = {
+            "$ai_trace_id": trace_id,
+            "$ai_parent_id": trace_id,
+            "$ai_latency": 3.9,
+            "$ai_input_tokens": 582,
+            "$ai_output_tokens": 353,
+            "$ai_input_cost_usd": 0.4,
+            "$ai_output_cost_usd": 0.6,
+            "$ai_total_cost_usd": 1.0,
+            "$ai_input": [{"role": "user", "content": "Foo"}],
+        }
+
+        # At-least-once delivery lands one logical generation twice. The events table absorbs
+        # this (uuid is in its sorting key), but ai_events is a plain MergeTree that never
+        # dedupes, so scalar totals must be deduplicated before aggregation.
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_trace",
+                    "team": self.team,
+                    "distinct_id": "person1",
+                    "timestamp": timestamp,
+                    "properties": {"$ai_trace_id": trace_id, "$ai_trace_name": "runnable"},
+                },
+                {
+                    "event": "$ai_generation",
+                    "team": self.team,
+                    "distinct_id": "person1",
+                    "timestamp": timestamp,
+                    "event_uuid": generation_uuid,
+                    "properties": generation_properties,
+                },
+                {
+                    "event": "$ai_generation",
+                    "team": self.team,
+                    "distinct_id": "person1",
+                    "timestamp": timestamp,
+                    "event_uuid": generation_uuid,
+                    "properties": generation_properties,
+                },
+            ]
+        )
+
+        response = TraceQueryRunner(
+            team=self.team,
+            query=TraceQuery(
+                traceId=trace_id,
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
+            ),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        trace = response.results[0]
+        self.assertEqual(len(trace.events), 1)
+        self.assertEqual(trace.inputTokens, 582)
+        self.assertEqual(trace.outputTokens, 353)
+        self.assertEqual(trace.totalCost, 1.0)
+        self.assertEqual(trace.totalLatency, 3.9)
+        self.assertEqual(trace.events[0].properties.get("$ai_input"), [{"role": "user", "content": "Foo"}])
 
     def test_trace_name_from_trace_event(self):
         """Test that trace_name comes from $ai_trace events when they exist."""
@@ -1491,8 +1683,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(response.results[0].totalLatency, 300.0)
 
     @freeze_time("2025-01-15T12:00:00Z")
-    @patch("posthog.hogql_queries.ai.ai_table_resolver.is_ai_events_enabled", return_value=True)
-    def test_fallback_to_events_when_ai_events_empty(self, _mock_flag):
+    def test_fallback_to_events_when_ai_events_empty(self):
         """When ai_events has no data, the fallback to events returns correct results with proper numeric types."""
         trace_id = "fallback-test-trace"
         _create_person(distinct_ids=["person1"], team=self.team)
@@ -1532,9 +1723,9 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         assert trace.traceName == "fallback-trace"
 
         # Numeric fields must be actual numbers, not strings (validates toFloat wrapping)
-        assert isinstance(trace.totalLatency, (int, float))
-        assert isinstance(trace.inputTokens, (int, float))
-        assert isinstance(trace.outputTokens, (int, float))
+        assert isinstance(trace.totalLatency, int | float)
+        assert isinstance(trace.inputTokens, int | float)
+        assert isinstance(trace.outputTokens, int | float)
 
         # Heavy columns should be present in event properties (from events JSON blob)
         assert len(trace.events) >= 1

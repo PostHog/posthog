@@ -266,6 +266,13 @@ const featureFlagActionsMapping: Record<
             suffix: <>{nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>,
         }
     },
+    archived: function onArchived(change, logItem) {
+        const isArchived = detectBoolean(change?.after)
+        return {
+            description: [<>{isArchived ? 'archived' : 'unarchived'}</>],
+            suffix: <>{nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>,
+        }
+    },
     key: function onKey(change, logItem) {
         const changeBefore = change?.before as string
         const changeAfter = change?.after as string
@@ -425,6 +432,36 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
     }
 
     if (logItem.activity == 'updated') {
+        // A referenced cohort's conditions changed: the flag's own fields are untouched
+        // (only its version moved), so describe the cohort change instead of a field diff.
+        // job_type must stay in sync with COHORT_CONDITIONS_UPDATED_JOB_TYPE in
+        // products/feature_flags/backend/flag_version_sync.py.
+        if (logItem.detail.trigger?.job_type === 'cohort_conditions_updated') {
+            const { cohort_id, cohort_name } = logItem.detail.trigger.payload ?? {}
+            return {
+                description: (
+                    <SentenceList
+                        listParts={[
+                            <Fragment key="cohort-conditions-updated">
+                                changed the conditions of linked cohort{' '}
+                                {cohort_id ? (
+                                    <Link to={urls.cohort(cohort_id)}>{cohort_name || `#${cohort_id}`}</Link>
+                                ) : (
+                                    <span>{cohort_name || 'unknown'}</span>
+                                )}
+                            </Fragment>,
+                        ]}
+                        prefix={getActorName(logItem)}
+                        suffix={
+                            <>
+                                on {asNotification && ' the flag '}
+                                {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}
+                            </>
+                        }
+                    />
+                ),
+            }
+        }
         let changes: Description[] = []
         let changeSuffix: Description = (
             <>

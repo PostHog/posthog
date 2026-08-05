@@ -11,7 +11,7 @@ from rest_framework import status
 from posthog.api.test.test_team import create_team
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
-from posthog.models import Person, SessionRecording
+from posthog.models import SessionRecording
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.utils import uuid7
@@ -33,7 +33,6 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
         sync_execute("TRUNCATE TABLE sharded_session_replay_events")
         SessionRecordingViewed.objects.all().delete()
         SessionRecording.objects.all().delete()
-        Person.objects.filter(team_id__isnull=False).delete()
 
         with freeze_time("2023-01-01T12:00:00Z"):
             self.session_id = str(uuid7())
@@ -178,6 +177,16 @@ class TestSessionRecordingsSharingAccessControl(APIBaseTest, ClickhouseTestMixin
             organization_member=membership,
         )
 
+    def _grant_sharing_configuration_access(self, access_level: str) -> None:
+        membership = OrganizationMembership.objects.get(user=self.member_user, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="sharing_configuration",
+            resource_id=None,
+            access_level=access_level,
+            organization_member=membership,
+        )
+
     @parameterized.expand(
         [
             ("viewer", status.HTTP_403_FORBIDDEN),
@@ -195,3 +204,36 @@ class TestSessionRecordingsSharingAccessControl(APIBaseTest, ClickhouseTestMixin
         )
 
         assert response.status_code == expected_status, response.json()
+
+    @parameterized.expand(
+        [
+            ("viewer", status.HTTP_403_FORBIDDEN),
+            ("editor", status.HTTP_200_OK),
+        ]
+    )
+    @freeze_time("2023-01-01T12:00:00Z")
+    def test_enable_sharing_requires_editor_access_to_sharing_configuration_resource(
+        self, access_level: str, expected_status: int
+    ) -> None:
+        # Editor access to the recording itself must not be sufficient on its own - the
+        # sharing_configuration resource is gated independently, so an org can restrict who is
+        # allowed to manage sharing without touching who can edit the underlying recording.
+        self._grant_recording_access("editor")
+        self._grant_sharing_configuration_access(access_level)
+        self.client.force_login(self.member_user)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/session_recordings/{self.session_id}/sharing",
+            {"enabled": True},
+        )
+
+        assert response.status_code == expected_status, response.json()
+
+    @freeze_time("2023-01-01T12:00:00Z")
+    def test_sharing_response_exposes_user_access_level(self) -> None:
+        self.client.force_login(self.member_user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{self.session_id}/sharing")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["user_access_level"] == "editor"

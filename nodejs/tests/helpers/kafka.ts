@@ -1,6 +1,6 @@
 import { AdminClient, CODES, KafkaConsumer, LibrdKafkaError } from 'node-rdkafka'
 
-import { defaultConfig, overrideWithEnv } from '../../src/config/config'
+import { defaultConfig, overrideWithEnv } from '~/common/config/config'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_BUFFER,
@@ -23,14 +23,17 @@ import {
     KAFKA_GROUPS,
     KAFKA_INGESTION_WARNINGS,
     KAFKA_LOG_ENTRIES,
+    KAFKA_MESSAGE_ASSETS,
     KAFKA_PERFORMANCE_EVENTS,
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
     KAFKA_PERSON_DISTINCT_ID_OVERRIDES,
+    KAFKA_PERSON_MERGE_EVENTS,
     KAFKA_PERSON_UNIQUE_ID,
     KAFKA_PLUGIN_LOG_ENTRIES,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
-} from '../../src/config/kafka-topics'
+} from '~/common/config/kafka-topics'
+
 import { PluginsServerConfig } from '../../src/types'
 
 function buildKafkaConfig(extraServerConfig?: Partial<PluginsServerConfig>) {
@@ -92,11 +95,13 @@ export const TEST_KAFKA_TOPICS = [
     KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
     KAFKA_LOG_ENTRIES,
+    KAFKA_MESSAGE_ASSETS,
     KAFKA_EVENTS_RECENT_JSON,
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES,
     KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES,
     KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
     KAFKA_COHORT_MEMBERSHIP_CHANGED,
+    KAFKA_PERSON_MERGE_EVENTS,
     KAFKA_CLICKHOUSE_TOPHOG,
 ]
 

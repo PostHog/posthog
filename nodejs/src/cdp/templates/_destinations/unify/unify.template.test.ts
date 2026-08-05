@@ -1,4 +1,4 @@
-import { parseJSON } from '~/utils/json-parse'
+import { parseJSON } from '~/common/utils/json-parse'
 
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './unify.template'

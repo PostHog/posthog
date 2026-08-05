@@ -346,6 +346,8 @@ def plo_base_targets(
         team=team,
         query_type="plo_base_targets",
         limit_context=LimitContext.SAVED_QUERY,
+        # Internal billing DAG runs without a user; bypass warehouse ACL for this trusted ETL read.
+        bypass_warehouse_access_control=True,
     )
 
     if not response.results:

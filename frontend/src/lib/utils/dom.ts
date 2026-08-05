@@ -63,6 +63,12 @@ export function isMac(): boolean {
     return navigator.platform.includes('Mac')
 }
 
+export function isWebKitBrowser(): boolean {
+    // macOS Safari reports the Apple vendor. iOS forces every browser onto WebKit,
+    // so also treat any iOS user agent as WebKit regardless of the vendor string it reports.
+    return navigator.vendor === 'Apple Computer, Inc.' || /iPad|iPhone|iPod/.test(navigator.userAgent)
+}
+
 export function platformCommandControlKey(modifier: string): string {
     return `${isMac() ? '⌘' : 'Ctrl + '}${modifier}`
 }
@@ -98,7 +104,9 @@ export function inStorybookTestRunner(): boolean {
 }
 
 export function inStorybook(): boolean {
-    return '__STORYBOOK_CLIENT_API__' in window
+    // `__STORYBOOK_CLIENT_API__` was removed in Storybook 8; `__STORYBOOK_PREVIEW__` is its
+    // modern counterpart. Keep both so this works across versions.
+    return '__STORYBOOK_CLIENT_API__' in window || '__STORYBOOK_PREVIEW__' in window
 }
 
 export const shouldIgnoreInput = (e: KeyboardEvent): boolean => {

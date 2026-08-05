@@ -14,16 +14,23 @@ from posthog.schema import (
     PropertyOperator,
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
+    WebAnalyticsPreComputeStrategy,
     WebAnalyticsSampling,
     WebStatsBreakdown,
     WebStatsTableQuery,
 )
 
+from posthog.hogql import ast
+
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.models.utils import uuid7
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
+from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import SESSION_ID_SET_FEATURE_FLAG_KEY
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import ORG_FEATURE_FLAG_KEY
+from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import _breakdown_having_expr
 
 # Low-cardinality breakdowns with a generic seed that have data and are cheap to
 # assert parity on. VIEWPORT is exercised separately — the raw query compares
@@ -55,12 +62,13 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         sync_execute("SYSTEM STOP TTL MERGES sharded_web_stats_preaggregated")
 
     def _enable_lazy(self):
-        # Mock the org-level feature flag check to True. Outside this context
-        # manager the default `posthoganalytics.feature_enabled` returns False
-        # (no API key in tests), which models a flag-disabled org.
+        # Mock the precompute feature flag checks to True. Outside this context manager
+        # the default `posthoganalytics.feature_enabled` returns False (no API key in
+        # tests), which models a flag-disabled org. The patch target is the shared
+        # `posthoganalytics` module, so an unscoped True would enable other rollouts too.
         return patch(
             "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common.posthoganalytics.feature_enabled",
-            return_value=True,
+            side_effect=lambda key, *args, **kwargs: key in (ORG_FEATURE_FLAG_KEY, SESSION_ID_SET_FEATURE_FLAG_KEY),
         )
 
     def _props(self, **overrides) -> dict:
@@ -169,6 +177,13 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         )
 
     def _run(self, query: WebStatsTableQuery):
+        # Serve-live-warm-behind: user-facing reads never insert inline, so warm
+        # eligible shapes first under a background trigger (inline inserts allowed
+        # there), then assert on the converged user-facing read. Fall-through
+        # shapes ignore the warm pass and take the live path as before.
+        if query.useWebAnalyticsPrecompute:
+            with tags_context(trigger="webAnalyticsEagerBaselineWarming"):
+                WebStatsTableQueryRunner(team=self.team, query=query).calculate()
         return WebStatsTableQueryRunner(team=self.team, query=query).calculate()
 
     @staticmethod
@@ -203,7 +218,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk, status=PreaggregationJob.Status.READY
         ).count()
         assert ready_jobs > 0, f"expected a READY precompute job for {breakdown_by}"
-        assert lazy_response.usedLazyPrecompute is True
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert lazy == raw, f"lazy/raw mismatch for {breakdown_by}: raw={raw}, lazy={lazy}"
 
     @parameterized.expand(PARITY_BREAKDOWNS)
@@ -234,6 +249,55 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert lazy == raw, f"lazy/raw compare mismatch for {breakdown_by}: raw={raw}, lazy={lazy}"
 
+    @parameterized.expand(
+        [
+            ("browser", WebStatsBreakdown.BROWSER, "$browser"),
+            ("os", WebStatsBreakdown.OS, "$os"),
+            ("device_type", WebStatsBreakdown.DEVICE_TYPE, "$device_type"),
+        ]
+    )
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_lazy_keeps_null_breakdown_rows(self, _name: str, breakdown_by: WebStatsBreakdown, null_prop: str):
+        self._seed()
+        # One extra session whose breakdown property is absent -> a genuine NULL that
+        # both paths must surface as a "(none)" row rather than silently drop.
+        s = str(uuid7("2024-01-05"))
+        props = self._props(
+            **{"$session_id": s, "$host": "example.com", "$current_url": "https://example.com/n", "$pathname": "/n"}
+        )
+        props.pop(null_prop)
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="u1",
+            timestamp="2024-01-05T08:00:00Z",
+            properties=props,
+        )
+
+        raw = self._metrics(self._run(self._build_query(breakdown_by=breakdown_by)))
+        with self._enable_lazy():
+            lazy_response = self._run(self._build_query(breakdown_by=breakdown_by))
+        lazy = self._metrics(lazy_response)
+
+        # Guard against a silent fallback to raw making lazy==raw trivially true.
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
+        assert any(row[0] is None for row in raw), f"raw should surface a null {breakdown_by} row, got {raw}"
+        assert lazy == raw, f"lazy dropped/altered the null row for {breakdown_by}: raw={raw}, lazy={lazy}"
+
+    @parameterized.expand([(b.value, b) for b in WebStatsBreakdown])
+    def test_breakdown_having_matches_live_null_handling(self, _name: str, breakdown_by: WebStatsBreakdown):
+        # The lazy read's HAVING must keep/drop NULL breakdown rows exactly as the raw
+        # runner's outer_where_breakdown does, or precompute tiles gain/lose a "(none)"
+        # row relative to raw. `outer_where_breakdown() is None` means "keep nulls"; the
+        # lazy side encodes that as a bare `True` HAVING.
+        runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query(breakdown_by=breakdown_by))
+        live_keeps_null = runner.outer_where_breakdown() is None
+        having = _breakdown_having_expr(breakdown_by)
+        lazy_keeps_null = isinstance(having, ast.Constant) and having.value is True
+        assert lazy_keeps_null == live_keeps_null, (
+            f"{breakdown_by}: lazy keeps_null={lazy_keeps_null} but raw keeps_null={live_keeps_null}"
+        )
+
     @freeze_time("2024-01-15T12:00:00Z")
     def test_viewport_breakdown_lazy_runs(self):
         # The raw VIEWPORT query compares viewport tuple elements against 0,
@@ -243,7 +307,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         with self._enable_lazy():
             response = self._run(self._build_query(breakdown_by=WebStatsBreakdown.VIEWPORT))
 
-        assert response.usedLazyPrecompute is True
+        assert response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert len(response.results) > 0
         assert all(isinstance(row[0], tuple) and len(row[0]) == 2 for row in response.results)
 
@@ -331,7 +395,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             response = self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE))
 
         assert self._job_count() > 0
-        assert response.usedLazyPrecompute is True
+        assert response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._metrics(response) == [("en-US", (2.0, None), (4.0, None))]
 
     @freeze_time("2024-01-15T12:00:00Z")
@@ -363,7 +427,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         with self._enable_lazy():
             lazy_response = self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE))
 
-        assert lazy_response.usedLazyPrecompute is True
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._metrics(lazy_response) == raw
 
     @freeze_time("2024-01-15T12:00:00Z")
@@ -395,7 +459,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         with self._enable_lazy():
             lazy_response = self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE))
 
-        assert lazy_response.usedLazyPrecompute is True
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._metrics(lazy_response) == raw, f"raw={raw} lazy={self._metrics(lazy_response)}"
 
     @freeze_time("2024-01-15T12:00:00Z")
@@ -428,8 +492,10 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_query_optin_alone_falls_through_when_org_flag_disabled(self):
+        # Direct user-facing calculate (no warm pass): warming triggers bypass the
+        # org flag by design, so the helper's warm pre-pass would create jobs here.
         self._seed()
-        self._run(self._build_query(opt_in_precompute=True))
+        WebStatsTableQueryRunner(team=self.team, query=self._build_query(opt_in_precompute=True)).calculate()
 
         assert self._job_count() == 0
 
@@ -585,9 +651,9 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             response = self._run(query)
 
         assert self._job_count() == 0
-        # Raw path leaves `usedLazyPrecompute` unset; the failure mode we're
-        # guarding against is the lazy path silently serving with a rewritten sort.
-        assert response.usedLazyPrecompute is not True
+        # Raw path leaves `preComputeStrategy` off the lazy strategy; the failure mode
+        # we're guarding against is the lazy path silently serving with a rewritten sort.
+        assert response.preComputeStrategy != WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_pagination_page_two_lazy_matches_raw(self):
@@ -651,9 +717,36 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             lazy_response = self._run(query)
 
         lazy_metrics = self._metrics(lazy_response)
-        assert lazy_response.usedLazyPrecompute is True
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert lazy_response.hasMore is True, "should report more rows past the requested page"
         assert len(lazy_metrics) == 3
         # Visitors are monotonically non-increasing on the returned page.
         visitors = [row[1][0] for row in lazy_metrics]
         assert visitors == sorted(visitors, reverse=True), f"first page not ordered by visitors desc: {visitors}"
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_stale_served_enqueues_background_revalidation(self):
+        # Without the `result.stale` hook this family would serve stale for the whole
+        # 6h grace and never refresh (the revalidate half of stale-while-revalidate).
+        from posthog.clickhouse.query_tagging import reset_query_tags, tags_context
+
+        from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
+        from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import execute_lazy_precomputed_read
+
+        with (
+            tags_context(),
+            self._enable_lazy(),
+            patch(
+                "products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute.ensure_web_stats_precomputed",
+                return_value=LazyComputationResult(ready=True, job_ids=[], stale=True),
+            ),
+            patch(
+                "products.web_analytics.backend.tasks.lazy_precompute_revalidation.revalidate_web_analytics_precompute.apply_async"
+            ) as delay,
+        ):
+            reset_query_tags()
+            runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query())
+            execute_lazy_precomputed_read(runner)
+
+        assert delay.call_count == 1
+        assert delay.call_args.kwargs["kwargs"]["team_id"] == self.team.pk

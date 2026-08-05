@@ -24,11 +24,23 @@
             "formSchemaExport": "experimentsWidgetFormSchema",
             "formFields": ["limit", "orderBy", "orderDirection", "status", "createdBy"]
         },
+        "logs_list": {
+            "configSchemaExport": "logsWidgetConfigSchema",
+            "configTypeExport": "LogsWidgetConfig",
+            "formSchemaExport": "logsWidgetFormSchema",
+            "formFields": ["limit", "dateRange", "wrapLines", "timezone"]
+        },
         "session_replay_list": {
             "configSchemaExport": "sessionReplayWidgetConfigSchema",
             "configTypeExport": "SessionReplayWidgetConfig",
             "formSchemaExport": "sessionReplayWidgetFormSchema",
             "formFields": ["limit", "orderBy", "orderDirection", "dateRange", "filterTestAccounts"]
+        },
+        "survey_results": {
+            "configSchemaExport": "surveyResultsWidgetConfigSchema",
+            "configTypeExport": "SurveyResultsWidgetConfig",
+            "formSchemaExport": "surveyResultsWidgetFormSchema",
+            "formFields": ["surveyId", "limit", "dateRange"]
         }
     }
 }

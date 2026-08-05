@@ -82,6 +82,9 @@ const cohortsCreate = (): ToolBase<typeof CohortsCreateSchema, WithPostHogUrl<Sc
 const CohortsListSchema = CohortsListQueryParams.extend({
     limit: z.preprocess(castStringToInt, CohortsListQueryParams.shape['limit']).optional(),
     offset: z.preprocess(castStringToInt, CohortsListQueryParams.shape['offset']).optional(),
+    search: CohortsListQueryParams.shape['search'].describe(
+        'Find cohorts by name. Fuzzy trigram match (tolerates typos and partial words), exact matches ordered first.'
+    ),
     hide_behavioral_cohorts: CohortsListQueryParams.shape['hide_behavioral_cohorts'].describe(
         'Set true to exclude behavioral (event-based) cohorts — not usable in batch workflow audiences.'
     ),
@@ -101,6 +104,7 @@ const cohortsList = (): ToolBase<typeof CohortsListSchema, WithPostHogUrl<Schema
                     hide_behavioral_cohorts: params.hide_behavioral_cohorts,
                     limit: params.limit,
                     offset: params.offset,
+                    search: params.search,
                 },
             })
             const filtered = {

@@ -1,8 +1,9 @@
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { LazyLoader } from '~/common/utils/lazy-loader'
+import { logger } from '~/common/utils/logger'
+import { PubSub } from '~/common/utils/pubsub'
+
 import { Team } from '../../types'
-import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
-import { LazyLoader } from '../../utils/lazy-loader'
-import { logger } from '../../utils/logger'
-import { PubSub } from '../../utils/pubsub'
 import { Evaluation, EvaluationInfo } from '../types'
 
 const EVALUATION_FIELDS = [
@@ -17,6 +18,8 @@ const EVALUATION_FIELDS = [
     'e.output_type',
     'e.output_config',
     'e.conditions',
+    'e.target',
+    'e.target_config',
     'e.created_at',
     'e.updated_at',
 ]

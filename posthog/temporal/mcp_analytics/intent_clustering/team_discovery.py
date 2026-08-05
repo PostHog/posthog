@@ -45,7 +45,7 @@ async def get_team_ids_for_mcp_analytics(inputs: TeamDiscoveryInput) -> list[int
     """Return the deterministic list of teams to cluster intents for.
 
     v1: returns ``GUARANTEED_TEAM_IDS`` sorted. A future PR will optionally
-    union with a ClickHouse-sampled set of teams that have ``mcp_tool_call``
+    union with a ClickHouse-sampled set of teams that have ``$mcp_tool_call``
     events in the configured window.
     """
     async with Heartbeater():

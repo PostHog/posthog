@@ -4,9 +4,27 @@ import os
 from dataclasses import dataclass
 from typing import ClassVar, Final
 
+from llm_gateway.baseten import BASETEN_EXCLUSIVE_MODELS, is_baseten_configured
+from llm_gateway.cloudflare import CLOUDFLARE_ALLOWED_MODELS, is_cloudflare_configured
 from llm_gateway.config import get_settings
-from llm_gateway.products.config import get_product_config
+from llm_gateway.modal import (
+    MODAL_ALLOWED_MODELS,
+    MODAL_EXCLUSIVE_MODELS,
+    is_modal_configured,
+    is_modal_model_configured,
+)
+from llm_gateway.products.config import get_product_config, is_model_restricted_for_product
+from llm_gateway.rate_limiting.cost_refresh import COST_ALIASES
 from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostService
+
+# Cloudflare Workers AI models are served via the `@cf/` path (CLOUDFLARE_ALLOWED_MODELS), not
+# through litellm's cost map — so the litellm iteration in get_available_models never surfaces them.
+# Advertise them explicitly on /v1/models when CF creds are configured, else clients that validate a
+# requested model against the listing (e.g. the agent's claude runtime) can't select an `@cf/` model
+# and silently fall back to their default.
+_CLOUDFLARE_PROVIDER: Final[str] = "cloudflare"
+_CLOUDFLARE_DEFAULT_CONTEXT_WINDOW: Final[int] = 128_000
+_BASETEN_DEFAULT_CONTEXT_WINDOW: Final[int] = 1_048_000
 
 
 @dataclass(frozen=True)
@@ -41,6 +59,24 @@ def _get_configured_providers() -> frozenset[str]:
         if getattr(settings, settings_attr, None) or os.environ.get(env_var):
             configured.add(provider)
     return frozenset(configured)
+
+
+def _cloudflare_configured() -> bool:
+    """Whether the gateway can reach Cloudflare Workers AI — needs both an API key and account id.
+
+    Kept separate from `_get_configured_providers` (litellm-provider keys) on purpose: CF models are
+    served via the `@cf/` path, not litellm, so we only ever advertise the vetted
+    `CLOUDFLARE_ALLOWED_MODELS` — never the broader set of `cloudflare/...` ids litellm happens to
+    price but the gateway won't route.
+    """
+    return is_cloudflare_configured(get_settings())
+
+
+def _glm_backend_configured(model_id: str) -> bool:
+    """A `@cf/` model is servable when Cloudflare or its Modal equivalent is configured."""
+    if _cloudflare_configured():
+        return True
+    return model_id in MODAL_ALLOWED_MODELS and is_modal_configured(get_settings())
 
 
 def _is_text_generation_model(cost_data: ModelCost) -> bool:
@@ -87,6 +123,8 @@ class ModelRegistryService:
         all_litellm_models = ModelCostService.get_instance().get_all_models()
         models = []
         for model_id, cost_data in all_litellm_models.items():
+            if model_id in COST_ALIASES:
+                continue
             provider = cost_data.get("litellm_provider", "")
             if provider not in configured_providers:
                 continue
@@ -97,6 +135,46 @@ class ModelRegistryService:
             model = self.get_model(model_id)
             if model is not None:
                 models.append(model)
+
+        # Append `@cf/` models with a configured backend (module header explains why they're not in
+        # the litellm loop above). Always advertised as provider "cloudflare" — clients key model
+        # handling off the `@cf/` id/owner, and the Modal ramp must not change what they see.
+        for model_id in CLOUDFLARE_ALLOWED_MODELS:
+            if not _glm_backend_configured(model_id):
+                continue
+            if allowed_models is not None and not _model_matches_allowlist(model_id, allowed_models):
+                continue
+            models.append(
+                ModelInfo(
+                    id=model_id,
+                    provider=_CLOUDFLARE_PROVIDER,
+                    context_window=_CLOUDFLARE_DEFAULT_CONTEXT_WINDOW,
+                    supports_streaming=True,
+                    supports_vision=False,
+                )
+            )
+        for model_id in MODAL_EXCLUSIVE_MODELS:
+            if not is_modal_model_configured(model_id, get_settings()):
+                continue
+            if allowed_models is not None and not _model_matches_allowlist(model_id, allowed_models):
+                continue
+            model = self.get_model(model_id)
+            if model is not None:
+                models.append(model)
+        for model_id in BASETEN_EXCLUSIVE_MODELS:
+            if is_model_restricted_for_product(model_id, product) or not is_baseten_configured(get_settings()):
+                continue
+            if allowed_models is not None and not _model_matches_allowlist(model_id, allowed_models):
+                continue
+            models.append(
+                ModelInfo(
+                    id=model_id,
+                    provider="baseten",
+                    context_window=_BASETEN_DEFAULT_CONTEXT_WINDOW,
+                    supports_streaming=True,
+                    supports_vision=False,
+                )
+            )
         return models
 
     def is_model_available(self, model_id: str, product: str) -> bool:
@@ -107,6 +185,17 @@ class ModelRegistryService:
         if config is not None and config.allowed_models is not None:
             if not _model_matches_allowlist(model_id, config.allowed_models):
                 return False
+
+        # `@cf/`-served models aren't in litellm's cost map (so get_model returns None) — gate them
+        # on the CF allowlist + a configured backend (Cloudflare or Modal) instead.
+        if _model_matches_allowlist(model_id, CLOUDFLARE_ALLOWED_MODELS):
+            return _glm_backend_configured(model_id)
+
+        if _model_matches_allowlist(model_id, MODAL_ALLOWED_MODELS):
+            return is_modal_model_configured(model_id, get_settings())
+
+        if model_id in BASETEN_EXCLUSIVE_MODELS:
+            return not is_model_restricted_for_product(model_id, product) and is_baseten_configured(get_settings())
 
         model = self.get_model(model_id)
         if model is None:

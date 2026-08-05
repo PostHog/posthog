@@ -109,6 +109,10 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -117,10 +121,10 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                                     'lte',
                                                 ])
                                                 .describe(
-                                                    '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                                    '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                                 )
                                                 .describe(
-                                                    'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                                    'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                                 ),
                                         }),
                                         zod.object({
@@ -393,6 +397,12 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
         .array(
             zod.union([
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['open']).describe('\* `open` - open'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -405,6 +415,12 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     buttonText: zod.string().optional().describe('Custom button label.'),
                 }),
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['link']).describe('\* `link` - link'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -418,6 +434,12 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     link: zod.string().describe('HTTPS or mailto URL for link questions.'),
                 }),
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['rating']).describe('\* `rating` - rating'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -502,6 +524,12 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                         .optional(),
                 }),
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['single_choice']).describe('\* `single_choice` - single_choice'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -585,6 +613,12 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                         .optional(),
                 }),
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['multiple_choice']).describe('\* `multiple_choice` - multiple_choice'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -628,9 +662,9 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     .optional()
                     .describe("Don't show this survey to users who saw any survey in the last x days."),
                 urlMatchType: zod
-                    .enum(['exact', 'is_not', 'icontains', 'not_icontains', 'regex', 'not_regex'])
+                    .enum(['regex', 'not_regex', 'exact', 'is_not', 'icontains', 'not_icontains'])
                     .describe(
-                        '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex'
+                        '\* `regex` - regex\n\* `not_regex` - not_regex\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains'
                     )
                     .optional()
                     .describe(
@@ -663,9 +697,9 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     .optional()
                     .describe('Device types that should match for this survey to be shown.'),
                 deviceTypesMatchType: zod
-                    .enum(['exact', 'is_not', 'icontains', 'not_icontains', 'regex', 'not_regex'])
+                    .enum(['regex', 'not_regex', 'exact', 'is_not', 'icontains', 'not_icontains'])
                     .describe(
-                        '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex'
+                        '\* `regex` - regex\n\* `not_regex` - not_regex\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains'
                     )
                     .optional()
                     .describe(
@@ -1009,6 +1043,10 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1017,10 +1055,10 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     'lte',
                                                 ])
                                                 .describe(
-                                                    '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                                    '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                                 )
                                                 .describe(
-                                                    'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                                    'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                                 ),
                                         }),
                                         zod.object({
@@ -1293,6 +1331,12 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
         .array(
             zod.union([
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['open']).describe('\* `open` - open'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -1305,6 +1349,12 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     buttonText: zod.string().optional().describe('Custom button label.'),
                 }),
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['link']).describe('\* `link` - link'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -1318,6 +1368,12 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     link: zod.string().describe('HTTPS or mailto URL for link questions.'),
                 }),
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['rating']).describe('\* `rating` - rating'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -1402,6 +1458,12 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                         .optional(),
                 }),
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['single_choice']).describe('\* `single_choice` - single_choice'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -1485,6 +1547,12 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                         .optional(),
                 }),
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['multiple_choice']).describe('\* `multiple_choice` - multiple_choice'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -1528,9 +1596,9 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .optional()
                     .describe("Don't show this survey to users who saw any survey in the last x days."),
                 urlMatchType: zod
-                    .enum(['exact', 'is_not', 'icontains', 'not_icontains', 'regex', 'not_regex'])
+                    .enum(['regex', 'not_regex', 'exact', 'is_not', 'icontains', 'not_icontains'])
                     .describe(
-                        '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex'
+                        '\* `regex` - regex\n\* `not_regex` - not_regex\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains'
                     )
                     .optional()
                     .describe(
@@ -1563,9 +1631,9 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .optional()
                     .describe('Device types that should match for this survey to be shown.'),
                 deviceTypesMatchType: zod
-                    .enum(['exact', 'is_not', 'icontains', 'not_icontains', 'regex', 'not_regex'])
+                    .enum(['regex', 'not_regex', 'exact', 'is_not', 'icontains', 'not_icontains'])
                     .describe(
-                        '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex'
+                        '\* `regex` - regex\n\* `not_regex` - not_regex\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains'
                     )
                     .optional()
                     .describe(

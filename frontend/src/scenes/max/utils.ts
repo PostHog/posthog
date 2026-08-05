@@ -1,3 +1,4 @@
+import type { BuiltLogic } from 'kea'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -41,6 +42,7 @@ import { MODE_DEFINITIONS } from './max-constants'
 import { EnhancedToolCall } from './max-constants'
 import { SuggestionGroup } from './maxLogic'
 import {
+    EvaluationRuntime,
     InsightWithQuery,
     MaxActionContext,
     MaxContextType,
@@ -258,7 +260,7 @@ export const evaluationToMaxContextPayload = (evaluation: {
     id: string
     name?: string | null
     description?: string | null
-    evaluation_type: 'hog' | 'llm_judge'
+    evaluation_type: EvaluationRuntime
     hog_source?: string | null
 }): MaxEvaluationContext => ({
     type: MaxContextType.EVALUATION,
@@ -283,7 +285,7 @@ export interface MaxOpenContext {
         id: string
         name?: string | null
         description?: string | null
-        evaluation_type: 'hog' | 'llm_judge'
+        evaluation_type: EvaluationRuntime
         hog_source?: string | null
     }
 }
@@ -374,4 +376,17 @@ export const visualizationTypeToQuery = (
         return { kind: NodeKind.InsightVizNode, source, showHeader: true } satisfies InsightVizNode
     }
     return source
+}
+
+/**
+ * Whether it's safe to read auto-context from the active scene logic. `sceneLogic`'s
+ * `activeSceneLogic` is built but may already be unmounted mid scene-transition (e.g. navigating
+ * away from a dashboard); reading its selectors/values then throws `[KEA] Can not find path`
+ * because the reducer path is gone from the store. Check this at read time — mounted state changes
+ * without a selector-input change, so it can't be memoized upstream.
+ */
+export function activeSceneLogicHasMaxContext(
+    activeSceneLogic: BuiltLogic | null | undefined
+): activeSceneLogic is BuiltLogic {
+    return !!activeSceneLogic?.isMounted() && 'maxContext' in activeSceneLogic.selectors
 }

@@ -73,6 +73,11 @@ COPY ./common/replay-headless/build.mjs ./common/replay-headless/
 
 # Build cyclotron first
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/cyclotron build
+# Build the rust hogvm napi addon (shadow execution of transformations)
+RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/hogvm-node build
+
+# Build the session-replay anonymizer native addon
+RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/replay-anonymizer build
 
 # Build replay-headless (dependency of nodejs rasterizer code)
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/replay-headless build
@@ -128,6 +133,12 @@ RUN echo ${COMMIT_HASH:-unknown} > /code/commit.txt
 COPY --from=nodejs-build --chown=posthog:posthog /code/rust/cyclotron-node/dist /code/rust/cyclotron-node/dist
 COPY --from=nodejs-build --chown=posthog:posthog /code/rust/cyclotron-node/package.json /code/rust/cyclotron-node/package.json
 COPY --from=nodejs-build --chown=posthog:posthog /code/rust/cyclotron-node/index.node /code/rust/cyclotron-node/index.node
+COPY --from=nodejs-build --chown=posthog:posthog /code/rust/common/hogvm/node/package.json /code/rust/common/hogvm/node/package.json
+COPY --from=nodejs-build --chown=posthog:posthog /code/rust/common/hogvm/node/index.js /code/rust/common/hogvm/node/index.js
+COPY --from=nodejs-build --chown=posthog:posthog /code/rust/common/hogvm/node/index.node /code/rust/common/hogvm/node/index.node
+COPY --from=nodejs-build --chown=posthog:posthog /code/rust/replay-anonymizer-node/dist /code/rust/replay-anonymizer-node/dist
+COPY --from=nodejs-build --chown=posthog:posthog /code/rust/replay-anonymizer-node/package.json /code/rust/replay-anonymizer-node/package.json
+COPY --from=nodejs-build --chown=posthog:posthog /code/rust/replay-anonymizer-node/index.node /code/rust/replay-anonymizer-node/index.node
 COPY --from=nodejs-build --chown=posthog:posthog /code/common/plugin_transpiler/dist /code/common/plugin_transpiler/dist
 COPY --from=nodejs-build --chown=posthog:posthog /code/common/plugin_transpiler/node_modules /code/common/plugin_transpiler/node_modules
 COPY --from=nodejs-build --chown=posthog:posthog /code/common/plugin_transpiler/package.json /code/common/plugin_transpiler/package.json

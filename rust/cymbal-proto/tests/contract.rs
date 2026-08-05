@@ -10,7 +10,7 @@ fn resolve_item_serializes_exception_payload_with_correlation_id_and_deadline() 
         id: 7,
         team_id: 42,
         exception_json: br#"{"type":"Error"}"#.to_vec(),
-        metadata: br#"{"apple_debug_images_json":[]}"#.to_vec(),
+        metadata: br#"{"debug_images_json":[]}"#.to_vec(),
         deadline_ms: 1_500,
     };
 
@@ -19,7 +19,7 @@ fn resolve_item_serializes_exception_payload_with_correlation_id_and_deadline() 
     assert_eq!(decoded.id, 7);
     assert_eq!(decoded.team_id, 42);
     assert_eq!(decoded.exception_json, br#"{"type":"Error"}"#);
-    assert_eq!(decoded.metadata, br#"{"apple_debug_images_json":[]}"#);
+    assert_eq!(decoded.metadata, br#"{"debug_images_json":[]}"#);
     assert_eq!(decoded.deadline_ms, 1_500);
 }
 
@@ -119,11 +119,15 @@ fn load_event_carries_routing_relevant_state_with_sequence() {
         draining: false,
         sequence: 7,
         message: "ok".to_string(),
+        in_flight: 11,
+        max_in_flight: 64,
     };
 
     let decoded = LoadEvent::decode(event.encode_to_vec().as_slice()).unwrap();
 
     assert_eq!(decoded.service_instance_id, "resolver-a");
     assert_eq!(decoded.sequence, 7);
+    assert_eq!(decoded.in_flight, 11);
+    assert_eq!(decoded.max_in_flight, 64);
     assert!(!decoded.draining);
 }

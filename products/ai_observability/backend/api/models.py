@@ -10,7 +10,6 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.permissions import AccessControlPermission
 
-from ..llm import TRIAL_MODELS_BY_PROVIDER
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from .metrics import llma_track_latency
@@ -19,9 +18,6 @@ from .metrics import llma_track_latency
 class LLMModelInfoSerializer(serializers.Serializer):
     id = serializers.CharField(
         help_text="Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022')."
-    )
-    posthog_available = serializers.BooleanField(
-        help_text="Whether this model is available on PostHog's trial credits without bringing a provider key."
     )
 
 
@@ -103,8 +99,5 @@ class LLMModelsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             team_id=self.team_id,
         )
         available = config.get_available_models()
-        posthog_allowed = TRIAL_MODELS_BY_PROVIDER.get(provider, [])
 
-        return Response(
-            {"models": [{"id": model, "posthog_available": model in posthog_allowed} for model in available]}
-        )
+        return Response({"models": [{"id": model} for model in available]})

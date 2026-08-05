@@ -1,6 +1,9 @@
 type QueryKind =
     | 'TrendsQuery'
     | 'FunnelsQuery'
+    | 'RetentionQuery'
+    | 'LifecycleQuery'
+    | 'StickinessQuery'
     | 'PathsQuery'
     | 'HogQLQuery'
     | 'InsightVizNode'
@@ -8,11 +11,21 @@ type QueryKind =
     | string
 
 interface QueryInfo {
-    visualization: 'trends' | 'funnel' | 'paths' | 'table'
+    visualization: 'trends' | 'funnel' | 'retention' | 'lifecycle' | 'stickiness' | 'paths' | 'table'
     /** The inner query kind (e.g., TrendsQuery inside InsightVizNode) */
     innerKind: QueryKind
     /** The inner query object for insight queries */
     innerQuery?: Record<string, unknown>
+}
+
+/** Insight query kinds whose results are a raw array consumed directly by the chart visualizers. */
+const SOURCE_VISUALIZATIONS: Record<string, QueryInfo['visualization']> = {
+    TrendsQuery: 'trends',
+    FunnelsQuery: 'funnel',
+    RetentionQuery: 'retention',
+    LifecycleQuery: 'lifecycle',
+    StickinessQuery: 'stickiness',
+    PathsQuery: 'paths',
 }
 
 /**
@@ -26,14 +39,9 @@ export function analyzeQuery(query: unknown): QueryInfo {
     const q = query as Record<string, unknown>
 
     // Direct insight queries
-    if (q.kind === 'TrendsQuery') {
-        return { visualization: 'trends', innerKind: 'TrendsQuery', innerQuery: q }
-    }
-    if (q.kind === 'FunnelsQuery') {
-        return { visualization: 'funnel', innerKind: 'FunnelsQuery', innerQuery: q }
-    }
-    if (q.kind === 'PathsQuery') {
-        return { visualization: 'paths', innerKind: 'PathsQuery', innerQuery: q }
+    const visualization = typeof q.kind === 'string' ? SOURCE_VISUALIZATIONS[q.kind] : undefined
+    if (visualization) {
+        return { visualization, innerKind: q.kind as string, innerQuery: q }
     }
     if (q.kind === 'HogQLQuery') {
         return { visualization: 'table', innerKind: 'HogQLQuery' }
@@ -42,14 +50,9 @@ export function analyzeQuery(query: unknown): QueryInfo {
     // InsightVizNode wraps insight queries
     if (q.kind === 'InsightVizNode' && q.source && typeof q.source === 'object') {
         const source = q.source as Record<string, unknown>
-        if (source.kind === 'TrendsQuery') {
-            return { visualization: 'trends', innerKind: 'TrendsQuery', innerQuery: source }
-        }
-        if (source.kind === 'FunnelsQuery') {
-            return { visualization: 'funnel', innerKind: 'FunnelsQuery', innerQuery: source }
-        }
-        if (source.kind === 'PathsQuery') {
-            return { visualization: 'paths', innerKind: 'PathsQuery', innerQuery: source }
+        const sourceVisualization = typeof source.kind === 'string' ? SOURCE_VISUALIZATIONS[source.kind] : undefined
+        if (sourceVisualization) {
+            return { visualization: sourceVisualization, innerKind: source.kind as string, innerQuery: source }
         }
     }
 

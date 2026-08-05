@@ -1,5 +1,5 @@
 """
-Django REST API endpoint for LLM evaluation results summarization.
+Django REST API endpoint for evaluation results summarization.
 
 This ViewSet provides AI-powered summarization of evaluation results,
 identifying patterns in passing and failing evaluations.
@@ -28,7 +28,7 @@ from posthog.hogql.parser import parse_select
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
-from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
+from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.models import Team, User
 from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import (
@@ -90,6 +90,13 @@ class EvaluationSummaryResponseSerializer(serializers.Serializer):
     na_patterns = EvaluationPatternSerializer(many=True)
     recommendations = serializers.ListField(child=serializers.CharField())
     statistics = EvaluationSummaryStatisticsSerializer()
+
+
+class EvaluationSummaryThrottleResponseSerializer(serializers.Serializer):
+    type = serializers.CharField(help_text="Error category")
+    code = serializers.CharField(help_text="Machine-readable error code")
+    detail = serializers.CharField(help_text="Why the request was throttled")
+    attr = serializers.CharField(allow_null=True, help_text="Related request field, when applicable")
 
 
 def _fetch_evaluation_runs(
@@ -195,7 +202,7 @@ def _fetch_evaluation_runs(
         """
     )
 
-    query_result = execute_with_ai_events_fallback(
+    query_result = query_ai_events(
         query=query,
         placeholders={
             "where_clause": ast.And(exprs=where_conditions),
@@ -203,6 +210,7 @@ def _fetch_evaluation_runs(
         },
         team=team,
         query_type="EvaluationSummaryFetchRuns",
+        fall_back_to_events=True,
     )
 
     # Transform to expected format
@@ -219,7 +227,7 @@ def _fetch_evaluation_runs(
 
 class LLMEvaluationSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
-    ViewSet for LLM evaluation results summarization.
+    ViewSet for evaluation results summarization.
 
     Provides AI-powered analysis of evaluation runs to identify patterns
     in passing and failing evaluations. Fetches data server-side by ID
@@ -268,6 +276,7 @@ class LLMEvaluationSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             400: OpenApiTypes.OBJECT,
             403: OpenApiTypes.OBJECT,
             404: OpenApiTypes.OBJECT,
+            429: EvaluationSummaryThrottleResponseSerializer,
             500: OpenApiTypes.OBJECT,
         },
         examples=[
@@ -451,7 +460,7 @@ Data is fetched server-side by evaluation ID to ensure data integrity.
 
             return Response(result, status=status.HTTP_200_OK)
 
-        except exceptions.ValidationError:
+        except exceptions.APIException:
             raise
         except Exception as e:
             logger.exception(

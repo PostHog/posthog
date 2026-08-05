@@ -27,7 +27,7 @@ export async function hasRecentAIEvents(): Promise<boolean> {
         search: '$ai_',
     })
 
-    const validDefinition = aiEventDefinitions.results.find(
+    const validDefinition = aiEventDefinitions?.results?.find(
         (r) => AI_EVENT_NAMES.includes(r.name) && !isDefinitionStale(r, AI_STALE_EVENT_SECONDS)
     )
 

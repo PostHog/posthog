@@ -24,6 +24,53 @@ export function createHogChartTooltip(element: HTMLElement): HogChartTooltip {
     }
 }
 
+/** Accessor for the built-in `DefaultTooltip` layout, reading its stable `data-attr`
+ *  test hooks. Use when a chart renders `DefaultTooltip` (directly or via a custom
+ *  `tooltip` render prop that wraps it). */
+export interface DefaultTooltipAccessor extends HogChartTooltip {
+    /** Header label — typically the hovered x-axis value. */
+    label(): string
+    /** Series labels in render order (excludes the total row). */
+    rows(): string[]
+    /** Formatted value for the series row whose label matches, or undefined. */
+    value(seriesLabel: string): string | undefined
+    /** Series swatch colors (inline `background-color`) in row order. */
+    swatchColors(): string[]
+    /** Formatted total-row value, or undefined when no total row is shown. */
+    total(): string | undefined
+}
+
+const seriesLabelOf = (row: HTMLElement): string =>
+    (row.querySelector('[data-attr="hog-chart-tooltip-series"]')?.textContent ?? '').replace(/:\s*$/, '').trim()
+
+const swatchColorOf = (row: HTMLElement): string =>
+    row.querySelector<HTMLElement>('[data-attr="hog-chart-tooltip-swatch"]')?.style.backgroundColor ?? ''
+
+export function createDefaultTooltipAccessor(element: HTMLElement): DefaultTooltipAccessor {
+    const rowEls = (): HTMLElement[] =>
+        Array.from(element.querySelectorAll<HTMLElement>('[data-attr="hog-chart-tooltip-row"]'))
+
+    return Object.assign(createHogChartTooltip(element), {
+        label(): string {
+            return element.querySelector('[data-attr="hog-chart-tooltip-label"]')?.textContent?.trim() ?? ''
+        },
+        rows(): string[] {
+            return rowEls().map(seriesLabelOf)
+        },
+        value(seriesLabel: string): string | undefined {
+            const row = rowEls().find((r) => seriesLabelOf(r) === seriesLabel)
+            return row?.querySelector('[data-attr="hog-chart-tooltip-value"]')?.textContent ?? undefined
+        },
+        swatchColors(): string[] {
+            return rowEls().map(swatchColorOf)
+        },
+        total(): string | undefined {
+            const total = element.querySelector('[data-attr="hog-chart-tooltip-total"]')
+            return total?.querySelector('[data-attr="hog-chart-tooltip-value"]')?.textContent ?? undefined
+        },
+    })
+}
+
 /** Currently rendered chart tooltip element, or null if none is mounted. */
 export function getHogChartTooltip(): HTMLElement | null {
     return document.querySelector(HOG_CHARTS_TOOLTIP_SELECTOR)

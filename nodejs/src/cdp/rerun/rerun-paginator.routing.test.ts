@@ -63,6 +63,8 @@ describe('RerunPaginatorService queue routing', () => {
     })
 
     // Stub the CH query + rehydration so the test exercises only the routing.
+    // `fetchRunningInvocationIds` (the kafka-path in-flight guard) defaults to
+    // "nothing in flight" so routing tests aren't affected by it.
     const stubPage = (ids: string[]): void => {
         jest.spyOn(paginator as any, 'fetchPage').mockResolvedValue([])
         jest.spyOn(paginator as any, 'rehydrateBatch').mockResolvedValue({
@@ -70,6 +72,7 @@ describe('RerunPaginatorService queue routing', () => {
             skipped: 0,
             queuedInvocations: ids.map((id) => ({ id })),
         })
+        jest.spyOn(paginator as any, 'fetchRunningInvocationIds').mockResolvedValue(new Set<string>())
     }
 
     const runPage = (state: RerunJobState) =>
@@ -98,6 +101,32 @@ describe('RerunPaginatorService queue routing', () => {
         expect(hogQueue.queueInvocations).not.toHaveBeenCalled()
     })
 
+    it('skips hog_function invocations whose latest lifecycle row is still running', async () => {
+        stubPage(['inv-running', 'inv-done'])
+        // Kafka has no conflict guard, so re-enqueuing an in-flight invocation
+        // would double its side effects — skip the one CH reports as running.
+        jest.spyOn(paginator as any, 'fetchRunningInvocationIds').mockResolvedValue(new Set(['inv-running']))
+
+        const { state: next } = await runPage(buildState('hog_function'))
+
+        expect(hogQueue.queueInvocations).toHaveBeenCalledTimes(1)
+        expect((hogQueue.queueInvocations.mock.calls[0][0] as any[]).map((i) => i.id)).toEqual(['inv-done'])
+        expect((paginator as any).invocationResultsRowsService.dropQueuedRowsFor).toHaveBeenCalledWith(['inv-running'])
+        expect(next.progress.queued).toBe(1)
+        expect(next.progress.skipped).toBe(1)
+    })
+
+    it('does not enqueue on the hog path when every invocation is still in-flight', async () => {
+        stubPage(['inv-running'])
+        jest.spyOn(paginator as any, 'fetchRunningInvocationIds').mockResolvedValue(new Set(['inv-running']))
+
+        const { state: next } = await runPage(buildState('hog_function'))
+
+        expect(hogQueue.queueInvocations).not.toHaveBeenCalled()
+        expect(next.progress.queued).toBe(0)
+        expect(next.progress.skipped).toBe(1)
+    })
+
     it('counts hogflow in-flight conflicts as skipped instead of failing the page', async () => {
         stubPage(['inv-conflict'])
         // The postgres-v2 upsert raises a conflict when the existing row is
@@ -109,5 +138,50 @@ describe('RerunPaginatorService queue routing', () => {
         expect(next.progress.queued).toBe(0)
         expect(next.progress.skipped).toBe(1)
         expect(next.progress.last_error).toBeUndefined()
+    })
+
+    const rehydrate = (type: string) => {
+        const hogFunctionManager = {
+            getHogFunction: jest.fn().mockResolvedValue({ id: 'fn-1', team_id: 1, type }),
+        } as unknown as HogFunctionManagerService
+        const webhookPaginator = new RerunPaginatorService(
+            {} as any,
+            hogFunctionManager,
+            {} as unknown as HogFlowManagerService,
+            {} as unknown as HogInvocationResultsService,
+            { hog_function: hogQueue, hog_flow: hogflowQueue },
+            {} as unknown as HogFunctionMonitoringService,
+            10000
+        )
+        const row = {
+            invocation_id: 'inv-1',
+            parent_run_id: '',
+            attempts: 0,
+            last_scheduled_at: '2026-01-01 00:00:00',
+            first_scheduled_at: '2026-01-01 00:00:00',
+            // Well-formed globals so the rerunnable-type cases pass rehydration's
+            // schema validation — the type gate is what these tests exercise.
+            invocation_globals: JSON.stringify({
+                project: { id: 1, name: '', url: '' },
+                event: { uuid: 'e1', distinct_id: 'd1', properties: {} },
+            }),
+        }
+        return (webhookPaginator as any).rehydrateInvocation(1, 'hog_function', 'fn-1', row)
+    }
+
+    // A cyclotron worker only executes destinations. Re-enqueuing a source webhook (or any
+    // other type) onto the hog queue wedges the partition, since nothing there can run it.
+    // rehydrateInvocation must return null so the row is counted as skipped, not queued.
+    it.each(['source_webhook', 'warehouse_source_webhook', 'transformation', 'site_destination', 'site_app'])(
+        'skips rerun of non-rerunnable type %s',
+        async (type) => {
+            expect(await rehydrate(type)).toBeNull()
+        }
+    )
+
+    it.each(['destination', 'internal_destination'])('rehydrates rerunnable type %s', async (type) => {
+        const invocation = await rehydrate(type)
+        expect(invocation).not.toBeNull()
+        expect(invocation.queue).toBe('hog')
     })
 })

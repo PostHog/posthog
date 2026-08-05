@@ -5,15 +5,16 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { Region, SLACK_INTEGRATION_SCOPES, SLACK_INTEGRATION_SCOPES_IN_REVIEW } from '~/types'
+import { SLACK_INTEGRATION_SCOPES } from '~/types'
+
+import { useSlackRequiredScopes } from './slackScopes'
 
 // Modified version of https://app.slack.com/app-settings/TSS5W8YQZ/A03KWE2FJJ2/app-manifest to match current instance.
 const getSlackAppManifest = (): any => ({
@@ -51,31 +52,14 @@ const getSlackAppManifest = (): any => ({
     },
 })
 
-export function SlackIntegration({ next }: { next?: string } = {}): JSX.Element {
+export function SlackIntegration({ next, centered }: { next?: string; centered?: boolean } = {}): JSX.Element {
     const { slackIntegrations, slackAvailable } = useValues(integrationsLogic)
-    const { preflight, isDev } = useValues(preflightLogic)
     const [showSlackInstructions, setShowSlackInstructions] = useState(false)
     const { user } = useValues(userLogic)
-    const restrictedReason = useRestrictedArea({
-        scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
-    })
+    const { featureFlags } = useValues(featureFlagLogic)
 
-    // On the DEV instance and local dev (DEBUG=True) the PostHog Slack app manifest lists the
-    // in-review scopes, so we both request them at install and compare against them in the
-    // scope-mismatch banner. On US/EU/self-hosted they'd be rejected by Slack as invalid_scope,
-    // so we stay on the always-on list.
-    const requiredScopes = useMemo(() => {
-        const scopes =
-            isDev || preflight?.region === Region.DEV
-                ? [...SLACK_INTEGRATION_SCOPES, ...SLACK_INTEGRATION_SCOPES_IN_REVIEW]
-                : SLACK_INTEGRATION_SCOPES
-        return scopes.join(' ')
-    }, [isDev, preflight?.region])
-
-    if (restrictedReason) {
-        return <p>{restrictedReason}</p>
-    }
+    const requiredScopesArr = useSlackRequiredScopes()
+    const requiredScopes = useMemo(() => requiredScopesArr.join(' '), [requiredScopesArr])
 
     return (
         <div>
@@ -86,15 +70,29 @@ export function SlackIntegration({ next }: { next?: string } = {}): JSX.Element 
 
                 <div>
                     {slackAvailable ? (
-                        <Link to={api.integrations.authorizeUrl({ kind: 'slack', next })} disableClientSideRouting>
-                            <img
-                                alt="Connect to Slack workspace"
-                                height="40"
-                                width="139"
-                                src="https://platform.slack-edge.com/img/add_to_slack.png"
-                                srcSet="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x"
-                            />
-                        </Link>
+                        <div className={centered ? 'flex flex-col items-center gap-2 text-center' : undefined}>
+                            <Link to={api.integrations.authorizeUrl({ kind: 'slack', next })} disableClientSideRouting>
+                                <img
+                                    alt="Connect to Slack workspace"
+                                    height="40"
+                                    width="139"
+                                    src="https://platform.slack-edge.com/img/add_to_slack.png"
+                                    srcSet="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x"
+                                />
+                            </Link>
+                            {featureFlags[FEATURE_FLAGS.SLACK_APP_ASSISTANT] && (
+                                <p
+                                    className={
+                                        centered
+                                            ? 'text-sm text-secondary max-w-sm m-0'
+                                            : 'text-sm text-secondary mt-2 mb-0'
+                                    }
+                                >
+                                    Adding PostHog creates a public #posthog-inbox channel in your Slack workspace,
+                                    where PostHog posts what it finds.
+                                </p>
+                            )}
+                        </div>
                     ) : user?.is_staff ? (
                         !showSlackInstructions ? (
                             <>

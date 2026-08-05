@@ -38,14 +38,17 @@ use crate::{
         body_read_metrics::{record_body_read, MAX_FLAGS_BODY_BYTES},
         concurrency_metrics::{record_concurrency_enter, record_concurrency_wait},
         endpoint, flag_definitions,
-        flag_definitions_rate_limiter::FlagDefinitionsRateLimiter,
+        flag_definitions_rate_limiter::{FlagDefinitionsRateLimiter, RemoteConfigRateLimiter},
         flags_rate_limiter::{FlagsRateLimiter, IpRateLimiter},
+        remote_config,
     },
     cohorts::{cohort_cache_manager::CohortCacheManager, membership::CohortMembershipProvider},
     config::{Config, ServiceMode, TeamIdCollection},
     flags::{
         flag_definitions_cache::FlagDefinitionsCache,
         flag_group_type_mapping::GroupTypeCacheManager,
+        flag_payload_decryptor::{FlagPayloadDecryptor, FlagPayloadDecryptorError},
+        flag_service::FlagService,
     },
     handler::body_logger::BodyLogger,
     metrics::{
@@ -53,6 +56,8 @@ use crate::{
         consts::{
             FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
             FLAG_DEFINITIONS_REQUESTS_COUNTER, FLAG_REQUEST_TIMEOUT_COUNTER,
+            REMOTE_CONFIG_RATE_LIMITED_COUNTER, REMOTE_CONFIG_RATE_LIMIT_BYPASSED_COUNTER,
+            REMOTE_CONFIG_REQUESTS_COUNTER,
         },
         utils::team_id_label_filter,
     },
@@ -78,6 +83,9 @@ pub struct State {
     pub session_replay_billing_limiter: SessionReplayLimiter,
     pub cookieless_manager: Arc<CookielessManager>,
     pub(crate) flag_definitions_limiter: FlagDefinitionsRateLimiter,
+    /// Per-credential limiter (keyed on the personal API key id) for the remote_config endpoint,
+    /// mirroring Django's RemoteConfigThrottle. Separate budget from flag definitions.
+    pub(crate) remote_config_limiter: RemoteConfigRateLimiter,
     pub config: Config,
     pub(crate) flags_rate_limiter: FlagsRateLimiter,
     pub(crate) ip_rate_limiter: IpRateLimiter,
@@ -112,6 +120,41 @@ pub struct State {
     /// Per-team request/response body logging for `/flags`. Refreshed
     /// every ~60s from `posthog_instancesetting`.
     pub body_logger: Arc<BodyLogger>,
+    /// Decrypts encrypted remote-config flag payloads. `None` when no keys are
+    /// configured (e.g. local dev without FLAGS_SECRET_KEYS/SECRET_KEY); in that
+    /// case encrypted payloads cannot be served and the handler errors.
+    pub flag_payload_decryptor: Option<FlagPayloadDecryptor>,
+}
+
+impl State {
+    /// Builds a `FlagService` from shared state. Centralized so every endpoint gets the
+    /// same caching/fallback config instead of copying the constructor per handler.
+    pub(crate) fn flag_service(&self) -> FlagService {
+        FlagService::new(
+            self.redis_client.clone(),
+            self.database_pools.non_persons_reader.clone(),
+            self.team_hypercache_reader.clone(),
+            self.flags_hypercache_reader.clone(),
+            self.flag_definitions_cache.clone(),
+            self.team_negative_cache.clone(),
+            *self.config.skip_pg_team_fallback,
+        )
+    }
+
+    /// Records personal-API-key usage (`last_used_at`), gated on `skip_writes`. Centralized so the
+    /// personal-key auth paths (`flag_definitions`, `remote_config`) share one set of gating and
+    /// client choices instead of copying them per handler. Advisory: uses the shared Redis client
+    /// (not the flags cache) and the non-persons writer, and the DB write only fires when the
+    /// Redis debounce key is newly set.
+    pub(crate) async fn record_pak_last_used(&self, pak_id: String) {
+        if *self.config.skip_writes {
+            return;
+        }
+        let redis = self.redis_client.clone();
+        let pg_writer: Arc<dyn common_database::Client + Send + Sync> =
+            self.database_pools.non_persons_writer.clone();
+        drop(crate::api::pak_usage::record_pak_last_used(redis, pg_writer, pak_id).await);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -149,6 +192,20 @@ pub fn router(
         FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
     )
     .expect("Failed to initialize flag definitions rate limiter");
+
+    // Per-credential limiter for the remote_config endpoint (mirrors Django's
+    // RemoteConfigThrottle, which buckets per hashed bearer token). The team allowlist is
+    // applied by the handler, not the limiter, so this is constructed with an empty allowlist
+    // and no per-key overrides.
+    let remote_config_limiter = RemoteConfigRateLimiter::new(
+        config.remote_config_default_rate_per_minute,
+        std::collections::HashMap::new(),
+        std::collections::HashSet::new(),
+        REMOTE_CONFIG_REQUESTS_COUNTER,
+        REMOTE_CONFIG_RATE_LIMITED_COUNTER,
+        REMOTE_CONFIG_RATE_LIMIT_BYPASSED_COUNTER,
+    )
+    .expect("Failed to initialize remote config rate limiter");
 
     // Initialize token-based rate limiter.
     // Both modes use the same thresholds (warn at ratio of enforce capacity).
@@ -197,6 +254,7 @@ pub fn router(
         flags_rate_limiter.clone(),
         ip_rate_limiter.clone(),
         flag_definitions_limiter.clone(),
+        remote_config_limiter.clone(),
         config.rate_limiter_cleanup_interval_secs,
     );
 
@@ -215,6 +273,23 @@ pub fn router(
         .clone()
         .spawn_refresh_task(database_pools.non_persons_reader.clone());
 
+    // Build the remote-config payload decryptor from FLAGS_SECRET_KEYS (or SECRET_KEY
+    // fallback). Malformed keys fail boot loudly (the documented prep trap); a fully
+    // empty config is tolerated (local dev) — encrypted payloads just can't be served.
+    let flag_payload_decryptor = match FlagPayloadDecryptor::from_config(
+        &config.flags_secret_keys,
+        &config.secret_key,
+    ) {
+        Ok(d) => Some(d),
+        Err(FlagPayloadDecryptorError::NoKeys) => {
+            tracing::warn!(
+                    "No FLAGS_SECRET_KEYS or SECRET_KEY configured; encrypted remote config payloads cannot be decrypted"
+                );
+            None
+        }
+        Err(e) => panic!("Invalid FLAGS_SECRET_KEYS configuration: {e}"),
+    };
+
     let state = State {
         redis_client,
         dedicated_redis_client,
@@ -227,6 +302,7 @@ pub fn router(
         session_replay_billing_limiter,
         cookieless_manager,
         flag_definitions_limiter,
+        remote_config_limiter,
         config: config.clone(),
         flags_rate_limiter,
         ip_rate_limiter,
@@ -241,6 +317,7 @@ pub fn router(
         auth_token_cache,
         billing_aggregator,
         body_logger,
+        flag_payload_decryptor,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -357,6 +434,16 @@ pub fn router(
             .route(
                 "/api/feature_flag/local_evaluation/",
                 any(flag_definitions::flags_definitions),
+            )
+            // Alias for Django's remote_config endpoint — Contour routes to Rust
+            // without path rewriting (same pattern as local_evaluation).
+            .route(
+                "/api/projects/:project_id/feature_flags/:key/remote_config",
+                any(remote_config::remote_config),
+            )
+            .route(
+                "/api/projects/:project_id/feature_flags/:key/remote_config/",
+                any(remote_config::remote_config),
             );
     }
 
@@ -443,6 +530,7 @@ fn spawn_rate_limiter_cleanup_task(
     flags_rate_limiter: FlagsRateLimiter,
     ip_rate_limiter: IpRateLimiter,
     flag_definitions_limiter: FlagDefinitionsRateLimiter,
+    remote_config_limiter: RemoteConfigRateLimiter,
     cleanup_interval_secs: u64,
 ) {
     tokio::spawn(async move {
@@ -455,17 +543,21 @@ fn spawn_rate_limiter_cleanup_task(
                 flags_rate_limiter.cleanup();
                 ip_rate_limiter.cleanup();
                 flag_definitions_limiter.cleanup();
+                remote_config_limiter.cleanup();
 
                 // Report metrics for monitoring
                 gauge!("flags_rate_limiter_token_entries").set(flags_rate_limiter.len() as f64);
                 gauge!("flags_rate_limiter_ip_entries").set(ip_rate_limiter.len() as f64);
                 gauge!("flags_rate_limiter_definitions_entries")
                     .set(flag_definitions_limiter.len() as f64);
+                gauge!("flags_rate_limiter_remote_config_entries")
+                    .set(remote_config_limiter.len() as f64);
 
                 tracing::debug!(
                     token_entries = flags_rate_limiter.len(),
                     ip_entries = ip_rate_limiter.len(),
                     definitions_entries = flag_definitions_limiter.len(),
+                    remote_config_entries = remote_config_limiter.len(),
                     "Rate limiter cleanup completed"
                 );
             }));

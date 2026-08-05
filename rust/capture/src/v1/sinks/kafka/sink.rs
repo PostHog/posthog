@@ -13,10 +13,9 @@ use tracing::Level;
 use uuid::Uuid;
 
 use crate::config::CaptureMode;
-use crate::v1::context::Context;
-use crate::v1::sinks::event::Event;
+use crate::v1::context::RequestContext;
 use crate::v1::sinks::sink::Sink;
-use crate::v1::sinks::types::{BatchSummary, Destination, Outcome, SinkResult};
+use crate::v1::sinks::types::{BatchSummary, Destination, Outcome, PreparedEvent, SinkResult};
 use crate::v1::sinks::{Config, SinkName};
 
 use super::constants::*;
@@ -24,22 +23,10 @@ use super::producer::ProduceRecord;
 use super::types::{KafkaResult, KafkaSinkError};
 use super::KafkaProducerTrait;
 
-/// Bounded batch-size bucket for the serialize_duration histogram label.
-/// 5 values keeps cardinality manageable while giving visibility into
-/// the batch-size / latency relationship.
-fn batch_size_bucket(n: usize) -> &'static str {
-    match n {
-        0..=1 => "1",
-        2..=8 => "2-8",
-        9..=32 => "9-32",
-        33..=128 => "33-128",
-        _ => "129+",
-    }
-}
-
 /// Returns true when the partition key should be nulled — i.e. when person
-/// processing is force-disabled for Main/Overflow destinations, spreading
-/// load across partitions instead of hotspotting on a single key.
+/// processing is force-disabled for Main/Overflow-shaped destinations
+/// (including the AI lane's own overflow), spreading load across partitions
+/// instead of hotspotting on a single key.
 fn should_null_partition_key(
     force_disable_person_processing: bool,
     destination: &Destination,
@@ -47,7 +34,7 @@ fn should_null_partition_key(
     force_disable_person_processing
         && matches!(
             destination,
-            Destination::AnalyticsMain | Destination::Overflow
+            Destination::AnalyticsMain | Destination::Overflow | Destination::AiEventsOverflow
         )
 }
 
@@ -100,18 +87,15 @@ impl<P: KafkaProducerTrait> KafkaSink<P> {
     }
 }
 
-/// Reject every publishable event in `events` as `SinkUnavailable`,
-/// incrementing a single counter for the batch.
-fn reject_publishable(
-    events: &[&(dyn Event + Send + Sync)],
-    labels: &MetricLabels,
-) -> Vec<Box<dyn SinkResult>> {
+/// Reject every event in `events` as `SinkUnavailable`, incrementing a single
+/// counter per destination for the batch. Inputs are already serialized and
+/// publishable (non-publishable events never reach a sink).
+fn reject_all(events: &[PreparedEvent], labels: &MetricLabels) -> Vec<Box<dyn SinkResult>> {
     let enqueued_at = Utc::now();
-    let publishable: Vec<_> = events.iter().filter(|e| e.should_publish()).collect();
     let mut by_dest: std::collections::HashMap<&'static str, u64> =
         std::collections::HashMap::new();
-    for e in &publishable {
-        *by_dest.entry(e.destination().as_tag()).or_default() += 1;
+    for e in events {
+        *by_dest.entry(e.destination.as_tag()).or_default() += 1;
     }
     for (dest_tag, count) in &by_dest {
         counter!(
@@ -125,11 +109,11 @@ fn reject_publishable(
         )
         .increment(*count);
     }
-    publishable
-        .into_iter()
+    events
+        .iter()
         .map(|e| -> Box<dyn SinkResult> {
             Box::new(KafkaResult::err(
-                e.uuid(),
+                e.uuid,
                 KafkaSinkError::SinkUnavailable,
                 enqueued_at,
             ))
@@ -156,81 +140,42 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
     /// preserving per-partition ordering. Returns early results for
     /// serialization / send failures and collects ack futures for events
     /// that were successfully enqueued.
-    #[allow(clippy::too_many_arguments)]
     async fn enqueue_events(
         &self,
-        ctx: &Context,
-        events: &[&(dyn Event + Send + Sync)],
+        events: &[PreparedEvent],
         labels: &MetricLabels,
         enqueued_at: DateTime<Utc>,
         results: &mut Vec<Box<dyn SinkResult>>,
         pending: &mut FuturesUnordered<AckFuture>,
         enqueued_keys: &mut Vec<(Uuid, &'static str, Instant)>,
     ) {
-        let serialize_start = Instant::now();
-
         for event in events {
-            if !event.should_publish() {
-                continue;
-            }
+            let uuid = event.uuid;
+            let dest_tag = event.destination.as_tag();
 
-            let uuid = event.uuid();
-            let dest_tag = event.destination().as_tag();
-
-            let topic = match self.config.kafka.topic_for(event.destination()) {
+            let topic = match self.config.kafka.topic_for(&event.destination) {
                 Some(t) => t,
                 None => continue,
             };
 
-            let payload = match event.serialize(ctx) {
-                Ok(p) => p,
-                Err(e) => {
-                    crate::ctx_log!(
-                        Level::ERROR,
-                        ctx,
-                        sink = labels.sink,
-                        event_uuid = %uuid,
-                        error = %e,
-                        "event serialization failed, dropping event"
-                    );
-                    counter!(
-                        KAFKA_PUBLISH_TOTAL,
-                        "mode" => labels.mode,
-                        "cluster" => labels.sink,
-                        "outcome" => Outcome::FatalError.as_tag(),
-                        "path" => labels.path,
-                        "attempt" => labels.attempt,
-                        "destination" => dest_tag,
-                    )
-                    .increment(1);
-                    results.push(Box::new(KafkaResult::err(
-                        uuid,
-                        KafkaSinkError::SerializationFailed(format!("{e:#}")),
-                        enqueued_at,
-                    )));
-                    continue;
-                }
-            };
-
-            let captured_headers = event.headers(ctx);
-
             let key = if should_null_partition_key(
-                captured_headers
+                event
+                    .headers
                     .force_disable_person_processing
                     .unwrap_or(false),
-                event.destination(),
+                &event.destination,
             ) {
                 None
             } else {
-                Some(event.partition_key(ctx))
+                Some(event.partition_key.as_str())
             };
 
-            let headers: rdkafka::message::OwnedHeaders = captured_headers.into();
+            let headers: rdkafka::message::OwnedHeaders = event.headers.clone().into();
 
             let record = ProduceRecord {
                 topic,
-                key: key.as_deref(),
-                payload: &payload,
+                key,
+                payload: event.payload.as_ref(),
                 headers,
             };
 
@@ -261,16 +206,6 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                 }
             }
         }
-
-        histogram!(
-            KAFKA_SERIALIZE_DURATION_SECONDS,
-            "mode" => labels.mode,
-            "cluster" => labels.sink,
-            "path" => labels.path,
-            "attempt" => labels.attempt,
-            "batch_size" => batch_size_bucket(events.len()),
-        )
-        .record(serialize_start.elapsed().as_secs_f64());
     }
 
     /// Phase 2: drain ack futures with a per-sink deadline. Dropping remaining
@@ -408,8 +343,8 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
 
     async fn publish_batch(
         &self,
-        ctx: &Context,
-        events: &[&(dyn Event + Send + Sync)],
+        ctx: &RequestContext,
+        events: &[PreparedEvent],
     ) -> Vec<Box<dyn SinkResult>> {
         let labels = MetricLabels {
             sink: self.name.as_str(),
@@ -426,7 +361,7 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
                 mode = labels.mode,
                 "producer not ready — rejecting batch"
             );
-            return reject_publishable(events, &labels);
+            return reject_all(events, &labels);
         }
 
         let enqueued_at = Utc::now();
@@ -437,7 +372,6 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
         // Enqueue wall-time, isolated from per-event broker-ack latency.
         let enqueue_start = Instant::now();
         self.enqueue_events(
-            ctx,
             events,
             &labels,
             enqueued_at,
@@ -527,10 +461,13 @@ mod should_null_partition_key_tests {
     #[rstest]
     #[case::main_disabled(true, Destination::AnalyticsMain, true)]
     #[case::overflow_disabled(true, Destination::Overflow, true)]
+    #[case::ai_overflow_disabled(true, Destination::AiEventsOverflow, true)]
+    #[case::ai_disabled(true, Destination::AiEvents, false)]
     #[case::dlq_disabled(true, Destination::Dlq, false)]
     #[case::historical_disabled(true, Destination::AnalyticsHistorical, false)]
     #[case::custom_disabled(true, Destination::Custom("t".into()), false)]
     #[case::main_not_disabled(false, Destination::AnalyticsMain, false)]
+    #[case::ai_overflow_not_disabled(false, Destination::AiEventsOverflow, false)]
     fn policy(#[case] force_disable: bool, #[case] dest: Destination, #[case] expected: bool) {
         assert_eq!(should_null_partition_key(force_disable, &dest), expected);
     }

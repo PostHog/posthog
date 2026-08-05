@@ -39,6 +39,7 @@ import {
     PopoverTrigger,
 } from '@posthog/quill'
 
+import type { SeriesRename } from 'lib/components/EntityFilterInfo'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { isDefinitionStale } from 'lib/utils/definitions'
@@ -70,6 +71,8 @@ export interface TaxonomicFilterMenuProps {
     triggerLabel?: string
     /** Currently-selected entry — drives the trigger label. Optional. */
     selected?: MenuFilterEntry | null
+    /** Rename (custom name) carried by the series being edited — applied to the selected row in the combobox. */
+    selectedRename?: SeriesRename | null
     /**
      * Trigger override. Static element or render function receiving
      * trigger state.
@@ -176,9 +179,65 @@ export function eventSelectionWasStale(
     return isDefinitionStale(item as unknown as EventDefinition)
 }
 
+/** The default combobox landing — the "All" scope, where recents/pinned lead and
+ *  the user can search across every category. The one home for this state so the
+ *  initial-mount and runtime open paths can't drift. */
+const comboboxAllState = (): MenuFilterState => ({ kind: 'combobox', drillTo: 'all' })
+
+/**
+ * Resolve the panel a trigger open should land on from the current selection.
+ * If `selected` is set, jump straight into the panel that matches its group so
+ * the user lands on something editable (e.g. the HogQL editor pre-filled with
+ * the existing expression) instead of having to re-traverse the dropdown menu.
+ * With no selection we fall back to the menu.
+ */
+export function resolveSelectedOpenState(selected: MenuFilterEntry | null): MenuFilterState {
+    if (!selected) {
+        return { kind: 'menu' }
+    }
+    if (selected.group.type === TaxonomicFilterGroupType.HogQLExpression) {
+        return { kind: 'hogql-edit' }
+    }
+    if (selected.group.type === TaxonomicFilterGroupType.DataWarehouse) {
+        // origin='menu' so X / Esc / Cancel return to the dropdown menu rather
+        // than dropping the user into the (unscrolled) dwh-pick list they never
+        // visited.
+        return { kind: 'dwh-config', table: selected.item, group: selected.group, origin: 'menu' }
+    }
+    // The committed selection floats to the first row (and stays highlighted) so
+    // the user can verify it at a glance.
+    return comboboxAllState()
+}
+
+/**
+ * Initial menu state at mount. `defaultOpen` consumers lazily mount this
+ * component on the user's first trigger interaction, so opening is a one-shot
+ * mount concern — it belongs in the initial state, not a post-paint effect, so
+ * the picker opens in the same commit it mounts (no intermediate closed frame).
+ * `defaultOpenState` routes the open to the panel matching the interaction (the
+ * input trigger's search box -> combobox, its filter icon -> menu).
+ */
+export function resolveInitialMenuState(
+    defaultOpen: boolean,
+    defaultOpenState: 'menu' | 'combobox' | undefined,
+    selected: MenuFilterEntry | null
+): MenuFilterState {
+    if (!defaultOpen) {
+        return { kind: 'closed' }
+    }
+    if (defaultOpenState === 'combobox') {
+        return comboboxAllState()
+    }
+    if (defaultOpenState === 'menu') {
+        return { kind: 'menu' }
+    }
+    return resolveSelectedOpenState(selected)
+}
+
 export function TaxonomicFilterMenu({
     triggerLabel,
     selected,
+    selectedRename,
     trigger,
     onCommit,
     placeholder,
@@ -191,9 +250,19 @@ export function TaxonomicFilterMenu({
     triggerVariant = 'button',
     defaultOpenState,
 }: TaxonomicFilterMenuProps): JSX.Element {
-    const { groups, selectItem, inputProps, searchQuery, setSearchQuery, selectingKeyOnly, excludedOperators } =
-        useTaxonomicFilterContext()
-    const [state, setState] = useState<MenuFilterState>({ kind: 'closed' })
+    const {
+        groups,
+        selectItem,
+        inputProps,
+        searchQuery,
+        setSearchQuery,
+        selectingKeyOnly,
+        excludedOperators,
+        excludedProperties,
+    } = useTaxonomicFilterContext()
+    const [state, setState] = useState<MenuFilterState>(() =>
+        resolveInitialMenuState(defaultOpen, defaultOpenState, selected ?? null)
+    )
 
     // Telemetry — track open dwell + commit funnel so we can compare
     // against legacy `taxonomic filter *` events. Stored in refs so the
@@ -271,48 +340,7 @@ export function TaxonomicFilterMenu({
         action()
     }, [])
 
-    /**
-     * Resolve the initial state when the trigger opens. If `selected` is
-     * set, jump straight into the panel that matches its group so the
-     * user lands on something editable (e.g. the HogQL editor pre-filled
-     * with the existing expression) instead of having to re-traverse the
-     * dropdown menu. With no selection we fall back to the menu.
-     */
-    const resolveOpenState = useCallback((): MenuFilterState => {
-        if (!selected) {
-            return { kind: 'menu' }
-        }
-        if (selected.group.type === TaxonomicFilterGroupType.HogQLExpression) {
-            return { kind: 'hogql-edit' }
-        }
-        if (selected.group.type === TaxonomicFilterGroupType.DataWarehouse) {
-            // origin='menu' so X / Esc / Cancel return to the dropdown
-            // menu rather than dropping the user into the (unscrolled)
-            // dwh-pick list they never visited.
-            return { kind: 'dwh-config', table: selected.item, group: selected.group, origin: 'menu' }
-        }
-        // Land on the regular combobox on the "All" scope. The committed selection
-        // floats to the first row (and stays highlighted) so the user can verify it
-        // at a glance, while still seeing recents/pinned and being able to search
-        // across every category.
-        return { kind: 'combobox', drillTo: 'all' }
-    }, [selected])
-
-    // Open on mount when the consumer lazily mounts this component in
-    // response to the user's first click (see `TaxonomicPopoverMenu`).
-    // Runs once — opening is a one-shot mount concern, not reactive.
-    useEffect(() => {
-        if (defaultOpen) {
-            setState(
-                defaultOpenState === 'combobox'
-                    ? { kind: 'combobox', drillTo: 'all' }
-                    : defaultOpenState === 'menu'
-                      ? { kind: 'menu' }
-                      : resolveOpenState()
-            )
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [])
+    const resolveOpenState = useCallback((): MenuFilterState => resolveSelectedOpenState(selected ?? null), [selected])
 
     // -- Recent / Pinned shortcuts -- read from kea so menu items reflect
     // the live counts. Mapped back to entries via source group.
@@ -331,11 +359,12 @@ export function TaxonomicFilterMenu({
                     recentFilterItems as TaxonomicDefinitionTypes[],
                     taxonomicGroupTypes,
                     excludedOperators,
-                    selectingKeyOnly
+                    selectingKeyOnly,
+                    excludedProperties
                 ) as ShortcutItem[],
                 groups
             ),
-        [recentFilterItems, taxonomicGroupTypes, groups, excludedOperators, selectingKeyOnly]
+        [recentFilterItems, taxonomicGroupTypes, groups, excludedOperators, selectingKeyOnly, excludedProperties]
     )
     const pinnedEntries = useMemo<MenuFilterEntry[]>(
         () =>
@@ -540,6 +569,11 @@ export function TaxonomicFilterMenu({
             if (target.closest?.('[data-quill-portal]')) {
                 return
             }
+            // Monaco portals suggestion widgets to a shared body-level div; treat clicks there as
+            // inside so picking a SQL autocomplete value doesn't close the filter.
+            if (target.closest?.('[data-attr="monaco-overflow-root"]')) {
+                return
+            }
             if (triggerWrapRef.current?.contains(target)) {
                 return
             }
@@ -630,6 +664,7 @@ export function TaxonomicFilterMenu({
                         <DropdownMenuTrigger render={triggerEl} data-attr="taxonomic-filter-menu-trigger" />
                     )}
                     <PopoverTrigger
+                        nativeButton={false}
                         render={<span aria-hidden tabIndex={-1} className="absolute inset-0 pointer-events-none" />}
                     />
                     {triggerAccessory}
@@ -690,6 +725,7 @@ export function TaxonomicFilterMenu({
                             // already title themselves with the group name.
                             title={state.drillTo === 'all' ? comboboxTitle : undefined}
                             selectedEntry={selected ?? null}
+                            selectedRename={selectedRename}
                             onCommit={handleCommit}
                             onBack={openMenu}
                             inputRef={comboboxInputRef}

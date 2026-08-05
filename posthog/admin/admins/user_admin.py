@@ -3,11 +3,9 @@ import datetime
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.contrib.auth.forms import UserChangeForm as DjangoUserChangeForm
-from django.contrib.sessions.models import Session
 from django.core.exceptions import ValidationError
 from django.http import HttpResponseRedirect
 from django.urls import reverse
-from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 
@@ -23,7 +21,8 @@ from posthog.api.email_verification import EmailVerifier
 from posthog.api.two_factor_reset import TwoFactorResetVerifier
 from posthog.models import User
 from posthog.models.webauthn_credential import WebauthnCredential
-from posthog.tasks.email import send_two_factor_reset_email
+from posthog.session.activity import revoke_other_sessions
+from posthog.tasks.email import send_password_reset, send_two_factor_reset_email
 
 
 class UserChangeForm(DjangoUserChangeForm):
@@ -221,6 +220,27 @@ class UserAdmin(DjangoUserAdmin):
             # Redirect back to the change form
             return HttpResponseRedirect(reverse("admin:posthog_user_change", args=[object_id]))
 
+        if request.POST.get("send_password_reset") == "1":
+            try:
+                if user:
+                    # Persist the timestamp before generating the token — it's folded into the token
+                    # hash (PasswordResetTokenGenerator._make_hash_value), so saving must come first.
+                    user.requested_password_reset_at = datetime.datetime.now(datetime.UTC)
+                    user.save(update_fields=["requested_password_reset_at"])
+
+                    token = password_reset_token_generator.make_token(user)
+                    send_password_reset.delay(user.pk, token)
+
+                    self.log_change(request, user, "Sent password reset email.")
+                    messages.success(request, f"Password reset email sent to {user.email}")
+                else:
+                    messages.warning(request, "User not found.")
+            except Exception as e:
+                messages.error(request, f"Failed to send password reset email: {str(e)}")
+
+            # Redirect back to the change form
+            return HttpResponseRedirect(reverse("admin:posthog_user_change", args=[object_id]))
+
         if request.POST.get("send_2fa_reset") == "1":
             try:
                 if user:
@@ -254,14 +274,15 @@ class UserAdmin(DjangoUserAdmin):
 
         return super().change_view(request, object_id, form_url, extra_context)
 
-    def _user_sessions(self, user):
-        """Fetch user's active sessions. Uses an iterator due to large table size and lack of effective indexing."""
-        user_pk = str(user.pk)
-        sessions = Session.objects.filter(expire_date__gt=timezone.now()).only("session_data")
-        for s in sessions.iterator():
-            data = s.get_decoded()
-            if data.get("_auth_user_id") == user_pk:
-                yield s
+    def user_change_password(self, request, id, form_url=""):
+        # We don't let admins set passwords directly (change_password_form is None), but Django's
+        # inherited get_urls() still registers this route — which would 500 on NoneType form.
+        # Redirect to the change page where the "email them a reset link" button lives instead.
+        messages.info(
+            request,
+            'Admins can\'t set passwords directly. Use the "Reset password" button on the user page to email the user a reset link.',
+        )
+        return HttpResponseRedirect(reverse("admin:posthog_user_change", args=[id]))
 
     def delete_user_sessions(self, user):
-        return sum(1 for s in self._user_sessions(user) if s.delete())
+        return revoke_other_sessions(user, keep_session_key=None)

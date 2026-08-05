@@ -3,11 +3,13 @@ import type { ReactElement } from 'react'
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Card, CardContent, Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
 
+import { ChartHeader } from './ChartHeader'
 import { FunnelVisualizer } from './FunnelVisualizer'
 import { inferVisualizationType } from './infer-visualization'
 import { LifecycleVisualizer } from './LifecycleVisualizer'
 import { PathsVisualizer } from './PathsVisualizer'
 import { RetentionVisualizer } from './RetentionVisualizer'
+import { StickinessVisualizer } from './StickinessVisualizer'
 import { TableVisualizer } from './TableVisualizer'
 import { TrendsVisualizer } from './TrendsVisualizer'
 import type {
@@ -20,14 +22,30 @@ import type {
     PathsResult,
     RetentionQuery,
     RetentionResult,
+    StickinessQuery,
+    StickinessResult,
     TrendsQuery,
     TrendsResult,
 } from './types'
 
 /** Data payload from MCP tools */
 interface DataPayload {
-    query?: TrendsQuery | FunnelsQuery | LifecycleQuery | RetentionQuery | PathsQuery | Record<string, unknown>
-    results: TrendsResult | FunnelResult | LifecycleResult | RetentionResult | PathsResult | HogQLResult
+    query?:
+        | TrendsQuery
+        | StickinessQuery
+        | FunnelsQuery
+        | LifecycleQuery
+        | RetentionQuery
+        | PathsQuery
+        | Record<string, unknown>
+    results:
+        | TrendsResult
+        | StickinessResult
+        | FunnelResult
+        | LifecycleResult
+        | RetentionResult
+        | PathsResult
+        | HogQLResult
     _posthogUrl?: string
 }
 
@@ -43,9 +61,7 @@ export function Component({ data }: ComponentProps): ReactElement {
         return (
             <Card>
                 <CardContent>
-                    <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                        Results
-                    </div>
+                    <ChartHeader title="Results" />
                     <Empty>
                         <EmptyHeader>
                             <EmptyMedia>{emptyStateIllustration('generic')}</EmptyMedia>
@@ -63,12 +79,27 @@ export function Component({ data }: ComponentProps): ReactElement {
         switch (visualizationType) {
             case 'trends':
                 return (
-                    <TrendsVisualizer query={payload.query as TrendsQuery} results={payload.results as TrendsResult} />
+                    <TrendsVisualizer
+                        // The host updates `data` in place, so key on the query to re-seed state per result.
+                        key={JSON.stringify(payload.query)}
+                        query={payload.query as TrendsQuery}
+                        results={payload.results as TrendsResult}
+                    />
                 )
 
             case 'funnel':
                 return (
                     <FunnelVisualizer query={payload.query as FunnelsQuery} results={payload.results as FunnelResult} />
+                )
+
+            case 'stickiness':
+                return (
+                    <StickinessVisualizer
+                        // The host updates `data` in place, so key on the query to re-seed state per result.
+                        key={JSON.stringify(payload.query)}
+                        query={payload.query as StickinessQuery}
+                        results={payload.results as StickinessResult}
+                    />
                 )
 
             case 'lifecycle':
@@ -98,33 +129,9 @@ export function Component({ data }: ComponentProps): ReactElement {
         }
     }
 
-    const getTitle = (): string => {
-        switch (visualizationType) {
-            case 'trends':
-                return 'Trends'
-            case 'funnel':
-                return 'Funnel'
-            case 'lifecycle':
-                return 'Lifecycle'
-            case 'retention':
-                return 'Retention'
-            case 'paths':
-                return 'Paths'
-            case 'table':
-                return 'Query results'
-            default:
-                return 'Results'
-        }
-    }
-
     return (
         <Card>
-            <CardContent>
-                <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    {getTitle()}
-                </div>
-                {renderVisualization()}
-            </CardContent>
+            <CardContent>{renderVisualization()}</CardContent>
         </Card>
     )
 }

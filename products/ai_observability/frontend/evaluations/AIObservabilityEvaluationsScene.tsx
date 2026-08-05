@@ -1,10 +1,12 @@
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import { useEffect, useRef, useState } from 'react'
 
-import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash, IconWarning } from '@posthog/icons'
+import { IconEye, IconHide, IconPencil, IconPlus, IconSearch, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonDialog,
     LemonInput,
     LemonSwitch,
     LemonTab,
@@ -19,10 +21,12 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { fullName } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -39,13 +43,13 @@ import {
     providerKeyStateLabel,
     providerLabel,
 } from '../settings/providerKeyStateUtils'
-import { TrialUsageMeter } from '../settings/TrialUsageMeter'
 import {
     EvaluationMetrics,
     PASS_RATE_SUCCESS_THRESHOLD,
     PASS_RATE_WARNING_THRESHOLD,
 } from './components/EvaluationMetrics'
 import { OfflineEvaluationsTab } from './components/OfflineEvaluationsTab'
+import { evaluationTypeUsesProviderKey } from './evaluationCapabilities'
 import { EvaluationStats, evaluationMetricsLogic } from './evaluationMetricsLogic'
 import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
@@ -78,11 +82,72 @@ function getActiveTab(
 }
 
 function getProviderKeyIssue(evaluation: EvaluationConfig, providerKeys: LLMProviderKey[]): LLMProviderKey | null {
-    if (evaluation.evaluation_type === 'hog') {
+    if (!evaluationTypeUsesProviderKey(evaluation.evaluation_type)) {
         return null
     }
 
     return getUnhealthyProviderKey(providerKeys, evaluation.model_configuration?.provider_key_id)
+}
+
+function getEvaluationMethodLabel(evaluation: EvaluationConfig): string {
+    if (evaluation.evaluation_type === 'hog') {
+        return 'Hog'
+    }
+    if (evaluation.evaluation_type === 'sentiment') {
+        return 'Sentiment'
+    }
+    return 'LLM judge'
+}
+
+function getEvaluationMethodTagType(evaluation: EvaluationConfig): 'option' | 'highlight' | 'caution' {
+    if (evaluation.evaluation_type === 'hog') {
+        return 'option'
+    }
+    if (evaluation.evaluation_type === 'sentiment') {
+        return 'highlight'
+    }
+    return 'caution'
+}
+
+function getEvaluationConfigPreview(evaluation: EvaluationConfig): string {
+    if (evaluation.evaluation_type === 'hog') {
+        return evaluation.evaluation_config.source
+    }
+    if (evaluation.evaluation_type === 'sentiment') {
+        return 'User messages'
+    }
+    return evaluation.evaluation_config.prompt
+}
+
+function EvaluationDescription({ description }: { description: string }): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
+    const [isClamped, setIsClamped] = useState(false)
+    const textRef = useRef<HTMLDivElement | null>(null)
+
+    // line-clamp-1 constrains clientHeight to a single line; if scrollHeight exceeds it the text is
+    // truncated and worth a toggle. Only measure while collapsed — expanded, scrollHeight === clientHeight.
+    useEffect(() => {
+        if (textRef.current && !expanded) {
+            setIsClamped(textRef.current.scrollHeight > textRef.current.clientHeight)
+        }
+    }, [description, expanded])
+
+    return (
+        <div className="flex items-start gap-1">
+            <div ref={textRef} className={`text-muted text-sm ${expanded ? '' : 'line-clamp-1'}`}>
+                {description}
+            </div>
+            {(isClamped || expanded) && (
+                <LemonButton
+                    size="xsmall"
+                    onClick={() => setExpanded(!expanded)}
+                    data-attr="toggle-evaluation-description"
+                >
+                    {expanded ? 'Show less' : 'Show more'}
+                </LemonButton>
+            )}
+        </div>
+    )
 }
 
 function AIObservabilityEvaluationsContent(): JSX.Element {
@@ -93,12 +158,13 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
         filteredEvaluations,
         evaluationsLoading,
         evaluationsFilter,
+        showDisabledEvaluations,
         dateFilter,
         providerKeys,
         unhealthyProviderKeysUsedByEvaluations,
         canEnableEvaluation,
     } = useValues(evaluationsLogic)
-    const { setEvaluationsFilter, toggleEvaluationEnabled, duplicateEvaluation, loadEvaluations, setDates } =
+    const { setEvaluationsFilter, setShowDisabledEvaluations, toggleEvaluationEnabled, loadEvaluations, setDates } =
         useActions(evaluationsLogic)
     const { evaluationsWithMetrics } = useValues(metricsLogic)
     const { currentTeamId } = useValues(teamLogic)
@@ -124,7 +190,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                     <Link to={evaluationUrl(evaluation.id)} className="font-semibold text-primary">
                         {evaluation.name}
                     </Link>
-                    {evaluation.description && <div className="text-muted text-sm">{evaluation.description}</div>}
+                    {evaluation.description && <EvaluationDescription description={evaluation.description} />}
                 </div>
             ),
             sorter: (a, b) => a.name.localeCompare(b.name),
@@ -139,7 +205,13 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                 if (evaluation.status === 'error') {
                     return (
                         <Tooltip title={`${statusReasonLabel(evaluation.status_reason)}. Open to fix.`}>
-                            <LemonTag type="danger" icon={<IconWarning />} data-attr="evaluation-status-error">
+                            <LemonTag
+                                type="danger"
+                                icon={<IconWarning />}
+                                forceClickable
+                                onClick={() => push(evaluationUrl(evaluation.id))}
+                                data-attr="evaluation-status-error"
+                            >
                                 Error
                             </LemonTag>
                         </Tooltip>
@@ -151,9 +223,15 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                         <Tooltip
                             title={`Paused because API key ${providerKeyIssue.name} ${providerKeyStateIssueDescription(
                                 providerKeyIssue.state
-                            )}.`}
+                            )}. Open settings to fix.`}
                         >
-                            <LemonTag type="warning" icon={<IconWarning />} data-attr="evaluation-status-key-issue">
+                            <LemonTag
+                                type="warning"
+                                icon={<IconWarning />}
+                                forceClickable
+                                onClick={() => push(settingsUrl)}
+                                data-attr="evaluation-status-key-issue"
+                            >
                                 Key issue
                             </LemonTag>
                         </Tooltip>
@@ -161,19 +239,14 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                 }
                 const canEnable = canEnableEvaluation(evaluation)
                 const isBlocked = !canEnable && !evaluation.enabled
+                const blockedReason = 'Add a provider API key to enable this evaluation.'
                 return (
                     <div className="flex items-center gap-2">
                         <AccessControlAction
                             resourceType={AccessControlResourceType.LlmAnalytics}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
-                            <Tooltip
-                                title={
-                                    isBlocked
-                                        ? 'Trial evaluation limit reached. Add a provider API key to re-enable.'
-                                        : undefined
-                                }
-                            >
+                            <Tooltip title={isBlocked ? blockedReason : undefined}>
                                 <span>
                                     <LemonSwitch
                                         checked={evaluation.enabled}
@@ -201,8 +274,8 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
             title: 'Method',
             key: 'method',
             render: (_, evaluation) => (
-                <LemonTag type={evaluation.evaluation_type === 'hog' ? 'option' : 'caution'}>
-                    {evaluation.evaluation_type === 'hog' ? 'Hog' : 'LLM judge'}
+                <LemonTag type={getEvaluationMethodTagType(evaluation)}>
+                    {getEvaluationMethodLabel(evaluation)}
                 </LemonTag>
             ),
         },
@@ -210,10 +283,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
             title: 'Config',
             key: 'config',
             render: (_, evaluation) => {
-                const preview =
-                    evaluation.evaluation_type === 'hog'
-                        ? evaluation.evaluation_config.source
-                        : evaluation.evaluation_config.prompt
+                const preview = getEvaluationConfigPreview(evaluation)
                 return (
                     <div className="max-w-md">
                         <div className="text-sm font-mono bg-bg-light border rounded px-2 py-1 truncate">
@@ -251,6 +321,15 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                     return <span className="text-muted text-sm">No runs</span>
                 }
 
+                // Sentiment evals classify rather than pass/fail, so a pass rate is meaningless
+                if (evaluation.evaluation_type === 'sentiment') {
+                    return (
+                        <div className="text-sm">
+                            {stats.runs_count} run{stats.runs_count !== 1 ? 's' : ''}
+                        </div>
+                    )
+                }
+
                 const passRateColor =
                     stats.pass_rate >= PASS_RATE_SUCCESS_THRESHOLD
                         ? 'text-success'
@@ -268,6 +347,22 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                         </div>
                     </div>
                 )
+            },
+        },
+        {
+            title: 'Created by',
+            key: 'created_by',
+            render: (_, evaluation) =>
+                evaluation.created_by ? (
+                    <ProfilePicture user={evaluation.created_by} size="md" showName />
+                ) : (
+                    <span className="text-muted text-sm">–</span>
+                ),
+            sorter: (a, b) => {
+                // Match the displayed identity: full name, falling back to email when no name is set.
+                const sortKey = (e: EvaluationConfig): string =>
+                    e.created_by ? fullName(e.created_by) || e.created_by.email : ''
+                return sortKey(a).localeCompare(sortKey(b))
             },
         },
         {
@@ -293,24 +388,29 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                         <LemonButton
                             size="small"
                             type="secondary"
-                            icon={<IconCopy />}
-                            onClick={() => duplicateEvaluation(evaluation.id)}
-                        />
-                    </AccessControlAction>
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            size="small"
-                            type="secondary"
                             status="danger"
                             icon={<IconTrash />}
                             onClick={() => {
-                                deleteWithUndo({
-                                    endpoint: `environments/${currentTeamId}/evaluations`,
-                                    object: evaluation,
-                                    callback: () => loadEvaluations(),
+                                LemonDialog.open({
+                                    title: `Delete ${evaluation.name}?`,
+                                    description: 'Are you sure you want to delete this evaluation?',
+                                    primaryButton: {
+                                        children: 'Delete',
+                                        type: 'primary',
+                                        status: 'danger',
+                                        'data-attr': 'confirm-delete-evaluation',
+                                        onClick: () => {
+                                            deleteWithUndo({
+                                                endpoint: `environments/${currentTeamId}/evaluations`,
+                                                object: evaluation,
+                                                callback: () => loadEvaluations(),
+                                            })
+                                        },
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                        type: 'secondary',
+                                    },
                                 })
                             }}
                         />
@@ -322,8 +422,6 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            <TrialUsageMeter showSettingsLink={false} />
-
             {unhealthyProviderKeysUsedByEvaluations.length > 0 && (
                 <LemonBanner type="warning">
                     <div className="space-y-2">
@@ -342,15 +440,12 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                 </LemonBanner>
             )}
 
-            <LemonBanner type="info" dismissKey="evals-billing-notice">
-                Each evaluation run counts as an AI observability event.
-            </LemonBanner>
-
             <div className="flex justify-between items-center">
                 <div>
                     <h2 className="text-xl font-semibold">Online evals</h2>
                     <p className="text-muted">
-                        Configure evaluation prompts and triggers to automatically assess your AI generations.
+                        Configure evaluation prompts and triggers to automatically assess your AI generations. Each
+                        evaluation run is billed as an AI observability event.
                     </p>
                 </div>
                 <AccessControlAction
@@ -383,6 +478,16 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                     prefix={<IconSearch />}
                     className="max-w-sm"
                 />
+                <LemonButton
+                    type="secondary"
+                    active={!showDisabledEvaluations}
+                    icon={showDisabledEvaluations ? <IconEye /> : <IconHide />}
+                    onClick={() => setShowDisabledEvaluations(!showDisabledEvaluations)}
+                    data-attr="toggle-show-disabled-evaluations"
+                    tooltip={showDisabledEvaluations ? 'Hide disabled evals' : 'Show disabled evals'}
+                >
+                    {showDisabledEvaluations ? 'Hide disabled' : 'Show disabled'}
+                </LemonButton>
             </div>
 
             <LemonTable

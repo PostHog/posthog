@@ -25,3 +25,11 @@ def current_workflow_run_id() -> str | None:
         return activity.info().workflow_run_id
     except RuntimeError:
         return None
+
+
+def current_activity_attempt() -> int:
+    """Return the current Temporal activity attempt number (1-based), or 1 if not inside an activity."""
+    try:
+        return activity.info().attempt
+    except RuntimeError:
+        return 1

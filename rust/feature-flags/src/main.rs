@@ -154,7 +154,7 @@ async fn async_main(mut config: Config, rayon_dispatcher: RayonDispatcher) {
     let listener = tokio::net::TcpListener::bind(config.address)
         .await
         .expect("could not bind port");
-    serve(config, listener, rayon_dispatcher, handles).await;
+    serve(config, listener, rayon_dispatcher, handles, None).await;
 
     // Exit non-zero on dirty shutdown so `restart: on-failure` policies
     // (hobby docker-compose, default Docker) restart the container.

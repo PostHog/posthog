@@ -26,6 +26,7 @@ export const CreationTypeEnumApi = {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -38,6 +39,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -140,6 +142,11 @@ export interface AnnotationApi {
      * @nullable
      */
     emoji?: string | null
+    /**
+     * When true, the annotation is hidden from the PostHog UI (charts and the annotations list) but still readable over the API and MCP. Use for high-frequency markers like deployments that would otherwise crowd the UI. Null (the default) means the annotation is shown.
+     * @nullable
+     */
+    hidden_in_user_interface?: boolean | null
 }
 
 export interface PaginatedAnnotationListApi {
@@ -201,6 +208,11 @@ export interface PatchedAnnotationApi {
      * @nullable
      */
     emoji?: string | null
+    /**
+     * When true, the annotation is hidden from the PostHog UI (charts and the annotations list) but still readable over the API and MCP. Use for high-frequency markers like deployments that would otherwise crowd the UI. Null (the default) means the annotation is shown.
+     * @nullable
+     */
+    hidden_in_user_interface?: boolean | null
 }
 
 export type AnnotationsListParams = {

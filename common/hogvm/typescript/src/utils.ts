@@ -1,4 +1,16 @@
-import { toHogDate, toHogDateTime } from './stl/date'
+import { isHogDate, isHogDateTime } from './objects'
+import { dateStringToSeconds, toHogDate, toHogDateTime } from './stl/date'
+
+/** Epoch seconds for a Hog datetime/date value, else null. A bare HogDate is UTC midnight. */
+function temporalSeconds(value: any): number | null {
+    if (isHogDateTime(value)) {
+        return value.dt
+    }
+    if (isHogDate(value)) {
+        return toHogDateTime(value).dt
+    }
+    return null
+}
 
 export class HogVMException extends Error {
     constructor(message: string) {
@@ -204,6 +216,30 @@ export function calculateCost(object: any, marked: Set<any> | undefined = undefi
 }
 
 export function unifyComparisonTypes(left: any, right: any): [any, any] {
+    // Two temporal values order by epoch seconds (matching ClickHouse and the Rust VM). Without this they
+    // stay as objects and `object > object` coerces to "[object Object]", which is always false — silently
+    // breaking realtime `is date after`/`is date before` filters.
+    const leftSeconds = temporalSeconds(left)
+    const rightSeconds = temporalSeconds(right)
+    if (leftSeconds !== null && rightSeconds !== null) {
+        return [leftSeconds, rightSeconds]
+    }
+    // A bare-field SQL comparison like `timestamp > toDateTime(...)` puts a plain date-like string
+    // (e.g. the filter globals' ISO `timestamp`) against a HogDateTime/HogDate object. Parse the
+    // string the same way `toDateTime` would rather than falling through to the generic branches
+    // below, where `object > string` stays unordered and silently evaluates to false.
+    if (leftSeconds !== null && typeof right === 'string') {
+        const rightSecondsFromString = dateStringToSeconds(right)
+        if (rightSecondsFromString !== null) {
+            return [leftSeconds, rightSecondsFromString]
+        }
+    }
+    if (rightSeconds !== null && typeof left === 'string') {
+        const leftSecondsFromString = dateStringToSeconds(left)
+        if (leftSecondsFromString !== null) {
+            return [leftSecondsFromString, rightSeconds]
+        }
+    }
     if (typeof left === 'number' && typeof right === 'string') {
         return [left, Number(right)]
     }

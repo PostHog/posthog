@@ -18,6 +18,7 @@ from posthog.schema import (
     PathsQuery,
     PathsQueryResponse,
     PathType,
+    ResolvedDateRangeResponse,
 )
 
 from posthog.hogql import ast
@@ -886,7 +887,8 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
 
     def _calculate(self) -> PathsQueryResponse:
         query = self.to_query()
-        hogql = to_printed_hogql(query, self.team)
+        # Display-only response HogQL (never executed); bypass warehouse ACL so printing doesn't fail closed userless.
+        hogql = to_printed_hogql(query, self.team, bypass_warehouse_access_control=True)
 
         response = execute_hogql_query(
             query_type="PathsQuery",
@@ -914,7 +916,16 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
             for source, target, value, avg_conversion_time in response.results
         )
 
-        return PathsQueryResponse(results=results, timings=response.timings, hogql=hogql, modifiers=self.modifiers)
+        return PathsQueryResponse(
+            results=results,
+            timings=response.timings,
+            hogql=hogql,
+            modifiers=self.modifiers,
+            resolved_date_range=ResolvedDateRangeResponse(
+                date_from=self.query_date_range.date_from(),
+                date_to=self.query_date_range.date_to(),
+            ),
+        )
 
     @property
     def extra_event_fields_and_properties(self) -> list[str]:

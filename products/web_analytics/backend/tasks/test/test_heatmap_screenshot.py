@@ -1,23 +1,34 @@
 from contextlib import contextmanager
+from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
+from django.utils import timezone
 
+from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
-from products.web_analytics.backend.api.heatmaps_utils import MAX_TARGET_WIDTHS
+from products.web_analytics.backend.api.heatmaps_utils import MAX_TARGET_WIDTHS, PREWARM_TTL
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 from products.web_analytics.backend.tasks.heatmap_screenshot import (
+    HEATMAP_SCREENSHOT_STUCK_SAMPLE_SIZE,
+    HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS,
     BrowserlessError,
     BrowserlessPermanentError,
+    BrowserlessTransientError,
+    PageHttpStatusError,
     _browserless_screenshot,
     _build_browserless_screenshot_url,
+    _classify_failure,
     _redact_browserless_url,
     _resolve_widths,
     _sanitize_browserless_error,
     generate_heatmap_screenshot,
+    reap_stale_prewarm_heatmaps,
+    report_stuck_heatmap_screenshots,
 )
 
 BROWSERLESS_SETTINGS = {
@@ -67,14 +78,51 @@ class TestHeatmapScreenshotTask(APIBaseTest):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def _make_heatmap(self, target_widths: list[int] | None = None) -> SavedHeatmap:
+    def _make_heatmap(self, target_widths: list[int] | None = None, block_consent_modals: bool = False) -> SavedHeatmap:
         return SavedHeatmap.objects.create(
             team=self.team,
             url="https://example.com",
             created_by=self.user,
             target_widths=target_widths or [1024],
             status=SavedHeatmap.Status.PROCESSING,
+            block_consent_modals=block_consent_modals,
         )
+
+    @override_settings(**BROWSERLESS_SETTINGS)
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests")
+    def test_a_captured_error_page_fails_the_heatmap_instead_of_being_stored(self, mock_requests: MagicMock) -> None:
+        # The render is a valid JPEG of the host's error page, so without the page status this looked
+        # like a healthy heatmap and the user was shown a picture of a 429.
+        resp = _make_response(_jpeg(b"err"))
+        resp.headers = {"content-type": "image/png", "x-response-code": "429"}
+        mock_requests.post.return_value = resp
+
+        heatmap = self._make_heatmap()
+        with self.assertRaises(PageHttpStatusError):
+            generate_heatmap_screenshot(heatmap.id)
+
+        heatmap.refresh_from_db()
+        assert heatmap.status == SavedHeatmap.Status.FAILED
+        assert "429" in (heatmap.exception or "")
+        assert "example.com" in (heatmap.exception or "")
+        assert not HeatmapSnapshot.objects.filter(heatmap=heatmap).exists()
+
+    @parameterized.expand([("blocking_on", True), ("blocking_off", False)])
+    @override_settings(**BROWSERLESS_SETTINGS, HEATMAP_BROWSERLESS_BLOCK_ADS=False)
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests")
+    def test_per_heatmap_consent_blocking_flows_into_body(
+        self, _name: str, block_consent_modals: bool, mock_requests: MagicMock
+    ) -> None:
+        mock_requests.post.return_value = _make_response(_jpeg(b"1024"))
+
+        heatmap = self._make_heatmap(block_consent_modals=block_consent_modals)
+        generate_heatmap_screenshot(heatmap.id)
+
+        body = mock_requests.post.call_args.kwargs["json"]
+        if block_consent_modals:
+            assert body["blockConsentModals"] is True
+        else:
+            assert "blockConsentModals" not in body
 
     @override_settings(**BROWSERLESS_SETTINGS)
     @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests")
@@ -135,6 +183,46 @@ class TestHeatmapScreenshotTask(APIBaseTest):
 
     @override_settings(**BROWSERLESS_SETTINGS)
     @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests")
+    def test_skips_widths_that_are_already_rendered(self, mock_requests: MagicMock) -> None:
+        # A promoted prewarm arrives with its preview width already captured — only the missing widths
+        # should render, and the reused bytes must be left untouched.
+        mock_requests.post.return_value = _make_response(_jpeg(b"768"))
+        heatmap = self._make_heatmap(target_widths=[768, 1024])
+        HeatmapSnapshot.objects.create(heatmap=heatmap, width=1024, content=_jpeg(b"preview"))
+
+        generate_heatmap_screenshot(heatmap.id)
+
+        mock_requests.post.assert_called_once()
+        assert mock_requests.post.call_args.kwargs["json"]["viewport"]["width"] == 768
+        heatmap.refresh_from_db()
+        assert heatmap.status == SavedHeatmap.Status.COMPLETED
+        snaps = {s.width: s.content for s in HeatmapSnapshot.objects.filter(heatmap=heatmap)}
+        assert snaps == {768: _jpeg(b"768"), 1024: _jpeg(b"preview")}
+
+    @override_settings(**BROWSERLESS_SETTINGS)
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests")
+    def test_reenqueues_followup_when_widths_grow_during_render(self, mock_requests: MagicMock) -> None:
+        # A create can promote this prewarm to more widths while its single preview width renders. The
+        # task must not mark 'completed' with widths still owed — it finishes them in a follow-up run.
+        heatmap = self._make_heatmap(target_widths=[1024])
+
+        def render_then_grow(*args: object, **kwargs: object) -> MagicMock:
+            SavedHeatmap.objects.filter(id=heatmap.id).update(target_widths=[768, 1024])
+            return _make_response(_jpeg(b"1024"))
+
+        mock_requests.post.side_effect = render_then_grow
+
+        with patch(
+            "products.web_analytics.backend.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay"
+        ) as mock_delay:
+            generate_heatmap_screenshot(heatmap.id)
+
+        heatmap.refresh_from_db()
+        assert heatmap.status == SavedHeatmap.Status.PROCESSING  # 768 still owed, so not completed
+        mock_delay.assert_called_once_with(heatmap.id)
+
+    @override_settings(**BROWSERLESS_SETTINGS)
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests")
     def test_failure_on_later_width_marks_failed_and_keeps_earlier_widths(self, mock_requests: MagicMock) -> None:
         # First width succeeds, second width's request fails
         mock_requests.post.side_effect = [_make_response(_jpeg(b"320")), Exception("boom on second width")]
@@ -153,6 +241,7 @@ class TestHeatmapScreenshotTask(APIBaseTest):
         assert self.captured_events[-1]["properties"]["mode"] == "browserless"
         assert self.captured_events[-1]["properties"]["success"] is False
         assert self.captured_events[-1]["properties"]["error_type"] == "BrowserlessTransientError"
+        assert self.captured_events[-1]["properties"]["failure_type"] == "browserless_timeout"
 
     @override_settings(HEATMAP_BROWSERLESS_URL="")
     def test_unconfigured_url_marks_failed_permanently(self) -> None:
@@ -177,12 +266,37 @@ class TestHeatmapScreenshotTask(APIBaseTest):
 
 # Pure-function tests for the Browserless REST helper — no DB, so they run on SimpleTestCase.
 class TestBrowserlessScreenshotRequest(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("rate_limited", {"x-response-code": "429"}, 429),
+            ("healthy", {"x-response-code": "200"}, 200),
+            ("header_absent", {}, None),
+            ("header_unparseable", {"x-response-code": "nope"}, None),
+        ]
+    )
+    @override_settings(**BROWSERLESS_SETTINGS)
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests")
+    def test_reports_the_pages_own_status_from_the_response_header(
+        self, _name: str, headers: dict[str, str], expected: int | None, mock_requests: MagicMock
+    ) -> None:
+        # Browserless answers 200 with a valid JPEG even when the page it rendered returned 429, so
+        # this header is the only thing that distinguishes a heatmap from a picture of an error page.
+        resp = _make_response(_jpeg(b"img"))
+        resp.headers = {"content-type": "image/png", **headers}
+        mock_requests.post.return_value = resp
+
+        content, page_status = _browserless_screenshot(
+            "https://host/screenshot?token=t", "https://ex.com", 1024, block_consent_modals=False
+        )
+
+        assert content == _jpeg(b"img")
+        assert page_status == expected
+
     @parameterized.expand([("desktop", 1024, False), ("mobile", 320, True)])
     @override_settings(
         HEATMAP_BROWSERLESS_TIMEOUT_MS=180000,
         HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS=30000,
         HEATMAP_BROWSERLESS_BLOCK_ADS=False,
-        HEATMAP_BROWSERLESS_BLOCK_CONSENT_MODALS=True,
     )
     @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests")
     def test_posts_full_page_body_with_viewport_width(
@@ -190,7 +304,9 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
     ) -> None:
         mock_requests.post.return_value = _make_response(_jpeg(b"img"))
 
-        content = _browserless_screenshot("https://host/screenshot?token=t", "https://example.com", width)
+        content, _ = _browserless_screenshot(
+            "https://host/screenshot?token=t", "https://example.com", width, block_consent_modals=True
+        )
 
         assert content == _jpeg(b"img")
         body = mock_requests.post.call_args.kwargs["json"]
@@ -213,21 +329,24 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
     @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests")
     def test_block_ads_added_to_body_when_enabled(self, mock_requests: MagicMock) -> None:
         mock_requests.post.return_value = _make_response()
-        _browserless_screenshot("https://host/screenshot?token=t", "https://example.com", 1024)
+        _browserless_screenshot(
+            "https://host/screenshot?token=t", "https://example.com", 1024, block_consent_modals=False
+        )
         assert mock_requests.post.call_args.kwargs["json"]["blockAds"] is True
 
     @override_settings(
         HEATMAP_BROWSERLESS_TIMEOUT_MS=180000,
         HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS=30000,
         HEATMAP_BROWSERLESS_BLOCK_ADS=False,
-        HEATMAP_BROWSERLESS_BLOCK_CONSENT_MODALS=False,
     )
     @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests")
     def test_cloud_only_fields_omitted_when_disabled(self, mock_requests: MagicMock) -> None:
         # The self-hosted OSS browserless image rejects bodies carrying these cloud-only fields,
         # so disabling them must omit the keys entirely rather than send false.
         mock_requests.post.return_value = _make_response()
-        _browserless_screenshot("https://host/screenshot?token=t", "https://example.com", 1024)
+        _browserless_screenshot(
+            "https://host/screenshot?token=t", "https://example.com", 1024, block_consent_modals=False
+        )
         body = mock_requests.post.call_args.kwargs["json"]
         assert "blockAds" not in body
         assert "blockConsentModals" not in body
@@ -247,7 +366,7 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
             mock_requests.post.side_effect = Exception("ECONNREFUSED https://host/screenshot?token=secret-token")
 
         with self.assertRaises(BrowserlessError) as ctx:
-            _browserless_screenshot(endpoint, "https://example.com", 1024)
+            _browserless_screenshot(endpoint, "https://example.com", 1024, block_consent_modals=False)
 
         message = str(ctx.exception)
         # The token must never reach the (API-readable) persisted exception
@@ -269,7 +388,9 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
         # A 200 that isn't a real JPEG must not be stored and served as image/jpeg.
         mock_requests.post.return_value = _make_response(content, content_type=content_type)
         with self.assertRaises(BrowserlessError):
-            _browserless_screenshot("https://host/screenshot?token=t", "https://example.com", 1024)
+            _browserless_screenshot(
+                "https://host/screenshot?token=t", "https://example.com", 1024, block_consent_modals=False
+            )
 
     @override_settings(HEATMAP_BROWSERLESS_TIMEOUT_MS=180000, HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS=30000)
     @patch("products.web_analytics.backend.tasks.heatmap_screenshot.HEATMAP_SCREENSHOT_MAX_BYTES", 8)
@@ -277,7 +398,9 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
     def test_rejects_oversized_body_as_permanent(self, mock_requests: MagicMock) -> None:
         mock_requests.post.return_value = _make_response(_jpeg(b"way over the cap"))
         with self.assertRaises(BrowserlessPermanentError):
-            _browserless_screenshot("https://host/screenshot?token=t", "https://example.com", 1024)
+            _browserless_screenshot(
+                "https://host/screenshot?token=t", "https://example.com", 1024, block_consent_modals=False
+            )
 
 
 # Pure-function tests for the Browserless URL helpers — no DB, so they run on SimpleTestCase.
@@ -354,3 +477,146 @@ class TestBrowserlessUrlHelpers(SimpleTestCase):
         assert "token=REDACTED" in sanitized
         # The real failure reason is preserved so the error is debuggable
         assert "401" in sanitized
+
+
+class TestClassifyFailure(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("soft_time_limit", SoftTimeLimitExceeded(), "soft_time_limit"),
+            ("not_configured", BrowserlessPermanentError("x", cause="not_configured"), "not_configured"),
+            ("oversized", BrowserlessPermanentError("x", cause="oversized"), "validation_error"),
+            ("empty_body", BrowserlessTransientError("x", cause="empty_body"), "validation_error"),
+            ("non_image", BrowserlessTransientError("x", cause="non_image"), "validation_error"),
+            ("non_jpeg", BrowserlessTransientError("x", cause="non_jpeg"), "validation_error"),
+            ("request_exception", BrowserlessTransientError("x", cause="request_exception"), "browserless_timeout"),
+            ("http_408", BrowserlessTransientError("x", status_code=408, cause="http_status"), "browserless_timeout"),
+            ("http_429", BrowserlessTransientError("x", status_code=429, cause="http_status"), "browserless_4xx"),
+            ("http_404", BrowserlessPermanentError("x", status_code=404, cause="http_status"), "browserless_4xx"),
+            ("http_503", BrowserlessTransientError("x", status_code=503, cause="http_status"), "browserless_5xx"),
+            ("page_http_status", PageHttpStatusError("x", cause="page_http_status"), "page_http_status"),
+            ("unknown", ValueError("x"), "unknown"),
+        ]
+    )
+    def test_classify_failure(self, _name: str, exc: BaseException, expected: str) -> None:
+        assert _classify_failure(exc) == expected
+
+
+class TestReportStuckHeatmapScreenshots(APIBaseTest):
+    def _make(
+        self, *, status: str, type_: str = SavedHeatmap.Type.SCREENSHOT, age_seconds: int | None = None
+    ) -> SavedHeatmap:
+        heatmap = SavedHeatmap.objects.create(
+            team=self.team,
+            url="https://example.com",
+            created_by=self.user,
+            target_widths=[1024],
+            type=type_,
+            status=status,
+        )
+        if age_seconds is not None:
+            SavedHeatmap.objects.filter(id=heatmap.id).update(
+                updated_at=timezone.now() - timedelta(seconds=age_seconds)
+            )
+        return heatmap
+
+    def test_reports_only_old_processing_screenshots_without_mutating_them(self) -> None:
+        old = HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS + 60
+        stuck = self._make(status=SavedHeatmap.Status.PROCESSING, age_seconds=old)
+        fresh = self._make(status=SavedHeatmap.Status.PROCESSING, age_seconds=30)
+        completed = self._make(status=SavedHeatmap.Status.COMPLETED, age_seconds=old)
+        iframe = self._make(status=SavedHeatmap.Status.PROCESSING, type_=SavedHeatmap.Type.IFRAME, age_seconds=old)
+
+        count = report_stuck_heatmap_screenshots()
+
+        assert count == 1
+        for heatmap in (stuck, fresh, completed, iframe):
+            heatmap.refresh_from_db()
+        assert stuck.status == SavedHeatmap.Status.PROCESSING
+        assert fresh.status == SavedHeatmap.Status.PROCESSING
+        assert completed.status == SavedHeatmap.Status.COMPLETED
+        assert iframe.status == SavedHeatmap.Status.PROCESSING
+
+    def test_gauge_reflects_count_and_resets_when_clear(self) -> None:
+        def _gauge() -> float:
+            return REGISTRY.get_sample_value("heatmap_screenshot_stuck_processing") or 0.0
+
+        old = HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS + 60
+        self._make(status=SavedHeatmap.Status.PROCESSING, age_seconds=old)
+        self._make(status=SavedHeatmap.Status.PROCESSING, age_seconds=old)
+
+        assert report_stuck_heatmap_screenshots() == 2
+        assert _gauge() == 2
+
+        SavedHeatmap.objects.update(status=SavedHeatmap.Status.COMPLETED)
+
+        assert report_stuck_heatmap_screenshots() == 0
+        assert _gauge() == 0
+
+    def test_logs_full_count_but_caps_the_sample(self) -> None:
+        old = HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS + 60
+        over_cap = HEATMAP_SCREENSHOT_STUCK_SAMPLE_SIZE + 5
+        for _ in range(over_cap):
+            self._make(status=SavedHeatmap.Status.PROCESSING, age_seconds=old)
+
+        with patch("products.web_analytics.backend.tasks.heatmap_screenshot.logger") as mock_logger:
+            count = report_stuck_heatmap_screenshots()
+
+        assert count == over_cap
+        _args, kwargs = mock_logger.warning.call_args
+        assert kwargs["stuck_count"] == over_cap
+        assert len(kwargs["sample"]) == HEATMAP_SCREENSHOT_STUCK_SAMPLE_SIZE
+
+
+class TestReapStalePrewarmHeatmaps(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.captured_events: list[dict] = []
+
+        @contextmanager
+        def _fake_scoped_capture():
+            def _capture(**kwargs: object) -> None:
+                self.captured_events.append(kwargs)
+
+            yield _capture
+
+        patcher = patch(
+            "products.web_analytics.backend.tasks.heatmap_screenshot.ph_scoped_capture",
+            _fake_scoped_capture,
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _make_prewarm(self, *, is_prewarm: bool, age: timedelta, rendered: bool = False) -> SavedHeatmap:
+        heatmap = SavedHeatmap.objects.create(
+            team=self.team,
+            url="https://example.com",
+            created_by=self.user,
+            target_widths=[1024],
+            status=SavedHeatmap.Status.PROCESSING,
+            is_prewarm=is_prewarm,
+        )
+        if rendered:
+            HeatmapSnapshot.objects.create(heatmap=heatmap, width=1024, content=_jpeg())
+        # created_at is auto_now_add, so backdate it after creation to simulate age.
+        SavedHeatmap.objects.filter(id=heatmap.id).update(created_at=timezone.now() - age)
+        return heatmap
+
+    def test_reaps_only_stale_unpromoted_prewarms_and_emits_the_miss(self) -> None:
+        old = PREWARM_TTL + timedelta(minutes=1)
+        stale_rendered = self._make_prewarm(is_prewarm=True, age=old, rendered=True)
+        stale_unrendered = self._make_prewarm(is_prewarm=True, age=old, rendered=False)
+        fresh = self._make_prewarm(is_prewarm=True, age=timedelta(minutes=1))
+        promoted = self._make_prewarm(is_prewarm=False, age=old)
+
+        count = reap_stale_prewarm_heatmaps()
+
+        assert count == 2
+        assert not SavedHeatmap.objects.filter(id__in=[stale_rendered.id, stale_unrendered.id]).exists()
+        assert SavedHeatmap.objects.filter(id=fresh.id).exists()
+        assert SavedHeatmap.objects.filter(id=promoted.id).exists()
+
+        # A "wasted" miss event fires only for the reaped rows, and `rendered` reflects whether the
+        # speculative render actually paid the Browserless cost.
+        wasted = {e["properties"]["screenshot_id"]: e["properties"]["rendered"] for e in self.captured_events}
+        assert all(e["event"] == "heatmap prewarm wasted" for e in self.captured_events)
+        assert wasted == {str(stale_rendered.id): True, str(stale_unrendered.id): False}

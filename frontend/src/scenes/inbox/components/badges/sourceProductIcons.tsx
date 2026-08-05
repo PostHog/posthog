@@ -4,7 +4,10 @@ import {
     IconBug,
     IconCompass,
     IconDatabase,
+    IconEye,
+    IconGear,
     IconGithub,
+    IconGraph,
     IconHeartPlus,
     IconList,
     IconRewindPlay,
@@ -17,8 +20,7 @@ import { SignalSourceProduct } from '../../types'
 
 interface SourceProductMeta {
     Icon: typeof IconBolt
-    /** CSS color value applied to the icon. */
-    color: string
+    colorClass: string
     label: string
 }
 
@@ -32,65 +34,80 @@ interface SourceProductMeta {
  * `getSourceProductMeta`, which returns `null` for unknown keys.
  */
 export const SOURCE_PRODUCT_META: Partial<Record<SignalSourceProduct, SourceProductMeta>> = {
-    [SignalSourceProduct.SESSION_REPLAY]: {
+    [SignalSourceProduct.SessionReplay]: {
         Icon: IconRewindPlay,
-        color: 'var(--warning)',
+        colorClass: 'text-warning',
         label: 'Session replay',
     },
-    [SignalSourceProduct.ERROR_TRACKING]: {
+    [SignalSourceProduct.ReplayVision]: {
+        Icon: IconEye,
+        colorClass: 'text-warning',
+        label: 'Replay vision',
+    },
+    [SignalSourceProduct.ErrorTracking]: {
         Icon: IconBug,
-        color: 'var(--danger)',
+        colorClass: 'text-danger',
         label: 'Error tracking',
     },
-    [SignalSourceProduct.LLM_ANALYTICS]: {
+    [SignalSourceProduct.LlmAnalytics]: {
         Icon: IconBrain,
-        color: 'var(--purple)',
+        colorClass: 'text-accent',
         label: 'AI observability',
     },
-    [SignalSourceProduct.GITHUB]: {
+    [SignalSourceProduct.Github]: {
         Icon: IconGithub,
-        color: 'var(--text-secondary)',
+        colorClass: 'text-secondary',
         label: 'GitHub',
     },
-    [SignalSourceProduct.LINEAR]: {
+    [SignalSourceProduct.Linear]: {
         Icon: IconStack,
-        color: 'var(--blue)',
+        colorClass: 'text-accent',
         label: 'Linear',
     },
-    [SignalSourceProduct.ZENDESK]: {
+    [SignalSourceProduct.Zendesk]: {
         Icon: IconReceipt,
-        color: 'var(--success)',
+        colorClass: 'text-success',
         label: 'Zendesk',
     },
-    [SignalSourceProduct.CONVERSATIONS]: {
+    [SignalSourceProduct.Conversations]: {
         Icon: IconSupport,
-        color: 'var(--blue)',
-        label: 'Conversations',
+        colorClass: 'text-accent',
+        label: 'Support',
     },
-    [SignalSourceProduct.PGANALYZE]: {
+    [SignalSourceProduct.Pganalyze]: {
         Icon: IconDatabase,
-        color: 'var(--text-primary)',
+        colorClass: 'text-primary',
         label: 'pganalyze',
     },
-    [SignalSourceProduct.SIGNALS_SCOUT]: {
+    [SignalSourceProduct.SignalsScout]: {
         Icon: IconCompass,
-        color: 'var(--purple)',
+        colorClass: 'text-accent',
         label: 'Scout',
     },
-    [SignalSourceProduct.ENDPOINTS]: {
+    [SignalSourceProduct.Endpoints]: {
         Icon: IconBolt,
-        color: 'var(--warning)',
+        colorClass: 'text-warning',
         label: 'Endpoints',
     },
-    [SignalSourceProduct.LOGS]: {
+    [SignalSourceProduct.Logs]: {
         Icon: IconList,
-        color: 'var(--text-secondary)',
+        colorClass: 'text-secondary',
         label: 'Logs',
     },
-    [SignalSourceProduct.HEALTH_CHECKS]: {
+    [SignalSourceProduct.HealthChecks]: {
         Icon: IconHeartPlus,
-        color: 'var(--danger)',
+        colorClass: 'text-danger',
         label: 'Health checks',
+    },
+    [SignalSourceProduct.EngineeringAnalytics]: {
+        Icon: IconGear,
+        colorClass: 'text-warning',
+        label: 'Engineering analytics',
+    },
+    [SignalSourceProduct.Analytics]: {
+        Icon: IconGraph,
+        colorClass: 'text-accent',
+        label: 'Product analytics',
     },
 }
 
@@ -122,6 +139,11 @@ export function knownSourceProductEntries(sourceProducts: string[] | null | unde
         .filter((entry): entry is KnownSourceProductEntry => entry.meta !== null)
 }
 
+/** Tooltip copy listing every contributing source product, shared by the card and detail meta rows. */
+export function sourceProductsTooltipTitle(entries: KnownSourceProductEntry[]): string {
+    return `Signals in this report came from: ${entries.map((e) => e.meta.label).join(', ')}`
+}
+
 /** Row of color-coded source-product icons. Surfaces vary in wrapper layout, so the caller supplies `className`. */
 export function SourceProductIconRow({
     entries,
@@ -135,14 +157,8 @@ export function SourceProductIconRow({
             {entries.map((entry) => {
                 const Icon = entry.meta.Icon
                 return (
-                    <span
-                        key={entry.key}
-                        className="inline-flex shrink-0 items-center"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ color: entry.meta.color }}
-                        aria-hidden
-                    >
-                        <Icon className="text-xs" />
+                    <span key={entry.key} className="inline-flex shrink-0 items-center" aria-hidden>
+                        <Icon className={`text-xs ${entry.meta.colorClass}`} />
                     </span>
                 )
             })}

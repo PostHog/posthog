@@ -7,6 +7,7 @@ import {
     LemonCollapse,
     LemonInput,
     LemonLabel,
+    LemonSegmentedButton,
     LemonSelect,
     LemonSwitch,
 } from '@posthog/lemon-ui'
@@ -18,6 +19,22 @@ import { ChartDisplayType } from '~/types'
 import { dataVisualizationLogic } from '../dataVisualizationLogic'
 import { displayLogic } from '../displayLogic'
 
+const PIE_SLICE_CONTENT_OPTIONS: { value: 'labels' | 'values' | 'none'; label: string }[] = [
+    { value: 'labels', label: 'Labels' },
+    { value: 'values', label: 'Values' },
+    { value: 'none', label: 'Nothing' },
+]
+
+const PIE_VALUE_DISPLAY_OPTIONS: { value: 'absolute' | 'percentage'; label: string }[] = [
+    { value: 'absolute', label: 'Absolute' },
+    { value: 'percentage', label: 'Percentage' },
+]
+
+const LINE_STYLE_OPTIONS: { value: 'smooth' | 'linear'; label: string }[] = [
+    { value: 'smooth', label: 'Smooth' },
+    { value: 'linear', label: 'Straight' },
+]
+
 export const DisplayTab = (): JSX.Element => {
     const { effectiveVisualizationType } = useValues(dataVisualizationLogic)
     const { goalLines, chartSettings } = useValues(displayLogic)
@@ -25,6 +42,9 @@ export const DisplayTab = (): JSX.Element => {
 
     const isStackedBarChart = effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
     const isPieChart = effectiveVisualizationType === ChartDisplayType.ActionsPie
+    const isLineChart =
+        effectiveVisualizationType === ChartDisplayType.ActionsLineGraph ||
+        effectiveVisualizationType === ChartDisplayType.ActionsAreaGraph
 
     const renderYAxisSettings = (name: 'leftYAxisSettings' | 'rightYAxisSettings'): JSX.Element => {
         const labelPlaceholder = name === 'leftYAxisSettings' ? 'Left Y-axis label' : 'Right Y-axis label'
@@ -108,20 +128,39 @@ export const DisplayTab = (): JSX.Element => {
                                 />
                                 {isPieChart ? (
                                     <>
-                                        <LemonSwitch
-                                            className="flex-1 w-full"
-                                            label="Show values on slices"
-                                            checked={chartSettings.showValuesOnSeries ?? true}
-                                            onChange={(value) => {
-                                                updateChartSettings({ showValuesOnSeries: value })
-                                            }}
-                                        />
+                                        <div className="flex flex-col gap-1">
+                                            <LemonLabel>Show on slices</LemonLabel>
+                                            <LemonSegmentedButton
+                                                className="w-full"
+                                                value={chartSettings.pie?.sliceContent ?? 'values'}
+                                                onChange={(value) =>
+                                                    updateChartSettings({ pie: { sliceContent: value } })
+                                                }
+                                                options={PIE_SLICE_CONTENT_OPTIONS}
+                                                fullWidth
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <LemonLabel>Show values as</LemonLabel>
+                                            <LemonSegmentedButton
+                                                className="w-full"
+                                                value={chartSettings.pie?.valueDisplay ?? 'absolute'}
+                                                onChange={(value) =>
+                                                    updateChartSettings({ pie: { valueDisplay: value } })
+                                                }
+                                                options={PIE_VALUE_DISPLAY_OPTIONS}
+                                                fullWidth
+                                            />
+                                        </div>
                                         <LemonSwitch
                                             className="flex-1 w-full"
                                             label="Show total below chart"
-                                            checked={chartSettings.showPieTotal ?? true}
+                                            checked={
+                                                chartSettings.pie?.showTotal ??
+                                                (chartSettings.pie?.sliceContent ?? 'values') === 'values'
+                                            }
                                             onChange={(value) => {
-                                                updateChartSettings({ showPieTotal: value })
+                                                updateChartSettings({ pie: { showTotal: value } })
                                             }}
                                         />
                                     </>
@@ -143,6 +182,29 @@ export const DisplayTab = (): JSX.Element => {
                                                 updateChartSettings({ showNullsAsZero: value })
                                             }}
                                         />
+                                        <LemonSwitch
+                                            className="flex-1 w-full"
+                                            label="Show values on series"
+                                            checked={chartSettings.showValuesOnSeries ?? false}
+                                            onChange={(value) => {
+                                                updateChartSettings({ showValuesOnSeries: value })
+                                            }}
+                                        />
+                                        {isLineChart && (
+                                            <div className="flex flex-col gap-1">
+                                                <LemonLabel>Line style</LemonLabel>
+                                                <LemonSegmentedButton
+                                                    className="w-full"
+                                                    data-attr="data-visualization-line-style"
+                                                    value={chartSettings.chartStyle?.curve ?? 'smooth'}
+                                                    onChange={(value) =>
+                                                        updateChartSettings({ chartStyle: { curve: value } })
+                                                    }
+                                                    options={LINE_STYLE_OPTIONS}
+                                                    fullWidth
+                                                />
+                                            </div>
+                                        )}
                                         <div className="flex flex-col gap-1">
                                             <LemonLabel>X-axis label</LemonLabel>
                                             <LemonInput

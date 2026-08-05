@@ -20,11 +20,16 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ListVariable, Variable, VariableType } from '~/queries/nodes/DataVisualization/types'
+import { getListVariableValues } from '~/queries/nodes/DataVisualization/Components/Variables/VariableFields'
+import { ListVariable, VariableType } from '~/queries/nodes/DataVisualization/types'
 
 import { VARIABLE_TYPE_OPTIONS, formatVariableReference, getCodeName } from './constants'
 import { VARIABLE_INSIGHT_COLUMNS } from './insightColumns'
-import { SqlVariableEditSceneLogicProps, sqlVariableEditSceneLogic } from './sqlVariableEditSceneLogic'
+import {
+    SqlVariableEditSceneLogicProps,
+    sqlVariableEditSceneLogic,
+    variableToFormValues,
+} from './sqlVariableEditSceneLogic'
 
 export const scene: SceneExport<SqlVariableEditSceneLogicProps> = {
     component: SqlVariableEditScene,
@@ -91,7 +96,7 @@ function VariableTypeFields(): JSX.Element {
                             className="w-full"
                             placeholder="Select default value"
                             value={value}
-                            options={((variableForm as ListVariable).values || []).map((n: string) => ({
+                            options={getListVariableValues(variableForm as ListVariable).map((n: string) => ({
                                 label: n,
                                 value: n,
                             }))}
@@ -163,13 +168,7 @@ export function SqlVariableEditScene(): JSX.Element {
                                 disabledReason={!isNew && !hasChanges ? 'No changes to discard' : undefined}
                                 onClick={() => {
                                     if (variable) {
-                                        resetVariableForm({
-                                            name: variable.name,
-                                            type: variable.type,
-                                            default_value: variable.default_value,
-                                            code_name: variable.code_name,
-                                            ...('values' in variable && { values: variable.values }),
-                                        } as Partial<Variable>)
+                                        resetVariableForm(variableToFormValues(variable))
                                         setVariableType(variable.type)
                                     }
                                 }}

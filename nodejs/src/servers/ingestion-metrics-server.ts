@@ -1,30 +1,31 @@
+import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
+import { createPosthogRedisConnectionConfig } from '~/common/config/redis-pools'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
-
-import { CommonConfig } from '../common/config'
-import { defaultConfig, overrideConfigWithEnv } from '../config/config'
-import { createPosthogRedisConnectionConfig } from '../config/redis-pools'
-import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
-import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
+import { logger } from '~/common/utils/logger'
+import { TeamManager } from '~/common/utils/team-manager'
 import {
     MetricsIngestionConsumerConfig,
     MetricsIngestionOutputsConfig,
+    getDefaultMetricsIngestionConsumerConfig,
     getDefaultMetricsIngestionOutputsConfig,
-} from '../metrics-ingestion/config'
-import { MetricsIngestionConsumer } from '../metrics-ingestion/metrics-ingestion-consumer'
-import { createProducerRegistry } from '../metrics-ingestion/outputs/producer-registry'
+} from '~/ingestion/pipelines/metrics/config'
+import { MetricsIngestionConsumer } from '~/ingestion/pipelines/metrics/metrics-ingestion-consumer'
+import { createProducerRegistry } from '~/ingestion/pipelines/metrics/outputs/producer-registry'
 import {
     KafkaWarpstreamIngestionProducerEnvConfig,
     KafkaWarpstreamMetricsProducerEnvConfig,
     MetricsProducerName,
     getDefaultKafkaWarpstreamIngestionProducerEnvConfig,
     getDefaultKafkaWarpstreamMetricsProducerEnvConfig,
-} from '../metrics-ingestion/outputs/producers'
-import { createMetricsOutputsRegistry } from '../metrics-ingestion/outputs/registry'
+} from '~/ingestion/pipelines/metrics/outputs/producers'
+import { createMetricsOutputsRegistry } from '~/ingestion/pipelines/metrics/outputs/registry'
+
+import { CommonConfig } from '../common/config'
+import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
 import { PluginServerService, RedisPool } from '../types'
-import { PostgresRouter } from '../utils/db/postgres'
-import { createRedisPoolFromConfig } from '../utils/db/redis'
-import { logger } from '../utils/logger'
-import { TeamManager } from '../utils/team-manager'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 
 /**
@@ -59,6 +60,7 @@ export class IngestionMetricsServer implements NodeServer {
     constructor(config: Partial<IngestionMetricsServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
+            ...overrideConfigWithEnv(getDefaultMetricsIngestionConsumerConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaWarpstreamMetricsProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaWarpstreamIngestionProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultMetricsIngestionOutputsConfig()),

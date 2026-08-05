@@ -802,7 +802,10 @@ class TestResourceTransferTenantIsolation(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         body_text = str(response.json())
-        assert str(self.foreign_team.pk) not in body_text
+        # The error must not name the foreign team. Check for a "team <id>" reference rather than a bare
+        # substring: team and insight pks come from independent sequences and can coincide, so a bare
+        # `str(pk) in body` false-positives against the (legitimately echoed) substitution insight id.
+        assert f"team {self.foreign_team.pk}".lower() not in body_text.lower()
 
 
 class TestResourceTransferProjectAccessControl(APIBaseTest):

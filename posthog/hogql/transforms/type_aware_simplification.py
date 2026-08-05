@@ -10,6 +10,7 @@ from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.observability import record_type_simplification
 from posthog.hogql.type_system import (
     RuntimeType,
     constant_type_from_runtime_type,
@@ -29,6 +30,55 @@ def simplify_redundant_type_operations(
     return TypeAwareSimplifier(context=context, dialect=dialect).visit(node)
 
 
+def simplify_argmax_over_non_nullable(node: _T_AST, context: HogQLContext) -> _T_AST:
+    """Rewrite ``tupleElement(argMax(tuple(X), V), 1)`` to ``argMax(X, V)`` when X can't be NULL.
+
+    ``argmax_select`` wraps every argMax in ``tuple()``/``tupleElement()`` so a NULL value in the
+    latest (max-version) row still wins — plain ClickHouse ``argMax`` skips NULLs and would return a
+    stale earlier value instead. A non-nullable column has no NULL to skip, so the wrap is pure
+    overhead and plain ``argMax`` is exactly equivalent. Runs after lazy-table expansion and property
+    swapping, so the inner expression is in its final form (column or JSON extract) with a resolved,
+    trustworthy nullability.
+    """
+    return _ArgMaxTupleSimplifier(context).visit(node)
+
+
+class _ArgMaxTupleSimplifier(CloningVisitor):
+    def __init__(self, context: HogQLContext):
+        super().__init__(clear_types=False)
+        self.context = context
+
+    def visit_call(self, node: ast.Call) -> ast.Expr:
+        node = cast(ast.Call, super().visit_call(node))
+        if node.name != "tupleElement" or len(node.args) != 2:
+            return node
+        if not (isinstance(node.args[1], ast.Constant) and node.args[1].value == 1):
+            return node
+        argmax = node.args[0]
+        if not (isinstance(argmax, ast.Call) and argmax.name == "argMax" and len(argmax.args) == 2):
+            return node
+        tuple_call = argmax.args[0]
+        if not (isinstance(tuple_call, ast.Call) and tuple_call.name == "tuple" and len(tuple_call.args) == 1):
+            return node
+        inner = tuple_call.args[0]
+        inner_type = _constant_type(inner, self.context)
+        if inner_type is None or isinstance(inner_type, ast.UnknownType) or inner_type.nullable:
+            return node
+        # Carry every field off the original argMax (params, distinct, FILTER, etc.) so a future caller's clause is not silently dropped; argmax_select sets none today.
+        return ast.Call(
+            name="argMax",
+            args=[inner, argmax.args[1]],
+            params=argmax.params,
+            distinct=argmax.distinct,
+            within_group=argmax.within_group,
+            order_by=argmax.order_by,
+            filter_expr=argmax.filter_expr,
+            type=node.type,
+            start=node.start,
+            end=node.end,
+        )
+
+
 class TypeAwareSimplifier(CloningVisitor):
     def __init__(self, context: HogQLContext, dialect: HogQLDialect):
         super().__init__(clear_types=False)
@@ -44,36 +94,48 @@ class TypeAwareSimplifier(CloningVisitor):
         source_type = runtime_type_from_constant_type(expr_type)
         target_type = parse_sql_runtime_type(node.type_name, dialect=self.dialect)
         if _is_redundant_cast(source_type=source_type, target_type=target_type):
+            self._record("redundant_cast")
             return node.expr
         folded_constant = _fold_constant_cast(node.expr, target_type, allow_numeric=False)
         if folded_constant is not None:
+            self._record("constant_fold")
             return folded_constant
         return node
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> ast.Expr:
         node = cast(ast.ArithmeticOperation, super().visit_arithmetic_operation(node))
-        return (
-            _fold_numeric_arithmetic_operation(node, self.context)
-            or _fold_temporal_interval_arithmetic_operation(node)
-            or node
+        folded = _fold_numeric_arithmetic_operation(node, self.context) or _fold_temporal_interval_arithmetic_operation(
+            node
         )
+        if folded is not None:
+            self._record("constant_fold")
+            return folded
+        return node
 
     def visit_call(self, node: ast.Call) -> ast.Expr:
         node = cast(ast.Call, super().visit_call(node))
         normalized_name = node.name.lower()
 
         if normalized_name in {"assumenotnull", "tonullable"}:
-            return self._simplify_nullability_call(node, normalized_name)
+            simplified = self._simplify_nullability_call(node, normalized_name)
+            if simplified is not node:
+                self._record("nullability_wrapper")
+            return simplified
 
         if normalized_name in {"ifnull", "coalesce"}:
-            return self._simplify_null_fallback_call(node, normalized_name)
+            simplified = self._simplify_null_fallback_call(node, normalized_name)
+            if simplified is not node:
+                self._record("null_fallback")
+            return simplified
 
         folded_json = _fold_literal_json_call(node, self.dialect)
         if folded_json is not None:
+            self._record("json_fold")
             return folded_json
 
         folded_conversion = _fold_constant_conversion_call(node, self.dialect)
         if folded_conversion is not None:
+            self._record("constant_fold")
             return folded_conversion
 
         if len(node.args) != 1:
@@ -86,9 +148,13 @@ class TypeAwareSimplifier(CloningVisitor):
         source_type = runtime_type_from_constant_type(arg_type)
         target_type = _conversion_call_target_type(normalized_name, source_type)
         if target_type is not None and _is_redundant_cast(source_type=source_type, target_type=target_type):
+            self._record("redundant_cast")
             return node.args[0]
 
         return node
+
+    def _record(self, kind: str) -> None:
+        record_type_simplification(self.dialect, kind)
 
     def _simplify_nullability_call(self, node: ast.Call, normalized_name: str) -> ast.Expr:
         if len(node.args) != 1:

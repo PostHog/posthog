@@ -420,7 +420,14 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                         <p>
                             Invite others to your organization to collaborate together in PostHog. An invite is specific
                             to an email address and expires after 3 days. Name can be provided for the team member's
-                            convenience.
+                            convenience.{' '}
+                            <Link
+                                to="https://posthog.com/docs/settings/organizations#adding-new-members"
+                                target="_blank"
+                                targetBlankIcon
+                            >
+                                Docs
+                            </Link>
                         </p>
                     ) : (
                         <p>

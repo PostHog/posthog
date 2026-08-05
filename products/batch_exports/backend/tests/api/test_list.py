@@ -26,7 +26,7 @@ def test_list_batch_exports(client: HttpClient, organization, team, user):
     client.force_login(user)
 
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -67,7 +67,7 @@ def test_cannot_list_batch_exports_for_other_organizations(client: HttpClient, o
     other_user = create_user("another-test@user.com", "Another Test User", other_organization)
 
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -103,7 +103,7 @@ def test_list_is_partitioned_by_team(client: HttpClient, organization, team, use
     another_team = create_team(organization)
 
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",

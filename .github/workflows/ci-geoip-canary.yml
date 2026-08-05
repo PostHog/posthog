@@ -36,39 +36,28 @@ jobs:
               with:
                   clean: false
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-geoip-canary.yml
-                  token: ${{ github.token }}
-
             - name: Download MaxMind database
               run: ./bin/download-mmdb
 
-            - name: Install package.json dependencies with pnpm
-              env:
-                  npm_config_fetch_retries: 3
-                  npm_config_fetch_retry_mintimeout: 10000
-                  npm_config_fetch_retry_maxtimeout: 60000
-              run: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
 
             - name: Run canary against live database
+              id: canary
               env:
                   GEOIP_LIVE_TEST: '1'
-              run: cd nodejs && pnpm jest src/utils/geoip-live.test.ts --runInBand --forceExit
+              run: cd nodejs && pnpm jest src/common/utils/geoip-live.test.ts --runInBand --forceExit
 
-            # A failure here means the live GeoLite2 build dropped location data for the
-            # anchor IPs — i.e. a bad MaxMind release is already baked into production
-            # images. On the schedule nobody is watching the run, so alert explicitly.
+            # Only the canary test itself failing means the live GeoLite2 build dropped
+            # location data for the anchor IPs — i.e. a bad MaxMind release is already
+            # baked into production images. Infra failures upstream (checkout, MaxMind
+            # download, pnpm install) are CI noise, not a degraded database, so don't
+            # page Slack for them. On the schedule nobody is watching the run, so alert
+            # explicitly when the test genuinely fails.
             - name: Notify Slack on canary failure
-              if: failure()
+              if: failure() && steps.canary.outcome == 'failure'
               uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.postMessage

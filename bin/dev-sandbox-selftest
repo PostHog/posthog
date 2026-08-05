@@ -189,6 +189,24 @@ else
     die "rendered profile not found (expected after earlier sandbox runs)"
 fi
 
+# 13. PATH is sanitized: read-denied $HOME dirs are dropped from the child PATH so a
+#     bare-command spawn keeps working. node/libuv resolve bare names via posix_spawnp,
+#     which aborts the whole PATH search on the first EPERM Seatbelt returns for an
+#     existing-but-denied dir — so one unreadable $HOME shim dir (nvm/fnm/asdf/pyenv)
+#     ahead of the real binary breaks every bare spawn (e.g. pnpm lifecycle scripts).
+#     Assert a $HOME dir is dropped while system + repo bins survive. String-only, so
+#     the probe dir need not exist.
+repo="$(pwd -P)"
+shim="$HOME/.dev_sandbox_selftest_shim/bin"
+child_path="$(PATH="$shim:/usr/bin:/bin:$repo/bin" $SANDBOX 'printf %s "$PATH"' 2>/dev/null)"
+if [[ ":$child_path:" == *":$shim:"* ]]; then
+    die "PATH not sanitized: read-denied \$HOME dir survived in child PATH"
+elif [[ ":$child_path:" != *":/usr/bin:"* ]] || [[ ":$child_path:" != *":$repo/bin:"* ]]; then
+    die "PATH over-sanitized: dropped a system or repo dir (got: $child_path)"
+else
+    pass "PATH sanitized: denied \$HOME dir dropped, system + repo bins kept"
+fi
+
 echo
 if [[ $fail -eq 0 ]]; then
     echo "PASS — all dev-sandbox self-tests passed"

@@ -7,12 +7,12 @@ from django.db.models import Q
 
 import humanize
 
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 if TYPE_CHECKING:
     from posthog.schema import DataWarehouseSyncWarning
 
-    from products.warehouse_sources.backend.models.table import DataWarehouseTable
+    from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 # When a schema is still in RUNNING state but its last successful sync is older than

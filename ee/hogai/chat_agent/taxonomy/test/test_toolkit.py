@@ -5,6 +5,10 @@ from langchain_core.agents import AgentAction
 from parameterized import parameterized
 from pydantic import BaseModel
 
+from posthog.schema import AssistantToolCall
+
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
+
 from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyToolNotFoundError
 from ee.hogai.chat_agent.taxonomy.tools import TaxonomyTool
 
@@ -43,6 +47,17 @@ class TestTaxonomyAgentToolkit(BaseTest):
         assert browser_prop is not None
         self.assertEqual(browser_prop[1], "String")
         self.assertIsNotNone(browser_prop[2])
+
+    def test_enrich_props_uses_stored_description_only_for_custom_props(self):
+        # Custom properties fall back to the user-authored description; core taxonomy still wins so a
+        # stored description can never override (or spoof) a built-in one.
+        props = [("$browser", "String"), ("custom_prop", "Numeric")]
+        stored = {"custom_prop": "Revenue in cents", "$browser": "should be ignored"}
+        enriched = self.toolkit._enrich_props_with_descriptions("event", props, stored)
+        by_name = {name: description for name, _, description in enriched}
+
+        self.assertEqual(by_name["custom_prop"], "Revenue in cents")
+        self.assertNotEqual(by_name["$browser"], "should be ignored")
 
     @parameterized.expand(
         [
@@ -274,3 +289,43 @@ class TestTaxonomyAgentToolkit(BaseTest):
             self.assertIn(expected_tool, tool_names)
 
         self.assertEqual(len(tools), len(expected_default_tools) + len(expected_custom_tools))
+
+    @patch("ee.hogai.chat_agent.taxonomy.toolkit.restricted_property_names")
+    async def test_handle_entity_properties_excludes_restricted(self, mock_restricted):
+        mock_restricted.return_value = {"secret"}
+        await PropertyDefinition.objects.acreate(
+            team=self.team, type=PropertyDefinition.Type.PERSON, name="secret", property_type="String"
+        )
+        await PropertyDefinition.objects.acreate(
+            team=self.team, type=PropertyDefinition.Type.PERSON, name="visible", property_type="String"
+        )
+        task = AssistantToolCall(id="1", name="retrieve_entity_properties", args={"entity": "person"})
+        result = await self.toolkit._handle_entity_properties_task({"task": task})
+        self.assertIn("<name>visible</name>", result.result)
+        self.assertNotIn("<name>secret</name>", result.result)
+
+    async def test_person_properties_surface_stored_descriptions_sanitized(self):
+        from ee.models.property_definition import EnterprisePropertyDefinition
+
+        # An EnterprisePropertyDefinition also creates the base PropertyDefinition row the person path
+        # discovers, so its user-authored description should ride along on the surfaced property.
+        await EnterprisePropertyDefinition.objects.acreate(
+            team=self.team,
+            type=PropertyDefinition.Type.PERSON,
+            name="plan_tier",
+            property_type="String",
+            description="Subscription tier\nof the account",
+        )
+        task = AssistantToolCall(id="1", name="retrieve_entity_properties", args={"entity": "person"})
+        result = await self.toolkit._handle_entity_properties_task({"task": task})
+
+        self.assertIn("<name>plan_tier</name>", result.result)
+        # Sanitization collapses the newline so a description can't break out of its line.
+        self.assertIn("<description>Subscription tier of the account</description>", result.result)
+
+    @patch("ee.hogai.chat_agent.taxonomy.toolkit.restricted_property_names")
+    async def test_retrieve_multiple_entity_property_values_hides_restricted(self, mock_restricted):
+        mock_restricted.return_value = {"secret"}
+        results = await self.toolkit._retrieve_multiple_entity_property_values("person", ["secret"])
+        self.assertEqual(len(results), 1)
+        self.assertIn("No values found for property secret", results[0])

@@ -1,7 +1,7 @@
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { PostgresUse } from '~/utils/db/postgres'
 
 import { insertModelConfiguration, insertProviderKey, insertTagger } from '../_tests/fixtures'
 import { Tagger } from '../types'

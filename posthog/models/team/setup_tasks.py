@@ -72,11 +72,6 @@ class SetupTaskId(StrEnum):
     SetUpAiEvaluation = "set_up_llm_evaluation"
     RunAIPlayground = "run_ai_playground"
 
-    # Revenue Analytics
-    EnableRevenueAnalyticsViewset = "enable_revenue_analytics_viewset"
-    ConnectRevenueSource = "connect_revenue_source"
-    SetUpRevenueGoal = "set_up_revenue_goal"
-
     # Logs
     EnableLogCapture = "enable_log_capture"
     ViewFirstLogs = "view_first_logs"
@@ -96,3 +91,9 @@ class SetupTaskId(StrEnum):
     # Early Access Features
     CreateEarlyAccessFeature = "create_early_access_feature"
     UpdateFeatureStage = "update_feature_stage"
+
+    # AI (shown for every product)
+    UsePostHogAi = "use_posthog_ai"
+    UsePostHogCode = "use_posthog_code"
+    UsePostHogMcp = "use_posthog_mcp"
+    UsePostHogInSlack = "use_posthog_in_slack"

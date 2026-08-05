@@ -16,6 +16,17 @@ P = ParamSpec("P")
 T = TypeVar("T")
 
 
+def close_stale_db_connections() -> None:
+    """Close expired or errored Postgres connections accumulated by long-lived worker threads.
+
+    Unlike django.db.close_old_connections, skips connections inside an atomic block, so it is
+    safe to call from activities running under test transactions.
+    """
+    for conn in django.db.connections.all(initialized_only=True):
+        if not conn.in_atomic_block:
+            conn.close_if_unusable_or_obsolete()
+
+
 def make_sync_retryable_with_exponential_backoff(
     func: Callable[P, T],
     max_attempts: int = 5,
@@ -144,6 +155,51 @@ def close_db_connections(fn: Callable[P, T]) -> Callable[P, T]:
             _close_db_connections()
 
     return sync_wrapper
+
+
+async def aretry_on_db_connection_drop(operation: Callable[[], Coroutine[Any, Any, T]]) -> T:
+    """Run an async DB read, retrying once on a transient connection drop.
+
+    Long-lived Temporal workers pool their connections through pgbouncer, so a pool
+    recycle, failover, or deploy can leave a stale pooled connection that raises
+    ``OperationalError`` / ``InterfaceError`` the first time it's used. Evict the dead
+    connection and retry once, so a transient blip at an activity's early connect-time
+    reads succeeds on a fresh connection instead of escaping as error-tracking noise.
+    A second failure propagates — that's a genuinely degraded DB, left to the caller's
+    retry posture.
+
+    Pass a zero-arg callable that *produces* the awaitable (not the awaitable itself),
+    so the retry can issue a fresh query:
+
+        team = await aretry_on_db_connection_drop(lambda: Team.objects.aget(pk=team_id))
+    """
+    try:
+        return await operation()
+    except (django.db.OperationalError, django.db.InterfaceError):
+        await sync_to_async(_close_db_connections)()
+        return await operation()
+
+
+def retry_on_db_connection_drop(operation: Callable[[], T]) -> T:
+    """Run a sync DB read, retrying once on a transient connection drop.
+
+    The sync sibling of ``aretry_on_db_connection_drop``, for activities that run sync
+    Django ORM code (e.g. under ``@asyncify``). See that function for the full rationale:
+    a long-lived worker pools connections through pgbouncer, so a pool recycle / failover
+    / deploy can leave a stale pooled connection that raises ``OperationalError`` /
+    ``InterfaceError`` on first use. Evict the dead connection and retry once; a second
+    failure propagates, left to the caller's retry posture.
+
+    Pass a zero-arg callable that *produces* the result, so the retry can issue a fresh
+    query:
+
+        task = retry_on_db_connection_drop(lambda: Task.objects.get(id=task_id))
+    """
+    try:
+        return operation()
+    except (django.db.OperationalError, django.db.InterfaceError):
+        _close_db_connections()
+        return operation()
 
 
 def get_scheduled_start_time():

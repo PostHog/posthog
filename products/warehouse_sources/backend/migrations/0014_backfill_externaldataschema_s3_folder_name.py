@@ -2,7 +2,7 @@ import time
 
 from django.db import migrations
 
-from posthog.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 
 BATCH_SIZE = 2000
 

@@ -36,20 +36,34 @@ const START_REASON_EXPLANATIONS: Record<string, string> = {
 }
 
 const explainValue = (key: string, value: unknown): string | null => {
-    if (typeof value !== 'string') {
-        return null
-    }
     switch (key) {
         case '$recording_status':
-            return RECORDING_STATUS_EXPLANATIONS[value] ?? null
+            return typeof value === 'string' ? (RECORDING_STATUS_EXPLANATIONS[value] ?? null) : null
         case '$session_recording_start_reason':
-            return START_REASON_EXPLANATIONS[value] ?? null
+            return typeof value === 'string' ? (START_REASON_EXPLANATIONS[value] ?? null) : null
         case '$sdk_debug_replay_url_trigger_status':
         case '$sdk_debug_replay_event_trigger_status':
         case '$sdk_debug_replay_linked_flag_trigger_status':
-            return TRIGGER_STATUS_EXPLANATIONS[value] ?? null
+            return typeof value === 'string' ? (TRIGGER_STATUS_EXPLANATIONS[value] ?? null) : null
         case '$sdk_debug_recording_script_not_loaded':
             return 'The SDK reported the recorder script was not loaded on the page — often caused by ad blockers.'
+        case '$sdk_debug_rrweb_start_attempted':
+            if (value === true) {
+                return 'The SDK attempted to start the recorder.'
+            }
+            return value === false ? 'The SDK never attempted to start the recorder for this session.' : null
+        case '$sdk_debug_rrweb_attached':
+            if (value === true) {
+                return 'The recorder is attached and capturing.'
+            }
+            return value === false ? 'The recorder is not attached, so no snapshots are being captured.' : null
+        case '$sdk_debug_replay_trigger_groups_count':
+            return 'The number of V2 trigger groups configured for this project.'
+        case '$replay_override_sampling':
+        case '$replay_override_linked_flag':
+        case '$replay_override_url_trigger':
+        case '$replay_override_event_trigger':
+            return value === true ? 'Recording was force-started, ignoring this gating config.' : null
         default:
             return null
     }
@@ -88,6 +102,7 @@ const BANNER_TYPE_BY_VERDICT: Record<DiagnosisVerdict, LemonBannerProps['type']>
     trigger_pending: 'info',
     sampled_out: 'info',
     buffering_empty: 'info',
+    recorder_error: 'warning',
     unknown: 'info',
 }
 
@@ -123,7 +138,11 @@ function DiagnosisContent({ diagnosis }: { diagnosis: ReplayCaptureDiagnosis }):
                             {
                                 key: 'raw-signals',
                                 header: 'Raw diagnostic signals',
-                                content: <ExplainedSignalList signals={diagnosis.rawSignals} />,
+                                content: (
+                                    <div className="max-h-[40vh] overflow-y-auto">
+                                        <ExplainedSignalList signals={diagnosis.rawSignals} />
+                                    </div>
+                                ),
                             },
                         ]}
                     />

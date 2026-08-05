@@ -2,19 +2,19 @@ import { LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
 import { SignalReportStatus } from '../../types'
 
-const STATUS_TOOLTIPS: Partial<Record<SignalReportStatus, string>> = {
+export const STATUS_TOOLTIPS: Partial<Record<SignalReportStatus, string>> = {
     [SignalReportStatus.READY]: 'Research is complete. You can create a task from this report.',
     [SignalReportStatus.PENDING_INPUT]: 'This report needs human input in PostHog before it can proceed.',
-    [SignalReportStatus.IN_PROGRESS]: "An AI agent is actively researching this report's findings.",
+    [SignalReportStatus.IN_PROGRESS]: "An AI agent is actively researching this report's signals.",
     [SignalReportStatus.CANDIDATE]: 'Queued for research. An agent will pick this up shortly.',
-    [SignalReportStatus.POTENTIAL]: 'Gathering findings. The report will be queued once enough evidence accumulates.',
+    [SignalReportStatus.POTENTIAL]: 'Gathering signals. The report will be queued once enough evidence accumulates.',
     [SignalReportStatus.RESOLVED]: 'This report has been resolved.',
     [SignalReportStatus.FAILED]: 'Research failed. The report may be retried automatically.',
     [SignalReportStatus.SUPPRESSED]: 'This report has been suppressed and is out of your inbox.',
     [SignalReportStatus.DELETED]: 'This report has been deleted.',
 }
 
-const STATUS_LABELS: Partial<Record<SignalReportStatus, string>> = {
+export const STATUS_LABELS: Partial<Record<SignalReportStatus, string>> = {
     [SignalReportStatus.READY]: 'Ready',
     [SignalReportStatus.PENDING_INPUT]: 'Needs input',
     [SignalReportStatus.IN_PROGRESS]: 'Researching',

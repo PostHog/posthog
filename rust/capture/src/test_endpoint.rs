@@ -10,13 +10,14 @@ use axum::{
 use axum_client_ip::InsecureClientIp;
 use base64::Engine;
 use bytes::{Buf, Bytes};
+use common_compression::has_gzip_magic_header;
 use flate2::bufread::GzDecoder;
 use tracing::error;
 
 use crate::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
     extractors::extract_body_with_timeout,
-    payload::{decompression::GZIP_MAGIC_NUMBERS, Compression, EventFormData, EventQuery},
+    payload::{Compression, EventFormData, EventQuery},
     router,
     utils::extract_and_verify_token,
     v0_request::RawRequest,
@@ -191,7 +192,7 @@ pub async fn test_black_hole(
 }
 
 pub fn from_bytes(bytes: Bytes, limit: usize, comp: String) -> Result<RawRequest, CaptureError> {
-    let payload = if bytes.starts_with(&GZIP_MAGIC_NUMBERS) {
+    let payload = if has_gzip_magic_header(&bytes) {
         metrics::counter!(GZIP_FOUND, "comp" => comp.clone()).increment(1);
         let len = bytes.len();
         let mut zipstream = GzDecoder::new(bytes.reader());

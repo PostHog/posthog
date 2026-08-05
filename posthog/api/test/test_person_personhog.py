@@ -1,19 +1,16 @@
-"""Tests that person API endpoints produce identical results
-via the ORM and personhog paths.
+"""Tests that person API endpoints produce identical results via personhog.
 
 Covers retrieve, update, split, delete_property, batch_by_distinct_ids, and
-person deletion — extracted from test_person.py so both code paths are
-validated with @parameterized_class.
+person deletion — extracted from test_person.py.
 """
 
 from posthog.test.base import APIBaseTest
 from unittest import mock
 
-from parameterized import parameterized_class
 from rest_framework import status
 
-from posthog.models import Organization, Person, Team
-from posthog.models.person import PersonDistinctId
+from posthog.models import Organization, Team
+from posthog.models.person.util import get_person_by_uuid
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -21,7 +18,6 @@ from products.cohorts.backend.models.cohort import Cohort
 UUID_NONEXISTENT = "550e8400-e29b-41d4-a716-446655440000"
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
 class TestRetrievePerson(PersonhogTestMixin, APIBaseTest):
     def test_retrieve_by_uuid(self):
         person = self._seed_person(
@@ -76,9 +72,8 @@ class TestRetrievePerson(PersonhogTestMixin, APIBaseTest):
         assert resp.status_code == status.HTTP_404_NOT_FOUND
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
 class TestUpdatePerson(PersonhogTestMixin, APIBaseTest):
-    @mock.patch("posthog.api.person.capture_internal_routed")
+    @mock.patch("posthog.api.person.capture_internal")
     def test_update_properties_by_uuid(self, mock_capture):
         mock_capture.return_value = mock.MagicMock(status_code=200)
         person = self._seed_person(
@@ -100,7 +95,7 @@ class TestUpdatePerson(PersonhogTestMixin, APIBaseTest):
         assert call_kwargs["properties"] == {"$set": {"new_key": "new_value"}}
         self._assert_personhog_called("get_person_by_uuid")
 
-    @mock.patch("posthog.api.person.capture_internal_routed")
+    @mock.patch("posthog.api.person.capture_internal")
     def test_update_properties_by_pk(self, mock_capture):
         mock_capture.return_value = mock.MagicMock(status_code=200)
         person = self._seed_person(
@@ -120,7 +115,6 @@ class TestUpdatePerson(PersonhogTestMixin, APIBaseTest):
         self._assert_personhog_called("get_person")
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
 class TestSplitPerson(PersonhogTestMixin, APIBaseTest):
     @mock.patch("posthog.api.person.split_person")
     def test_split_by_uuid(self, mock_split):
@@ -151,7 +145,6 @@ class TestSplitPerson(PersonhogTestMixin, APIBaseTest):
         mock_split.delay.assert_not_called()
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
 class TestCohortsByPerson(PersonhogTestMixin, APIBaseTest):
     def test_cohorts_by_uuid(self):
         person = self._seed_person(
@@ -182,9 +175,8 @@ class TestCohortsByPerson(PersonhogTestMixin, APIBaseTest):
         assert resp.status_code == status.HTTP_404_NOT_FOUND
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
 class TestDeleteProperty(PersonhogTestMixin, APIBaseTest):
-    @mock.patch("posthog.api.person.capture_internal_routed")
+    @mock.patch("posthog.api.person.capture_internal")
     def test_uuid_lookup(self, mock_capture):
         mock_capture.return_value = mock.MagicMock(status_code=200)
         person = self._seed_person(
@@ -211,7 +203,7 @@ class TestDeleteProperty(PersonhogTestMixin, APIBaseTest):
         self._assert_personhog_called("get_person_by_uuid")
         self._assert_personhog_called("get_distinct_ids_for_person")
 
-    @mock.patch("posthog.api.person.capture_internal_routed")
+    @mock.patch("posthog.api.person.capture_internal")
     def test_integer_pk_lookup(self, mock_capture):
         mock_capture.return_value = mock.MagicMock(status_code=200)
         person = self._seed_person(
@@ -238,7 +230,6 @@ class TestDeleteProperty(PersonhogTestMixin, APIBaseTest):
         assert resp.status_code != 201
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
 class TestBatchByDistinctIds(PersonhogTestMixin, APIBaseTest):
     def test_happy_path(self):
         self._seed_person(team=self.team, distinct_ids=["user_1"], properties={"email": "user1@example.com"})
@@ -343,7 +334,6 @@ class TestBatchByDistinctIds(PersonhogTestMixin, APIBaseTest):
         assert distinct_ids[200] not in results
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
 class TestDestroyPerson(PersonhogTestMixin, APIBaseTest):
     def test_destroy_returns_202(self):
         person = self._seed_person(team=self.team, distinct_ids=["did-1"])
@@ -367,10 +357,6 @@ class TestDestroyPerson(PersonhogTestMixin, APIBaseTest):
             assert calls[0].request.team_id == self.team.pk
             assert list(calls[0].request.person_uuids) == [str(person.uuid)]
 
-        if not self.personhog:
-            assert Person.objects.filter(team_id=self.team.pk, uuid=person.uuid).count() == 0
-            assert PersonDistinctId.objects.filter(team_id=self.team.pk, person_id=person.pk).count() == 0
-
     def test_destroy_nonexistent_returns_404(self):
         resp = self.client.delete(f"/api/person/{UUID_NONEXISTENT}/")
 
@@ -383,11 +369,10 @@ class TestDestroyPerson(PersonhogTestMixin, APIBaseTest):
         resp = self.client.delete(f"/api/person/{person.uuid}/?keep_person=true&delete_events=true")
 
         assert resp.status_code == status.HTTP_202_ACCEPTED
-        assert Person.objects.filter(team_id=self.team.pk, uuid=person.uuid).count() == 1
+        assert get_person_by_uuid(self.team.pk, str(person.uuid)) is not None
         self._assert_personhog_not_called("delete_persons")
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
 class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
     def test_bulk_delete_by_ids(self):
         p1 = self._seed_person(team=self.team, distinct_ids=["did-1"])
@@ -411,10 +396,6 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
             assert calls[0].request.team_id == self.team.pk
             assert set(calls[0].request.person_uuids) == {str(p1.uuid), str(p2.uuid)}
 
-        if not self.personhog:
-            assert Person.objects.filter(team_id=self.team.pk).count() == 0
-            assert PersonDistinctId.objects.filter(team_id=self.team.pk).count() == 0
-
     def test_bulk_delete_by_distinct_ids(self):
         p1 = self._seed_person(team=self.team, distinct_ids=["did-1"])
         p2 = self._seed_person(team=self.team, distinct_ids=["did-2"])
@@ -435,9 +416,6 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
             assert calls[0].request.team_id == self.team.pk
             assert set(calls[0].request.person_uuids) == {str(p1.uuid), str(p2.uuid)}
 
-        if not self.personhog:
-            assert Person.objects.filter(team_id=self.team.pk).count() == 0
-
     def test_bulk_delete_with_keep_person(self):
         p1 = self._seed_person(team=self.team, distinct_ids=["did-1"])
 
@@ -452,7 +430,7 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
         assert data["persons_deleted"] == 0
         assert data["events_queued_for_deletion"] is True
         assert data["deletion_errors"] == []
-        assert Person.objects.filter(team_id=self.team.pk, uuid=p1.uuid).count() == 1
+        assert get_person_by_uuid(self.team.pk, str(p1.uuid)) is not None
         self._assert_personhog_not_called("delete_persons")
 
     def test_cross_team_isolation(self):
@@ -478,7 +456,7 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
             assert calls[0].request.team_id == self.team.pk
             assert list(calls[0].request.person_uuids) == [str(p1.uuid)]
         # Other team's person should be untouched
-        assert Person.objects.filter(team_id=other_team.pk, uuid=other_person.uuid).count() == 1
+        assert get_person_by_uuid(other_team.pk, str(other_person.uuid)) is not None
 
     @mock.patch("posthog.models.person.bulk_delete.delete_person")
     def test_bulk_delete_partial_failure_only_deletes_successful_from_postgres(self, mock_delete_person):
@@ -503,8 +481,3 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
         if calls:
             # Only the successful person should be sent to personhog for PG deletion
             assert list(calls[0].request.person_uuids) == [str(p2.uuid)]
-
-        if not self.personhog:
-            # p1 should still exist (CH delete failed), p2 should be gone
-            assert Person.objects.filter(team_id=self.team.pk, uuid=p1.uuid).count() == 1
-            assert Person.objects.filter(team_id=self.team.pk, uuid=p2.uuid).count() == 0

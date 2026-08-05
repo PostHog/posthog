@@ -49,6 +49,10 @@ def _resolve_lookback_days(experiment_value: Any, team_default: Any) -> int:
 
 def _metric_supports_cuped(metric: object) -> bool:
     if isinstance(metric, ExperimentMeanMetric):
+        # A thresholded mean is a binary "did the user reach N" outcome; CUPED's
+        # continuous variance reduction does not apply to a proportion.
+        if metric.threshold is not None:
+            return False
         # Session property metrics use a separate session-deduplication CTE pipeline.
         # Keep CUPED disabled there until the same single-scan windowing is implemented.
         if isinstance(metric.source, (ActionsNode, EventsNode)) and is_session_property_metric(metric.source):

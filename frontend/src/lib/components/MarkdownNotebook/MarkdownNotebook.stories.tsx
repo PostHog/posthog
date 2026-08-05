@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
+import { IconGraph } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { MarkdownNotebook, MarkdownNotebookProps } from './MarkdownNotebook'
@@ -63,6 +64,37 @@ const embedsNotebook = `# Embeds
 
 <Latex content="E=mc^2" />`
 
+const mermaidNotebook = `# Release flow
+
+A \`\`\`mermaid\`\`\` fence renders as a diagram in view mode while the source stays editable.
+
+\`\`\`mermaid
+flowchart LR
+    A[Start] --> B{Tests pass?}
+    B -->|Yes| C[Ship it]
+    B -->|No| D[Fix it]
+    D --> A
+\`\`\``
+
+const wideMermaidNotebook = `# Wide diagram
+
+A diagram wider than the notebook column keeps its natural size and scrolls horizontally instead of shrinking.
+
+\`\`\`mermaid
+flowchart LR
+    A[Signup form submitted] --> B[Validate email domain] --> C[Create organization] --> D[Provision default project] --> E[Send verification email] --> F[Track activation event] --> G[Redirect to onboarding] --> H[Show product tour]
+\`\`\``
+
+const invalidMermaidNotebook = `# Broken diagram
+
+Invalid mermaid falls back to the plain source instead of crashing.
+
+\`\`\`mermaid
+flowchart LR
+    A --> B -->
+    this is not valid mermaid ]]]
+\`\`\``
+
 const malformedNotebook = `# Broken input
 
 <Query query={{"kind":`
@@ -79,6 +111,7 @@ const meta: Meta<StoryArgs> = {
     tags: ['autodocs'],
     args: {
         showDebug: true,
+        onInteractionStateChange: () => {},
     },
     render: (props) => <ControlledNotebook {...props} />,
 }
@@ -206,6 +239,41 @@ export const Embeds: Story = {
     },
 }
 
+export const MermaidDiagram: Story = {
+    args: {
+        value: mermaidNotebook,
+        mode: 'view',
+    },
+    // Mermaid renders asynchronously (lazy chunk + async render); wait for the finished SVG
+    // so the snapshot isn't captured mid-render.
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="mermaid-rendered"]' },
+    },
+}
+
+export const MermaidDiagramWide: Story = {
+    args: {
+        value: wideMermaidNotebook,
+        mode: 'view',
+    },
+    // Mermaid renders asynchronously (lazy chunk + async render); wait for the finished SVG
+    // so the snapshot isn't captured mid-render.
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="mermaid-rendered"]' },
+    },
+}
+
+export const MermaidDiagramFallback: Story = {
+    args: {
+        value: invalidMermaidNotebook,
+        mode: 'view',
+    },
+    // Invalid mermaid resolves asynchronously to the error fallback; wait for it before snapshotting.
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="mermaid-error"]' },
+    },
+}
+
 export const MalformedMarkdownRecovery: Story = {
     args: {
         value: malformedNotebook,
@@ -244,6 +312,17 @@ export const SlashMenuAndInsertion: Story = {
     args: {
         value: '',
         initialInsertMenu: { nodeIndex: 0, query: '' },
+        // Extra commands are injected by the caller (the scenes layer wires up "Saved insight"); a stub
+        // command keeps that row present in the menu snapshot without mounting any real modal.
+        extraInsertCommands: () => [
+            {
+                key: 'query-saved-insight',
+                label: 'Saved insight',
+                category: 'Insight',
+                icon: <IconGraph />,
+                run: () => {},
+            },
+        ],
     },
 }
 

@@ -5,7 +5,6 @@ from posthog.schema import EventsNode, ExperimentMeanMetric, ExperimentMetricMat
 from posthog.hogql import ast
 
 from products.experiments.backend.hogql_queries.base_query_utils import get_metric_value
-from products.experiments.backend.hogql_queries.hogql_aggregation_utils import extract_aggregation_and_inner_expr
 
 
 class TestHogQLAggregationIntegration(BaseTest):
@@ -39,29 +38,3 @@ class TestHogQLAggregationIntegration(BaseTest):
         # Should return the field expression directly
         self.assertIsInstance(result_no_agg, ast.Field)
         self.assertEqual(result_no_agg.chain, ["properties", "revenue"])  # type: ignore[attr-defined]
-
-    def test_hogql_aggregation_examples(self):
-        """Test various HogQL aggregation examples that users might input."""
-
-        test_cases = [
-            # (input_expression, expected_aggregation, description)
-            ("sum(properties.revenue - properties.expense)", "sum", "Revenue minus expense"),
-            ("avg(properties.price * properties.quantity)", "avg", "Average of price times quantity"),
-            ("count(distinct properties.user_id)", "count", "Distinct user count"),
-            ("min(properties.score)", "min", "Minimum score"),
-            ("max(toFloat(properties.value))", "max", "Maximum converted value"),
-            ("properties.simple_value", None, "Simple property access"),
-            ("properties.a + properties.b", None, "Simple arithmetic"),
-        ]
-
-        for expr_str, expected_agg, description in test_cases:
-            with self.subTest(expression=expr_str, description=description):
-                aggregation, inner_expr, _, _ = extract_aggregation_and_inner_expr(expr_str)
-
-                if expected_agg is None:
-                    self.assertIsNone(aggregation, f"Expected no aggregation for: {expr_str}")
-                else:
-                    self.assertEqual(aggregation, expected_agg, f"Wrong aggregation for: {expr_str}")
-
-                # Inner expression should never be None
-                self.assertIsNotNone(inner_expr, f"Inner expression should not be None for: {expr_str}")

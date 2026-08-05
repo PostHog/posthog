@@ -125,7 +125,7 @@ function ErrorView(): JSX.Element | null {
     }
 
     return (
-        <BridgePage view="signup-error" hedgehog message="Oops!" footer={<SupportModalButton />}>
+        <BridgePage view="signup-error" footer={<SupportModalButton />}>
             <h2>{ErrorMessages[error.code].title}</h2>
             <div className="error-message">{ErrorMessages[error.code].detail}</div>
             <LemonDivider dashed className="my-4" />
@@ -140,12 +140,7 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
     const { acceptedInviteLoading, acceptedInvite } = useValues(inviteSignupLogic)
 
     return (
-        <BridgePage
-            view="accept-invite"
-            hedgehog
-            message={user?.first_name ? `Hey ${user?.first_name}!` : 'Hello!'}
-            footer={<SupportModalButton name={user?.first_name} email={user?.email} />}
-        >
+        <BridgePage view="accept-invite" footer={<SupportModalButton name={user?.first_name} email={user?.email} />}>
             <div className="deprecated-space-y-2">
                 <h2>You have been invited to join {invite.organization_name}</h2>
                 <div>
@@ -210,7 +205,6 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
         passkeyRegistered,
         isPasskeyRegistering,
         passkeyError,
-        passkeySignupEnabled,
         challengeRequired,
         turnstileSiteKey,
         turnstileToken,
@@ -231,13 +225,6 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
     return (
         <BridgePage
             view="invites-signup"
-            hedgehog
-            message={
-                <>
-                    Welcome to
-                    <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
-                </>
-            }
             leftContainerContent={
                 <div className="mb-8 text-secondary">
                     <div className="font-semibold flex flex-col gap-2 text-center items-center text-lg">
@@ -283,41 +270,34 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 </LemonField.Pure>
                 {!areExtraFieldsHidden && (
                     <>
-                        {passkeySignupEnabled && (
+                        {passkeyRegistered ? (
+                            <div className="bg-surface-secondary rounded-lg p-4 text-center">
+                                <img src={passkeyLogo} alt="Passkey" className="w-8 h-8 mx-auto mb-2" />
+                                <p className="font-semibold mb-1">Passkey registered successfully!</p>
+                                <p className="text-sm text-muted">
+                                    Complete the form below and press "Continue" to create your account.
+                                </p>
+                            </div>
+                        ) : (
                             <>
-                                {passkeyRegistered ? (
-                                    <div className="bg-surface-secondary rounded-lg p-4 text-center">
-                                        <img src={passkeyLogo} alt="Passkey" className="w-8 h-8 mx-auto mb-2" />
-                                        <p className="font-semibold mb-1">Passkey registered successfully!</p>
-                                        <p className="text-sm text-muted">
-                                            Complete the form below and press "Continue" to create your account.
-                                        </p>
-                                    </div>
-                                ) : (
-                                    <LemonButton
-                                        fullWidth
-                                        type="secondary"
-                                        center
-                                        size="large"
-                                        icon={
-                                            <img src={passkeyLogo} alt="Passkey" className="object-contain w-7 h-7" />
-                                        }
-                                        onClick={registerPasskey}
-                                        loading={isPasskeyRegistering}
-                                        disabled={isPasskeyRegistering}
-                                        data-attr="invite-signup-passkey"
-                                    >
-                                        Sign up with passkey
-                                    </LemonButton>
-                                )}
-
-                                {!passkeyRegistered && (
-                                    <div className="flex items-center gap-3 my-4">
-                                        <div className="flex-1 border-t border-border" />
-                                        <span className="text-secondary text-sm">or use a password</span>
-                                        <div className="flex-1 border-t border-border" />
-                                    </div>
-                                )}
+                                <LemonButton
+                                    fullWidth
+                                    type="secondary"
+                                    center
+                                    size="large"
+                                    icon={<img src={passkeyLogo} alt="Passkey" className="object-contain w-7 h-7" />}
+                                    onClick={registerPasskey}
+                                    loading={isPasskeyRegistering}
+                                    disabled={isPasskeyRegistering}
+                                    data-attr="invite-signup-passkey"
+                                >
+                                    Sign up with passkey
+                                </LemonButton>
+                                <div className="flex items-center gap-3 my-4">
+                                    <div className="flex-1 border-t border-border" />
+                                    <span className="text-secondary text-sm">or use a password</span>
+                                    <div className="flex-1 border-t border-border" />
+                                </div>
                             </>
                         )}
                         {!passkeyRegistered && (
@@ -336,7 +316,6 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                                     data-attr="password"
                                     placeholder="••••••••••"
                                     autoComplete="new-password"
-                                    autoFocus={!passkeySignupEnabled}
                                     disabled={isSignupSubmitting || passkeyRegistered}
                                 />
                             </LemonField>
@@ -430,7 +409,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
     )
 }
 
-export function LegacyInviteSignup(): JSX.Element {
+function InviteSignup(): JSX.Element {
     const { invite, inviteLoading } = useValues(inviteSignupLogic)
     const { user } = useValues(userLogic)
 
@@ -450,3 +429,5 @@ export function LegacyInviteSignup(): JSX.Element {
         </div>
     )
 }
+
+export { InviteSignup as LegacyInviteSignup }

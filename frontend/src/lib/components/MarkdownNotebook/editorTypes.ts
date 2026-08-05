@@ -7,6 +7,7 @@ import {
 
 import {
     NotebookCodeBlockNode,
+    NotebookComponentProps,
     NotebookInlineNode,
     NotebookListBlockNode,
     NotebookTextBlockNode,
@@ -40,7 +41,14 @@ export type InsertCommand = {
     aliases?: string[]
     icon?: ReactNode
     closeOnRun?: boolean
+    disabled?: boolean
     run: (targetNodeId: string) => void
+}
+
+/** Insertion primitives handed to caller-supplied insert commands so they can add blocks without
+ * reaching into the editor's internals. The caller owns the command's label, icon, and behavior. */
+export type MarkdownNotebookInsertMenuApi = {
+    insertComponent: (targetNodeId: string, tagName: string, props: NotebookComponentProps) => void
 }
 
 export type InsertMenuState = {
@@ -50,8 +58,12 @@ export type InsertMenuState = {
     mode?: 'tools' | 'ai'
     detached?: boolean
     removeNodeOnClose?: boolean
+    /** Set with `removeNodeOnClose`: the block pushed onto its own card to make room for the
+     * inserted one. Closing the menu without inserting rejoins it to the card it came from. */
+    rejoinNodeIdOnClose?: string
     source?: 'slash' | 'selection'
     selectedMarkdown?: string
+    selectedRefId?: string
 }
 
 export type InsertMenuSelectionDirection = 'next' | 'previous'

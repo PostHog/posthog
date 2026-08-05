@@ -1,1 +1,1 @@
-1224_columnconfiguration_properties
+1286_cleanup_orphaned_identity_provider_configs

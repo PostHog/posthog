@@ -22,16 +22,7 @@ export function Login2FA(): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)
 
     return (
-        <BridgePage
-            view="login"
-            hedgehog
-            message={
-                <>
-                    Welcome to
-                    <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
-                </>
-            }
-        >
+        <BridgePage view="login">
             <div className="deprecated-space-y-2">
                 <h2>Two-Factor Authentication</h2>
                 <p>

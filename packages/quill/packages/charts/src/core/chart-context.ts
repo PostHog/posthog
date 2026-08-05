@@ -1,6 +1,7 @@
 import { createContext, useContext } from 'react'
 
 import type { ChartDimensions, ChartScales, ChartTheme, ResolvedSeries, ResolveValueFn } from './types'
+import type { Gutter } from './y-axis-gutters'
 
 /** Axis-related state exposed to overlays. */
 export interface ChartAxisContextValue {
@@ -39,6 +40,9 @@ export interface ChartLayoutContextValue<Meta = unknown> {
     canvasBounds: () => DOMRect | null
     /** Axis-related state (orientation, x-axis formatter, value-scale flags). */
     axis: ChartAxisContextValue
+    /** Stacked value-axis gutters shared by `AxisLabels` and `AxisTitles`. Empty for horizontal /
+     *  hidden y-axis charts. */
+    yGutters: Gutter[]
 }
 
 /** Hover state isolated from layout so mousemoves don't invalidate every overlay.

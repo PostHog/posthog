@@ -56,13 +56,15 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
         totalTargeted,
         responseRate,
         linksCsvExporting,
+        sharedLinkLoading,
         testLink,
         testLinkLoading,
         previewInviteIdentifier,
         invitePreview,
         invitePreviewLoading,
     } = useValues(userInterviewLogic)
-    const { exportLinksCsv, loadTestLink, openInvitePreview, closeInvitePreview } = useActions(userInterviewLogic)
+    const { exportLinksCsv, copySharedLink, loadTestLink, openInvitePreview, closeInvitePreview } =
+        useActions(userInterviewLogic)
 
     if (topicLoading && !topic) {
         return (
@@ -110,7 +112,17 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
                     <h1 className="text-2xl font-bold mb-1">{topic.topic}</h1>
                     {topic.agent_context && <p className="text-muted mb-0 text-sm">{topic.agent_context}</p>}
                 </div>
-                <div className="shrink-0">
+                <div className="shrink-0 flex items-center gap-2">
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconCopy />}
+                        onClick={copySharedLink}
+                        loading={sharedLinkLoading}
+                        data-attr="copy-shared-interview-link"
+                        tooltip="Copy one shared link anyone can open — each visitor becomes a new anonymous respondent. No interviewee targeting needed."
+                    >
+                        Copy shared link
+                    </LemonButton>
                     <LemonButton
                         type="secondary"
                         icon={<IconDownload />}

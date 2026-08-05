@@ -38,14 +38,14 @@ the **record form** — the array form can only express `true`:
 
 ```ts
 // meta-level: applies to every story in the file
-parameters: { featureFlags: { [FEATURE_FLAGS.PROMOTED_PRODUCT]: 'intent_plus' } }
+parameters: { featureFlags: { [FEATURE_FLAGS.THEME_OVERRIDE]: 'intent_plus' } }
 
 // per-story: a different arm per story
 export const ControlArm: Story = {
-    parameters: { featureFlags: { [FEATURE_FLAGS.PROMOTED_PRODUCT]: 'control' } },
+    parameters: { featureFlags: { [FEATURE_FLAGS.THEME_OVERRIDE]: 'control' } },
 }
 export const TreatmentArm: Story = {
-    parameters: { featureFlags: { [FEATURE_FLAGS.PROMOTED_PRODUCT]: 'intent_plus' } },
+    parameters: { featureFlags: { [FEATURE_FLAGS.THEME_OVERRIDE]: 'intent_plus' } },
 }
 ```
 

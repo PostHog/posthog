@@ -1,0 +1,43 @@
+import { KeyStore, RecordingEncryptor, SessionKey } from './types'
+
+export function createMockSessionKey(overrides: Partial<SessionKey> = {}): SessionKey {
+    return {
+        plaintextKey: Buffer.alloc(0),
+        encryptedKey: Buffer.alloc(0),
+        sessionState: 'cleartext',
+        ...overrides,
+    }
+}
+
+export function createMockKeyStore(): jest.Mocked<KeyStore> {
+    return {
+        start: jest.fn().mockResolvedValue(undefined),
+        generateKey: jest.fn().mockResolvedValue({
+            plaintextKey: Buffer.alloc(0),
+            encryptedKey: Buffer.alloc(0),
+            sessionState: 'cleartext',
+        }),
+        getKey: jest.fn().mockResolvedValue({
+            plaintextKey: Buffer.alloc(0),
+            encryptedKey: Buffer.alloc(0),
+            sessionState: 'cleartext',
+        }),
+        deleteKey: jest.fn().mockResolvedValue({ status: 'deleted', deletedAt: 0, deletedBy: '' }),
+        stop: jest.fn().mockResolvedValue(undefined),
+    } as unknown as jest.Mocked<KeyStore>
+}
+
+export function createMockEncryptor(): jest.Mocked<RecordingEncryptor> {
+    return {
+        start: jest.fn().mockResolvedValue(undefined),
+        encryptBlock: jest
+            .fn()
+            .mockImplementation((_sessionId, _teamId, buffer) =>
+                Promise.resolve({ data: buffer, sessionState: 'cleartext' })
+            ),
+        encryptBlockWithKey: jest.fn().mockImplementation((_sessionId, _teamId, buffer, _sessionKey) => ({
+            data: buffer,
+            sessionState: 'cleartext',
+        })),
+    } as unknown as jest.Mocked<RecordingEncryptor>
+}

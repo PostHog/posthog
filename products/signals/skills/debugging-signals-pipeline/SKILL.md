@@ -223,8 +223,8 @@ grep CLICKHOUSE_DATABASE .env
 - Buffer workflow: `products/signals/backend/temporal/buffer.py`
 - Grouping workflow: `products/signals/backend/temporal/grouping_v2.py`
 - Report summary workflow: `products/signals/backend/temporal/summary.py`
-- Docker sandbox implementation: `products/tasks/backend/services/docker_sandbox.py`
+- Docker sandbox implementation: `products/tasks/backend/logic/services/docker_sandbox.py`
 - Sandbox Dockerfiles: `products/tasks/backend/sandbox/images/`
-- Agent log polling: `products/tasks/backend/services/custom_prompt_internals.py`
+- Agent log polling: `products/tasks/backend/logic/services/custom_prompt_internals.py`
 - Cleanup command: `products/signals/backend/management/commands/cleanup_signals.py`
 - Management command docs: `products/signals/backend/management/CLAUDE.md`

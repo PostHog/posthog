@@ -12,6 +12,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
+import { emptyPaginated } from '~/test/mocks/taxonomicFilterApiMock'
 
 import { TaxonomicPopoverMenu } from './TaxonomicPopoverMenu'
 
@@ -24,22 +25,7 @@ jest.mock('posthog-js', () => ({
     default: { capture: jest.fn() },
 }))
 
-jest.mock('lib/api', () => {
-    const emptyPaginated = (): Promise<{ results: any[]; count: number; next: null }> =>
-        Promise.resolve({ results: [], count: 0, next: null })
-    return {
-        __esModule: true,
-        default: {
-            get: jest.fn().mockImplementation(emptyPaginated),
-            actions: { list: jest.fn().mockImplementation(emptyPaginated) },
-            dataWarehouseSavedQueries: { list: jest.fn().mockImplementation(emptyPaginated) },
-            dataWarehouseTables: { list: jest.fn().mockImplementation(emptyPaginated) },
-            queryTabState: { list: jest.fn().mockImplementation(emptyPaginated) },
-            dashboards: { list: jest.fn().mockImplementation(emptyPaginated) },
-            cohorts: { listPaginated: jest.fn().mockImplementation(emptyPaginated) },
-        },
-    }
-})
+jest.mock('lib/api', () => require('~/test/mocks/taxonomicFilterApiMock').buildTaxonomicFilterApiMock())
 
 const apiGet = jest.requireMock('lib/api').default.get as jest.MockedFunction<any>
 
@@ -60,7 +46,7 @@ describe('TaxonomicPopoverMenu input trigger (lazy placeholder)', () => {
     beforeEach(() => {
         __clearTaxonomicResourceCache()
         apiGet.mockReset()
-        apiGet.mockResolvedValue({ results: [], count: 0, next: null })
+        apiGet.mockImplementation(emptyPaginated)
         ;(performQuery as jest.Mock).mockResolvedValue({ tables: {}, joins: [] })
         useMocks({})
         initKeaTests()
@@ -74,13 +60,13 @@ describe('TaxonomicPopoverMenu input trigger (lazy placeholder)', () => {
         renderInputTriggerPopoverMenu()
 
         expect(screen.getByTestId('taxonomic-filter-menu-input')).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: 'Open filter menu' })).toBeInTheDocument()
+        expect(screen.getByLabelText('Open filter menu')).toBeInTheDocument()
     })
 
     it('arms to the dropdown menu (not the combobox) when the filter icon is clicked from the resting trigger', async () => {
         renderInputTriggerPopoverMenu()
 
-        await userEvent.click(screen.getByRole('button', { name: 'Open filter menu' }))
+        await userEvent.click(screen.getByLabelText('Open filter menu'))
 
         // The icon arms straight to the menu — its "HogQL expression" entry confirms it.
         await waitFor(() => {

@@ -1,11 +1,15 @@
 import os
+from types import TracebackType
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow import (
+    RealtimeCohortCalculationWorkflowInputs,
     _batch_update_cohort_metrics,
+    build_final_query,
     flush_kafka_batch,
+    process_realtime_cohort_calculation_activity,
 )
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
     CohortSelectionActivityInput,
@@ -1472,7 +1476,7 @@ class TestBatchUpdateCohortMetrics:
     """Tests for _batch_update_cohort_metrics timestamp handling regression."""
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     async def test_batch_update_cohort_metrics_timestamp_fix(self):
         """
         Regression test for timestamp bug fix.
@@ -1554,7 +1558,7 @@ class TestBatchUpdateCohortMetrics:
         assert duration_updates_count == 1  # Only cohort2 should have had duration updated
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     async def test_batch_update_cohort_metrics_first_calculation(self):
         """Test that first calculation always updates duration regardless of threshold."""
         from asgiref.sync import sync_to_async
@@ -1597,7 +1601,7 @@ class TestBatchUpdateCohortMetrics:
         assert duration_updates_count == 1
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     async def test_batch_update_cohort_metrics_zero_previous_duration(self):
         """Test that cohorts with zero previous duration always get updated."""
         from asgiref.sync import sync_to_async
@@ -1633,3 +1637,189 @@ class TestBatchUpdateCohortMetrics:
 
         # Assert correct count
         assert duration_updates_count == 1
+
+
+class TestFinalQueryMembershipStatuses:
+    """Tests for the final_query membership diff logic.
+
+    The query determines 'entered'/'left' via a FULL OUTER JOIN between
+    current cohort matches and the previous cohort_membership state.
+    These tests verify that status assignment and filtering are correct
+    for each membership scenario without requiring a live ClickHouse.
+    """
+
+    @pytest.mark.parametrize(
+        "rows,expected_statuses",
+        [
+            # New members only → all 'entered'
+            (
+                [{"person_id": "aaa", "status": "entered"}, {"person_id": "bbb", "status": "entered"}],
+                {"aaa": "entered", "bbb": "entered"},
+            ),
+            # Departing members only → all 'left'
+            (
+                [{"person_id": "ccc", "status": "left"}, {"person_id": "ddd", "status": "left"}],
+                {"ccc": "left", "ddd": "left"},
+            ),
+            # Mixed
+            (
+                [{"person_id": "eee", "status": "entered"}, {"person_id": "fff", "status": "left"}],
+                {"eee": "entered", "fff": "left"},
+            ),
+            # No changes → empty (WHERE clause filters out unchanged rows)
+            ([], {}),
+        ],
+    )
+    def test_only_entered_and_left_statuses_are_emitted(self, rows, expected_statuses):
+        """The WHERE clause must exclude 'unchanged' rows; only 'entered'/'left' reach the activity loop.
+
+        Note: this test operates on hand-built row dicts, not on query output. An execution-level
+        test seeding cohort_membership with entered/left/unchanged persons and asserting the
+        unchanged one is dropped would give stronger coverage but requires a ClickHouse harness
+        that this suite (which mocks Kafka) does not have. Track separately if desired.
+        """
+        observed: dict[str, str] = {}
+
+        for row in rows:
+            status = row["status"]
+            assert status in ("entered", "left"), (
+                f"Query should only emit 'entered' or 'left'; got {status!r}. "
+                "'unchanged' rows must be filtered out by the WHERE clause."
+            )
+            observed[row["person_id"]] = status
+
+        assert observed == expected_statuses
+
+    def test_build_final_query_contains_expected_predicates(self):
+        """build_final_query must contain the key SQL predicates from the optimized query.
+
+        Asserts that regressions (e.g. reverting to CASE/ELSE or GROUP BY team_id) are caught
+        by directly inspecting the produced SQL.
+        """
+        sql = build_final_query("SELECT id FROM nowhere")
+
+        # Status is computed with if(), not CASE ... ELSE 'unchanged'
+        assert "if(previous_members.person_id IS NULL, 'entered', 'left')" in sql
+        assert "CASE" not in sql
+        assert "'unchanged'" not in sql
+
+        # Unchanged rows are filtered by NULL checks, not a string IN list
+        assert "(previous_members.person_id IS NULL) OR (current_matches.id IS NULL)" in sql
+        assert "status IN" not in sql
+
+        # cohort_membership subquery groups only by person_id, not team_id
+        assert "GROUP BY person_id" in sql
+        assert "GROUP BY team_id" not in sql
+
+        # The inner subquery is embedded correctly
+        assert "SELECT id FROM nowhere" in sql
+
+        # GROUP BY spill settings (the OOM fix) must survive future edits to build_final_query
+        assert "join_use_nulls = 1" in sql
+        assert "max_bytes_ratio_before_external_group_by = 0.5" in sql
+        assert "distributed_aggregation_memory_efficient = 1" in sql
+
+    def test_if_expression_matches_full_outer_join_semantics(self):
+        """The if() expression and WHERE clause encode the FULL OUTER JOIN membership diff contract.
+
+        - NULL previous_person_id  → person is new → 'entered'
+        - NULL current_id          → person departed → 'left'
+        - Both non-NULL            → unchanged → excluded by WHERE
+        """
+
+        def compute_status(previous_person_id, current_id):
+            """Mirrors: if(previous_members.person_id IS NULL, 'entered', 'left')"""
+            return "entered" if previous_person_id is None else "left"
+
+        def passes_where(previous_person_id, current_id):
+            """Mirrors: WHERE (previous_members.person_id IS NULL) OR (current_matches.id IS NULL)"""
+            return (previous_person_id is None) or (current_id is None)
+
+        pid = "person-abc"
+
+        # New member: present in current, absent from previous → WHERE passes, status 'entered'
+        assert passes_where(None, pid) is True
+        assert compute_status(None, pid) == "entered"
+
+        # Departing member: present in previous, absent from current → WHERE passes, status 'left'
+        assert passes_where(pid, None) is True
+        assert compute_status(pid, None) == "left"
+
+        # Unchanged member: present in both → WHERE filters it out entirely
+        assert passes_where(pid, pid) is False
+
+
+class _AsyncClientContextManager:
+    def __init__(self, client: Mock) -> None:
+        self.client = client
+
+    async def __aenter__(self) -> Mock:
+        return self.client
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        return None
+
+
+class _NoopHeartbeater:
+    def __init__(self, details: tuple[str, ...] = (), factor: int = 120) -> None:
+        self.details = details
+
+    async def __aenter__(self) -> "_NoopHeartbeater":
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        return None
+
+
+class TestRealtimeCohortConcurrencyGate:
+    @pytest.mark.asyncio
+    async def test_activity_opens_clickhouse_client_through_gated_wrapper(self):
+        # Guards the concurrency cap for the one gated site the other six tests don't execute:
+        # if this activity's ClickHouse access stops flowing through get_messaging_client (the exact
+        # way the production 202 could recur), clickhouse_concurrency.get_client is no longer the
+        # symbol invoked and this assertion fails.
+        # `yield` after `return` never runs, but its presence makes this an async generator that
+        # streams zero rows — matching stream_query_as_jsonl's shape.
+        async def empty_stream(*args, **kwargs):
+            return
+            yield
+
+        mock_client = Mock()
+        mock_client.stream_query_as_jsonl = lambda *args, **kwargs: empty_stream()
+
+        cohort = Mock()
+        cohort.pk = 10
+        cohort.team_id = 1
+        cohort.team = Mock()
+        cohort.name = "realtime cohort"
+
+        cohort_model = Mock()
+        cohort_model.objects.filter.return_value.select_related.return_value = [cohort]
+
+        get_client_mock = Mock(return_value=_AsyncClientContextManager(mock_client))
+        module = "posthog.temporal.messaging.realtime_cohort_calculation_workflow"
+
+        with (
+            patch("posthog.temporal.messaging.clickhouse_concurrency.get_client", get_client_mock),
+            patch(f"{module}.Cohort", cohort_model),
+            patch(f"{module}.HogQLRealtimeCohortQuery"),
+            patch(f"{module}.prepare_and_print_ast", return_value=("SELECT 1", {})),
+            patch(f"{module}.get_producer", return_value=Mock()),
+            patch(f"{module}.Heartbeater", _NoopHeartbeater),
+            patch(f"{module}._batch_update_cohort_metrics", AsyncMock(return_value=0)),
+            patch(f"{module}.get_cohort_calculation_success_metric", return_value=Mock()),
+            patch(f"{module}.get_cohort_calculation_failure_metric", return_value=Mock()),
+        ):
+            await process_realtime_cohort_calculation_activity(RealtimeCohortCalculationWorkflowInputs(cohort_id=10))
+
+        get_client_mock.assert_called_once_with(team_id=1)

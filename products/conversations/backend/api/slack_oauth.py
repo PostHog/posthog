@@ -7,16 +7,17 @@ from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, JsonRes
 from django.views.decorators.csrf import csrf_exempt
 
 import requests
-from loginas.utils import is_impersonated_session
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.rate_limit import SupportSlackOAuthCallbackThrottle
 
 from products.conversations.backend.models import TeamConversationsSlackConfig
 from products.conversations.backend.permissions import IsConversationsAdmin
@@ -24,19 +25,24 @@ from products.conversations.backend.support_slack import clear_supporthog_slack_
 
 STATE_SALT = "conversations.supporthog.slack.oauth"
 STATE_MAX_AGE_SECONDS = 10 * 60
-SUPPORTHOG_SLACK_SCOPE = ",".join(
-    [
-        "channels:history",
-        "channels:read",
-        "chat:write",
-        "chat:write.customize",
-        "groups:history",
-        "groups:read",
-        "reactions:read",
-        "users:read",
-        "users:read.email",
-    ]
-)
+SUPPORTHOG_SLACK_SCOPES = [
+    "channels:history",
+    "channels:read",
+    "chat:write",
+    "chat:write.customize",
+    # files:read to download inbound attachments, files:write to upload our replies' images.
+    # Slack only grants scopes at install time, so installs authorized before these were
+    # requested keep working without attachment sync until an admin reconnects. See
+    # SUPPORT_SLACK_FILE_SCOPES for how the settings page detects those installs.
+    "files:read",
+    "files:write",
+    "groups:history",
+    "groups:read",
+    "reactions:read",
+    "users:read",
+    "users:read.email",
+]
+SUPPORTHOG_SLACK_SCOPE = ",".join(SUPPORTHOG_SLACK_SCOPES)
 
 
 def _append_query(url: str, params: dict[str, str]) -> str:
@@ -116,13 +122,19 @@ class SupportSlackDisconnectView(APIView):
         clear_supporthog_slack_token(
             team=user.current_team,
             user=user,
-            is_impersonated_session=is_impersonated_session(request),
+            is_impersonated_session=is_impersonated(request),
         )
         return Response({"ok": True})
 
 
 @csrf_exempt
 def support_slack_oauth_callback(request: HttpRequest) -> HttpResponse:
+    # IP throttle in front of any Slack token exchange — otherwise a stranger
+    # can loop a valid `state` param and force us to make outbound POSTs.
+    throttle = SupportSlackOAuthCallbackThrottle()
+    if not throttle.allow_request(Request(request), view=None):  # type: ignore[arg-type]
+        return JsonResponse({"error": "Too Many Requests"}, status=429)
+
     request_user = getattr(request, "user", None)
     request_user_id = getattr(request_user, "id", None)
     if not isinstance(request_user, User) or not isinstance(request_user_id, int):
@@ -177,6 +189,7 @@ def support_slack_oauth_callback(request: HttpRequest) -> HttpResponse:
 
     bot_token = payload.get("access_token")
     slack_team_id = payload.get("team", {}).get("id")
+    granted_scopes = [scope.strip() for scope in str(payload.get("scope") or "").split(",") if scope.strip()]
     user_id = state_data.get("user_id")
     team_id = state_data.get("team_id")
     if not isinstance(bot_token, str) or not bot_token:
@@ -211,9 +224,10 @@ def support_slack_oauth_callback(request: HttpRequest) -> HttpResponse:
             save_supporthog_slack_token(
                 team=team,
                 user=user,
-                is_impersonated_session=is_impersonated_session(request),
+                is_impersonated_session=is_impersonated(request),
                 bot_token=bot_token,
                 slack_team_id=slack_team_id,
+                granted_scopes=granted_scopes,
             )
     except IntegrityError:
         return _error_response(next_path, "slack_workspace_already_connected", 409)

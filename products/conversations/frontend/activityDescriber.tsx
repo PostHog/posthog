@@ -11,6 +11,8 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { WorkflowActivityLink } from './WorkflowActivityLink'
+
 const nameOrLinkToTicket = (
     ticketNumber: string | undefined,
     name: string | null | undefined
@@ -88,6 +90,44 @@ const ticketActionsMapping: Record<
             ],
         }
     },
+    snoozed_until: function onSnoozedUntil(change, logItem) {
+        const before = change?.before as string | null
+        const after = change?.after as string | null
+
+        if (!before && after) {
+            return {
+                description: [
+                    <>
+                        snoozed until{' '}
+                        <strong>
+                            <TZLabel time={after} />
+                        </strong>
+                    </>,
+                ],
+            }
+        }
+        if (before && !after) {
+            // The same set→null change happens for a deliberate unsnooze and the system
+            // wake task auto-expiring the snooze — tell them apart by actor. A workflow
+            // clearing the snooze is deliberate too (it has a trigger but no user), so only
+            // a change with neither a user nor a trigger is a genuine auto-expiry. Only claim
+            // "reopened" when the expiry actually flipped the ticket back to open; a snooze
+            // on an already-resolved ticket clears without reopening it.
+            if (logItem?.user || logItem?.detail?.trigger?.job_type === 'hog_flow') {
+                return { description: [<>removed snooze</>] }
+            }
+            const reopened = (logItem?.detail?.changes ?? []).some((c) => c.field === 'status' && c.after === 'open')
+            return { description: [reopened ? <>snooze expired – reopened</> : <>snooze expired</>] }
+        }
+        return {
+            description: [
+                <>
+                    changed snooze from <strong>{before ? <TZLabel time={before} /> : 'none'}</strong> to{' '}
+                    <strong>{after ? <TZLabel time={after} /> : 'none'}</strong>
+                </>,
+            ],
+        }
+    },
     tag: function onTag(change) {
         const tagName = (change?.after || change?.before) as string
         if (change?.action === 'created') {
@@ -118,7 +158,16 @@ export function ticketActivityDescriber(logItem: ActivityLogItem, asNotification
         return { description: null }
     }
 
-    const user = <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
+    // When a HogFlow workflow step made the change, attribute it to (and link to) the workflow
+    // instead of the generic "PostHog" system actor. The workflow name is resolved live by id
+    // (never trusted from the log payload), so it can't be spoofed via the update headers.
+    const trigger = logItem.detail.trigger
+    const actor =
+        trigger?.job_type === 'hog_flow' && trigger.job_id ? (
+            <WorkflowActivityLink id={trigger.job_id} />
+        ) : (
+            <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
+        )
     const ticketNumber = logItem.detail.name?.replace(/^Ticket #/, '')
     const ticketLink = nameOrLinkToTicket(ticketNumber, logItem.detail.name)
 
@@ -126,7 +175,7 @@ export function ticketActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: (
                 <>
-                    {user} created {ticketLink}
+                    {actor} created {ticketLink}
                 </>
             ),
         }
@@ -143,7 +192,7 @@ export function ticketActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: (
                 <>
-                    {user} assigned {ticketLink} to <strong>{formatAssignee(after)}</strong>
+                    {actor} assigned {ticketLink} to <strong>{formatAssignee(after)}</strong>
                 </>
             ),
         }
@@ -168,7 +217,7 @@ export function ticketActivityDescriber(logItem: ActivityLogItem, asNotification
             return {
                 description: (
                     <>
-                        {user} {allChanges[0]} on {ticketLink}
+                        {actor} {allChanges[0]} on {ticketLink}
                     </>
                 ),
             }
@@ -178,7 +227,7 @@ export function ticketActivityDescriber(logItem: ActivityLogItem, asNotification
             return {
                 description: (
                     <>
-                        {user} made changes to {ticketLink}:
+                        {actor} made changes to {ticketLink}:
                         <ul className="bullet-list">
                             {allChanges.map((desc, i) => (
                                 <li key={i}>{desc}</li>

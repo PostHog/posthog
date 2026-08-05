@@ -5,9 +5,11 @@ from posthog.test.base import NonAtomicTestMigrations
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential as DataWarehouseCredentialModel
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource as ExternalDataSourceModel
-from products.warehouse_sources.backend.models.table import DataWarehouseTable as DataWarehouseTableModel
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential as DataWarehouseCredentialModel,
+    DataWarehouseTable as DataWarehouseTableModel,
+    ExternalDataSource as ExternalDataSourceModel,
+)
 
 pytestmark = pytest.mark.skip("old migrations slow overall test run down")
 

@@ -15,7 +15,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { getProductIcon } from 'scenes/onboarding/utils'
+import { getProductIcon } from 'scenes/onboarding/shared/utils'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType } from '~/types'
@@ -109,6 +109,13 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     const isTemporaryFreeProduct =
         (!product.tiered && !product.free_allocation && !product.inclusion_only) ||
         (product.tiered && product.tiers?.length === 1 && product.tiers[0].unit_amount_usd === '0')
+    const monetaryGaugeProduct = {
+        ...product,
+        unit: '$',
+        display_unit: null,
+        display_decimals: null,
+        display_divisor: null,
+    }
 
     // If the feature flag `billing_hide_product_{product.type}` is true,
     // don't show the product in the billing page.
@@ -230,10 +237,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         <div className="mt-6 mb-4 ml-2">
                             <div className="grid grid-cols-[1fr_130px_100px] gap-4 items-center">
                                 <div>
-                                    <BillingGauge
-                                        items={combinedMonetaryGaugeItems}
-                                        product={{ ...product, unit: '$' }}
-                                    />
+                                    <BillingGauge items={combinedMonetaryGaugeItems} product={monetaryGaugeProduct} />
                                 </div>
                                 <Tooltip
                                     title={`The current ${

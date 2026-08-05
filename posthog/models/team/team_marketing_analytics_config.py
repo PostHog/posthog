@@ -44,12 +44,20 @@ def validate_sources_map(sources_map: dict) -> None:
                 )
 
 
+# Bounds on how far back attribution may look. Named so query runners taking a per-request window
+# override can enforce the same ceiling as this setting instead of restating the numbers.
+MIN_ATTRIBUTION_WINDOW_DAYS = 1
+MAX_ATTRIBUTION_WINDOW_DAYS = 90
+
+
 def validate_attribution_window_days(days: int) -> None:
     """Validate attribution window days is between 1 and 90."""
     if not isinstance(days, int):
         raise ValidationError("attribution_window_days must be an integer")
-    if days < 1 or days > 90:
-        raise ValidationError("attribution_window_days must be between 1 and 90")
+    if days < MIN_ATTRIBUTION_WINDOW_DAYS or days > MAX_ATTRIBUTION_WINDOW_DAYS:
+        raise ValidationError(
+            f"attribution_window_days must be between {MIN_ATTRIBUTION_WINDOW_DAYS} and {MAX_ATTRIBUTION_WINDOW_DAYS}"
+        )
 
 
 def validate_attribution_mode(mode: str) -> None:
@@ -263,6 +271,13 @@ def validate_conversion_goals(conversion_goals: list) -> None:
                 f"Conversion goal kind must be one of {NodeKind.EVENTS_NODE}, {NodeKind.ACTIONS_NODE} or {NodeKind.DATA_WAREHOUSE_NODE}, got {goal.get('kind')}"
             )
 
+    # conversion_goal_name is used verbatim as a SQL column alias in marketing analytics
+    # queries, so duplicates collide at query time ("Cannot redefine an alias").
+    goal_names = [name for goal in conversion_goals if (name := goal.get("conversion_goal_name"))]
+    duplicates = sorted({name for name in goal_names if goal_names.count(name) > 1})
+    if duplicates:
+        raise ValidationError(f"Conversion goal names must be unique. Duplicate names: {', '.join(duplicates)}")
+
 
 # Intentionally not inheriting from UUIDModel because we're using a OneToOneField
 # and therefore using the exact same primary key as the Team model.
@@ -453,6 +468,9 @@ class TeamMarketingAnalyticsConfig(models.Model):
             self.sources_map = current_sources
 
     def to_cache_key_dict(self) -> dict:
+        # Deferred: posthog.hogql imports models, and this module loads at django.setup() in every process.
+        from posthog.hogql.database.schema.marketing_costs_precomputed import costs_dedup_v2_enabled  # noqa: PLC0415
+
         return {
             "base_currency": self.team.base_currency,
             "sources_map": self.sources_map,
@@ -461,6 +479,8 @@ class TeamMarketingAnalyticsConfig(models.Model):
             "campaign_name_mappings": self.campaign_name_mappings,
             "custom_source_mappings": self.custom_source_mappings,
             "campaign_field_preferences": self.campaign_field_preferences,
+            # Without this the flag isn't a kill switch: flipping it leaves the old numbers cached.
+            "costs_dedup_v2": costs_dedup_v2_enabled(self.team),
         }
 
 

@@ -128,25 +128,25 @@ describe('mergeNotebookMarkdownChanges', () => {
 
     it('keeps component blocks intact when only one side changes their props', () => {
         const result = mergeNotebookMarkdownChanges({
-            baseMarkdown: '# Title\n\n<Chat id="chat-1" />',
-            localMarkdown: '# Title\n\n<Chat id="chat-1" title="Named" />',
-            remoteMarkdown: '# Title\n\n<Chat id="chat-1" />',
+            baseMarkdown: '# Title\n\n<SummaryCard id="summary-1" />',
+            localMarkdown: '# Title\n\n<SummaryCard id="summary-1" title="Named" />',
+            remoteMarkdown: '# Title\n\n<SummaryCard id="summary-1" />',
         })
 
         expect(result.conflicts).toEqual([])
-        expect(result.mergedMarkdown).toEqual('# Title\n\n<Chat id="chat-1" title="Named" />')
+        expect(result.mergedMarkdown).toEqual('# Title\n\n<SummaryCard id="summary-1" title="Named" />')
     })
 
     it('merges concurrent edits to different props of the same component', () => {
         const result = mergeNotebookMarkdownChanges({
-            baseMarkdown: '<Chat id="chat-1" />',
-            localMarkdown: '<Chat id="chat-1" title="Named locally" />',
-            remoteMarkdown: '<Chat id="chat-1" lastAnswer="Streaming answer" />',
+            baseMarkdown: '<SummaryCard id="summary-1" />',
+            localMarkdown: '<SummaryCard id="summary-1" title="Named locally" />',
+            remoteMarkdown: '<SummaryCard id="summary-1" summary="Updated summary" />',
         })
 
         expect(result.conflicts).toEqual([])
         expect(result.mergedMarkdown).toContain('title="Named locally"')
-        expect(result.mergedMarkdown).toContain('lastAnswer="Streaming answer"')
+        expect(result.mergedMarkdown).toContain('summary="Updated summary"')
     })
 
     it('merges concurrent non-overlapping edits to the same string prop at the text level', () => {
@@ -160,16 +160,18 @@ describe('mergeNotebookMarkdownChanges', () => {
         expect(result.mergedMarkdown).toEqual('<Prompt question="Summarize the activation funnel by week" />')
     })
 
-    it('keeps a continued streaming answer when an earlier save echo returns', () => {
-        // The streaming client extends lastAnswer past what its own previous save echoed back.
+    it('keeps a continued string prop edit when an earlier save echo returns', () => {
+        // The local client extends the summary past what its own previous save echoed back.
         const result = mergeNotebookMarkdownChanges({
-            baseMarkdown: '<Chat id="chat-1" lastAnswer="The funnel" />',
-            localMarkdown: '<Chat id="chat-1" lastAnswer="The funnel improved by 12% this week" />',
-            remoteMarkdown: '<Chat id="chat-1" lastAnswer="The funnel improved" />',
+            baseMarkdown: '<SummaryCard id="summary-1" summary="The funnel" />',
+            localMarkdown: '<SummaryCard id="summary-1" summary="The funnel improved by 12% this week" />',
+            remoteMarkdown: '<SummaryCard id="summary-1" summary="The funnel improved" />',
         })
 
         expect(result.conflicts).toEqual([])
-        expect(result.mergedMarkdown).toEqual('<Chat id="chat-1" lastAnswer="The funnel improved by 12% this week" />')
+        expect(result.mergedMarkdown).toEqual(
+            '<SummaryCard id="summary-1" summary="The funnel improved by 12% this week" />'
+        )
     })
 
     it('keeps the local version and reports a conflict when both sides rewrite the same prop words', () => {
@@ -184,17 +186,14 @@ describe('mergeNotebookMarkdownChanges', () => {
     })
 
     it('dedupes a freshly inserted component racing its own save echo', () => {
-        // Submitting a prompt replaces it with `<Chat id="c1" />` and saves; the streaming
-        // answer diverges local state from the save response before it lands, so the echo
-        // goes through the merge. The chat must not double.
         const result = mergeNotebookMarkdownChanges({
             baseMarkdown: '# Title\n\n<Prompt question="Summarize" />',
-            localMarkdown: '# Title\n\n<Chat id="c1" lastAnswer="The funnel improved" />',
-            remoteMarkdown: '# Title\n\n<Chat id="c1" />',
+            localMarkdown: '# Title\n\n<SummaryCard id="summary-1" summary="The funnel improved" />',
+            remoteMarkdown: '# Title\n\n<SummaryCard id="summary-1" />',
         })
 
-        expect((result.mergedMarkdown.match(/<Chat/g) ?? []).length).toEqual(1)
-        expect(result.mergedMarkdown).toEqual('# Title\n\n<Chat id="c1" lastAnswer="The funnel improved" />')
+        expect((result.mergedMarkdown.match(/<SummaryCard/g) ?? []).length).toEqual(1)
+        expect(result.mergedMarkdown).toEqual('# Title\n\n<SummaryCard id="summary-1" summary="The funnel improved" />')
     })
 
     it('dedupes a new paragraph with a mid-word typo fix racing its own save echo', () => {
@@ -222,12 +221,12 @@ describe('mergeNotebookMarkdownChanges', () => {
     it('keeps concurrently inserted components that are genuinely different', () => {
         const result = mergeNotebookMarkdownChanges({
             baseMarkdown: '# Title',
-            localMarkdown: '# Title\n\n<Chat id="local-chat" />',
-            remoteMarkdown: '# Title\n\n<Chat id="remote-chat" />',
+            localMarkdown: '# Title\n\n<SummaryCard id="local-summary" />',
+            remoteMarkdown: '# Title\n\n<SummaryCard id="remote-summary" />',
         })
 
-        expect(result.mergedMarkdown).toContain('local-chat')
-        expect(result.mergedMarkdown).toContain('remote-chat')
+        expect(result.mergedMarkdown).toContain('local-summary')
+        expect(result.mergedMarkdown).toContain('remote-summary')
     })
 
     it('merges concurrent replies to the same comment thread by reply id', () => {

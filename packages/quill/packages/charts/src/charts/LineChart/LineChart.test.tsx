@@ -1,7 +1,14 @@
+import { fireEvent } from '@testing-library/react'
+
 import type { ChartTheme, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
-import { dimensions as testDimensions, rawDrag, renderHogChart } from '../../testing'
+import { dimensions as testDimensions, getHogChart, rawDrag, renderHogChart } from '../../testing'
 import { LineChart } from './LineChart'
+
+function legendButtons(container: HTMLElement): HTMLButtonElement[] {
+    const legend = container.querySelector('[data-attr="hog-chart-line-legend"]')
+    return legend ? Array.from(legend.querySelectorAll('button')) : []
+}
 
 const THEME: ChartTheme = {
     colors: ['#1f77b4', '#ff7f0e', '#2ca02c'],
@@ -35,7 +42,12 @@ describe('LineChart', () => {
     it('skips excluded series', () => {
         const series: Series[] = [
             { key: 'a', label: 'A', data: [10, 20, 30] },
-            { key: 'b', label: 'B', data: [5, 15, 25], visibility: { excluded: true } },
+            {
+                key: 'b',
+                label: 'B',
+                data: [5, 15, 25],
+                visibility: { excluded: true },
+            },
             { key: 'c', label: 'C', data: [3, 6, 9] },
         ]
         const { chart } = renderHogChart(<LineChart series={series} labels={LABELS} theme={THEME} />)
@@ -71,7 +83,13 @@ describe('LineChart', () => {
     })
 
     it('tolerates NaN data values without throwing', () => {
-        const broken: Series[] = [{ key: 'a', label: 'A', data: [Number.NaN, Number.NaN, Number.NaN] }]
+        const broken: Series[] = [
+            {
+                key: 'a',
+                label: 'A',
+                data: [Number.NaN, Number.NaN, Number.NaN],
+            },
+        ]
         const { chart } = renderHogChart(<LineChart series={broken} labels={LABELS} theme={THEME} />)
         expect(chart.seriesCount).toBe(1)
     })
@@ -105,7 +123,10 @@ describe('LineChart', () => {
                     series={SERIES}
                     labels={LABELS}
                     theme={THEME}
-                    config={{ xAxisLabel: 'Signup date', yAxisLabel: 'Unique users' }}
+                    config={{
+                        xAxisLabel: 'Signup date',
+                        yAxisLabel: 'Unique users',
+                    }}
                 />
             )
             expect(chart.xAxisLabel()).toBe('Signup date')
@@ -118,7 +139,10 @@ describe('LineChart', () => {
                     series={SERIES}
                     labels={LABELS}
                     theme={THEME}
-                    config={{ xAxisLabel: 'Signup date', yAxisLabel: 'Unique users' }}
+                    config={{
+                        xAxisLabel: 'Signup date',
+                        yAxisLabel: 'Unique users',
+                    }}
                 />
             )
             expect(getByRole('img').getAttribute('aria-label')).toBe(
@@ -165,7 +189,11 @@ describe('LineChart', () => {
                     series={SERIES}
                     labels={LABELS}
                     theme={THEME}
-                    config={{ xAxisLabel: 'Signup date', yAxisLabel: 'Unique users', hideXAxis: true }}
+                    config={{
+                        xAxisLabel: 'Signup date',
+                        yAxisLabel: 'Unique users',
+                        hideXAxis: true,
+                    }}
                 />
             )
             expect(chart.xAxisLabel()).toBeNull()
@@ -175,7 +203,12 @@ describe('LineChart', () => {
         it('renders a right axis when a series sets yAxisId: right', () => {
             const series: Series[] = [
                 { key: 'a', label: 'A', data: [10, 20, 30] },
-                { key: 'b', label: 'B', data: [1000, 2000, 3000], yAxisId: 'right' },
+                {
+                    key: 'b',
+                    label: 'B',
+                    data: [1000, 2000, 3000],
+                    yAxisId: 'right',
+                },
             ]
             const { chart } = renderHogChart(<LineChart series={series} labels={LABELS} theme={THEME} />)
             expect(chart.hasRightAxis).toBe(true)
@@ -186,7 +219,12 @@ describe('LineChart', () => {
             const series: Series[] = [
                 { key: 'a', label: 'A', data: [10, 20, 30] },
                 { key: 'b', label: 'B', data: [100, 200, 300], yAxisId: 'y1' },
-                { key: 'c', label: 'C', data: [3000, 4000, 5000], yAxisId: 'y2' },
+                {
+                    key: 'c',
+                    label: 'C',
+                    data: [3000, 4000, 5000],
+                    yAxisId: 'y2',
+                },
             ]
             const { chart } = renderHogChart(<LineChart series={series} labels={LABELS} theme={THEME} />)
             expect(chart.hasRightAxis).toBe(true)
@@ -224,7 +262,11 @@ describe('LineChart', () => {
             )
             await chart.clickAtIndex(1)
             expect(onPointClick).toHaveBeenCalledWith(
-                expect.objectContaining({ dataIndex: 1, label: 'Tue', value: 20 })
+                expect.objectContaining({
+                    dataIndex: 1,
+                    label: 'Tue',
+                    value: 20,
+                })
             )
         })
 
@@ -258,7 +300,12 @@ describe('LineChart', () => {
         it('omits a series from tooltip when visibility.tooltip is false', async () => {
             const series: Series[] = [
                 { key: 'a', label: 'A', data: [10, 20, 30] },
-                { key: 'b', label: 'B', data: [5, 15, 25], visibility: { tooltip: false } },
+                {
+                    key: 'b',
+                    label: 'B',
+                    data: [5, 15, 25],
+                    visibility: { tooltip: false },
+                },
             ]
             const { chart } = renderHogChart(<LineChart series={series} labels={LABELS} theme={THEME} />)
             chart.hoverAtIndex(1)
@@ -484,6 +531,50 @@ describe('LineChart', () => {
             } finally {
                 consoleErrorSpy.mockRestore()
             }
+        })
+    })
+
+    describe('interactive legend', () => {
+        it('renders no legend by default', () => {
+            const { container } = renderHogChart(<LineChart series={SERIES} labels={LABELS} theme={THEME} />)
+            expect(container.querySelector('[data-attr="hog-chart-line-legend"]')).toBeNull()
+        })
+
+        it('renders a clickable legend item per series when legend.show is set', () => {
+            const { container } = renderHogChart(
+                <LineChart series={SERIES} labels={LABELS} theme={THEME} config={{ legend: { show: true } }} />
+            )
+            expect(legendButtons(container).map((b) => b.textContent)).toEqual(['A', 'B'])
+        })
+
+        it('hides a series on legend click and shows it again on a second click', () => {
+            const { container, chart } = renderHogChart(
+                <LineChart series={SERIES} labels={LABELS} theme={THEME} config={{ legend: { show: true } }} />
+            )
+            expect(chart.seriesCount).toBe(2)
+
+            fireEvent.click(legendButtons(container)[1])
+            expect(getHogChart(container).seriesCount).toBe(1)
+            // The toggled-off row stays in the legend (dimmed) so it can be restored.
+            const dimmed = legendButtons(container).filter((b) => b.className.includes('opacity-40'))
+            expect(dimmed.map((b) => b.textContent)).toEqual(['B'])
+
+            fireEvent.click(legendButtons(container)[1])
+            expect(getHogChart(container).seriesCount).toBe(2)
+        })
+
+        it('renders a static (non-clickable) legend when interactive is false', () => {
+            const { container } = renderHogChart(
+                <LineChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ legend: { show: true, interactive: false } }}
+                />
+            )
+            const legend = container.querySelector('[data-attr="hog-chart-line-legend"]')!
+            expect(legend.querySelectorAll('button')).toHaveLength(0)
+            expect(legend.textContent).toBe('AB')
         })
     })
 })

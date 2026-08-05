@@ -1,5 +1,5 @@
-import { EventHeaders, Team } from '../../../types'
-import { OkResultWithContext } from '../../pipelines/pipeline.interface'
+import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
+import { EventHeaders, Team } from '~/types'
 
 /**
  * Helper for `filterMap` after team resolution: lifts the resolved team from
@@ -20,9 +20,9 @@ export function addTeamToContext<T extends { team: Team }, C>(
 
 /**
  * Group key for partitioning events within a batch by `(token, distinct_id)`.
- * Used by `groupBy` to ensure events for the same distinct id are processed
- * sequentially (preserves person/event ordering) while different distinct ids
- * run concurrently.
+ * Used by `concurrentlyPerGroup` to ensure events for the same distinct id are
+ * processed sequentially (preserves person/event ordering) while different
+ * distinct ids run concurrently.
  */
 export function getTokenAndDistinctId(input: {
     headers: EventHeaders

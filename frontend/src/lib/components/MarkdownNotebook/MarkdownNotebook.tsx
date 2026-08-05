@@ -3,14 +3,15 @@ import './MarkdownNotebook.scss'
 import clsx from 'clsx'
 import {
     ClipboardEvent as ReactClipboardEvent,
+    Component,
     DragEvent as ReactDragEvent,
     FocusEvent as ReactFocusEvent,
     FormEvent,
     Fragment,
     KeyboardEvent,
     MouseEvent as ReactMouseEvent,
+    ReactNode,
     Suspense,
-    lazy,
     useCallback,
     useEffect,
     useId,
@@ -24,17 +25,22 @@ import { IconCode, IconComment, IconDrag } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { downloadFile } from 'lib/utils/dom'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 // Monaco is heavy, so the markdown source editor only loads when the source drawer opens.
-const LazyCodeEditor = lazy(() => import('lib/monaco/CodeEditor').then((module) => ({ default: module.CodeEditor })))
+const LazyCodeEditor = lazyWithRetry(() =>
+    import('lib/monaco/CodeEditor').then((module) => ({ default: module.CodeEditor }))
+)
 
 import { mergeNotebookMarkdownChanges } from './collaboration'
 import {
     ComponentPanelCacheEntry,
     ComponentPanelVisibility,
+    CANVAS_COMPONENT_PANEL_VISIBILITY,
     DEFAULT_COMPONENT_PANEL_VISIBILITY,
-    INSERTED_COMPONENT_PANEL_VISIBILITY,
     getComponentPanelVisibility,
+    getInsertedComponentPanelVisibility,
     shouldPersistComponentPanelProps,
     withPersistedComponentPanelProps,
 } from './componentPanels'
@@ -42,6 +48,7 @@ import {
     MarkdownNotebookTextSurface,
     areNotebookDocumentsEqual,
     ensureEditableNotebookDocument,
+    getAskAIInlineNotebookQuery,
     getAskAISelectionQuery,
     getClipboardMarkdown,
     getHistoryRestoreSelection,
@@ -56,8 +63,10 @@ import {
     getDiscussionCommentRefId,
     isBlankInsertMenuButtonRow,
     isDiscussionCommentNode,
+    isGroupedBlockquoteNode,
     isPromptComponentNode,
     isTextBlockNode,
+    isTextGroupNode,
     makeEmptyNotebookTitle,
     removeNotebookNodesWithRefCleanup,
     stripNotebookRefMarksFromNodes,
@@ -68,13 +77,18 @@ import {
     setClipboardMarkdown,
     setsEqual,
     textBlocksShareContinuationStyle,
+    updateNotebookCodeBlockText,
+    withoutLeadingEmptyTitleGroup,
+    withPreservedGroupStart,
     writeSystemClipboardText,
 } from './documentModel'
 import {
     findTextPosition,
+    getClosestEditableBlockElement,
     getCollapsedSelectionRange,
     getCollapsedSelectionRestoreRequest,
     getComponentNodeForSelection,
+    getElementForNode,
     getElementLineHeight,
     getFocusedComponentNode,
     getInlineEditableElementForSelection,
@@ -88,6 +102,7 @@ import {
     getSelectedTextRanges,
     getSelectionClientRect,
     getSelectionRange,
+    inputEventCrossesInlineEditableBoundary,
     isFormattingToolbarFocused,
     isNativeEditableElement,
     isSelectionInsideElement,
@@ -109,9 +124,11 @@ import {
     FloatingToolbarState,
     FloatingToolbarTextRange,
     INSERT_MENU_PLACEHOLDER,
+    InsertCommand,
     InsertMenuPosition,
     InsertMenuSelectionDirection,
     InsertMenuState,
+    MarkdownNotebookInsertMenuApi,
     MAX_UNDO_HISTORY_ENTRIES,
     NOTEBOOK_TITLE_PLACEHOLDER,
     RestoreSelectionRequest,
@@ -121,7 +138,12 @@ import {
     TextSelectionPointerStartEvent,
     TextSelectionPointerState,
 } from './editorTypes'
-import { FormattingToolbar, getFloatingToolbarLinkHref, getSelectedBlockStyle } from './FormattingToolbar'
+import {
+    FormattingToolbar,
+    getFloatingToolbarLinkHref,
+    getSelectedBlockStyle,
+    getSelectedBlocksQuoted,
+} from './FormattingToolbar'
 import { markNotebookNodeFreshlyInserted } from './freshlyInserted'
 import {
     InlineMarkSelection,
@@ -143,10 +165,13 @@ import {
     buildInsertCommands,
     getClampedInsertMenuSelectedIndex,
     getFilteredInsertCommands,
+    getInsertMenuOptionDomId,
     getInsertMenuPosition,
     getNextInsertMenuSelectedIndex,
+    omitInsertCommands,
 } from './InsertMenu'
 import {
+    deleteListItemSelectionRange,
     getListItemIndex,
     getListItemParagraphReplacement,
     getListItemRefKey,
@@ -158,8 +183,10 @@ import {
     makeEmptyParagraph,
     makeListItemId,
     parseMarkdownNotebook,
+    sanitizeNotebookLinkHref,
     serializeMarkdownNotebook,
 } from './markdown'
+import { NOTEBOOK_AI_WRITING_PLACEHOLDER } from './notebookAI'
 import {
     NotebookOperation,
     applyNotebookOperations,
@@ -194,6 +221,7 @@ import {
 } from './tableModel'
 import {
     NotebookBlockNode,
+    NotebookCodeBlockNode,
     NotebookCollaborationConflict,
     NotebookComponentBlockNode,
     NotebookComponentProps,
@@ -207,15 +235,22 @@ import {
     NotebookTextBlockNode,
     NotebookTextSelectionRange,
 } from './types'
-import { cloneNotebookNode, getInlineText, normalizeInlineNodes } from './utils'
+import { cloneNotebookNode, getInlineText, getNodeFingerprint, normalizeInlineNodes } from './utils'
 
 export type MarkdownNotebookProps = {
     value: string
     onChange?: (value: string) => void
     onAskAI?: (request: MarkdownNotebookAskAIRequest) => void
-    createAIChatId?: () => string
+    isAskAIDisabled?: boolean
+    createAIConversationId?: () => string
     mode?: NotebookMode
     registry?: NotebookComponentRegistry
+    /** Caller-supplied insert-menu commands. Receives an API for inserting blocks so the command's
+     * behavior (e.g. opening a picker modal) and labeling stay in the caller, not this component. */
+    extraInsertCommands?: (api: MarkdownNotebookInsertMenuApi) => InsertCommand[]
+    /** Built-in insert-menu commands to drop, by key (e.g. `QUERY_SQL_INSERT_COMMAND_KEY`). For a
+     * caller whose registry supplies its own block for the same job and must not offer both. */
+    hiddenInsertCommandKeys?: string[]
     remoteValue?: string
     /** Notebook version `remoteValue` corresponds to, for version-aware caret mapping. */
     remoteVersion?: number
@@ -228,29 +263,50 @@ export type MarkdownNotebookProps = {
     /** Reports the local caret whenever it moves; null when the selection leaves the notebook. */
     onCaretChange?: (position: MarkdownNotebookCaretPosition | null) => void
     initialInsertMenu?: { nodeIndex?: number; query?: string }
+    /** Converts external content (dropped or pasted files, dragged app resources or URLs) into
+     * blocks inserted at the drop/caret position. Return null to ignore the transfer; return a
+     * promise when conversion needs async work (e.g. file uploads) — the insert position is
+     * captured up front. */
+    convertExternalDataTransferToNodes?: (
+        dataTransfer: DataTransfer
+    ) => NotebookBlockNode[] | Promise<NotebookBlockNode[] | null> | null
+    focusAIPromptRequest?: number
+    aiWritingNodeIndexes?: number[]
+    /** In view mode, keep the filters toggle for definitions with `viewModeFilters` — for
+     * read-only canvases where the filters panel is the only way to configure a node. */
+    allowViewModeFilters?: boolean
     placeholder?: string
     className?: string
     autoFocus?: boolean
     showDebug?: boolean
+    debugOpen?: boolean
+    onDebugOpenChange?: (isOpen: boolean) => void
     'data-attr'?: string
 }
 
 export type MarkdownNotebookAskAIRequest = {
-    chatId: string
+    conversationId: string
     query: string
     source: 'slash' | 'selection'
-    chatNodeId: string
-    chatMarker: string
+    responseNodeId: string
+    responseNodeIndex: number
+    responseMarker: string
     markdown: string
-    markdownWithChat: string
+    markdownWithResponse: string
     selectedMarkdown?: string
+    selectedRefId?: string
 }
 
 type CommitDocumentOptions = {
     addToHistory?: boolean
+    historyOperations?: NotebookOperation[]
     /** Set when the commit applies a remote merge: the notebook version being merged in.
      * Remote caret pings already at this version reflect the change and must not be remapped. */
     remoteMergeVersion?: number
+    /** Structural edits (e.g. a Tab indent) look like text edits to the differ, so they would
+     * otherwise fold into an adjacent typing run and stop being independently undoable. Pass
+     * false to force a discrete undo step. */
+    coalesce?: boolean
 }
 
 type RemoteCaretAnchor = {
@@ -278,17 +334,23 @@ type NotebookHistoryState = {
 }
 
 /** Consecutive single-block edits within this window fold into one undo step. */
+// The editable surfaces whose links are pointer-inert while editing (see MarkdownNotebook.scss);
+// only these get the modifier-click open behavior, everything else keeps native navigation
+const POINTER_INERT_LINK_CONTAINER_SELECTOR =
+    '.MarkdownNotebook__text-block[contenteditable="true"], .MarkdownNotebook__list-block[contenteditable="true"], .MarkdownNotebook__table-cell-content[contenteditable="true"]'
+
 const UNDO_TYPING_GROUP_MS = 1000
 
 /** How many recent local serializations to remember for save-echo detection. Must comfortably
  * cover the keystrokes that can land between a save being sent and its response echoing back. */
 const MAX_TRACKED_LOCAL_SNAPSHOTS = 100
+const EMPTY_AI_WRITING_NODE_INDEX_SET = new Set<number>()
 
-function createDefaultAIChatId(): string {
+function createDefaultAIConversationId(): string {
     if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
         return window.crypto.randomUUID()
     }
-    return makeEmptyParagraph('ai-chat').id
+    return makeEmptyParagraph('ai-conversation').id
 }
 
 /** Below this container width, comment threads render inline instead of in the margin. */
@@ -304,6 +366,100 @@ function createNotebookRefId(): string {
     }
     return Math.random().toString(36).slice(2, 10)
 }
+
+function getAIWritingPlaceholderNodeIds(nodes: NotebookBlockNode[]): Set<string> {
+    const nodeIds = new Set<string>()
+    for (const node of nodes) {
+        if (node.type === 'paragraph' && getInlineText(node.children) === NOTEBOOK_AI_WRITING_PLACEHOLDER) {
+            nodeIds.add(node.id)
+        }
+    }
+    return nodeIds
+}
+
+function getLatestEmptyAIPromptNodeId(nodes: NotebookBlockNode[]): string | null {
+    for (let index = nodes.length - 1; index >= 0; index--) {
+        const node = nodes[index]
+        if (node && isPromptComponentNode(node) && !(getNotebookStringProp(node.props.question) ?? '').trim()) {
+            return node.id
+        }
+    }
+    return null
+}
+
+function getComponentNodeUpdateHistoryOperations(
+    nodes: NotebookBlockNode[],
+    index: number,
+    previousNode: NotebookBlockNode,
+    nextNode: NotebookBlockNode | null
+): NotebookOperation[] | undefined {
+    if (previousNode.type !== 'component' && nextNode?.type !== 'component') {
+        return undefined
+    }
+
+    const previousAfterId = index === 0 ? null : (nodes[index - 1]?.id ?? null)
+    if (!nextNode) {
+        return [{ type: 'insert_block', afterId: previousAfterId, node: cloneNotebookNode(previousNode) }]
+    }
+
+    if (
+        previousNode.type === 'component' &&
+        nextNode.type === 'component' &&
+        areComponentNodesEquivalent(previousNode, nextNode)
+    ) {
+        return []
+    }
+
+    if (previousNode.id === nextNode.id) {
+        return [{ type: 'replace_block', nodeId: previousNode.id, node: cloneNotebookNode(previousNode) }]
+    }
+
+    return [
+        { type: 'delete_block', nodeId: nextNode.id },
+        { type: 'insert_block', afterId: previousAfterId, node: cloneNotebookNode(previousNode) },
+    ]
+}
+
+function areComponentNodesEquivalent(
+    previousNode: NotebookComponentBlockNode,
+    nextNode: NotebookComponentBlockNode
+): boolean {
+    return (
+        previousNode.id === nextNode.id &&
+        previousNode.raw === nextNode.raw &&
+        getNodeFingerprint(previousNode) === getNodeFingerprint(nextNode) &&
+        componentNodeErrorsKey(previousNode) === componentNodeErrorsKey(nextNode)
+    )
+}
+
+function componentNodeErrorsKey(node: NotebookComponentBlockNode): string {
+    return node.errors?.join('\n') ?? ''
+}
+
+/** Input types whose browser default edits the DOM across the current selection/target range. */
+const NATIVE_RANGE_EDIT_INPUT_TYPES = new Set([
+    'insertText',
+    'insertParagraph',
+    'insertLineBreak',
+    'insertFromPaste',
+    'insertFromPasteAsQuotation',
+    'insertFromDrop',
+    'insertFromYank',
+    'insertReplacementText',
+    'insertTranspose',
+    'deleteContent',
+    'deleteContentBackward',
+    'deleteContentForward',
+    'deleteWordBackward',
+    'deleteWordForward',
+    'deleteSoftLineBackward',
+    'deleteSoftLineForward',
+    'deleteHardLineBackward',
+    'deleteHardLineForward',
+    'deleteEntireSoftLine',
+    'deleteByCut',
+    'deleteByDrag',
+])
 
 /** A debug recording session: JSONL entries downloaded as a .log file on stop. */
 type NotebookDebugLog = {
@@ -356,13 +512,66 @@ function getDebugSelectionSummary(): Record<string, unknown> {
     }
 }
 
-export function MarkdownNotebook({
+// Debug recordings currently in flight, so a crash anywhere in the editor can flush them
+// before the component (and its refs) unmounts.
+const activeDebugLogCrashFlushers = new Set<(error: unknown) => void>()
+
+function flushMarkdownNotebookDebugLogsOnCrash(error: unknown): void {
+    for (const flush of activeDebugLogCrashFlushers) {
+        flush(error)
+    }
+}
+
+type MarkdownNotebookCrashReporterState = { error: Error | null; reported: boolean }
+
+/**
+ * Downloads any in-flight debug recording before a render/commit crash unmounts the editor.
+ * The error is rethrown so the surrounding error boundary still renders its usual fallback —
+ * by then the log download has already been triggered.
+ */
+class MarkdownNotebookCrashReporter extends Component<{ children: ReactNode }, MarkdownNotebookCrashReporterState> {
+    override state: MarkdownNotebookCrashReporterState = { error: null, reported: false }
+
+    static getDerivedStateFromError(error: Error): Partial<MarkdownNotebookCrashReporterState> {
+        return { error }
+    }
+
+    override componentDidCatch(error: Error): void {
+        flushMarkdownNotebookDebugLogsOnCrash(error)
+        this.setState({ reported: true })
+    }
+
+    override render(): ReactNode {
+        if (this.state.error) {
+            if (this.state.reported) {
+                throw this.state.error
+            }
+            // One empty pass: componentDidCatch runs after it commits, flushes the log, and
+            // flips `reported` so the next render rethrows into the surrounding boundary.
+            return null
+        }
+        return this.props.children
+    }
+}
+
+export function MarkdownNotebook(props: MarkdownNotebookProps): JSX.Element {
+    return (
+        <MarkdownNotebookCrashReporter>
+            <MarkdownNotebookEditor {...props} />
+        </MarkdownNotebookCrashReporter>
+    )
+}
+
+function MarkdownNotebookEditor({
     value,
     onChange,
     onAskAI,
-    createAIChatId = createDefaultAIChatId,
+    isAskAIDisabled: isAIPromptSubmitDisabled = false,
+    createAIConversationId = createDefaultAIConversationId,
     mode = 'edit',
     registry,
+    extraInsertCommands,
+    hiddenInsertCommandKeys,
     remoteValue,
     remoteVersion,
     deferRemoteValue = false,
@@ -371,10 +580,16 @@ export function MarkdownNotebook({
     remoteCarets,
     onCaretChange,
     initialInsertMenu,
+    convertExternalDataTransferToNodes,
+    focusAIPromptRequest,
+    aiWritingNodeIndexes,
+    allowViewModeFilters = false,
     placeholder = 'Start writing...',
     className,
     autoFocus = false,
     showDebug = false,
+    debugOpen,
+    onDebugOpenChange,
     'data-attr': dataAttr = 'markdown-notebook',
 }: MarkdownNotebookProps): JSX.Element {
     const mergedRegistry = useMemo(
@@ -392,9 +607,13 @@ export function MarkdownNotebook({
     const [focusedRowIndex, setFocusedRowIndex] = useState<number | null>(null)
     const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null)
     const [dropBoundaryIndex, setDropBoundaryIndex] = useState<number | null>(null)
+    const [isExternalDragOver, setIsExternalDragOver] = useState(false)
+    /** Whether the in-flight drag started inside this editor (native text/link drags included). */
+    const canvasDragOriginRef = useRef(false)
     const [selectedComponentNodeIds, setSelectedComponentNodeIds] = useState<Set<string>>(() => new Set())
     const [componentPanelCache, setComponentPanelCache] = useState<Record<string, ComponentPanelCacheEntry>>({})
-    const [isDebugOpen, setIsDebugOpen] = useState(false)
+    const [internalDebugOpen, setInternalDebugOpen] = useState(false)
+    const isDebugOpen = debugOpen ?? internalDebugOpen
     const [isDebugLogging, setIsDebugLogging] = useState(false)
     const debugLogRef = useRef<NotebookDebugLog | null>(null)
     // Margin layout needs the container to fit the text column plus the full comment
@@ -402,6 +621,7 @@ export function MarkdownNotebook({
     const [fitsCommentGutter, setFitsCommentGutter] = useState(true)
     const [debugMarkdown, setDebugMarkdown] = useState(() => serializeMarkdownNotebook(document))
     const debugDrawerId = useId()
+    const insertMenuDomId = useId()
     const notebookRef = useRef<HTMLDivElement | null>(null)
     const mainRef = useRef<HTMLDivElement | null>(null)
     const canvasRef = useRef<HTMLDivElement | null>(null)
@@ -459,6 +679,10 @@ export function MarkdownNotebook({
     }, [])
 
     const hasDiscussionComments = useMemo(() => document.nodes.some(isDiscussionCommentNode), [document])
+    const aiWritingNodeIndexSet = useMemo(
+        () => (aiWritingNodeIndexes?.length ? new Set(aiWritingNodeIndexes) : EMPTY_AI_WRITING_NODE_INDEX_SET),
+        [aiWritingNodeIndexes]
+    )
 
     useLayoutEffect(() => {
         const element = mainRef.current
@@ -494,6 +718,18 @@ export function MarkdownNotebook({
         setIsDebugLogging(true)
     }
 
+    const downloadDebugLog = useCallback((log: NotebookDebugLog): void => {
+        // downloadFile appends the anchor to the DOM and defers the object-URL revoke, which
+        // Firefox needs for the download to actually start.
+        downloadFile(
+            new File(
+                [log.entries.join('\n') + '\n'],
+                `markdown-notebook-debug-${new Date().toISOString().replace(/[:.]/g, '-')}.log`,
+                { type: 'text/plain' }
+            )
+        )
+    }, [])
+
     const stopDebugLoggingAndDownload = (): void => {
         const log = debugLogRef.current
         logDebugEntry('stop', { markdown: lastSerializedValueRef.current })
@@ -503,14 +739,58 @@ export function MarkdownNotebook({
             return
         }
 
-        const blob = new Blob([log.entries.join('\n') + '\n'], { type: 'text/plain' })
-        const url = URL.createObjectURL(blob)
-        const anchor = window.document.createElement('a')
-        anchor.href = url
-        anchor.download = `markdown-notebook-debug-${new Date().toISOString().replace(/[:.]/g, '-')}.log`
-        anchor.click()
-        URL.revokeObjectURL(url)
+        downloadDebugLog(log)
     }
+
+    // A crash can unmount the editor or leave its DOM unusable, which would silently discard
+    // an in-flight recording — the moment the editor did something worth debugging. Download
+    // the log immediately instead of losing it.
+    const flushDebugLogOnCrash = useCallback(
+        (error: unknown): void => {
+            const log = debugLogRef.current
+            if (!log) {
+                return
+            }
+
+            logDebugEntry('crash', {
+                error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+                stack: error instanceof Error ? truncateForDebugLog(error.stack, 4000) : undefined,
+                markdown: lastSerializedValueRef.current,
+            })
+            debugLogRef.current = null
+            setIsDebugLogging(false)
+            downloadDebugLog(log)
+        },
+        [downloadDebugLog, logDebugEntry]
+    )
+
+    // While recording, an uncaught error anywhere flushes the log: crashes in event handlers
+    // and DOM listeners never reach the crash reporter boundary below. Unhandled rejections
+    // are recorded but don't end the session — they are usually background noise (a failed
+    // fetch), not an editor crash.
+    useEffect(() => {
+        if (!isDebugLogging) {
+            return
+        }
+
+        const handleWindowError = (event: ErrorEvent): void => {
+            flushDebugLogOnCrash(event.error ?? event.message)
+        }
+        const handleUnhandledRejection = (event: PromiseRejectionEvent): void => {
+            const reason: unknown = event.reason
+            logDebugEntry('unhandledrejection', {
+                error: reason instanceof Error ? `${reason.name}: ${reason.message}` : String(reason),
+            })
+        }
+        activeDebugLogCrashFlushers.add(flushDebugLogOnCrash)
+        window.addEventListener('error', handleWindowError)
+        window.addEventListener('unhandledrejection', handleUnhandledRejection)
+        return () => {
+            activeDebugLogCrashFlushers.delete(flushDebugLogOnCrash)
+            window.removeEventListener('error', handleWindowError)
+            window.removeEventListener('unhandledrejection', handleUnhandledRejection)
+        }
+    }, [isDebugLogging, flushDebugLogOnCrash, logDebugEntry])
 
     // While recording, capture-phase listeners mirror every keyboard, mouse, input, and
     // clipboard event into the log, plus deduplicated selection snapshots — together with
@@ -653,11 +933,22 @@ export function MarkdownNotebook({
         floatingToolbarRevealTimeoutRef.current = null
     }, [])
 
+    const setDebugOpen = useCallback(
+        (nextOpen: boolean | ((isOpen: boolean) => boolean)): void => {
+            const resolvedNextOpen = typeof nextOpen === 'function' ? nextOpen(isDebugOpen) : nextOpen
+            if (debugOpen === undefined) {
+                setInternalDebugOpen(resolvedNextOpen)
+            }
+            onDebugOpenChange?.(resolvedNextOpen)
+        },
+        [debugOpen, isDebugOpen, onDebugOpenChange]
+    )
+
     useEffect(() => {
         if (!showDebug) {
-            setIsDebugOpen(false)
+            setDebugOpen(false)
         }
-    }, [showDebug])
+    }, [setDebugOpen, showDebug])
 
     const mapRemoteCaretAnchors = useCallback(
         (previousDocument: NotebookDocument, nextDocument: NotebookDocument, remoteMergeVersion?: number): void => {
@@ -723,7 +1014,7 @@ export function MarkdownNotebook({
         const reconciledDocument = ensureEditableNotebookDocument(
             reconcileNotebookDocuments(previousDocument, parseMarkdownNotebook(value)).document
         )
-        // An external value change (artifact apply, restore, agent edit) rebases the undo
+        // An external value change (artifact apply, restore, AI edit) rebases the undo
         // history over the incoming operations instead of clearing it, so CMD+Z keeps
         // reverting only this user's edits.
         rebaseHistoryThroughDocumentChange(previousDocument, reconciledDocument)
@@ -820,16 +1111,23 @@ export function MarkdownNotebook({
     }, [])
 
     const pushHistoryEntry = useCallback(
-        (previousDocument: NotebookDocument, nextDocument: NotebookDocument): void => {
-            const inverseOps = diffNotebookDocuments(nextDocument, previousDocument)
+        (
+            previousDocument: NotebookDocument,
+            nextDocument: NotebookDocument,
+            historyOperations?: NotebookOperation[],
+            coalesce: boolean = true
+        ): void => {
+            const inverseOps = historyOperations ?? diffNotebookDocuments(nextDocument, previousDocument)
             if (!inverseOps.length) {
                 return
             }
 
             const now = Date.now()
             const onlyOp = inverseOps.length === 1 ? inverseOps[0] : null
+            // A non-coalescing entry stays its own undo step: it never folds into the previous
+            // entry, and a null coalesceNodeId keeps the next typing run from folding into it.
             const coalesceNodeId =
-                onlyOp && (onlyOp.type === 'text' || onlyOp.type === 'replace_block') ? onlyOp.nodeId : null
+                coalesce && onlyOp && (onlyOp.type === 'text' || onlyOp.type === 'replace_block') ? onlyOp.nodeId : null
             const lastEntry = historyRef.current.undo[historyRef.current.undo.length - 1]
             if (
                 coalesceNodeId &&
@@ -874,7 +1172,12 @@ export function MarkdownNotebook({
             const editableDocument = ensureEditableNotebookDocument(nextDocument)
             const previousDocument = documentRef.current
             if (options.addToHistory ?? true) {
-                pushHistoryEntry(previousDocument, editableDocument)
+                pushHistoryEntry(
+                    previousDocument,
+                    editableDocument,
+                    options.historyOperations,
+                    options.coalesce ?? true
+                )
             }
             // Rendered remote carets ride along with the text they sit in.
             mapRemoteCaretAnchors(previousDocument, editableDocument, options.remoteMergeVersion)
@@ -1132,6 +1435,10 @@ export function MarkdownNotebook({
                 return false
             }
 
+            if (selectedEntries.some((entry) => aiWritingNodeIndexSet.has(entry.index))) {
+                return true
+            }
+
             const requestFocusForDeletedSelection = (
                 nextNodes: NotebookBlockNode[],
                 selectionStartIndex: number
@@ -1289,7 +1596,7 @@ export function MarkdownNotebook({
             })
             return true
         },
-        [commitDocument]
+        [aiWritingNodeIndexSet, commitDocument]
     )
 
     const splitTextBlockAtCurrentSelection = useCallback((): boolean => {
@@ -1363,7 +1670,9 @@ export function MarkdownNotebook({
 
         commitDocument({
             ...currentDocument,
-            nodes: nodes.flatMap((currentNode) => (currentNode.id === node.id ? replacementNodes : [currentNode])),
+            nodes: nodes.flatMap((currentNode) =>
+                currentNode.id === node.id ? withPreservedGroupStart(node, replacementNodes) : [currentNode]
+            ),
         })
         return true
     }, [commitDocument, insertMenu?.nodeId])
@@ -1519,12 +1828,17 @@ export function MarkdownNotebook({
                 start: offset,
                 end: offset,
             }
-            commitDocument({
-                ...currentDocument,
-                nodes: nodes.map((currentNode) =>
-                    currentNode.id === node.id ? { ...node, items: nextItems } : currentNode
-                ),
-            })
+            commitDocument(
+                {
+                    ...currentDocument,
+                    nodes: nodes.map((currentNode) =>
+                        currentNode.id === node.id ? { ...node, items: nextItems } : currentNode
+                    ),
+                },
+                // A Tab indent must be its own undo step, not folded into the typing run that
+                // preceded it — otherwise Cmd+Z can't undo just the accidental indent.
+                { coalesce: false }
+            )
             return true
         },
         [commitDocument]
@@ -1601,6 +1915,117 @@ export function MarkdownNotebook({
                 ...currentDocument,
                 nodes: nodes.flatMap((currentNode) =>
                     currentNode.id === node.id ? replacement.replacementNodes : [currentNode]
+                ),
+            })
+            return true
+        },
+        [commitDocument]
+    )
+
+    // A ranged selection that reaches a list item's edge (e.g. the whole item selected up to
+    // the next item's start) must be deleted through the model: the browser's native delete
+    // merges `<li>` elements in place, and React then crashes on its next commit because the
+    // list structure it manages no longer matches the DOM (removeChild NotFoundError).
+    const deleteListItemRangeAtCurrentSelection = useCallback(
+        (replacementText: string = '', claimSingleItemRange: boolean = false): boolean => {
+            const notebookElement = notebookRef.current
+            const selection = window.getSelection()
+            if (!notebookElement || !selection || selection.rangeCount === 0 || selection.isCollapsed) {
+                return false
+            }
+
+            const element = getSelectedInlineEditableElementOfType(
+                notebookElement,
+                'MarkdownNotebook__list-item-content'
+            )
+            const nodeId = element?.dataset.markdownNotebookNodeId
+            if (!element || !nodeId) {
+                return false
+            }
+
+            const currentDocument = documentRef.current
+            const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+            const node = nodes.find((currentNode) => currentNode.id === nodeId)
+            if (!node || node.type !== 'list') {
+                return false
+            }
+
+            const range = selection.getRangeAt(0)
+            const listBlockElement = blockRefs.current[node.id]
+            if (
+                !listBlockElement ||
+                !listBlockElement.contains(range.startContainer) ||
+                !listBlockElement.contains(range.endContainer)
+            ) {
+                return false
+            }
+
+            // A range confined to a single item's content element is safe to leave to the
+            // browser: only that item's manually synced innerHTML changes. Cut still claims it,
+            // because cut prevents the browser default that would otherwise delete the text.
+            const startElement = getClosestEditableBlockElement(getElementForNode(range.startContainer))
+            const endElement = getClosestEditableBlockElement(getElementForNode(range.endContainer))
+            if (!claimSingleItemRange && startElement === element && endElement === element) {
+                return false
+            }
+
+            const itemRanges = node.items.flatMap((_, itemIndex) => {
+                const itemElement = listItemRefs.current[getListItemRefKey(node.id, itemIndex)]
+                const itemRange = itemElement ? getSelectionRange(itemElement, node.id) : null
+                if (!itemRange) {
+                    return []
+                }
+                return [
+                    {
+                        itemIndex,
+                        start: Math.min(itemRange.start, itemRange.end),
+                        end: Math.max(itemRange.start, itemRange.end),
+                    },
+                ]
+            })
+
+            // A zero-length range at the selection's edge is a boundary touch that selects
+            // nothing in that item.
+            while (itemRanges.length > 1 && itemRanges[0].start === itemRanges[0].end) {
+                itemRanges.shift()
+            }
+            while (
+                itemRanges.length > 1 &&
+                itemRanges[itemRanges.length - 1].start === itemRanges[itemRanges.length - 1].end
+            ) {
+                itemRanges.pop()
+            }
+            const firstRange = itemRanges[0]
+            const lastRange = itemRanges[itemRanges.length - 1]
+            if (!firstRange || !lastRange) {
+                return false
+            }
+
+            const deletion = deleteListItemSelectionRange(
+                node.items,
+                {
+                    firstItemIndex: firstRange.itemIndex,
+                    firstStart: firstRange.start,
+                    lastItemIndex: lastRange.itemIndex,
+                    lastEnd: lastRange.end,
+                },
+                replacementText
+            )
+            if (!deletion) {
+                return false
+            }
+
+            restoreSelectionRef.current = {
+                nodeId: node.id,
+                listItemIndex: deletion.caretItemIndex,
+                listItemId: deletion.caretItemId,
+                start: deletion.caretOffset,
+                end: deletion.caretOffset,
+            }
+            commitDocument({
+                ...currentDocument,
+                nodes: nodes.map((currentNode) =>
+                    currentNode.id === node.id ? { ...node, items: deletion.items } : currentNode
                 ),
             })
             return true
@@ -1931,6 +2356,11 @@ export function MarkdownNotebook({
                 return true
             }
 
+            if (direction === 'backward' && selectionStart === 0 && nodeIndex === 0) {
+                restoreSelectionRef.current = { nodeId: node.id, start: 0, end: 0 }
+                return true
+            }
+
             if (direction === 'forward' || selectionStart !== 0 || nodeIndex <= 0) {
                 return false
             }
@@ -1954,7 +2384,13 @@ export function MarkdownNotebook({
                     ...currentDocument,
                     nodes: nodes.map((currentNode) =>
                         currentNode.id === node.id && isTextBlockNode(currentNode)
-                            ? { ...currentNode, type: 'paragraph', level: undefined }
+                            ? {
+                                  ...currentNode,
+                                  // A quoted heading downgrades to quote text, staying in the quote
+                                  type: currentNode.blockquote ? 'blockquote' : 'paragraph',
+                                  level: undefined,
+                                  blockquote: undefined,
+                              }
                             : currentNode
                     ),
                 })
@@ -2081,7 +2517,8 @@ export function MarkdownNotebook({
                 nativeEvent.inputType === 'insertText' &&
                 typeof nativeEvent.data === 'string' &&
                 nativeEvent.data.length > 0 &&
-                deleteSelectedNotebookBlocks(nativeEvent.data)
+                (deleteSelectedNotebookBlocks(nativeEvent.data) ||
+                    deleteListItemRangeAtCurrentSelection(nativeEvent.data))
             ) {
                 event.preventDefault()
                 event.stopPropagation()
@@ -2101,13 +2538,27 @@ export function MarkdownNotebook({
             if (
                 (nativeEvent.inputType === 'deleteContentBackward' ||
                     nativeEvent.inputType === 'deleteContentForward') &&
-                (deleteListItemAtCurrentSelection(
-                    nativeEvent.inputType === 'deleteContentBackward' ? 'backward' : 'forward'
-                ) ||
+                (deleteListItemRangeAtCurrentSelection() ||
+                    deleteListItemAtCurrentSelection(
+                        nativeEvent.inputType === 'deleteContentBackward' ? 'backward' : 'forward'
+                    ) ||
                     deleteTextAtCurrentSelection(
                         nativeEvent.inputType === 'deleteContentBackward' ? 'backward' : 'forward'
                     ))
             ) {
+                event.preventDefault()
+                event.stopPropagation()
+                return
+            }
+
+            // A native edit whose range crosses inline-editable boundaries would restructure
+            // React-managed DOM and crash the next React commit. If no handler above claimed
+            // the edit, dropping it is the safe outcome.
+            if (
+                NATIVE_RANGE_EDIT_INPUT_TYPES.has(nativeEvent.inputType) &&
+                inputEventCrossesInlineEditableBoundary(nativeEvent, notebookElement)
+            ) {
+                logDebugEntry('blocked-cross-boundary-edit', { inputType: nativeEvent.inputType })
                 event.preventDefault()
                 event.stopPropagation()
                 return
@@ -2131,8 +2582,10 @@ export function MarkdownNotebook({
         return () => notebookElement.removeEventListener('beforeinput', handleBeforeInput, true)
     }, [
         deleteListItemAtCurrentSelection,
+        deleteListItemRangeAtCurrentSelection,
         deleteSelectedNotebookBlocks,
         deleteTextAtCurrentSelection,
+        logDebugEntry,
         insertNewlineInCodeBlockAtCurrentSelection,
         insertTableRowAtCurrentSelection,
         mode,
@@ -2148,26 +2601,37 @@ export function MarkdownNotebook({
             const currentDocument = documentRef.current
             const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
             let didUpdate = false
-            const nextNodes = nodes.flatMap((node) => {
+            let historyOperations: NotebookOperation[] | undefined
+            const nextNodes = nodes.flatMap((node, index) => {
                 if (didUpdate || node.id !== nodeId) {
                     return [node]
                 }
                 didUpdate = true
                 const updatedNode = updater(cloneNotebookNode(node))
+                historyOperations = getComponentNodeUpdateHistoryOperations(nodes, index, node, updatedNode)
                 return updatedNode ? [updatedNode] : []
             })
 
-            commitDocument({
-                ...currentDocument,
-                nodes: nextNodes,
-            })
+            if (!didUpdate) {
+                return
+            }
+
+            commitDocument(
+                {
+                    ...currentDocument,
+                    nodes: nextNodes,
+                },
+                {
+                    historyOperations,
+                }
+            )
         },
         [commitDocument]
     )
 
     const replaceNode = useCallback(
         (nodeId: string, nextNode: NotebookBlockNode): void => {
-            updateNode(nodeId, () => nextNode)
+            updateNode(nodeId, (previousNode) => withPreservedGroupStart(previousNode, [nextNode])[0])
         },
         [updateNode]
     )
@@ -2184,13 +2648,26 @@ export function MarkdownNotebook({
     const replaceNodeWithInsertedComponent = useCallback(
         (nodeId: string, nextNode: NotebookComponentBlockNode): void => {
             const definition = getMarkdownNotebookComponentDefinition(mergedRegistry, nextNode.tagName)
-            const insertedPanels = getComponentPanelVisibility(nextNode, INSERTED_COMPONENT_PANEL_VISIBILITY)
+            const insertedPanels = getInsertedComponentPanelVisibility(nextNode)
             const insertedNode = withPersistedComponentPanelProps(nextNode, definition, insertedPanels)
             markNotebookNodeFreshlyInserted(nextNode.id)
             focusNodeRef.current = nextNode.id
             replaceNode(nodeId, insertedNode)
         },
         [mergedRegistry, replaceNode]
+    )
+
+    const insertMenuApi = useMemo<MarkdownNotebookInsertMenuApi>(
+        () => ({
+            insertComponent: (targetNodeId, tagName, props) =>
+                replaceNodeWithInsertedComponent(targetNodeId, {
+                    id: makeEmptyParagraph(`component-${tagName}`).id,
+                    type: 'component',
+                    tagName,
+                    props,
+                }),
+        }),
+        [replaceNodeWithInsertedComponent]
     )
 
     const replaceNodeWithNodes = useCallback(
@@ -2205,7 +2682,7 @@ export function MarkdownNotebook({
                         return [node]
                     }
                     didReplace = true
-                    return replacementNodes
+                    return withPreservedGroupStart(node, replacementNodes)
                 }),
             })
         },
@@ -2306,24 +2783,50 @@ export function MarkdownNotebook({
     )
 
     const openAIPrompt = useCallback(
-        (nodeId: string, options?: { source?: 'slash' | 'selection'; selectedMarkdown?: string }): void => {
+        (
+            nodeId: string,
+            options?: { source?: 'slash' | 'selection'; selectedMarkdown?: string; selectedRefId?: string }
+        ): void => {
             onInteractionStateChange?.(true)
-            updateNode(nodeId, (currentNode) => {
+            const currentDocument = documentRef.current
+            const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+            let didUpdate = false
+            const nextNodes = nodes.flatMap((currentNode): NotebookBlockNode[] => {
+                if (didUpdate || currentNode.id !== nodeId) {
+                    return [currentNode]
+                }
+                didUpdate = true
                 if (!isTextBlockNode(currentNode) && currentNode.type !== 'component') {
-                    return currentNode
+                    return [currentNode]
                 }
                 const promptProps: NotebookComponentProps = { question: '' }
                 if (options?.source === 'selection') {
                     promptProps.source = 'selection'
                     promptProps.selectedMarkdown = options.selectedMarkdown ?? ''
+                    if (options.selectedRefId) {
+                        promptProps.ref = options.selectedRefId
+                    }
                 }
-                return {
-                    id: currentNode.id,
-                    type: 'component',
-                    tagName: 'Prompt',
-                    props: promptProps,
-                }
+                return [
+                    {
+                        id: currentNode.id,
+                        type: 'component',
+                        tagName: 'Prompt',
+                        props: promptProps,
+                    },
+                ]
             })
+            if (didUpdate) {
+                commitDocument({
+                    ...currentDocument,
+                    nodes: nextNodes,
+                })
+            } else {
+                commitDocument({
+                    ...currentDocument,
+                    nodes: nextNodes,
+                })
+            }
             setInsertMenu({
                 nodeId,
                 query: '',
@@ -2331,9 +2834,10 @@ export function MarkdownNotebook({
                 mode: 'ai',
                 source: options?.source ?? 'slash',
                 selectedMarkdown: options?.selectedMarkdown,
+                selectedRefId: options?.selectedRefId,
             })
         },
-        [onInteractionStateChange, updateNode]
+        [commitDocument, onInteractionStateChange]
     )
 
     const updateAIPromptQuery = (nodeId: string, query: string): void => {
@@ -2346,31 +2850,50 @@ export function MarkdownNotebook({
     }
 
     const renderedNodes = getRenderedNodes()
+    const aiWritingPlaceholderNodeIds = useMemo(() => getAIWritingPlaceholderNodeIds(document.nodes), [document.nodes])
+    const focusAIPromptNodeId = useMemo(
+        () => (focusAIPromptRequest === undefined ? null : getLatestEmptyAIPromptNodeId(document.nodes)),
+        [document.nodes, focusAIPromptRequest]
+    )
     const showInsertBoundaries = mode === 'edit' && document.nodes.length > 0
     const placeholderNodeId = hasNotebookContent(renderedNodes) ? null : renderedNodes[0]?.id
     const insertCommands = useMemo(
         () =>
-            buildInsertCommands(
-                mergedRegistry,
-                replaceNodeWithInsertedComponent,
-                replaceNode,
-                (nodeId) => {
-                    restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
-                },
-                (nodeId) => {
-                    restoreSelectionRef.current = {
-                        nodeId,
-                        tableCell: { section: 'header', rowIndex: 0, columnIndex: 0 },
-                        start: 0,
-                        end: 8,
-                    }
-                },
-                (nodeId) => {
-                    restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
-                },
-                onAskAI ? openAIPrompt : undefined
+            omitInsertCommands(
+                buildInsertCommands(
+                    mergedRegistry,
+                    replaceNodeWithInsertedComponent,
+                    replaceNode,
+                    (nodeId) => {
+                        restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
+                    },
+                    (nodeId) => {
+                        restoreSelectionRef.current = {
+                            nodeId,
+                            tableCell: { section: 'header', rowIndex: 0, columnIndex: 0 },
+                            start: 0,
+                            end: 8,
+                        }
+                    },
+                    (nodeId) => {
+                        restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
+                    },
+                    onAskAI ? openAIPrompt : undefined,
+                    false,
+                    extraInsertCommands ? extraInsertCommands(insertMenuApi) : []
+                ),
+                hiddenInsertCommandKeys
             ),
-        [mergedRegistry, replaceNodeWithInsertedComponent, replaceNode, onAskAI, openAIPrompt]
+        [
+            mergedRegistry,
+            replaceNodeWithInsertedComponent,
+            replaceNode,
+            onAskAI,
+            openAIPrompt,
+            extraInsertCommands,
+            hiddenInsertCommandKeys,
+            insertMenuApi,
+        ]
     )
 
     function getRenderedNodes(): NotebookBlockNode[] {
@@ -2381,7 +2904,14 @@ export function MarkdownNotebook({
     }
 
     useEffect(() => {
-        const componentNodeIds = new Set(document.nodes.flatMap((node) => (node.type === 'component' ? [node.id] : [])))
+        const componentNodeIds = new Set(
+            document.nodes.flatMap((node): string[] => {
+                if (node.type !== 'component') {
+                    return []
+                }
+                return [node.id]
+            })
+        )
         const initializedComponentPanelNodeIds = initializedComponentPanelNodeIdsRef.current
         if (initializedComponentPanelNodeIds === null) {
             initializedComponentPanelNodeIdsRef.current = componentNodeIds
@@ -2403,7 +2933,7 @@ export function MarkdownNotebook({
             }
 
             const definition = getMarkdownNotebookComponentDefinition(mergedRegistry, node.tagName)
-            const insertedPanels = getComponentPanelVisibility(node, INSERTED_COMPONENT_PANEL_VISIBILITY)
+            const insertedPanels = getInsertedComponentPanelVisibility(node)
             return withPersistedComponentPanelProps(node, definition, insertedPanels)
         })
         if (areNotebookDocumentsEqual(document, { ...document, nodes: nextNodes })) {
@@ -2864,7 +3394,7 @@ export function MarkdownNotebook({
             event.preventDefault()
             notebookClipboardMarkdownRef.current = markdown
             setClipboardMarkdown(event.clipboardData, markdown)
-            if (!deleteSelectedNotebookBlocks()) {
+            if (!deleteSelectedNotebookBlocks() && !deleteListItemRangeAtCurrentSelection('', true)) {
                 deleteTextAtCurrentSelection('forward')
             }
             return
@@ -2886,9 +3416,47 @@ export function MarkdownNotebook({
         }
     }
 
+    // Pasted files insert after the block holding the caret (or the focused component); pastes
+    // with no block context append to the end.
+    const getPasteInsertBoundaryIndex = (target: HTMLElement): number => {
+        const nodes = documentRef.current.nodes.length ? documentRef.current.nodes : [emptyNodeRef.current]
+        const focusedComponentNode = getFocusedComponentNode(target, nodes, blockRefs.current)
+        const nodeId = focusedComponentNode
+            ? focusedComponentNode.id
+            : target.closest<HTMLElement>('[data-markdown-notebook-node-id]')?.dataset.markdownNotebookNodeId
+        const nodeIndex = nodeId ? nodes.findIndex((node) => node.id === nodeId) : -1
+        return nodeIndex === -1 ? nodes.length : nodeIndex + 1
+    }
+
     const handleNotebookPaste = (event: ReactClipboardEvent<HTMLDivElement>): void => {
         if (mode !== 'edit' || !(event.target instanceof HTMLElement) || isNativeEditableElement(event.target)) {
             return
+        }
+
+        // Pasted files (e.g. a screenshot) have no text representation the editor could insert —
+        // hand them to the external converter, mirroring the file drop path.
+        const clipboardFiles = event.clipboardData?.files
+        if (
+            convertExternalDataTransferToNodes &&
+            clipboardFiles?.length &&
+            !event.clipboardData.getData('text/plain')
+        ) {
+            const result = convertExternalDataTransferToNodes(event.clipboardData)
+            if (result) {
+                event.preventDefault()
+                event.stopPropagation()
+                const boundaryIndex = getPasteInsertBoundaryIndex(event.target)
+                if (result instanceof Promise) {
+                    void result.then((insertedNodes) => {
+                        if (insertedNodes?.length) {
+                            insertExternalNodesAtBoundary(insertedNodes, boundaryIndex)
+                        }
+                    })
+                    return
+                }
+                insertExternalNodesAtBoundary(result, boundaryIndex)
+                return
+            }
         }
 
         const targetComponentNode = getFocusedComponentNode(event.target, documentRef.current.nodes, blockRefs.current)
@@ -3090,6 +3658,14 @@ export function MarkdownNotebook({
         const currentDocument = documentRef.current
         const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
 
+        // The quote button toggles quote membership: unquote only when the whole selection is already quoted.
+        const selectedNodes = nodes.filter(
+            (node) =>
+                selectedTextNodeIds.has(node.id) || selectedCodeNodeIds.has(node.id) || selectedListNodeIds.has(node.id)
+        )
+        const shouldUnquote =
+            style === 'blockquote' && selectedNodes.length > 0 && selectedNodes.every(isGroupedBlockquoteNode)
+
         const inlineRangesByNodeId = new Map(
             [...(activeTextRanges ?? []), ...(activeCodeRanges ?? [])].map(({ range }) => [range.nodeId, range])
         )
@@ -3127,8 +3703,8 @@ export function MarkdownNotebook({
                 }
                 if (selectedListNodeIds.has(node.id) && node.type === 'list') {
                     // Lists only toggle blockquote membership; heading and code styles do not apply to them.
-                    if (style === 'blockquote' && !node.blockquote) {
-                        return { ...node, blockquote: true }
+                    if (style === 'blockquote') {
+                        return { ...node, blockquote: shouldUnquote ? undefined : true }
                     }
                     if (style === 'paragraph' && node.blockquote) {
                         return { ...node, blockquote: undefined }
@@ -3147,12 +3723,44 @@ export function MarkdownNotebook({
                     }
                 }
                 if (typeof style === 'number') {
-                    return { ...node, type: 'heading', level: style }
+                    // A heading applied inside a quote keeps its quote membership
+                    return {
+                        ...node,
+                        type: 'heading',
+                        level: style,
+                        blockquote: node.type === 'blockquote' || node.blockquote ? true : undefined,
+                    }
                 }
-                return { ...node, type: style, level: undefined }
+                if (style === 'blockquote') {
+                    if (node.type === 'heading') {
+                        // Quote membership toggles without touching the heading level
+                        return { ...node, blockquote: shouldUnquote ? undefined : true }
+                    }
+                    if (shouldUnquote) {
+                        return { ...node, type: 'paragraph', level: undefined, blockquote: undefined }
+                    }
+                    return { ...node, type: 'blockquote', level: undefined, blockquote: undefined }
+                }
+                if (style === 'paragraph' && node.type === 'heading' && node.blockquote) {
+                    // Removing the heading style inside a quote downgrades to quote text, not plain text
+                    return { ...node, type: 'blockquote', level: undefined, blockquote: undefined }
+                }
+                return { ...node, type: style, level: undefined, blockquote: undefined }
             }),
         })
     }
+
+    const setCodeRefMark = (
+        node: NotebookCodeBlockNode,
+        range: NotebookTextSelectionRange,
+        refId: string
+    ): NotebookCodeBlockNode => ({
+        ...node,
+        refs: [
+            ...(node.refs ?? []).filter((ref) => ref.id !== refId),
+            { id: refId, start: range.start, end: Math.min(range.end, node.text.length) },
+        ],
+    })
 
     const askAIAboutSelection = (): void => {
         if (!floatingToolbar || !onAskAI) {
@@ -3166,10 +3774,24 @@ export function MarkdownNotebook({
 
         const currentDocument = documentRef.current
         const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+        const textRangesByNodeId = new Map(floatingToolbar.textRanges.map((entry) => [entry.node.id, entry]))
+        const codeRangesByNodeId = new Map(floatingToolbar.codeRanges.map((entry) => [entry.node.id, entry]))
+        const listItemRangesByNodeId = new Map<string, FloatingToolbarListItemRange[]>()
+        floatingToolbar.listItemRanges.forEach((entry) => {
+            listItemRangesByNodeId.set(entry.node.id, [...(listItemRangesByNodeId.get(entry.node.id) ?? []), entry])
+        })
+        const refId =
+            floatingToolbar.textRanges.length +
+                floatingToolbar.listItemRanges.length +
+                floatingToolbar.codeRanges.length >
+            0
+                ? createNotebookRefId()
+                : undefined
         // Insert the prompt after the last selected block in document order.
         const selectedNodeIds = new Set(
             [
                 ...floatingToolbar.textRanges.map(({ node }) => node.id),
+                ...floatingToolbar.codeRanges.map(({ node }) => node.id),
                 ...floatingToolbar.listItemRanges.map(({ node }) => node.id),
             ].filter(Boolean)
         )
@@ -3190,12 +3812,46 @@ export function MarkdownNotebook({
                 question: '',
                 source: 'selection',
                 selectedMarkdown,
+                ...(refId ? { ref: refId } : {}),
             },
         }
         onInteractionStateChange?.(true)
+        const nextNodes = nodes.flatMap((node, index): NotebookBlockNode[] => {
+            let updatedNode = node
+            const textRange = textRangesByNodeId.get(node.id)
+            const codeRange = codeRangesByNodeId.get(node.id)
+            const listItemRanges = listItemRangesByNodeId.get(node.id)
+            if (refId && textRange && isTextBlockNode(node)) {
+                updatedNode = { ...node, children: setInlineRefMark(node.children, textRange.range, refId) }
+            } else if (refId && codeRange && node.type === 'code') {
+                updatedNode = setCodeRefMark(node, codeRange.range, refId)
+            } else if (refId && listItemRanges && node.type === 'list') {
+                updatedNode = {
+                    ...node,
+                    items: node.items.map((item, itemIndex) => {
+                        const itemRange = listItemRanges.find((entry) => entry.itemIndex === itemIndex)
+                        return itemRange
+                            ? { ...item, children: setInlineRefMark(item.children, itemRange.range, refId) }
+                            : item
+                    }),
+                }
+            }
+            return index === targetNodeIndex ? [updatedNode, promptNode] : [updatedNode]
+        })
+        if (refId) {
+            restoreSelectionRef.current = {
+                textRanges: [
+                    ...floatingToolbar.textRanges.map(({ range }) => range),
+                    ...floatingToolbar.listItemRanges.map(({ itemIndex, range }) => ({
+                        ...range,
+                        listItemIndex: itemIndex,
+                    })),
+                ],
+            }
+        }
         commitDocument({
             ...currentDocument,
-            nodes: nodes.flatMap((node, index) => (index === targetNodeIndex ? [node, promptNode] : [node])),
+            nodes: nextNodes,
         })
 
         floatingToolbarPositionLockRef.current = null
@@ -3207,16 +3863,22 @@ export function MarkdownNotebook({
             mode: 'ai',
             source: 'selection',
             selectedMarkdown,
+            selectedRefId: refId,
         })
     }
 
-    // Comments need at least one markable range; code blocks can't carry inline marks, so
-    // a selection of only code offers nothing.
+    // Comments need at least one anchorable range: an inline `<ref>` mark for text and list
+    // selections, or a block-level `refs` anchor for selections inside code blocks.
     const canStartInlineCommentAtSelection = (): boolean => {
         if (!floatingToolbar) {
             return false
         }
-        return floatingToolbar.textRanges.length + floatingToolbar.listItemRanges.length >= 1
+        return (
+            floatingToolbar.textRanges.length +
+                floatingToolbar.listItemRanges.length +
+                floatingToolbar.codeRanges.length >=
+            1
+        )
     }
 
     const startInlineCommentAtSelection = (): void => {
@@ -3225,6 +3887,7 @@ export function MarkdownNotebook({
         }
 
         const textRangesByNodeId = new Map(floatingToolbar.textRanges.map((entry) => [entry.node.id, entry]))
+        const codeRangesByNodeId = new Map(floatingToolbar.codeRanges.map((entry) => [entry.node.id, entry]))
         const listItemRangesByNodeId = new Map<string, FloatingToolbarListItemRange[]>()
         floatingToolbar.listItemRanges.forEach((entry) => {
             listItemRangesByNodeId.set(entry.node.id, [...(listItemRangesByNodeId.get(entry.node.id) ?? []), entry])
@@ -3233,7 +3896,10 @@ export function MarkdownNotebook({
         const currentDocument = documentRef.current
         const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
         const firstSelectedIndex = nodes.findIndex(
-            (node) => textRangesByNodeId.has(node.id) || listItemRangesByNodeId.has(node.id)
+            (node) =>
+                textRangesByNodeId.has(node.id) ||
+                listItemRangesByNodeId.has(node.id) ||
+                codeRangesByNodeId.has(node.id)
         )
         if (firstSelectedIndex === -1) {
             return
@@ -3253,9 +3919,12 @@ export function MarkdownNotebook({
         const nextNodes = nodes.flatMap((node, index): NotebookBlockNode[] => {
             let updatedNode = node
             const textRange = textRangesByNodeId.get(node.id)
+            const codeRange = codeRangesByNodeId.get(node.id)
             const listItemRanges = listItemRangesByNodeId.get(node.id)
             if (textRange && isTextBlockNode(node)) {
                 updatedNode = { ...node, children: setInlineRefMark(node.children, textRange.range, refId) }
+            } else if (codeRange && node.type === 'code') {
+                updatedNode = setCodeRefMark(node, codeRange.range, refId)
             } else if (listItemRanges && node.type === 'list') {
                 updatedNode = {
                     ...node,
@@ -3308,9 +3977,53 @@ export function MarkdownNotebook({
         }, 0)
     }
 
+    // Links in editable blocks are pointer-inert so plain clicks place the caret; holding
+    // Cmd/Ctrl re-enables them (see MarkdownNotebook.scss) so they can be opened, matching
+    // the TipTap editor's link mark behavior.
+    useEffect(() => {
+        if (mode !== 'edit') {
+            return
+        }
+
+        const setLinkModifierHeld = (isHeld: boolean): void => {
+            notebookRef.current?.classList.toggle('MarkdownNotebook--link-modifier-held', isHeld)
+        }
+        const handleModifierKeyChange = (event: globalThis.KeyboardEvent): void =>
+            setLinkModifierHeld(event.metaKey || event.ctrlKey)
+        const resetLinkModifier = (): void => setLinkModifierHeld(false)
+
+        window.addEventListener('keydown', handleModifierKeyChange)
+        window.addEventListener('keyup', handleModifierKeyChange)
+        window.addEventListener('blur', resetLinkModifier)
+        return () => {
+            window.removeEventListener('keydown', handleModifierKeyChange)
+            window.removeEventListener('keyup', handleModifierKeyChange)
+            window.removeEventListener('blur', resetLinkModifier)
+            resetLinkModifier()
+        }
+    }, [mode])
+
     const handleCanvasClick = (event: ReactMouseEvent<HTMLDivElement>): void => {
-        const refElement = event.target instanceof Element ? event.target.closest('[data-notebook-ref]') : null
-        const refId = refElement?.getAttribute('data-notebook-ref')
+        if (!(event.target instanceof Element)) {
+            return
+        }
+
+        const linkElement = event.target.closest('a[href]')
+        if (linkElement && linkElement.closest(POINTER_INERT_LINK_CONTAINER_SELECTOR)) {
+            if (event.metaKey || event.ctrlKey) {
+                const href = sanitizeNotebookLinkHref(linkElement.getAttribute('href') ?? '')
+                if (href) {
+                    event.preventDefault()
+                    window.open(href, '_blank', 'noopener')
+                    return
+                }
+            } else {
+                // While editing, a plain click only places the caret, never navigates
+                event.preventDefault()
+            }
+        }
+
+        const refId = event.target.closest('[data-notebook-ref]')?.getAttribute('data-notebook-ref')
         if (refId) {
             focusDiscussionCommentForRef(refId)
         }
@@ -3415,7 +4128,11 @@ export function MarkdownNotebook({
             commitDocument(
                 {
                     ...currentDocument,
-                    nodes: currentDocument.nodes.filter((_, index) => index !== nodeIndex),
+                    nodes: currentDocument.nodes
+                        .filter((_, index) => index !== nodeIndex)
+                        .map((node) =>
+                            node.id === menu.rejoinNodeIdOnClose ? { ...node, startsGroup: undefined } : node
+                        ),
                 },
                 { addToHistory: false }
             )
@@ -3496,12 +4213,26 @@ export function MarkdownNotebook({
 
         const currentDocument = documentRef.current
         const nodes = currentDocument.nodes
-        const insertedNode = makeEmptyParagraph(`boundary-${String(boundaryIndex)}`)
+        const insertedNode: NotebookBlockNode = {
+            ...makeEmptyParagraph(`boundary-${String(boundaryIndex)}`),
+            startsGroup: true,
+        }
         const clampedBoundaryIndex = Math.max(1, Math.min(boundaryIndex, nodes.length))
+        // The block that followed the boundary starts its own card too, or it would join the
+        // inserted one instead of staying with the text it was grouped with.
+        const followingNode = nodes[clampedBoundaryIndex]
+        const rejoinNodeIdOnClose =
+            followingNode && isTextGroupNode(followingNode) && !followingNode.startsGroup ? followingNode.id : undefined
 
         commitDocument({
             ...currentDocument,
-            nodes: [...nodes.slice(0, clampedBoundaryIndex), insertedNode, ...nodes.slice(clampedBoundaryIndex)],
+            nodes: [
+                ...nodes.slice(0, clampedBoundaryIndex),
+                insertedNode,
+                ...nodes
+                    .slice(clampedBoundaryIndex)
+                    .map((node) => (node.id === rejoinNodeIdOnClose ? { ...node, startsGroup: true } : node)),
+            ],
         })
         restoreSelectionRef.current = { nodeId: insertedNode.id, start: 0, end: 0 }
         onInteractionStateChange?.(true)
@@ -3512,6 +4243,7 @@ export function MarkdownNotebook({
             mode: 'tools',
             detached: true,
             removeNodeOnClose: true,
+            rejoinNodeIdOnClose,
         })
     }
 
@@ -3840,7 +4572,7 @@ export function MarkdownNotebook({
 
             return false
         },
-        [insertMenu]
+        []
     )
 
     const moveFocusToAdjacentTableCell = useCallback(
@@ -3917,7 +4649,7 @@ export function MarkdownNotebook({
             if (currentNode.type !== 'code') {
                 return currentNode
             }
-            return { ...currentNode, text: element.textContent ?? '' }
+            return updateNotebookCodeBlockText(currentNode, element.textContent ?? '')
         })
         return true
     }, [updateNode])
@@ -4267,8 +4999,51 @@ export function MarkdownNotebook({
         clearBlockDragState()
     }
 
+    // Drags carrying an app resource (custom `node` type), files, or a URL are treated as external
+    // inserts. URL drags only count when the drag started outside this editor — dragging a link
+    // (or linked text) within the notebook stays on the browser's native contentEditable handling.
+    const isExternalNotebookDrag = (dataTransfer: DataTransfer | null): boolean =>
+        !!dataTransfer &&
+        (dataTransfer.types.includes('node') ||
+            dataTransfer.types.includes('Files') ||
+            (dataTransfer.types.includes('text/uri-list') && !canvasDragOriginRef.current))
+
+    const acceptsExternalDrag = (event: ReactDragEvent<HTMLDivElement>): boolean =>
+        mode === 'edit' && !!convertExternalDataTransferToNodes && isExternalNotebookDrag(event.dataTransfer)
+
+    const clearExternalDragState = (): void => {
+        setIsExternalDragOver(false)
+        setDropBoundaryIndex(null)
+    }
+
+    const insertExternalNodesAtBoundary = (insertedNodes: NotebookBlockNode[], boundaryIndex: number): void => {
+        if (!insertedNodes.length) {
+            return
+        }
+
+        const currentDocument = documentRef.current
+        const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+        // The title block always stays first: nothing may drop before it.
+        const clampedBoundaryIndex = Math.max(1, Math.min(boundaryIndex, nodes.length))
+        insertedNodes.forEach((node) => markNotebookNodeFreshlyInserted(node.id))
+        commitDocument({
+            ...currentDocument,
+            nodes: [...nodes.slice(0, clampedBoundaryIndex), ...insertedNodes, ...nodes.slice(clampedBoundaryIndex)],
+        })
+    }
+
     const handleCanvasDragOver = (event: ReactDragEvent<HTMLDivElement>): void => {
         if (!blockDragNodeIdRef.current) {
+            if (!acceptsExternalDrag(event)) {
+                return
+            }
+
+            event.preventDefault()
+            if (event.dataTransfer) {
+                event.dataTransfer.dropEffect = 'copy'
+            }
+            setIsExternalDragOver(true)
+            setDropBoundaryIndex(getDropBoundaryIndexFromPointer(event.clientY))
             return
         }
 
@@ -4283,6 +5058,26 @@ export function MarkdownNotebook({
     const handleCanvasDrop = (event: ReactDragEvent<HTMLDivElement>): void => {
         const nodeId = blockDragNodeIdRef.current
         if (!nodeId) {
+            if (!acceptsExternalDrag(event) || !event.dataTransfer) {
+                return
+            }
+
+            event.preventDefault()
+            const boundaryIndex = getDropBoundaryIndexFromPointer(event.clientY)
+            clearExternalDragState()
+            const result = convertExternalDataTransferToNodes?.(event.dataTransfer)
+            if (!result) {
+                return
+            }
+            if (result instanceof Promise) {
+                void result.then((insertedNodes) => {
+                    if (insertedNodes?.length) {
+                        insertExternalNodesAtBoundary(insertedNodes, boundaryIndex)
+                    }
+                })
+                return
+            }
+            insertExternalNodesAtBoundary(result, boundaryIndex)
             return
         }
 
@@ -4293,7 +5088,7 @@ export function MarkdownNotebook({
     }
 
     const handleCanvasDragLeave = (event: ReactDragEvent<HTMLDivElement>): void => {
-        if (!blockDragNodeIdRef.current) {
+        if (!blockDragNodeIdRef.current && !isExternalDragOver) {
             return
         }
 
@@ -4301,6 +5096,7 @@ export function MarkdownNotebook({
         if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
             return
         }
+        setIsExternalDragOver(false)
         setDropBoundaryIndex(null)
     }
 
@@ -4325,7 +5121,7 @@ export function MarkdownNotebook({
                 if (currentNode.type !== 'code') {
                     return currentNode
                 }
-                return { ...currentNode, text: inlineEditableElement.textContent ?? '' }
+                return updateNotebookCodeBlockText(currentNode, inlineEditableElement.textContent ?? '')
             })
             return
         }
@@ -4522,6 +5318,9 @@ export function MarkdownNotebook({
             }
             return false
         }
+        if (selectedCommand.disabled) {
+            return true
+        }
 
         selectedCommand.run(nodeId)
         if (selectedCommand.closeOnRun === false) {
@@ -4541,6 +5340,10 @@ export function MarkdownNotebook({
     }
 
     const submitAIPromptForNode = (nodeId: string, queryOverride?: string): boolean => {
+        if (isAIPromptSubmitDisabled) {
+            return false
+        }
+
         const activeAIPromptMenu = insertMenu?.nodeId === nodeId && insertMenu.mode === 'ai' ? insertMenu : null
         const currentDocument = documentRef.current
         const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
@@ -4562,42 +5365,53 @@ export function MarkdownNotebook({
             return false
         }
 
-        const chatId = createAIChatId()
-        const nextDocument: NotebookDocument = {
-            ...currentDocument,
-            nodes: nodes.map((currentNode): NotebookBlockNode => {
-                if (currentNode.id !== nodeId || !isPromptComponentNode(currentNode)) {
-                    return currentNode
-                }
-                return {
-                    id: currentNode.id,
-                    type: 'component',
-                    tagName: 'Chat',
-                    props: {
-                        id: chatId,
-                    },
-                }
-            }),
+        let responseNodeIndex = -1
+        const nodesWithResponse = nodes.map((currentNode, index): NotebookBlockNode => {
+            if (currentNode.id !== nodeId || !isPromptComponentNode(currentNode)) {
+                return currentNode
+            }
+            responseNodeIndex = index
+            return {
+                id: currentNode.id,
+                type: 'paragraph',
+                children: plainTextToInlineNodes(NOTEBOOK_AI_WRITING_PLACEHOLDER),
+            }
+        })
+        if (responseNodeIndex === -1) {
+            console.error('Prompt node not found for AI submission')
+            return false
         }
+
+        const conversationId = createAIConversationId()
+        const nextDocument: NotebookDocument = { ...currentDocument, nodes: nodesWithResponse }
         commitDocument(nextDocument)
         clearInsertMenu()
-        const markdown = serializeMarkdownNotebook(nextDocument)
-        const chatMarker = `<Chat id="${chatId}" />`
+        const markdownWithResponse = serializeMarkdownNotebook(nextDocument)
+        const responseMarker = NOTEBOOK_AI_WRITING_PLACEHOLDER
         const source = activeAIPromptMenu?.source ?? getPromptSource(currentPromptNode?.props.source)
         const selectedMarkdown =
             activeAIPromptMenu?.selectedMarkdown ?? getNotebookStringProp(currentPromptNode?.props.selectedMarkdown)
+        const selectedRefId = activeAIPromptMenu?.selectedRefId ?? getNotebookStringProp(currentPromptNode?.props.ref)
         onAskAI({
-            chatId,
+            conversationId,
             query:
                 source === 'selection' && selectedMarkdown
-                    ? getAskAISelectionQuery(selectedMarkdown, query, chatId)
-                    : query,
+                    ? getAskAISelectionQuery(
+                          selectedMarkdown,
+                          query,
+                          responseMarker,
+                          selectedRefId,
+                          markdownWithResponse
+                      )
+                    : getAskAIInlineNotebookQuery(query, responseMarker, markdownWithResponse),
             source,
-            chatNodeId: nodeId,
-            chatMarker,
-            markdown,
-            markdownWithChat: markdown,
+            responseNodeId: nodeId,
+            responseNodeIndex,
+            responseMarker,
+            markdown: markdownWithResponse,
+            markdownWithResponse,
             selectedMarkdown,
+            selectedRefId,
         })
         return true
     }
@@ -4668,6 +5482,19 @@ export function MarkdownNotebook({
             return
         }
 
+        if (
+            mode === 'edit' &&
+            event.key === 'F10' &&
+            event.altKey &&
+            !event.metaKey &&
+            !event.ctrlKey &&
+            focusFormattingToolbar()
+        ) {
+            event.preventDefault()
+            event.stopPropagation()
+            return
+        }
+
         if (mode === 'edit' && event.key === 'Tab' && !event.altKey && !event.metaKey && !event.ctrlKey) {
             const inlineEditableElement = getInlineEditableElementForSelection(
                 window.getSelection(),
@@ -4729,7 +5556,8 @@ export function MarkdownNotebook({
             !event.altKey &&
             !event.metaKey &&
             !event.ctrlKey &&
-            (deleteListItemAtCurrentSelection(event.key === 'Backspace' ? 'backward' : 'forward') ||
+            (deleteListItemRangeAtCurrentSelection() ||
+                deleteListItemAtCurrentSelection(event.key === 'Backspace' ? 'backward' : 'forward') ||
                 deleteEmptyCodeBlockAtCurrentSelection())
         ) {
             event.preventDefault()
@@ -4802,13 +5630,51 @@ export function MarkdownNotebook({
         }
     }
 
-    const renderedNodeGroups = getMarkdownNotebookVisualGroups(
+    // Alt+F10 moves keyboard focus into the floating toolbar (the standard editor-toolbar
+    // shortcut); Escape in the toolbar hands focus back without collapsing the selection.
+    const focusFormattingToolbar = (): boolean => {
+        if (!floatingToolbar) {
+            return false
+        }
+
+        lockFloatingToolbarPosition()
+        const button = mainRef.current?.querySelector<HTMLButtonElement>(
+            '.MarkdownNotebook__format-toolbar button:not([disabled])'
+        )
+        if (!button) {
+            return false
+        }
+
+        button.focus()
+        return true
+    }
+
+    const returnFocusFromFormattingToolbar = (): void => {
+        canvasRef.current?.focus()
+    }
+
+    const allNodeGroups = getMarkdownNotebookVisualGroups(
         renderedNodes,
         insertMenu?.detached ? insertMenu.nodeId : undefined
     )
+    const renderedNodeGroups = mode === 'edit' ? allNodeGroups : withoutLeadingEmptyTitleGroup(allNodeGroups)
+
+    // The insert menu never takes focus (typing keeps filtering), so the canvas points at the
+    // selected option via aria-activedescendant.
+    const activeInsertMenuCommands =
+        insertMenu && (insertMenu.mode ?? 'tools') === 'tools'
+            ? getFilteredInsertCommands(insertCommands, insertMenu.query)
+            : null
+    const activeInsertMenuCommand =
+        activeInsertMenuCommands?.[
+            getClampedInsertMenuSelectedIndex(insertMenu?.selectedIndex ?? 0, activeInsertMenuCommands.length)
+        ]
+    const activeInsertMenuOptionDomId = activeInsertMenuCommand
+        ? getInsertMenuOptionDomId(insertMenuDomId, activeInsertMenuCommand.key)
+        : undefined
 
     const dropIndicatorTarget: { index: number; position: 'before' | 'after' } | null =
-        draggingNodeId !== null && dropBoundaryIndex !== null
+        (draggingNodeId !== null || isExternalDragOver) && dropBoundaryIndex !== null
             ? dropBoundaryIndex < renderedNodes.length
                 ? { index: dropBoundaryIndex, position: 'before' }
                 : renderedNodes.length
@@ -4858,7 +5724,7 @@ export function MarkdownNotebook({
                     aria-label="Edit markdown source"
                     aria-controls={debugDrawerId}
                     aria-expanded={isDebugOpen}
-                    onClick={() => setIsDebugOpen((isOpen) => !isOpen)}
+                    onClick={() => setDebugOpen((isOpen) => !isOpen)}
                 />
             </div>
         )
@@ -4866,6 +5732,8 @@ export function MarkdownNotebook({
 
     const renderNotebookRow = (node: NotebookBlockNode, index: number): JSX.Element => {
         const isTitleRow = index === 0
+        const isAIWritingNode = aiWritingNodeIndexSet.has(index)
+        const nodeMode = isAIWritingNode ? 'view' : mode
         const isInsertMenuOpen = insertMenu?.nodeId === node.id
         const insertMenuMode = isInsertMenuOpen ? (insertMenu.mode ?? 'tools') : null
         const isToolInsertMenuOpen = isInsertMenuOpen && insertMenuMode === 'tools'
@@ -4873,14 +5741,23 @@ export function MarkdownNotebook({
         const componentDefinition =
             node.type === 'component' ? getMarkdownNotebookComponentDefinition(mergedRegistry, node.tagName) : undefined
         const componentPanelCacheEntry = node.type === 'component' ? componentPanelCache[node.id] : undefined
+        // Only edit mode persists panel visibility to the document. Persisting encodes "open" as
+        // the ABSENCE of hide* props, which a canvas fallback of filters-closed would immediately
+        // override — opening filters would round-trip to closed. View-mode toggles stay local.
         const persistComponentPanelVisibility =
-            node.type === 'component' ? shouldPersistComponentPanelProps(node, componentDefinition) : false
+            mode === 'edit' && node.type === 'component'
+                ? shouldPersistComponentPanelProps(node, componentDefinition)
+                : false
+        const fallbackComponentPanels =
+            mode === 'view' && allowViewModeFilters
+                ? CANVAS_COMPONENT_PANEL_VISIBILITY
+                : DEFAULT_COMPONENT_PANEL_VISIBILITY
         const nodeComponentPanels =
             node.type === 'component'
                 ? !persistComponentPanelVisibility && componentPanelCacheEntry?.current
                     ? componentPanelCacheEntry.current
-                    : getComponentPanelVisibility(node, DEFAULT_COMPONENT_PANEL_VISIBILITY)
-                : DEFAULT_COMPONENT_PANEL_VISIBILITY
+                    : getComponentPanelVisibility(node, fallbackComponentPanels)
+                : fallbackComponentPanels
         const shouldShowInlineInsertMenuButton =
             !isTitleRow && (isBlankInsertMenuButtonRow(node) || (isToolInsertMenuOpen && isTextBlockNode(node)))
         const hasInvalidInsertMenuQuery =
@@ -4888,13 +5765,15 @@ export function MarkdownNotebook({
             insertMenu.query.length > 0 &&
             getFilteredInsertCommands(insertCommands, insertMenu.query).length === 0
 
-        const isDraggableRow = mode === 'edit' && !isTitleRow && !isDiscussionCommentNode(node)
+        const isDraggableRow = mode === 'edit' && !isTitleRow && !isDiscussionCommentNode(node) && !isAIWritingNode
 
         return (
             <div
                 className={clsx(
                     'MarkdownNotebook__row',
                     isInsertMenuOpen && 'MarkdownNotebook__row--insert-menu-open',
+                    isAIPromptOpen && 'MarkdownNotebook__row--ai-prompt',
+                    isAIWritingNode && 'MarkdownNotebook__row--ai-writing',
                     isDiscussionCommentNode(node) && 'MarkdownNotebook__row--margin-comment',
                     draggingNodeId === node.id && 'MarkdownNotebook__row--dragging'
                 )}
@@ -4952,7 +5831,7 @@ export function MarkdownNotebook({
                 {renderNode({
                     node,
                     nodeIndex: index,
-                    mode,
+                    mode: nodeMode,
                     placeholder: isTitleRow
                         ? NOTEBOOK_TITLE_PLACEHOLDER
                         : isToolInsertMenuOpen
@@ -4966,23 +5845,27 @@ export function MarkdownNotebook({
                     componentPanels: nodeComponentPanels,
                     rememberedComponentPanels: componentPanelCacheEntry?.remembered,
                     persistComponentPanelVisibility,
+                    allowViewModeFilters,
                     isSelected: selectedComponentNodeIds.has(node.id),
-                    toggleComponentPanel: (panel) =>
+                    toggleComponentPanel: (panel) => {
+                        const nextPanels = {
+                            ...nodeComponentPanels,
+                            [panel]: !nodeComponentPanels[panel],
+                        }
+
+                        if (!persistComponentPanelVisibility) {
+                            setLocalComponentPanels(node.id, nextPanels)
+                            return
+                        }
+
                         updateNode(node.id, (currentNode) => {
                             if (currentNode.type !== 'component') {
                                 return currentNode
                             }
 
-                            const currentPanels = getComponentPanelVisibility(
-                                currentNode,
-                                DEFAULT_COMPONENT_PANEL_VISIBILITY
-                            )
-                            const nextPanels = {
-                                ...currentPanels,
-                                [panel]: !currentPanels[panel],
-                            }
                             return withPersistedComponentPanelProps(currentNode, componentDefinition, nextPanels)
-                        }),
+                        })
+                    },
                     setLocalComponentPanels,
                     rememberComponentPanels,
                     setBlockRef: (element) => {
@@ -5044,11 +5927,18 @@ export function MarkdownNotebook({
                         setActiveRowIndex(index)
                         setActiveBoundaryIndex(null)
                     },
-                    showInlineInsertMenuButton: mode === 'edit' && shouldShowInlineInsertMenuButton,
+                    showInlineInsertMenuButton: mode === 'edit' && !isAIWritingNode && shouldShowInlineInsertMenuButton,
                     isInlineInsertMenuButtonVisible: activeRowIndex === index || isToolInsertMenuOpen || isAIPromptOpen,
                     isInsertMenuOpen,
                     insertMenuMode,
                     hasInvalidInsertMenuQuery,
+                    isAIWriting: isAIWritingNode,
+                    isAIWritingPlaceholder: aiWritingPlaceholderNodeIds.has(node.id),
+                    aiPromptFocusRequest:
+                        focusAIPromptNodeId === node.id && focusAIPromptRequest !== undefined
+                            ? focusAIPromptRequest
+                            : undefined,
+                    isAIPromptSubmitDisabled,
                     submitInsertMenuSelection: (queryOverride) =>
                         submitInsertMenuSelectionForNode(node.id, queryOverride),
                     submitAIPrompt: (queryOverride) => submitAIPromptForNode(node.id, queryOverride),
@@ -5059,6 +5949,7 @@ export function MarkdownNotebook({
                 })}
                 {isToolInsertMenuOpen ? (
                     <InsertMenu
+                        id={insertMenuDomId}
                         query={insertMenu.query}
                         commands={insertCommands}
                         targetNodeId={node.id}
@@ -5105,10 +5996,22 @@ export function MarkdownNotebook({
                         contentEditable={mode === 'edit'}
                         suppressContentEditableWarning
                         data-markdown-notebook-editor
+                        role={mode === 'edit' ? 'textbox' : undefined}
+                        aria-multiline={mode === 'edit' ? true : undefined}
+                        aria-label={mode === 'edit' ? 'Notebook editor' : undefined}
+                        aria-controls={activeInsertMenuOptionDomId ? insertMenuDomId : undefined}
+                        aria-expanded={activeInsertMenuOptionDomId ? true : undefined}
+                        aria-activedescendant={activeInsertMenuOptionDomId}
                         onInput={handleRootEditableInput}
                         onKeyDown={handleRootEditableKeyDown}
                         onMouseLeave={handleCanvasMouseLeave}
                         onClick={handleCanvasClick}
+                        onDragStartCapture={() => {
+                            canvasDragOriginRef.current = true
+                        }}
+                        onDragEndCapture={() => {
+                            canvasDragOriginRef.current = false
+                        }}
                         onDragOver={handleCanvasDragOver}
                         onDrop={handleCanvasDrop}
                         onDragLeave={handleCanvasDragLeave}
@@ -5202,6 +6105,11 @@ export function MarkdownNotebook({
                                 floatingToolbar.codeRanges,
                                 floatingToolbar.listItemRanges
                             )}
+                            selectedBlockQuoted={getSelectedBlocksQuoted(
+                                floatingToolbar.textRanges,
+                                floatingToolbar.codeRanges,
+                                floatingToolbar.listItemRanges
+                            )}
                             placement={floatingToolbar.placement}
                             top={floatingToolbar.top}
                             left={floatingToolbar.left}
@@ -5216,10 +6124,12 @@ export function MarkdownNotebook({
                             setBlockStyle={setSelectedBlockStyle}
                             copySelection={copyFloatingToolbarSelection}
                             askAIAboutSelection={onAskAI ? askAIAboutSelection : undefined}
+                            isAskAIDisabled={false}
                             startInlineCommentAtSelection={
                                 canStartInlineCommentAtSelection() ? startInlineCommentAtSelection : undefined
                             }
                             lockPosition={lockFloatingToolbarPosition}
+                            returnFocusToEditor={returnFocusFromFormattingToolbar}
                         />
                     ) : null}
                 </div>
@@ -5242,7 +6152,7 @@ export function MarkdownNotebook({
                                 >
                                     {isDebugLogging ? 'Stop' : 'Log'}
                                 </LemonButton>
-                                <LemonButton size="xsmall" onClick={() => setIsDebugOpen(false)}>
+                                <LemonButton size="xsmall" onClick={() => setDebugOpen(false)}>
                                     Close
                                 </LemonButton>
                             </div>

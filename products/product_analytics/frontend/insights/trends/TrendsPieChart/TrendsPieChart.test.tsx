@@ -4,10 +4,8 @@ import { cleanup, screen, waitFor } from '@testing-library/react'
 
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { NodeKind } from '~/queries/schema/schema-general'
-import { buildTrendsQuery, personsModal, renderInsight } from '~/test/insight-testing'
+import { buildTrendsQuery, legend, personsModal, renderInsight } from '~/test/insight-testing'
 import { ChartDisplayType } from '~/types'
 
 let cleanupJsdom: () => void
@@ -24,10 +22,6 @@ afterEach(() => {
     cleanupJsdom()
     cleanup()
 })
-
-const HOG_CHARTS_FLAG = {
-    [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS]: true,
-}
 
 function sliceLabels(): string[] {
     return Array.from(document.querySelectorAll('[data-attr="hog-chart-pie-slice-label"]')).map(
@@ -58,8 +52,8 @@ describe('TrendsPieChart (ActionsPie)', () => {
             expectedLabels: ['57.9%', '21.1%', '10.5%', '10.5%'],
         },
     ])('$name', async ({ query, expectedLabels }) => {
-        renderInsight({ query, featureFlags: HOG_CHARTS_FLAG })
-        await screen.findByRole('img', { name: /pie chart with/i }, { timeout: 5000 })
+        renderInsight({ query })
+        await screen.findByLabelText(/pie chart with/i, undefined, { timeout: 5000 })
 
         await waitFor(
             () => {
@@ -68,5 +62,50 @@ describe('TrendsPieChart (ActionsPie)', () => {
             { timeout: 5000 }
         )
         expect([...sliceLabels()].sort()).toEqual([...expectedLabels].sort())
+    })
+
+    describe('quill in-chart legend', () => {
+        const getInChartLegend = (container: HTMLElement): HTMLElement | null =>
+            container.querySelector<HTMLElement>('[data-attr="hog-chart-pie-legend"]')
+
+        it('renders the in-chart legend and suppresses the legacy side legend', async () => {
+            const { container } = renderInsight({ query: pieByHedgehog({ showLegend: true }) })
+            await screen.findByLabelText(/pie chart with/i, undefined, { timeout: 5000 })
+
+            const legendEl = getInChartLegend(container)
+            expect(legendEl).not.toBeNull()
+            expect(legendEl!.textContent).toContain('Spike')
+            expect(container.querySelector('.InsightLegendMenu')).not.toBeInTheDocument()
+        })
+
+        it('humanizes built-in event names in the legend (no breakdown)', async () => {
+            const { container } = renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' }],
+                    trendsFilter: { display: ChartDisplayType.ActionsPie, showLegend: true },
+                }),
+            })
+            await screen.findByLabelText(/pie chart with/i, undefined, { timeout: 5000 })
+
+            const legendEl = getInChartLegend(container)
+            expect(legendEl).not.toBeNull()
+            expect(legendEl!.textContent).toContain('Pageview')
+            expect(legendEl!.textContent).not.toContain('$pageview')
+        })
+
+        it('removes a toggled-off slice but keeps it listed (dimmed) so it can be restored', async () => {
+            const { container } = renderInsight({ query: pieByHedgehog({ showLegend: true }) })
+            await screen.findByLabelText(/pie chart with 5 slices/i, undefined, { timeout: 5000 })
+
+            await legend.toggle('Spike')
+
+            await waitFor(() => {
+                expect(screen.getByLabelText(/pie chart with 4 slices/i)).toBeInTheDocument()
+            })
+            const dimmed = [...getInChartLegend(container)!.querySelectorAll<HTMLElement>('button')].filter((b) =>
+                b.className.includes('opacity-40')
+            )
+            expect(dimmed.map((b) => b.textContent)).toEqual(['Spike'])
+        })
     })
 })

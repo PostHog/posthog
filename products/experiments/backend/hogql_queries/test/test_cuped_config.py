@@ -53,6 +53,22 @@ def test_get_cuped_config_team_default_ignored_when_metric_unsupported():
     assert config.enabled is False
 
 
+def _threshold_metric() -> ExperimentMeanMetric:
+    return ExperimentMeanMetric(source=EventsNode(event="purchase", math="sum", math_property="amount"), threshold=100)
+
+
+@parameterized.expand(
+    [
+        ("experiment_explicit_true", {"cuped": {"enabled": True}}, False),
+        ("team_default_enabled", None, True),
+    ]
+)
+def test_get_cuped_config_disabled_for_threshold_metric(name, stats_config, team_default_enabled):
+    # A thresholded mean is a binary outcome; CUPED variance reduction does not apply.
+    config = get_cuped_config(stats_config, _threshold_metric(), team_default_enabled=team_default_enabled)
+    assert config.enabled is False
+
+
 @parameterized.expand(
     [
         # (name, stats_config, team_default_lookback_days, expected_lookback_days)

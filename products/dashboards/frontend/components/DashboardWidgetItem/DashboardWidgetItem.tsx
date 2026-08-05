@@ -1,8 +1,9 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import React, { useState } from 'react'
+import React, { Suspense, useState } from 'react'
 import { createPortal } from 'react-dom'
 
+import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButton'
 import { DashboardTileRefreshDataButton } from 'lib/components/Cards/InsightCard/DashboardTileRefreshDataButton'
 import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
 import { DashboardWidgetPlacementMenus } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
@@ -37,7 +38,7 @@ import {
     type DashboardWidgetDefinition,
 } from '../../widgets/registry'
 import { WidgetCard } from '../WidgetCard/WidgetCard'
-import { WidgetCardBody, WidgetCardSharedPlaceholderBody } from '../WidgetCard/WidgetCardBody'
+import { WidgetCardBody, WidgetCardSharedPlaceholderBody, WidgetLoadingState } from '../WidgetCard/WidgetCardBody'
 import { WidgetCardHeader, widgetCardShouldHideMoreButton } from '../WidgetCard/WidgetCardHeader'
 import { WidgetRuntimeAvailabilityGuard } from '../WidgetRuntimeAvailabilityGuard/WidgetRuntimeAvailabilityGuard'
 
@@ -120,7 +121,9 @@ function DashboardWidgetItemBody({
             widgetId={widget.id}
             dashboardId={dashboardId}
         >
-            <WidgetComponent {...componentProps} />
+            <Suspense fallback={<WidgetLoadingState />}>
+                <WidgetComponent {...componentProps} />
+            </Suspense>
         </WidgetRuntimeAvailabilityGuard>
     )
 }
@@ -203,6 +206,15 @@ function DashboardWidgetItemContent({
 
     const refreshDisabledReason = loading ? 'Refreshing...' : undefined
 
+    // Refresh icon revealed on tile hover, mirroring insight tiles. Gated on editing controls so it
+    // stays off public/export dashboards, and hidden while the tile is loading (refresh stays reachable
+    // via the always-present "⋯" menu for touch/keyboard). CardMeta's CSS handles the hover reveal.
+    const showHoverRefresh =
+        !!showEditingControls && !isUnknownWidgetType && headerLayout === 'dashboard_tile' && !loading
+    const refreshControl = showHoverRefresh ? (
+        <CardMetaRefreshButton onRefresh={onRefresh} lastRefresh={lastFetchedAt} dataAttr="dashboard-widget-refresh" />
+    ) : null
+
     return (
         <>
             <WidgetCardHeader
@@ -220,6 +232,7 @@ function DashboardWidgetItemContent({
                 showEditingControls={showEditingControls}
                 isDashboardEditMode={isDashboardEditMode}
                 shouldHideMoreButton={widgetCardShouldHideMoreButton(placement, showEditingControls)}
+                refreshControl={refreshControl}
                 moreButtonOverlay={
                     <>
                         {titleHref && (
@@ -286,15 +299,17 @@ function DashboardWidgetItemContent({
                 onDragHandleMouseDown={onDragHandleMouseDown}
             />
             {!showSharedPlaceholder && hasProductAccess && showTileFilters && TileFilters ? (
-                <TileFilters
-                    tileId={tile.id}
-                    config={widget.config}
-                    onUpdateConfig={componentProps.onUpdateConfig}
-                    canMutateErrorTrackingIssues={componentProps.canMutateErrorTrackingIssues}
-                    disabledReason={
-                        canUpdateWidgetTileConfig ? undefined : DASHBOARD_WIDGET_TILE_FILTERS_READONLY_REASON
-                    }
-                />
+                <Suspense fallback={null}>
+                    <TileFilters
+                        tileId={tile.id}
+                        config={widget.config}
+                        onUpdateConfig={componentProps.onUpdateConfig}
+                        canMutateErrorTrackingIssues={componentProps.canMutateErrorTrackingIssues}
+                        disabledReason={
+                            canUpdateWidgetTileConfig ? undefined : DASHBOARD_WIDGET_TILE_FILTERS_READONLY_REASON
+                        }
+                    />
+                </Suspense>
             ) : null}
             {showSharedPlaceholder ? (
                 <WidgetCardSharedPlaceholderBody
@@ -327,17 +342,19 @@ function DashboardWidgetItemContent({
             {EditModal &&
                 editOpen &&
                 createPortal(
-                    <EditModal
-                        isOpen={editOpen}
-                        onClose={() => setEditOpen(false)}
-                        config={widget.config}
-                        name={title}
-                        defaultTitle={defaultTitle}
-                        description={description}
-                        onSave={async (config, metadata) => {
-                            await onUpdateWidgetTile?.({ config, ...metadata })
-                        }}
-                    />,
+                    <Suspense fallback={null}>
+                        <EditModal
+                            isOpen={editOpen}
+                            onClose={() => setEditOpen(false)}
+                            config={widget.config}
+                            name={title}
+                            defaultTitle={defaultTitle}
+                            description={description}
+                            onSave={async (config, metadata) => {
+                                await onUpdateWidgetTile?.({ config, ...metadata })
+                            }}
+                        />
+                    </Suspense>,
                     document.body
                 )}
         </>

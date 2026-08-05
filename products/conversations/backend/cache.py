@@ -7,6 +7,8 @@ Short TTLs ensure stale data expires quickly without explicit invalidation.
 
 import json
 import hashlib
+from collections.abc import Generator
+from contextlib import contextmanager
 
 from django.core.cache import cache
 
@@ -259,6 +261,38 @@ def set_cached_bot_user_id(team_id: int, bot_user_id: str) -> None:
         logger.warning("conversations_cache_set_error", key=key)
 
 
+# Slack Nudge Suppression
+# Suppresses the opt-in "open a ticket?" nudge so we don't pester a user on every
+# message in a channel. Set after sending a nudge (short cooldown) or after the user
+# clicks "No thanks" (longer). Keyed by team:channel:user — presence means suppressed.
+
+NUDGE_COOLDOWN_TTL = 5 * 60  # after nudging the same user in a channel
+NUDGE_DISMISS_TTL = 3 * 60 * 60  # after the user clicks "No thanks"
+
+
+def _nudge_suppress_key(team_id: int, channel: str, slack_user_id: str) -> str:
+    return _make_cache_key("slack_nudge_suppressed", str(team_id), channel, slack_user_id)
+
+
+def is_nudge_suppressed(team_id: int, channel: str, slack_user_id: str) -> bool:
+    """Whether the confirm-ticket nudge is currently suppressed for this user in this channel."""
+    key = _nudge_suppress_key(team_id, channel, slack_user_id)
+    try:
+        return cache.get(key) is not None
+    except Exception:
+        logger.warning("conversations_cache_get_error", key=key)
+        return False
+
+
+def suppress_nudge(team_id: int, channel: str, slack_user_id: str, ttl_seconds: int) -> None:
+    """Suppress the nudge for this user in this channel for ttl_seconds."""
+    key = _nudge_suppress_key(team_id, channel, slack_user_id)
+    try:
+        cache.set(key, True, timeout=ttl_seconds)
+    except Exception:
+        logger.warning("conversations_cache_set_error", key=key)
+
+
 # Teams User Cache
 # Caches Teams user profile lookups (displayName, email) resolved via Graph API.
 # Keyed by tenant_id:teams_user_id. Short TTL keeps profiles fresh.
@@ -291,6 +325,31 @@ def set_cached_teams_user(tenant_id: str, teams_user_id: str, user_info: dict) -
 
 RESOLVED_GROUPS_CACHE_TTL = 12 * 60 * 60  # 12 hours
 RESOLVED_GROUPS_NEGATIVE_CACHE_TTL = 60 * 60  # 1 hour
+
+
+# Slack Ticket Creation Lock
+# Serializes concurrent ticket creation for the same Slack thread so two reaction_added
+# events from different users can't both pass the existence checks and create duplicate
+# tickets. cache.add is atomic (Redis SETNX): only one worker acquires. Short TTL is a
+# safety net so a crashed worker can't wedge a thread permanently.
+
+SLACK_TICKET_CREATE_LOCK_TTL = 30  # seconds
+
+
+@contextmanager
+def slack_ticket_create_lock(team_id: int, channel: str, thread_ts: str) -> Generator[bool]:
+    """Atomic Redis lock to serialize ticket creation for a Slack thread.
+
+    Yields True if the lock was acquired, False if another worker holds it.
+    Releases the lock on exit when acquired.
+    """
+    key = _make_cache_key("slack_ticket_create_lock", str(team_id), channel, thread_ts)
+    acquired = cache.add(key, True, timeout=SLACK_TICKET_CREATE_LOCK_TTL)
+    try:
+        yield acquired
+    finally:
+        if acquired:
+            cache.delete(key)
 
 
 def _resolved_groups_cache_key(team_id: int, distinct_ids: list[str]) -> str:

@@ -68,17 +68,19 @@ export function mergeNotebookMarkdownChanges({
         const remoteFingerprint = getNodeFingerprint(remoteNode)
         const localChanged = localFingerprint !== baseFingerprint
         const remoteChanged = remoteFingerprint !== baseFingerprint
+        const pushMergedNode = (node: NotebookBlockNode): void =>
+            pushOutputNode(outputNodes, outputIds, withMergedGroupStart(baseNode, localNode, remoteNode, node))
 
         if (localChanged && remoteChanged && localFingerprint !== remoteFingerprint) {
             const mergedComponentNode = mergeNotebookComponentNodes(baseNode, localNode, remoteNode)
             if (mergedComponentNode) {
-                pushOutputNode(outputNodes, outputIds, mergedComponentNode)
+                pushMergedNode(mergedComponentNode)
                 return
             }
 
             const mergedNode = mergeNotebookBlockNodeText(baseNode, localNode, remoteNode)
             if (mergedNode) {
-                pushOutputNode(outputNodes, outputIds, mergedNode)
+                pushMergedNode(mergedNode)
                 return
             }
 
@@ -88,11 +90,11 @@ export function mergeNotebookMarkdownChanges({
                 localMarkdown: serializeNode(localNode),
                 remoteMarkdown: serializeNode(remoteNode),
             })
-            pushOutputNode(outputNodes, outputIds, localNode)
+            pushMergedNode(localNode)
             return
         }
 
-        pushOutputNode(outputNodes, outputIds, localChanged ? localNode : remoteNode)
+        pushMergedNode(localChanged ? localNode : remoteNode)
     })
 
     // The deletion still wins (re-adding would resurrect deleted blocks on every merge),
@@ -144,6 +146,19 @@ export function mergeNotebookMarkdownChanges({
         mergedMarkdown: serializeMarkdownNotebook(document),
         conflicts,
     }
+}
+
+// `startsGroup` is deliberately outside a node's fingerprint — folding it in would churn the
+// content-derived node id every time a card is split — so it merges on its own three-way rule:
+// whichever side moved the card boundary away from base wins.
+function withMergedGroupStart(
+    baseNode: NotebookBlockNode,
+    localNode: NotebookBlockNode,
+    remoteNode: NotebookBlockNode,
+    mergedNode: NotebookBlockNode
+): NotebookBlockNode {
+    const startsGroup = baseNode.startsGroup === localNode.startsGroup ? remoteNode.startsGroup : localNode.startsGroup
+    return startsGroup === mergedNode.startsGroup ? mergedNode : { ...mergedNode, startsGroup }
 }
 
 function pushOutputNode(nodes: NotebookBlockNode[], outputIds: Set<string>, node: NotebookBlockNode): void {
@@ -281,7 +296,6 @@ function mergeInsertedNotebookBlockNodes(
     remoteNode: NotebookBlockNode
 ): NotebookBlockNode | null {
     // The same component inserted on both sides (typically a block racing its own save
-    // echo — e.g. a freshly created AI chat whose streaming answer diverged from the
     // echo) must collapse to one node, with the local side's prop values winning.
     if (localNode.type === 'component' && remoteNode.type === 'component') {
         if (localNode.tagName !== remoteNode.tagName) {
@@ -430,11 +444,10 @@ type IdKeyedEntry = { [key: string]: NotebookPropValue } & { id: string }
 
 /**
  * Three-way merge for array props whose entries are objects keyed by a unique string `id`
- * (chat `replies` being the motivating case). Two people replying to the same chat at the
- * same time must both keep their replies: entries added on either side survive, entries
- * deleted on one side stay deleted, and an entry edited on one side takes that side's
- * version. Returns null when the shape doesn't qualify — the caller falls back to its
- * other strategies.
+ * (component-level lists being the motivating case). Entries added on either side survive,
+ * entries deleted on one side stay deleted, and an entry edited on one side takes that side's
+ * version. Returns null when the shape doesn't qualify — the caller falls back to its other
+ * strategies.
  */
 function mergeIdKeyedArrayPropValues(
     baseValue: NotebookPropValue | undefined,

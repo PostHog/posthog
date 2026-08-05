@@ -7,7 +7,9 @@ _DEFINITIONS = Path(__file__).parents[4] / "services/mcp/schema/generated-tool-d
 
 
 class TestEngineeringAnalyticsMCPTools:
-    @pytest.mark.parametrize("tool", ["pull-requests", "workflow-health", "pr-lifecycle"])
+    @pytest.mark.parametrize(
+        "tool", ["pull-requests", "workflow-health", "pr-lifecycle", "engineering-analytics-flaky-tests"]
+    )
     def test_tool_is_generated_read_only_and_scoped(self, tool: str) -> None:
         definitions = json.loads(_DEFINITIONS.read_text())
 
@@ -17,9 +19,3 @@ class TestEngineeringAnalyticsMCPTools:
         assert entry["annotations"]["readOnlyHint"] is True
         assert entry["annotations"]["destructiveHint"] is False
         assert "engineering_analytics:read" in entry["required_scopes"]
-
-    @pytest.mark.parametrize("tool", ["workflow-report", "time-to-merge"])
-    def test_removed_report_tools_are_not_generated(self, tool: str) -> None:
-        definitions = json.loads(_DEFINITIONS.read_text())
-
-        assert tool not in definitions

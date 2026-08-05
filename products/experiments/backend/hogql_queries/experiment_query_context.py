@@ -28,7 +28,6 @@ class ExperimentQueryContext:
     entity_key: str
     breakdowns: tuple[Breakdown, ...]
     only_count_matured_users: bool
-    funnel_steps_data_disabled: bool
     cuped_config: CupedQueryConfig
 
 

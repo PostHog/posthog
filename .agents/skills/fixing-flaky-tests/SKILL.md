@@ -4,6 +4,7 @@ description: >
   Guides an agent through reproducing, root-causing, fixing, and validating flaky tests in the PostHog monorepo.
   Use when a test fails intermittently in CI but passes on rerun or locally, when `hogli ci:insights` or the debugging-ci-failures skill classifies a failure as a flaky test, when given a GitHub Actions URL for a flaky job, or when asked to deflake, stabilize, or fix a flaky Jest, pytest, or Playwright test.
   Core discipline: reproduce locally before changing anything, fix the root cause (never mask it with sleeps, retries, or bigger timeouts), and prove the fix with an N-run validation loop sized to the observed failure rate.
+  Stabilizing is not the only valid outcome — the skill also gates whether the test should exist, so deleting a test that catches nothing real, or re-leveling one that flakes because of the level it runs at, are first-class endings.
 ---
 
 # Fixing flaky tests
@@ -16,22 +17,52 @@ Three non-negotiables, in order:
 3. **Validate with an N-run loop.** One green run proves nothing about an intermittent failure.
    Size N to the observed failure rate.
 
+Stabilizing the test is not the only valid ending.
+Once you know why it flakes, step 5 asks whether it should exist.
+A test that catches nothing real is worth deleting, and one that flakes because of the level it runs at is worth moving down a rung.
+
+Before any of these: **measure, don't assume.** Flaky-vs-deterministic, and the rate, are facts to establish from verifiable GitHub run data (step 1) — never inherited from a Slack alert, a teammate's guess, or a `ci:insights` label.
+
 For triaging a red CI run (finding and classifying the failure), use the `debugging-ci-failures` skill first — this skill takes over once the failure is classified as a flaky test.
 For writing new Playwright tests that aren't flaky, use the `playwright-test` skill.
 
-## 1. Confirm it is actually flaky
+## 1. Measure the failure rate — from GitHub, not from a digest
 
-Before investing in reproduction:
+The GitHub Actions API (or GitHub MCP) is the source of truth. `hogli ci:insights` is a digest, not an oracle — it can mislabel flaky-vs-deterministic, misstate the rate, and lag the API. Use it to _validate_ a hypothesis or pull historical context, never as the first move or the classification authority.
+
+Establish the timeline yourself from raw run data:
 
 ```bash
-hogli ci:insights search "<test name or error>"   # occurrence history, confidence, existing fix
-git log --oneline -10 -- <test_file_path>          # recently fixed already?
+# Pass/fail history for the workflow on the branch under suspicion (master shown):
+gh run list --repo PostHog/posthog --workflow=ci-backend.yml --branch master \
+  --status completed --limit 60 --json conclusion,headSha,createdAt,databaseId
 ```
 
-- An insight with a **merged fix** means the flake may already be resolved — read the fix, confirm it covers this failure, and report instead of re-fixing.
-- A test failing **consistently** (every run, including on `master`) is a regression, not a flake — go back to `debugging-ci-failures`.
-- Record the observed failure rate (occurrences / total runs from `ci:insights`, or from rerun attempts on the PR).
-  You need it to size the validation loop later.
+The run-level conclusion is not enough — a red run may be failing on a _different_ job/test. Confirm it is the **same test** each time by reading the failing shard's log; and for green runs, confirm the test actually **ran and passed** in that shard (it may have been sharded elsewhere, not fixed):
+
+```bash
+gh api repos/PostHog/posthog/actions/jobs/{job_id}/logs \
+  | grep -E "<exact::test::id>|short test summary"
+```
+
+Read the timeline before you classify:
+
+- **Interleaved pass/fail on adjacent commits** — the same unchanged test verified passing in some runs, failing in others → genuinely **flaky**; continue here.
+- **A long unbroken failure streak** (say 30+ consecutive) is statistically incompatible with a flake — at any per-run rate below ~95%, `p^30 ≈ 0`. That is a **deterministic regression**: go to `debugging-ci-failures` and find the introducing commit (step 4).
+- **Both at once** is common: a latent flake whose rate jumped to ~100%. Find the transition (last green → first red); that boundary, not the digest's one-line guess, is what tells you what tipped it.
+
+If a failure is reported as (or you suspect it is) **consistent**, don't serialize — measure the rate and attempt a repro **in parallel**.
+
+Record the **measured** rate (failures / total runs, from the run data). You need it to size the validation loop in step 7.
+
+Then confirm it is not already handled:
+
+```bash
+git log --oneline -10 -- <test_file_path>          # recently fixed already?
+hogli ci:insights search "<test name or error>"    # historical context / existing fix — corroborate against the run data, do not trust blindly
+```
+
+An insight with a **merged fix** means the flake may already be resolved — read the fix, confirm _against the run data_ that it covers this failure, and report instead of re-fixing.
 
 ## 2. Extract the failure from CI
 
@@ -52,7 +83,7 @@ Capture before moving on:
 ## 3. Reproduce locally — before touching anything
 
 Escalate through these conditions until the failure appears.
-Stop at the first level that reproduces it; that level is your validation environment for step 6.
+Stop at the first level that reproduces it; that level is your validation environment for step 7.
 
 1. **Single run**: `hogli test <path>::<test>` — confirms the test runs at all.
 2. **Repetition loop** (default N=20): catches probabilistic flakes.
@@ -87,12 +118,12 @@ echo "$PASS passed, $FAIL failed out of $N"
 Two cost notes for the loop:
 
 - While reproducing, `break` after the first failure — one captured failure log is enough.
-  Complete all N runs only when measuring the failure rate or validating in step 6.
+  Complete all N runs only when measuring the failure rate or validating in step 7.
 - The `pnpm --filter=@posthog/frontend jest` script runs `pnpm build:products` before every invocation.
   Inside a loop, build once, then iterate with `pnpm --filter=@posthog/frontend exec jest ...`, which skips the rebuild.
 
 **If nothing reproduces after the full ladder**, the flake is CI-environment-specific.
-Proceed with a fix grounded in the CI evidence and root-cause analysis, and say so explicitly in the report — the validation in step 6 is then analytical, not empirical.
+Proceed with a fix grounded in the CI evidence and root-cause analysis, and say so explicitly in the report — the validation in step 7 is then analytical, not empirical.
 
 ## 4. Root-cause the flake
 
@@ -106,6 +137,20 @@ Match the symptom to a cause class; never patch the symptom.
 | Assertion on list order or generated IDs               | Nondeterministic ordering/IDs asserted as deterministic      |
 | Query can't see just-written data                      | Eventual consistency (ClickHouse), missing flush/commit      |
 | Only fails under `--maxWorkers=2` / contention         | Race condition surfaced by scheduling, too-tight timeout     |
+
+### When the cause isn't obvious, bisect
+
+If the symptom table doesn't point at a clear cause and the test file itself is unchanged (`git log -- <test_file>` is stale), the trigger is elsewhere — a neighbor test, a dependency bump, or a product change. Find _when_ it started instead of guessing:
+
+- **Bisect the CI run history first** (cheap, no local builds): from the step-1 timeline, take the last-green → first-red boundary and diff the commits in that window (`git log <good>..<bad>`). That short list often names the culprit outright.
+- **`git bisect` the code** when you can reproduce locally and the failure is (near-)deterministic:
+
+  ```bash
+  git bisect start <bad-sha> <good-sha>
+  git bisect run bash -c '<repro command>'   # exit 0 = good, non-zero = bad
+  ```
+
+  Caveat: for an intermittent flake, a _lucky pass_ at a step sends `git bisect` down the wrong path. Trust code-bisect only when the failure is deterministic; otherwise run the repro N times per step (fail if **any** iteration fails), or just use the CI run-history boundary.
 
 PostHog-specific patterns:
 
@@ -130,7 +175,54 @@ PostHog-specific patterns:
 - **Real time**: use `freeze_time`; never assert on `now()`-derived values.
 - **ClickHouse eventual consistency**: a query may not see just-inserted data — flush explicitly in the test setup rather than sleeping.
 
-## 5. Fix the root cause — never mask it
+## 5. Decide the outcome — fixing is one of three
+
+Once you know _why_ it flakes, ask whether the test should exist at all, before you spend effort stabilizing it.
+A flaky test is the one case where cost is already proven and value is not: it has demonstrably cost reruns, wall-clock, and attention.
+So apply `/writing-tests`' gate retroactively, with more force than you would to a new test:
+
+> **What realistic regression does this test catch that no existing test already catches?**
+
+Three outcomes are valid. Pick deliberately; don't default to the first.
+
+| Outcome         | When                                                                           | Next   |
+| --------------- | ------------------------------------------------------------------------------ | ------ |
+| **Fix it**      | Guards a real regression at roughly the right cost.                            | step 6 |
+| **Re-level it** | Worth guarding, but the flake is inherent to the level it runs at.             | below  |
+| **Delete it**   | You cannot name the regression it catches, or another test already catches it. | below  |
+
+### Delete it
+
+Recurring shapes that fail the gate:
+
+- **Tautological smoke test.** Asserts a precondition many sibling tests in the same file already need to run at all — that the chart rendered, that the list is non-empty.
+  Every later test is a stronger version of it.
+- **Duplicated coverage.** A thinner second test of a path an existing test already exercises.
+  Fold it in as a parameterized case, or drop it.
+- **Third-party assertion.** Flaky because it exercises a vendor's eventual consistency, scheduler, or API rather than our logic.
+  That is the vendor's test to write, and mock-based siblings usually already cover our side.
+- **Permanently gated.** Skipped everywhere but CI (missing credentials, opt-in marker), so nobody develops against it and only CI pays for it.
+
+Deletion is irreversible, so it carries a **higher** bar than a fix:
+
+- **Get explicit user approval**, the same gate quarantine carries.
+  Propose the deletion and hand back; don't take it yourself.
+- Account for the coverage: name what still catches this at file:line, or say plainly what is lost and why that's acceptable.
+  "Probably covered elsewhere" is not an answer — go read the sibling test.
+- Never delete to turn a red build green under time pressure.
+  That is quarantine with extra steps, and it is how real regressions ship.
+
+Then skip to step 8: there is nothing to loop.
+
+### Re-level it
+
+Move the test down the cost ladder in `/writing-tests` rather than hardening it in place.
+A round trip through a real broker, browser, or vendor API to prove logic a direct call could prove is testing the transport, and the transport is where the nondeterminism lives.
+Re-leveling removes the flake by construction, so prefer it over an increasingly elaborate wait.
+
+The replacement is a new test: run `/writing-tests`' gate on it, and validate it at its new level rather than against the old repro conditions, which no longer exist.
+
+## 6. Fix the root cause — never mask it
 
 | Tempting masking move                                              | Do instead                                                                                                                   |
 | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
@@ -139,11 +231,12 @@ PostHog-specific patterns:
 | Add retries (`pytest-rerunfailures` `--reruns`, `jest.retryTimes`) | Reserve for genuinely nondeterministic external infra, with a comment and a linked issue — never for product code under test |
 | Skip / quarantine the test                                         | Only with explicit user approval, with a linked issue                                                                        |
 | Loosen the assertion                                               | Make the data deterministic (sort, freeze, seed), keep the assertion strict                                                  |
+| Harden a test that shouldn't exist                                 | Go back to step 5 — deleting or re-leveling it is the cheaper fix                                                            |
 
 Keep the fix minimal and inside the test or its fixtures when possible.
 If the race is in product code, the flake found a real bug — fix the product code and say so in the report.
 
-## 6. Validate with an N-run loop
+## 7. Validate with an N-run loop
 
 Run the step-3 harness on the fixed code **under the same conditions that reproduced the failure** (same neighbors, worker count, contention).
 
@@ -155,15 +248,22 @@ If the flake was never reproducible locally, run N = 20 as a regression check an
 Any failure in the loop → back to step 4; the root cause was wrong or incomplete.
 Finish with one normal run of the surrounding file/suite to confirm the fix didn't break sibling tests.
 
-## 7. Report
+Re-leveled instead? The old repro conditions no longer apply.
+Loop the replacement at its own level, and confirm the flake is gone because the old test is gone, not because it got faster.
+
+Deleted instead? Nothing to loop.
+Run the surrounding file/suite once to confirm nothing depended on it, and carry the coverage argument into the report.
+
+## 8. Report
 
 ```text
 Test:            <file path>::<test name>
-Observed in CI:  <rate, e.g. ~1 in 8 runs over 2 weeks (ci:insights)>
+Observed in CI:  <measured rate from run data, e.g. 8/45 runs over 3h (gh run list); ci:insights corroborates>
 Local repro:     <command + conditions, e.g. 3/20 failures with neighbor X, maxWorkers=2 | not reproducible locally>
 Root cause:      <one or two sentences>
-Fix:             <what changed and why it removes the cause>
-Validation:      <N>/<N> passes under repro conditions | analytical only (CI-specific)
+Outcome:         fixed | re-leveled (<from> → <to>) | deleted
+Change:          <what changed and why it removes the cause; for a deletion, what still covers the behavior (file:line) and what coverage is genuinely lost>
+Validation:      <N>/<N> passes under repro conditions | <N>/<N> at the new level | analytical only (CI-specific) | n/a, deleted
 Follow-ups:      <product bug found, related tests with the same pattern, or none>
 ```
 
@@ -173,3 +273,5 @@ Follow-ups:      <product bug found, related tests with the same pattern, or non
 - Do not edit `.github/workflows/` as part of a flake fix.
 - Do not accept/update snapshots to make a flake pass.
 - If the same root-cause pattern clearly affects sibling tests, fix them in the same change only when mechanical; otherwise list them as follow-ups.
+- Do not delete a test without explicit user approval, plus either a named replacement for the coverage or a plain statement of what is lost.
+  Deletion is a valid outcome, never a shortcut to green.

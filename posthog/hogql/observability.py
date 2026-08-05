@@ -96,6 +96,7 @@ MATERIALIZED_PROPERTY_USAGE_TOTAL = PromCounter(
 MATERIALIZED_RANGE_REWRITE_TOTAL = PromCounter(
     "hogql_materialized_range_rewrite_total",
     "Range comparisons on materialized property columns by rewrite outcome. "
+    "'fired_compare' rewrote to a bare column comparison; 'fired_if_null' rewrote with an isNotNull(col) guard; "
     "'skipped' means a materialized source was identified but the bare (minmax-eligible) rewrite was unsafe.",
     labelnames=[*_BASE_LABELS, "result"],
 )
@@ -109,6 +110,13 @@ OBSERVABILITY_ERRORS_TOTAL = PromCounter(
     "Swallowed exceptions raised inside the type-observability code itself, by stage. "
     "Observability never propagates its own failures into query execution; this counter makes them visible.",
     labelnames=["stage"],
+)
+TYPE_SIMPLIFICATION_TOTAL = PromCounter(
+    "hogql_type_simplification_total",
+    "Operations removed or folded by the type-aware simplifier, by kind. Deliberately unsampled — "
+    "it only increments when typeAwareCastSimplification is enabled, so per-team pilot activity stays "
+    "visible despite the 1% sampling of the other type metrics.",
+    labelnames=["dialect", "kind"],
 )
 
 
@@ -137,6 +145,20 @@ def _safe(fn: _F) -> _F:
             return None
 
     return cast(_F, wrapper)
+
+
+_SIMPLIFICATION_KINDS = {
+    "redundant_cast",
+    "nullability_wrapper",
+    "null_fallback",
+    "constant_fold",
+    "json_fold",
+}
+
+
+@_safe
+def record_type_simplification(dialect: str, kind: str) -> None:
+    TYPE_SIMPLIFICATION_TOTAL.labels(dialect=_clean_tag(dialect), kind=_bounded(kind, _SIMPLIFICATION_KINDS)).inc()
 
 
 _UNKNOWN_REASONS = {
@@ -172,7 +194,9 @@ _MATERIALIZED_PROPERTY_RESULTS = {
     "materialized_column",
     "dynamic_materialized_column",
     "property_group",
+    "map_subscript",
     "json",
+    "json_subcolumn",
 }
 
 _RANGE_REWRITE_RESULTS = {"fired_compare", "fired_if_null", "skipped"}

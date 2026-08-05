@@ -70,6 +70,7 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
                                     fullWidth
                                     size="small"
                                     onClick={() => observe(scanner.id)}
+                                    disabledReason={observing ? 'Starting an observation…' : undefined}
                                     data-attr="vision-scan-pick-scanner"
                                     data-ph-capture-attribute-scanner-type={scanner.scanner_type}
                                 >
@@ -102,8 +103,8 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
 
 function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
-    const { observations, observationsLoading, dockOpen } = useValues(logic)
-    const { setDockOpen } = useActions(logic)
+    const { observations, observationsLoading, dockOpen, retryingObservationIds } = useValues(logic)
+    const { setDockOpen, retryObservation } = useActions(logic)
     // sessionRecordingPlayerLogic is keyed by playerKey+sessionRecordingId; seek the exact mounted
     // player by its bound props rather than a propless default instance.
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -166,7 +167,13 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
                         </div>
                     ) : (
                         observations.map((observation) => (
-                            <ObservationDockCard key={observation.id} observation={observation} onSeek={seekToTime} />
+                            <ObservationDockCard
+                                key={observation.id}
+                                observation={observation}
+                                onSeek={seekToTime}
+                                onRetry={() => retryObservation(observation.id)}
+                                retrying={retryingObservationIds.includes(observation.id)}
+                            />
                         ))
                     )}
                 </div>

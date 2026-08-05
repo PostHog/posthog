@@ -4,6 +4,7 @@ from posthog.schema import (
     CachedWebStatsTableQueryResponse,
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
+    WebAnalyticsPreComputeStrategy,
     WebExternalClicksTableQuery,
     WebExternalClicksTableQueryResponse,
     WebStatsTableQueryResponse,
@@ -12,11 +13,10 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 
-from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner, map_columns
+from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner
 
 
 class WebExternalClicksTableQueryRunner(WebAnalyticsQueryRunner[WebExternalClicksTableQueryResponse]):
@@ -71,7 +71,7 @@ GROUP BY "context.columns.url"
                 timings=self.timings,
                 placeholders={
                     "url_expr": url_expr,
-                    "all_properties": self._all_properties(),
+                    "all_properties": self.all_properties(),
                     "current_period": self._current_period_expression(),
                     "previous_period": self._previous_period_expression(),
                     "inside_periods": self._periods_expression(),
@@ -109,10 +109,6 @@ GROUP BY "context.columns.url"
             if expr is not None
         ]
 
-    def _all_properties(self) -> ast.Expr:
-        properties = self.query.properties + self._test_account_filters
-        return property_to_expr(properties, team=self.team)
-
     def _calculate(self):
         query = self.to_query()
         response = self.paginator.execute_hogql_query(
@@ -127,19 +123,7 @@ GROUP BY "context.columns.url"
 
         assert results is not None
 
-        results_mapped = map_columns(
-            results,
-            {
-                1: lambda tuple, row: (  # Visitors (tuple)
-                    self._unsample(tuple[0], row),
-                    self._unsample(tuple[1], row),
-                ),
-                2: lambda tuple, row: (  # Clicks (tuple)
-                    self._unsample(tuple[0], row),
-                    self._unsample(tuple[1], row),
-                ),
-            },
-        )
+        results_mapped = [list(row) for row in results]
 
         return WebStatsTableQueryResponse(
             columns=response.columns,
@@ -148,5 +132,6 @@ GROUP BY "context.columns.url"
             types=response.types,
             hogql=response.hogql,
             modifiers=self.modifiers,
+            preComputeStrategy=WebAnalyticsPreComputeStrategy.LIVE,
             **self.paginator.response_params(),
         )

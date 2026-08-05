@@ -3,27 +3,36 @@ import { createServer } from 'http'
 import { DateTime } from 'luxon'
 import { AddressInfo } from 'net'
 
-import { CyclotronInvocationQueueParametersFetchType } from '~/schema/cyclotron'
-import { logger } from '~/utils/logger'
+import { CyclotronInvocationQueueParametersFetchType } from '~/cdp/schema/cyclotron'
+import { logger } from '~/common/utils/logger'
 
+import { HogExecutorAsyncService } from '../../../src/cdp/services/hog-executor-async.service'
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
 import { HogInputsService } from '../../../src/cdp/services/hog-inputs.service'
+import { RecipientsManagerService } from '../../../src/cdp/services/managers/recipients-manager.service'
+import { TeamWorkflowsConfigService } from '../../../src/cdp/services/managers/team-workflows-config.service'
 import { EmailService } from '../../../src/cdp/services/messaging/email.service'
+import {
+    EmailSuppressionService,
+    emailSuppressionConfigFromEnv,
+} from '../../../src/cdp/services/messaging/email-suppression.service'
+import { EmailTrackingCodeSigner } from '../../../src/cdp/services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from '../../../src/cdp/services/messaging/recipient-tokens.service'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
-import { createHub } from '../../../src/utils/db/hub'
-import { parseJSON } from '../../utils/json-parse'
-import { promisifyCallback } from '../../utils/utils'
+import { createHub } from '~/common/utils/db/hub'
+import { parseJSON } from '~/common/utils/json-parse'
+import { promisifyCallback } from '~/common/utils/utils'
 import { compileHog } from '../templates/compiler'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
-import { EXTEND_OBJECT_KEY, isConnectionLevelError } from './hog-executor.service'
-import { selfLoopGuardCounter } from './self-loop-guard'
+import { isConnectionLevelError } from '../utils/cdp-fetch'
+import { EXTEND_OBJECT_KEY } from './hog-inputs.service'
+import { SELF_LOOP_DEPTH_PROPERTY, selfLoopGuardCounter } from './self-loop-guard'
 
 // Mock before importing fetch
-jest.mock('~/utils/request', () => {
-    const original = jest.requireActual('~/utils/request')
+jest.mock('~/common/utils/request', () => {
+    const original = jest.requireActual('~/common/utils/request')
     return {
         ...original,
         fetch: jest.fn().mockImplementation((url, options) => {
@@ -32,7 +41,7 @@ jest.mock('~/utils/request', () => {
     }
 })
 
-import { fetch } from '~/utils/request'
+import { fetch } from '~/common/utils/request'
 
 const cleanLogs = (logs: string[]): string[] => {
     // Replaces the function time with a fixed value to simplify testing
@@ -43,7 +52,7 @@ const cleanLogs = (logs: string[]): string[] => {
 
 describe('Hog Executor', () => {
     jest.setTimeout(1000)
-    let executor: HogExecutorService
+    let executor: HogExecutorAsyncService
     let hub: Hub
 
     beforeEach(async () => {
@@ -51,39 +60,73 @@ describe('Hog Executor', () => {
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
         hub = await createHub()
-        const hogInputsService = new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        const hogInputsService = new HogInputsService(
+            hub.integrationManager,
+            new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
+            hub.encryptedFields
+        )
         const emailService = new EmailService(
             {
                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
                 sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
                 sesRegion: hub.SES_REGION,
                 sesEndpoint: hub.SES_ENDPOINT,
+                sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
+                sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                sesTenantAttributionEnabled: hub.EMAIL_SES_TENANT_ATTRIBUTION_ENABLED,
             },
             hub.integrationManager,
+            new TeamWorkflowsConfigService(hub.postgres),
             hub.ENCRYPTION_SALT_KEYS,
-            hub.SITE_URL
+            hub.SITE_URL,
+            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+            new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+            new RecipientsManagerService(hub.postgres)
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
-        executor = new HogExecutorService(
+        executor = new HogExecutorAsyncService(
+            new HogExecutorService({ executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),
             {
-                hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
                 googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
-                emailQueueRouting: hub.CDP_EMAIL_QUEUE_ROUTING,
-                selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
+                siteUrl: hub.SITE_URL,
             },
-            { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
-            hogInputsService,
-            emailService,
-            recipientTokensService
+            {
+                teamManager: hub.teamManager,
+                hogInputsService,
+                emailService,
+                recipientTokensService,
+                // No push sends in this suite - the push queue type is covered by push-notification.service.test.ts
+                pushNotificationService: undefined as any,
+            }
         )
     })
 
     afterEach(() => {
         // Ensure any spies (e.g., execHog, Math.random, Date.now) are restored between tests
         jest.restoreAllMocks()
+    })
+
+    describe('getSensitiveValues', () => {
+        it('masks the nested secrets of every integration in an integration_multi input', () => {
+            const hogFunction = {
+                inputs_schema: [{ type: 'integration_multi', key: 'channels' }],
+            } as unknown as HogFunctionType
+            const inputs = {
+                channels: [
+                    { $integration_id: 1, access_token_raw: 'fcm-secret-token' },
+                    { $integration_id: 2, signing_key: 'apns-signing-key-secret' },
+                ],
+            }
+
+            const values = executor.hogExecutor.getSensitiveValues(hogFunction, inputs)
+
+            // Without integration_multi + array handling these secrets leak into team-visible logs.
+            expect(values).toContain('fcm-secret-token')
+            expect(values).toContain('apns-signing-key-secret')
+        })
     })
 
     describe('general event processing', () => {
@@ -104,6 +147,7 @@ describe('Hog Executor', () => {
             expect(result).toEqual({
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],
+                messageAssets: [],
                 invocation: {
                     state: {
                         globals: invocation.state.globals,
@@ -313,309 +357,48 @@ describe('Hog Executor', () => {
         })
     })
 
-    describe('filtering', () => {
-        it('builds the correct globals object when filtering', async () => {
-            const fn = createHogFunction({
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-            })
-
-            const inputGlobals = createHogExecutionGlobals({ groups: {} })
-            expect(inputGlobals.source).toBeUndefined()
-            const results = await executor.buildHogFunctionInvocations([fn], inputGlobals)
-
-            expect(results.invocations).toHaveLength(1)
-
-            expect(results.invocations[0].state.globals.source).toEqual({
-                name: 'Hog Function',
-                url: `http://localhost:8000/projects/1/functions/${fn.id}/configuration/`,
-            })
-        })
-
-        it('can filters incoming messages correctly', async () => {
-            const fn = createHogFunction({
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
-            })
-
-            const resultsShouldntMatch = await executor.buildHogFunctionInvocations(
-                [fn],
-                createHogExecutionGlobals({ groups: {} })
-            )
-            expect(resultsShouldntMatch.invocations).toHaveLength(0)
-            expect(resultsShouldntMatch.metrics).toHaveLength(1)
-
-            const resultsShouldMatch = await executor.buildHogFunctionInvocations(
-                [fn],
-                createHogExecutionGlobals({
-                    groups: {},
-                    event: {
-                        event: '$pageview',
-                        properties: {
-                            $current_url: 'https://posthog.com',
-                        },
-                    } as any,
-                })
-            )
-            expect(resultsShouldMatch.invocations).toHaveLength(1)
-            expect(resultsShouldMatch.metrics).toHaveLength(0)
-        })
-
-        it('can use elements_chain_texts', async () => {
-            const fn = createHogFunction({
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.elements_text_filter,
-            })
-
-            const elementsChain = (buttonText: string) =>
-                `span.LemonButton__content:attr__class="LemonButton__content"nth-child="2"nth-of-type="2"text="${buttonText}";span.LemonButton__chrome:attr__class="LemonButton__chrome"nth-child="1"nth-of-type="1";button.LemonButton.LemonButton--has-icon.LemonButton--secondary.LemonButton--status-default:attr__class="LemonButton LemonButton--secondary LemonButton--status-default LemonButton--has-icon"attr__type="button"nth-child="1"nth-of-type="1"text="${buttonText}";div.flex.gap-4.items-center:attr__class="flex gap-4 items-center"nth-child="1"nth-of-type="1";div.flex.flex-wrap.gap-4.justify-between:attr__class="flex gap-4 justify-between flex-wrap"nth-child="3"nth-of-type="3";div.flex.flex-1.flex-col.gap-4.h-full.relative.w-full:attr__class="relative w-full flex flex-col gap-4 flex-1 h-full"nth-child="1"nth-of-type="1";div.LemonTabs__content:attr__class="LemonTabs__content"nth-child="2"nth-of-type="1";div.LemonTabs.LemonTabs--medium:attr__class="LemonTabs LemonTabs--medium"attr__style="--lemon-tabs-slider-width: 48px; --lemon-tabs-slider-offset: 0px;"nth-child="1"nth-of-type="1";div.Navigation3000__scene:attr__class="Navigation3000__scene"nth-child="2"nth-of-type="2";main:nth-child="2"nth-of-type="1";div.Navigation3000:attr__class="Navigation3000"nth-child="1"nth-of-type="1";div:attr__id="root"attr_id="root"nth-child="3"nth-of-type="1";body.overflow-hidden:attr__class="overflow-hidden"attr__theme="light"nth-child="2"nth-of-type="1"`
-
-            const hogGlobals1 = createHogExecutionGlobals({
-                groups: {},
-                event: {
-                    uuid: 'uuid',
-                    event: '$autocapture',
-                    elements_chain: elementsChain('Not our text'),
-                    distinct_id: 'distinct_id',
-                    url: 'http://localhost:8000/events/1',
-                    properties: {
-                        $lib_version: '1.2.3',
-                    },
-                    timestamp: new Date().toISOString(),
-                },
-            })
-
-            const resultsShouldntMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals1)
-            expect(resultsShouldntMatch.invocations).toHaveLength(0)
-            expect(resultsShouldntMatch.metrics).toHaveLength(1)
-
-            const hogGlobals2 = createHogExecutionGlobals({
-                groups: {},
-                event: {
-                    uuid: 'uuid',
-                    event: '$autocapture',
-                    elements_chain: elementsChain('Reload'),
-                    distinct_id: 'distinct_id',
-                    url: 'http://localhost:8000/events/1',
-                    properties: {
-                        $lib_version: '1.2.3',
-                    },
-                    timestamp: new Date().toISOString(),
-                },
-            })
-
-            const resultsShouldMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals2)
-            expect(resultsShouldMatch.invocations).toHaveLength(1)
-            expect(resultsShouldMatch.metrics).toHaveLength(0)
-        })
-
-        it('can use elements_chain_href', async () => {
-            const fn = createHogFunction({
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.elements_href_filter,
-            })
-
-            const elementsChain = (link: string) =>
-                `span.LemonButton__content:attr__class="LemonButton__content"attr__href="${link}"href="${link}"nth-child="2"nth-of-type="2"text="Activity";span.LemonButton__chrome:attr__class="LemonButton__chrome"nth-child="1"nth-of-type="1";a.LemonButton.LemonButton--full-width.LemonButton--has-icon.LemonButton--secondary.LemonButton--status-alt.Link.NavbarButton:attr__class="Link LemonButton LemonButton--secondary LemonButton--status-alt LemonButton--full-width LemonButton--has-icon NavbarButton"attr__data-attr="menu-item-activity"attr__href="${link}"href="${link}"nth-child="1"nth-of-type="1"text="Activity";li.w-full:attr__class="w-full"nth-child="6"nth-of-type="6";ul:nth-child="1"nth-of-type="1";div.Navbar3000__top.ScrollableShadows__inner:attr__class="ScrollableShadows__inner Navbar3000__top"nth-child="1"nth-of-type="1";div.ScrollableShadows.ScrollableShadows--vertical:attr__class="ScrollableShadows ScrollableShadows--vertical"nth-child="1"nth-of-type="1";div.Navbar3000__content:attr__class="Navbar3000__content"nth-child="1"nth-of-type="1";nav.Navbar3000:attr__class="Navbar3000"nth-child="1"nth-of-type="1";div.Navigation3000:attr__class="Navigation3000"nth-child="1"nth-of-type="1";div:attr__id="root"attr_id="root"nth-child="3"nth-of-type="1";body.overflow-hidden:attr__class="overflow-hidden"attr__theme="light"nth-child="2"nth-of-type="1"`
-
-            const hogGlobals1 = createHogExecutionGlobals({
-                groups: {},
-                event: {
-                    uuid: 'uuid',
-                    event: '$autocapture',
-                    elements_chain: elementsChain('/project/1/not-a-link'),
-                    distinct_id: 'distinct_id',
-                    url: 'http://localhost:8000/events/1',
-                    properties: {
-                        $lib_version: '1.2.3',
-                    },
-                    timestamp: new Date().toISOString(),
-                },
-            })
-
-            const resultsShouldntMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals1)
-            expect(resultsShouldntMatch.invocations).toHaveLength(0)
-            expect(resultsShouldntMatch.metrics).toHaveLength(1)
-
-            const hogGlobals2 = createHogExecutionGlobals({
-                groups: {},
-                event: {
-                    uuid: 'uuid',
-                    event: '$autocapture',
-                    elements_chain: elementsChain('/project/1/activity/explore'),
-                    distinct_id: 'distinct_id',
-                    url: 'http://localhost:8000/events/1',
-                    properties: {
-                        $lib_version: '1.2.3',
-                    },
-                    timestamp: new Date().toISOString(),
-                },
-            })
-
-            const resultsShouldMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals2)
-            expect(resultsShouldMatch.invocations).toHaveLength(1)
-            expect(resultsShouldMatch.metrics).toHaveLength(0)
-        })
-
-        it('can use elements_chain_tags and _ids', async () => {
-            const fn = createHogFunction({
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.elements_tag_and_id_filter,
-            })
-
-            const elementsChain = (id: string) =>
-                `a.Link.font-semibold.text-text-3000.text-xl:attr__class="Link font-semibold text-xl text-text-3000"attr__href="/project/1/dashboard/1"attr__id="${id}"attr_id="${id}"href="/project/1/dashboard/1"nth-child="1"nth-of-type="1"text="My App Dashboard";div.ProjectHomepage__dashboardheader__title:attr__class="ProjectHomepage__dashboardheader__title"nth-child="1"nth-of-type="1";div.ProjectHomepage__dashboardheader:attr__class="ProjectHomepage__dashboardheader"nth-child="2"nth-of-type="2";div.ProjectHomepage:attr__class="ProjectHomepage"nth-child="1"nth-of-type="1";div.Navigation3000__scene:attr__class="Navigation3000__scene"nth-child="2"nth-of-type="2";main:nth-child="2"nth-of-type="1";div.Navigation3000:attr__class="Navigation3000"nth-child="1"nth-of-type="1";div:attr__id="root"attr_id="root"nth-child="3"nth-of-type="1";body.overflow-hidden:attr__class="overflow-hidden"attr__theme="light"nth-child="2"nth-of-type="1"`
-
-            const hogGlobals1 = createHogExecutionGlobals({
-                groups: {},
-                event: {
-                    uuid: 'uuid',
-                    event: '$autocapture',
-                    elements_chain: elementsChain('notfound'),
-                    distinct_id: 'distinct_id',
-                    url: 'http://localhost:8000/events/1',
-                    properties: {
-                        $lib_version: '1.2.3',
-                    },
-                    timestamp: new Date().toISOString(),
-                },
-            })
-
-            const resultsShouldntMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals1)
-            expect(resultsShouldntMatch.invocations).toHaveLength(0)
-            expect(resultsShouldntMatch.metrics).toHaveLength(1)
-
-            const hogGlobals2 = createHogExecutionGlobals({
-                groups: {},
-                event: {
-                    uuid: 'uuid',
-                    event: '$autocapture',
-                    elements_chain: elementsChain('homelink'),
-                    distinct_id: 'distinct_id',
-                    url: 'http://localhost:8000/events/1',
-                    properties: {
-                        $lib_version: '1.2.3',
-                    },
-                    timestamp: new Date().toISOString(),
-                },
-            })
-
-            const resultsShouldMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals2)
-            expect(resultsShouldMatch.invocations).toHaveLength(1)
-            expect(resultsShouldMatch.metrics).toHaveLength(0)
-        })
-    })
-
     describe('mappings', () => {
-        let fn: HogFunctionType
-        beforeEach(() => {
-            fn = createHogFunction({
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+        it('rebuilds mapping inputs when an invocation arrives without inputs (rerun path)', async () => {
+            // The rerun path strips `inputs` from the persisted globals and lets
+            // the executor rebuild them. For mapping destinations the mapping's
+            // own inputs (e.g. Google Ads `gclid`) must be re-merged — otherwise
+            // they resolve to nothing and the function early-exits on rerun.
+            const hog = `return inputs.gclid`
+            const mappingFn = createHogFunction({
+                hog,
+                bytecode: await compileHog(hog),
                 ...HOG_FILTERS_EXAMPLES.no_filters,
+                inputs_schema: [],
                 mappings: [
                     {
-                        // Filters for pageview or autocapture
-                        ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                        ...HOG_FILTERS_EXAMPLES.no_filters,
                         inputs: {
-                            url: {
+                            gclid: {
                                 order: 0,
-                                value: 'https://example.com?q={event.event}',
-                                bytecode: [
-                                    '_H',
-                                    1,
-                                    32,
-                                    'https://example.com?q=',
-                                    32,
-                                    'event',
-                                    32,
-                                    'event',
-                                    1,
-                                    2,
-                                    2,
-                                    'concat',
-                                    2,
-                                ],
+                                value: '{person.properties.gclid ?? person.properties.$initial_gclid}',
+                                bytecode: await compileHog(
+                                    'return person.properties.gclid ?? person.properties.$initial_gclid'
+                                ),
                             },
                         },
                     },
-                    {
-                        // No filters so should match all events
-                        ...HOG_FILTERS_EXAMPLES.no_filters,
-                    },
-
-                    {
-                        // Broken filters so shouldn't match
-                        ...HOG_FILTERS_EXAMPLES.broken_filters,
-                    },
                 ],
             })
-        })
 
-        it('can build mappings', async () => {
-            const pageviewGlobals = createHogExecutionGlobals({
-                event: {
-                    event: '$pageview',
-                    properties: {
-                        $current_url: 'https://posthog.com',
-                    },
-                } as any,
+            const invocation = createExampleInvocation(mappingFn, {
+                person: {
+                    id: 'uuid',
+                    name: 'test',
+                    url: 'http://localhost:8000/persons/1',
+                    properties: { email: 'test@posthog.com', $initial_gclid: 'INITIAL_TOKEN_ABC' },
+                },
             })
+            // Simulate the rerun blob: inputs are stripped before persistence.
+            expect(invocation.state.globals.inputs).toBeUndefined()
 
-            const results1 = await executor.buildHogFunctionInvocations([fn], pageviewGlobals)
-            expect(results1.invocations).toHaveLength(2)
-            expect(results1.metrics).toHaveLength(1)
-            expect(results1.logs).toHaveLength(1)
-            expect(results1.logs[0].message).toMatchInlineSnapshot(
-                `"Error filtering event uuid: Invalid HogQL bytecode, stack is empty, can not pop"`
-            )
-
-            const results2 = await executor.buildHogFunctionInvocations(
-                [fn],
-                createHogExecutionGlobals({
-                    event: {
-                        event: 'test',
-                    } as any,
-                })
-            )
-            expect(results2.invocations).toHaveLength(1)
-            expect(results2.metrics).toHaveLength(2)
-            expect(results2.logs).toHaveLength(1)
-
-            expect(results2.metrics[0].metric_name).toBe('filtered')
-            expect(results2.metrics[1].metric_name).toBe('filtering_failed')
-        })
-
-        it('generates the correct inputs', async () => {
-            const pageviewGlobals = createHogExecutionGlobals({
-                event: {
-                    event: '$pageview',
-                    properties: {
-                        $current_url: 'https://posthog.com',
-                    },
-                } as any,
-            })
-
-            const result = await executor.buildHogFunctionInvocations([fn], pageviewGlobals)
-            // First mapping has input overrides that should be applied
-            expect(result.invocations[0].state.globals.inputs.headers).toEqual({
-                version: 'v=',
-            })
-            expect(result.invocations[0].state.globals.inputs.url).toMatchInlineSnapshot(
-                `"https://example.com?q=$pageview"`
-            )
-            // Second mapping has no input overrides
-            expect(result.invocations[1].state.globals.inputs.headers).toEqual({
-                version: 'v=',
-            })
-            expect(result.invocations[1].state.globals.inputs.url).toMatchInlineSnapshot(
-                `"https://example.com/posthog-webhook"`
-            )
+            const res = await executor.execute(invocation)
+            expect(res.error).toBeUndefined()
+            expect(res.execResult).toBe('INITIAL_TOKEN_ABC')
         })
     })
 
@@ -991,6 +774,75 @@ describe('Hog Executor', () => {
             const result = await executor.execute(createAccountInvocation())
             expect(result.error).toContain('has no secret API token configured')
         })
+
+        it('captures exception with team_id when secret API token is missing', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: null,
+            } as any)
+
+            const posthogModule = require('~/common/utils/posthog')
+            const captureExceptionSpy = jest.spyOn(posthogModule, 'captureException')
+
+            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
+            await executor.execute(createAccountInvocation())
+
+            expect(captureExceptionSpy).toHaveBeenCalledWith(
+                expect.any(Error),
+                expect.objectContaining({ tags: expect.objectContaining({ team_id: 1 }) })
+            )
+        })
+
+        it('does not capture exception when queue is set up successfully', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: 'test-secret-token',
+            } as any)
+
+            const posthogModule = require('~/common/utils/posthog')
+            const captureExceptionSpy = jest.spyOn(posthogModule, 'captureException')
+
+            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
+            await executor.execute(createAccountInvocation())
+
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
+        })
+
+        it('postHogUpdateAccount queues a PATCH with external_id merged into the body', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: 'test-secret-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogUpdateAccount', [
+                { external_id: 'acme-1', updates: { tags: ['enterprise'], tags_mode: 'add' } },
+            ])
+
+            const result = await executor.execute(createAccountInvocation())
+
+            expect(result.invocation.queueParameters).toEqual({
+                type: 'fetch',
+                url: `${hub.SITE_URL}/api/customer_analytics/external/account`,
+                method: 'PATCH',
+                body: JSON.stringify({ external_id: 'acme-1', tags: ['enterprise'], tags_mode: 'add' }),
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: 'Bearer test-secret-token',
+                },
+            })
+        })
+
+        it('postHogUpdateAccount errors when external_id is missing', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: 'test-secret-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogUpdateAccount', [{ updates: { tags: ['enterprise'] } }])
+
+            const result = await executor.execute(createAccountInvocation())
+            expect(result.error).toContain("missing 'external_id'")
+        })
     })
 
     describe('produceToWarehouseWebhooks', () => {
@@ -1250,6 +1102,193 @@ describe('Hog Executor', () => {
             expect(result.invocation.queueScheduledAt).toBeUndefined()
         })
 
+        describe('aws_sigv4', () => {
+            // `secret: true` HogFunction inputs land in `encrypted_inputs` after
+            // Django's `move_secret_inputs` runs on save. The Node manager decrypts
+            // `encrypted_inputs` in memory before the executor sees the function, so
+            // by the time we reach the fetch path it's a plaintext map keyed by
+            // input name. Seed *that* field — not `inputs` — so the tests mirror the
+            // production data shape for the Kinesis template.
+            const seedAwsCredentialInputs = (invocation: CyclotronJobInvocationHogFunction) => {
+                invocation.hogFunction.encrypted_inputs = {
+                    ...(invocation.hogFunction.encrypted_inputs ?? {}),
+                    aws_access_key_id: { value: 'AKIDEXAMPLE' },
+                    aws_secret_access_key: { value: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY' },
+                } as any
+            }
+
+            const sigv4Refs = {
+                service: 'kinesis',
+                region: 'us-east-1',
+                access_key_id_input: 'aws_access_key_id',
+                secret_access_key_input: 'aws_secret_access_key',
+            }
+
+            it('signs the request and Authorization header arrives at the upstream', async () => {
+                let receivedAuth: string | undefined
+                let receivedAmzDate: string | undefined
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    receivedAuth = req.headers.authorization
+                    receivedAmzDate = req.headers['x-amz-date']
+                    res.writeHead(200, { 'Content-Type': 'text/plain' })
+                    res.end('ok')
+                })
+
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/`,
+                    method: 'POST',
+                    body: '{}',
+                    headers: { 'Content-Type': 'application/x-amz-json-1.1' },
+                    aws_sigv4: sigv4Refs,
+                })
+                seedAwsCredentialInputs(invocation)
+
+                await executor.executeFetch(invocation)
+
+                expect(receivedAmzDate).toBe('20250101T000000Z')
+                expect(receivedAuth).toMatch(
+                    /^AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE\/20250101\/us-east-1\/kinesis\/aws4_request, SignedHeaders=[a-z0-9;-]+, Signature=[a-f0-9]{64}$/
+                )
+            })
+
+            // Customer impact this prevents: the original bug ticket had a request
+            // signed at T, queued behind a timed-out attempt, then retried >5 min
+            // later — AWS rejected the retry with InvalidSignatureException because
+            // the X-Amz-Date inside the Authorization no longer matched server time.
+            it('produces a fresh signature on retry instead of reusing the original', async () => {
+                const receivedAuthHeaders: string[] = []
+                const receivedAmzDates: string[] = []
+                let callCount = 0
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    receivedAuthHeaders.push(req.headers.authorization)
+                    receivedAmzDates.push(req.headers['x-amz-date'])
+                    callCount++
+                    if (callCount === 1) {
+                        res.writeHead(500, { 'Content-Type': 'text/plain' })
+                        res.end('first attempt fails')
+                    } else {
+                        res.writeHead(200, { 'Content-Type': 'text/plain' })
+                        res.end('second attempt ok')
+                    }
+                })
+
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/`,
+                    method: 'POST',
+                    body: '{}',
+                    headers: { 'Content-Type': 'application/x-amz-json-1.1' },
+                    aws_sigv4: sigv4Refs,
+                })
+                seedAwsCredentialInputs(invocation)
+
+                let result = await executor.executeFetch(invocation)
+                expect(result.invocation.state.attempts).toBe(1)
+
+                // Simulate the cyclotron queue + backoff: by the time the retry
+                // actually runs, >6 minutes have passed. With the old "sign once
+                // in Hog" path this would push the signature past AWS's 5-minute
+                // window and the retry would 400 with InvalidSignatureException.
+                const retryTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' }).plus({
+                    minutes: 6,
+                })
+                jest.spyOn(Date, 'now').mockReturnValue(retryTime.toMillis())
+
+                result = await executor.executeFetch(result.invocation)
+
+                expect(receivedAmzDates[0]).toBe('20250101T000000Z')
+                expect(receivedAmzDates[1]).toBe('20250101T000600Z')
+                expect(receivedAuthHeaders[0]).not.toBe(receivedAuthHeaders[1])
+                expect(result.error).toBeUndefined()
+            })
+
+            // Defense in depth: queue payloads should never carry a stale
+            // Authorization, but if one ever leaks in (e.g. through a custom
+            // template that sets it directly), it must not be used.
+            it('overwrites any stale Authorization header sitting in the queue payload', async () => {
+                let receivedAuth: string | undefined
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    receivedAuth = req.headers.authorization
+                    res.writeHead(200, { 'Content-Type': 'text/plain' })
+                    res.end('ok')
+                })
+
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/`,
+                    method: 'POST',
+                    body: '{}',
+                    headers: {
+                        'Content-Type': 'application/x-amz-json-1.1',
+                        Authorization: 'AWS4-HMAC-SHA256 Credential=STALE/19700101/us-east-1/kinesis/aws4_request, ...',
+                        'X-Amz-Date': '19700101T000000Z',
+                    },
+                    aws_sigv4: sigv4Refs,
+                })
+                seedAwsCredentialInputs(invocation)
+
+                await executor.executeFetch(invocation)
+
+                expect(receivedAuth).not.toContain('STALE')
+                expect(receivedAuth).toContain('AKIDEXAMPLE/20250101/us-east-1/kinesis/aws4_request')
+            })
+
+            // Defense in depth for an unusual case: if a custom template wires
+            // up the credential as a non-secret input (`secret: false`), the value
+            // will live on `inputs` rather than `encrypted_inputs`. The lookup
+            // must fall through to `inputs` so signing still works.
+            it('falls back to plaintext inputs when encrypted_inputs does not carry the credential', async () => {
+                let receivedAuth: string | undefined
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    receivedAuth = req.headers.authorization
+                    res.writeHead(200, { 'Content-Type': 'text/plain' })
+                    res.end('ok')
+                })
+
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/`,
+                    method: 'POST',
+                    body: '{}',
+                    headers: { 'Content-Type': 'application/x-amz-json-1.1' },
+                    aws_sigv4: sigv4Refs,
+                })
+                invocation.hogFunction.inputs = {
+                    ...(invocation.hogFunction.inputs ?? {}),
+                    aws_access_key_id: { value: 'AKIDEXAMPLE' },
+                    aws_secret_access_key: { value: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY' },
+                } as any
+
+                await executor.executeFetch(invocation)
+
+                expect(receivedAuth).toContain('AKIDEXAMPLE/20250101/us-east-1/kinesis/aws4_request')
+            })
+
+            // If the input referenced by `*_input` is missing or non-string we must
+            // NOT fall through and ship an unsigned request to AWS — that'd 403 and
+            // potentially leak the request body in error logs.
+            it('errors loudly when the referenced credential input is missing', async () => {
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    res.writeHead(200, { 'Content-Type': 'text/plain' })
+                    res.end('ok')
+                })
+
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/`,
+                    method: 'POST',
+                    body: '{}',
+                    headers: { 'Content-Type': 'application/x-amz-json-1.1' },
+                    aws_sigv4: sigv4Refs,
+                })
+                // Intentionally do NOT seed inputs.
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(mockRequest).not.toHaveBeenCalled()
+                expect(result.error).toBeInstanceOf(Error)
+                expect(result.error.message).toContain('AWS SigV4 signing failed')
+                expect(result.error.message).toContain('aws_access_key_id')
+                expect(result.error.message).toContain('aws_secret_access_key')
+            })
+        })
+
         it('respects maxFetchRetries option to disable retries', async () => {
             mockRequest.mockImplementation((req: any, res: any) => {
                 res.writeHead(500, { 'Content-Type': 'text/plain' })
@@ -1506,7 +1545,9 @@ describe('Hog Executor', () => {
                 },
             }
 
-            jest.spyOn(executor['hogInputsService'], 'loadIntegrationInputs').mockResolvedValue(mockIntegrationInputs)
+            jest.spyOn(executor['deps'].hogInputsService, 'loadIntegrationInputs').mockResolvedValue(
+                mockIntegrationInputs
+            )
 
             const invocation = createExampleInvocation()
             invocation.state.globals.inputs = mockIntegrationInputs
@@ -1544,7 +1585,7 @@ describe('Hog Executor', () => {
 
         describe('with non_failure_status_codes', () => {
             beforeEach(() => {
-                const actualRequest = jest.requireActual('~/utils/request') as { fetch: typeof fetch }
+                const actualRequest = jest.requireActual('~/common/utils/request') as { fetch: typeof fetch }
                 jest.mocked(fetch).mockImplementation((url, options) => actualRequest.fetch(url, options))
             })
 
@@ -1756,66 +1797,42 @@ describe('Hog Executor', () => {
                 } as any)
             }
 
-            const setMode = (mode: 'disabled' | 'warn'): void => {
-                ;(executor as any).config.selfLoopGuardMode = mode
-            }
-
             const ownTokenCaptureBody = (): string =>
                 JSON.stringify({ api_key: OWN_TOKEN, event: 'replicated', distinct_id: 'u1', properties: {} })
 
-            // The detected count is the production signal that drives the enforce decision,
-            // so assert it actually moves - not just the human-facing log.
-            const readDetectedCount = async (): Promise<number> => {
-                const metric = await selfLoopGuardCounter.get()
-                return metric.values.find((v) => v.labels.mode === 'warn' && v.labels.action === 'detected')?.value ?? 0
+            // Seed this destination's own self-loop depth (keyed by its function id).
+            const setSelfLoopDepth = (invocation: CyclotronJobInvocationHogFunction, depth: number): void => {
+                invocation.state.globals.event.properties = {
+                    ...invocation.state.globals.event.properties,
+                    [SELF_LOOP_DEPTH_PROPERTY]: { [invocation.hogFunction.id]: depth },
+                }
             }
 
-            it('detects a self-referential ingest fetch and logs + meters it without blocking (warn)', async () => {
-                setMode('warn')
-                mockOwnTeam()
-                const invocation = await createFetchInvocation({
-                    url: INGEST_URL,
-                    method: 'POST',
-                    body: ownTokenCaptureBody(),
+            // Seed a high depth for a DIFFERENT function - simulates an event that passed
+            // through an unrelated deep chain. Must not count toward this destination.
+            const setOtherFunctionDepth = (invocation: CyclotronJobInvocationHogFunction, depth: number): void => {
+                invocation.state.globals.event.properties = {
+                    ...invocation.state.globals.event.properties,
+                    [SELF_LOOP_DEPTH_PROPERTY]: { 'some-other-function-id': depth },
+                }
+            }
+
+            // Capture the body sent to the (mocked) ingest endpoint without a real network call.
+            const captureIngestFetch = (): { getBody: () => string | undefined } => {
+                let sentBody: string | undefined
+                ;(fetch as jest.Mock).mockImplementationOnce((_url: string, options: any) => {
+                    sentBody = options.body
+                    return Promise.resolve({ status: 200, headers: {}, text: () => Promise.resolve('ok') })
                 })
-                ;(fetch as jest.Mock).mockImplementationOnce(() =>
-                    Promise.resolve({ status: 200, headers: {}, text: () => Promise.resolve('ok') })
-                )
-                const detectedBefore = await readDetectedCount()
+                return { getBody: () => sentBody }
+            }
 
-                const result = await executor.executeFetch(invocation)
-
-                // Observe-only: the fetch still happens and nothing errors.
-                expect(result.error).toBeUndefined()
-                expect(cleanLogs(result.logs.map((l) => l.message))).toEqual(
-                    expect.arrayContaining([expect.stringContaining('can form an event-forwarding loop')])
-                )
-                expect(await readDetectedCount()).toBe(detectedBefore + 1)
-            })
-
-            it('does not flag a normal external fetch even with the project token in the body', async () => {
-                setMode('warn')
-                mockOwnTeam()
-                const invocation = await createFetchInvocation({
-                    url: `${baseUrl}/test`,
-                    method: 'POST',
-                    body: ownTokenCaptureBody(),
-                })
-                mockRequest.mockClear()
-                const detectedBefore = await readDetectedCount()
-
-                const result = await executor.executeFetch(invocation)
-
-                expect(result.error).toBeUndefined()
-                expect(mockRequest).toHaveBeenCalled()
-                expect(cleanLogs(result.logs.map((l) => l.message))).not.toEqual(
-                    expect.arrayContaining([expect.stringContaining('event-forwarding loop')])
-                )
-                expect(await readDetectedCount()).toBe(detectedBefore)
-            })
+            const readActionCount = async (mode: string, action: string): Promise<number> => {
+                const metric = await selfLoopGuardCounter.get()
+                return metric.values.find((v) => v.labels.mode === mode && v.labels.action === action)?.value ?? 0
+            }
 
             it('fails open: a team lookup error never breaks the fetch', async () => {
-                setMode('warn')
                 jest.spyOn(hub.teamManager, 'getTeam').mockRejectedValue(new Error('db unavailable'))
                 const invocation = await createFetchInvocation({
                     url: INGEST_URL,
@@ -1830,6 +1847,96 @@ describe('Hog Executor', () => {
 
                 // Detection failing must not surface as a destination error.
                 expect(result.error).toBeUndefined()
+            })
+
+            // Every hop under the cap is allowed and its outgoing body stamped with this
+            // destination's next depth - including hop 0 (a fresh external event), which a
+            // legitimate run always is.
+            it.each([
+                { case: 'fresh hop 0 (a legitimate external run)', depth: 0, stampedTo: 1 },
+                { case: 'mid-chain under the cap', depth: 2, stampedTo: 3 },
+                { case: 'the last hop under the cap', depth: 9, stampedTo: 10 },
+            ])('enforce: allows + stamps the next hop ($case)', async ({ depth, stampedTo }) => {
+                mockOwnTeam()
+                const invocation = await createFetchInvocation({
+                    url: INGEST_URL,
+                    method: 'POST',
+                    body: ownTokenCaptureBody(),
+                })
+                setSelfLoopDepth(invocation, depth)
+                const sent = captureIngestFetch()
+                const blockedBefore = await readActionCount('enforce', 'blocked')
+
+                const result = await executor.executeFetch(invocation)
+
+                // Fetch proceeds, body carries this destination's incremented depth, nothing blocked.
+                expect(result.error).toBeUndefined()
+                expect(parseJSON(sent.getBody()!).properties[SELF_LOOP_DEPTH_PROPERTY][invocation.hogFunction.id]).toBe(
+                    stampedTo
+                )
+                expect(await readActionCount('enforce', 'blocked')).toBe(blockedBefore)
+            })
+
+            // The whole point of per-function depth: an event that arrived carrying a huge
+            // depth for a DIFFERENT function is treated as depth 0 here, so a legitimately
+            // running destination is never blocked by an unrelated deep chain.
+            it('enforce: does NOT block when the high depth belongs to another function', async () => {
+                mockOwnTeam()
+                const invocation = await createFetchInvocation({
+                    url: INGEST_URL,
+                    method: 'POST',
+                    body: ownTokenCaptureBody(),
+                })
+                setOtherFunctionDepth(invocation, 50)
+                const sent = captureIngestFetch()
+                const blockedBefore = await readActionCount('enforce', 'blocked')
+
+                const result = await executor.executeFetch(invocation)
+
+                // Allowed, stamped as this destination's first hop, not blocked.
+                expect(result.error).toBeUndefined()
+                expect(parseJSON(sent.getBody()!).properties[SELF_LOOP_DEPTH_PROPERTY][invocation.hogFunction.id]).toBe(
+                    1
+                )
+                expect(await readActionCount('enforce', 'blocked')).toBe(blockedBefore)
+            })
+
+            it('enforce: breaks the chain once it reaches the cap', async () => {
+                mockOwnTeam()
+                const invocation = await createFetchInvocation({
+                    url: INGEST_URL,
+                    method: 'POST',
+                    body: ownTokenCaptureBody(),
+                })
+                setSelfLoopDepth(invocation, 10)
+                mockRequest.mockClear()
+                const blockedBefore = await readActionCount('enforce', 'blocked')
+
+                const result = await executor.executeFetch(invocation)
+
+                // Blocked: error set, finished, no fetch attempted, metric moved.
+                expect(result.error).toBeInstanceOf(Error)
+                expect(result.finished).toBe(true)
+                expect(mockRequest).not.toHaveBeenCalled()
+                expect(await readActionCount('enforce', 'blocked')).toBe(blockedBefore + 1)
+                expect(cleanLogs(result.logs.map((l) => l.message))).toEqual(
+                    expect.arrayContaining([expect.stringContaining('event-forwarding loop has already repeated')])
+                )
+            })
+
+            it('enforce: leaves a normal external fetch untouched', async () => {
+                mockOwnTeam()
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/test`,
+                    method: 'POST',
+                    body: ownTokenCaptureBody(),
+                })
+                mockRequest.mockClear()
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(mockRequest).toHaveBeenCalled()
             })
         })
     })
@@ -1905,7 +2012,7 @@ describe('Hog Executor', () => {
         })
     })
 
-    describe('email queue routing config', () => {
+    describe('email queue routing', () => {
         const createEmailInvocation = (): CyclotronJobInvocationHogFunction => {
             const hogFunction = createHogFunction({ name: 'Email function', team_id: 123 })
             const invocation: CyclotronJobInvocationHogFunction = {
@@ -1924,101 +2031,23 @@ describe('Hog Executor', () => {
             return invocation
         }
 
-        const createExecutorWithRouting = (emailQueueRouting: string): HogExecutorService => {
-            const hogInputsService = new HogInputsService(
-                hub.integrationManager,
-                hub.ENCRYPTION_SALT_KEYS,
-                hub.SITE_URL
-            )
-            const emailService = new EmailService(
-                {
-                    sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
-                    sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
-                    sesRegion: hub.SES_REGION,
-                    sesEndpoint: hub.SES_ENDPOINT,
-                },
-                hub.integrationManager,
-                hub.ENCRYPTION_SALT_KEYS,
-                hub.SITE_URL
-            )
-            const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
-            return new HogExecutorService(
-                {
-                    hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
-                    googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
-                    fetchRetries: hub.CDP_FETCH_RETRIES,
-                    fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
-                    fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
-                    emailQueueRouting,
-                    selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
-                },
-                { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
-                hogInputsService,
-                emailService,
-                recipientTokensService
-            )
-        }
-
-        it('should send inline when routing is empty', async () => {
-            const exec = createExecutorWithRouting('')
+        it('should route email sends to the dedicated email queue', async () => {
             const invocation = createEmailInvocation()
 
-            const result = await exec.executeWithAsyncFunctions(invocation)
-
-            expect(result.invocation.queue).not.toBe('email')
-            expect(result.finished).toBe(true)
-        })
-
-        it('should route to email queue when team matches', async () => {
-            const exec = createExecutorWithRouting('123')
-            const invocation = createEmailInvocation()
-
-            const result = await exec.executeWithAsyncFunctions(invocation)
-
-            expect(result.invocation.queue).toBe('email')
-            expect(result.finished).toBe(false)
-        })
-
-        it('should send inline when team does not match', async () => {
-            const exec = createExecutorWithRouting('456')
-            const invocation = createEmailInvocation()
-
-            const result = await exec.executeWithAsyncFunctions(invocation)
-
-            expect(result.invocation.queue).not.toBe('email')
-            expect(result.finished).toBe(true)
-        })
-
-        it('should route based on percentage when under threshold', async () => {
-            const exec = createExecutorWithRouting('*:0.5')
-            const invocation = createEmailInvocation()
-
-            jest.spyOn(Math, 'random').mockReturnValue(0.3)
-            const result = await exec.executeWithAsyncFunctions(invocation)
-
-            expect(result.invocation.queue).toBe('email')
-            expect(result.finished).toBe(false)
-        })
-
-        it('should send inline when percentage roll is above threshold', async () => {
-            const exec = createExecutorWithRouting('*:0.5')
-            const invocation = createEmailInvocation()
-
-            jest.spyOn(Math, 'random').mockReturnValue(0.7)
-            const result = await exec.executeWithAsyncFunctions(invocation)
-
-            expect(result.invocation.queue).not.toBe('email')
-        })
-
-        it('should route all teams when config is *', async () => {
-            const exec = createExecutorWithRouting('*')
-            const invocation = createEmailInvocation()
-
-            const result = await exec.executeWithAsyncFunctions(invocation)
+            const result = await executor.executeWithAsyncFunctions(invocation)
 
             expect(result.invocation.queue).toBe('email')
             expect(result.invocation.queueMetadata?.originQueue).toBeDefined()
             expect(result.finished).toBe(false)
+        })
+
+        it('should send inline when isTest is set', async () => {
+            const invocation = createEmailInvocation()
+
+            const result = await executor.executeWithAsyncFunctions(invocation, { isTest: true })
+
+            expect(result.invocation.queue).not.toBe('email')
+            expect(result.finished).toBe(true)
         })
     })
 })

@@ -44,7 +44,7 @@ services:
     webhook-tester:
         profiles: [dev_tools]
 
-    # Replay capability - session recording storage
+    # Session-recording storage (replay).
     seaweedfs:
         profiles: [replay]
 

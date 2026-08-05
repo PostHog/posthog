@@ -1,8 +1,8 @@
 import { DateTime } from 'luxon'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
+import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { CyclotronPerson } from '~/cdp/types'
-import { HogFlowAction } from '~/schema/hogflow'
 
 import { findActionByType } from '../hogflow-utils'
 import { getWaitUntilTime, resolveTimezone } from './wait_until_time_window'
@@ -52,10 +52,18 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
             )
         })
 
-        it('should handle "any" time', () => {
+        it('should advance immediately for "any" time on a valid day', () => {
+            action.config.time = 'any' // day is 'any', so today is always valid -> window is open now
+            expect(getWaitUntilTime(action)).toBeNull()
+        })
+
+        it('should wait for the next valid day for "any" time when today is not valid', () => {
+            jest.setSystemTime(new Date('2025-01-01T10:00:00.000Z')) // a Wednesday
             action.config.time = 'any'
+            action.config.day = 'weekend'
             const result = getWaitUntilTime(action)
-            expect(result).toEqual(DateTime.utc().plus({ days: 1 }).startOf('day'))
+            expect(result).not.toBeNull()
+            expect([6, 7]).toContain(result!.weekday) // Saturday or Sunday
         })
 
         it('should handle time window spanning midnight', () => {
@@ -63,6 +71,57 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
             jest.setSystemTime(new Date('2025-01-01T22:00:00.000Z')) // Before window
             const result = getWaitUntilTime(action)
             expect(result).toEqual(DateTime.utc().set({ hour: 23, minute: 0, second: 0, millisecond: 0 }))
+        })
+
+        it('should advance immediately in the evening half of a window spanning midnight', () => {
+            action.config.time = ['23:00', '01:00']
+            jest.setSystemTime(new Date('2025-01-01T23:30:00.000Z')) // Inside, before midnight
+            expect(getWaitUntilTime(action)).toBeNull()
+        })
+
+        it('should advance immediately in the morning half of a window spanning midnight', () => {
+            action.config.time = ['23:00', '01:00']
+            jest.setSystemTime(new Date('2025-01-02T00:30:00.000Z')) // Inside, after midnight
+            expect(getWaitUntilTime(action)).toBeNull()
+        })
+
+        it('should wait for tonight when a window spanning midnight is not currently open', () => {
+            action.config.time = ['23:00', '01:00']
+            jest.setSystemTime(new Date('2025-01-01T02:00:00.000Z')) // After last night's window, before tonight's
+            expect(getWaitUntilTime(action)).toEqual(
+                DateTime.utc().set({ hour: 23, minute: 0, second: 0, millisecond: 0 })
+            )
+        })
+
+        it('anchors the morning half of a midnight-spanning window to the day it opened', () => {
+            action.config.day = ['wednesday']
+            action.config.time = ['23:00', '01:00']
+            // Thursday 00:30 is still inside the window that opened Wednesday 23:00
+            jest.setSystemTime(new Date('2025-01-02T00:30:00.000Z'))
+            expect(getWaitUntilTime(action)).toBeNull()
+        })
+
+        it('handles the morning half of a spanning window in a non-UTC timezone', () => {
+            action.config.timezone = 'America/New_York'
+            action.config.time = ['23:00', '01:00']
+            jest.setSystemTime(new Date('2025-01-15T05:30:00.000Z')) // 00:30 in New York
+            expect(getWaitUntilTime(action)).toBeNull()
+        })
+
+        it('handles the morning half of a spanning window on a DST fall-back night', () => {
+            action.config.timezone = 'America/New_York'
+            action.config.time = ['23:00', '01:00']
+            // 2025-11-02 is the US fall-back date; 04:30 UTC is 00:30 in New York, inside the window
+            jest.setSystemTime(new Date('2025-11-02T04:30:00.000Z'))
+            expect(getWaitUntilTime(action)).toBeNull()
+        })
+
+        it('handles the evening half of a spanning window on a DST spring-forward night', () => {
+            action.config.timezone = 'America/New_York'
+            action.config.time = ['23:00', '01:00']
+            // 2025-03-09 is the US spring-forward date; 03:30 UTC on the 10th is 23:30 on the 9th in New York
+            jest.setSystemTime(new Date('2025-03-10T03:30:00.000Z'))
+            expect(getWaitUntilTime(action)).toBeNull()
         })
 
         it('should handle time window with minutes', () => {

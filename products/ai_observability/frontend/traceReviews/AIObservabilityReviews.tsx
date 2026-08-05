@@ -15,10 +15,11 @@ import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { urls } from '~/scenes/urls'
-import { ExporterFormat } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ExporterFormat } from '~/types'
 
 import { aiObservabilityReviewsLogic, TRACE_REVIEWS_PER_PAGE } from './aiObservabilityReviewsLogic'
 import { TraceReviewValue } from './TraceReviewValue'
@@ -60,6 +61,13 @@ export function AIObservabilityReviews(): JSX.Element {
     if (!hasLoadedReviews) {
         exportDisabledReason = reviewsLoading ? 'Loading reviews...' : 'No reviews to export'
     }
+
+    // Creating an export requires editor access to the export resource.
+    const exportAccessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Export,
+        AccessControlLevel.Editor
+    )
+    const fileExportDisabledReason = exportDisabledReason ?? exportAccessControlDisabledReason ?? undefined
 
     const columns: LemonTableColumns<TraceReview> = [
         {
@@ -165,10 +173,12 @@ export function AIObservabilityReviews(): JSX.Element {
                                     {
                                         label: 'CSV',
                                         onClick: () => triggerFileExport(ExporterFormat.CSV, 'csv'),
+                                        disabledReason: fileExportDisabledReason,
                                     },
                                     {
                                         label: 'XLSX',
                                         onClick: () => triggerFileExport(ExporterFormat.XLSX, 'xlsx'),
+                                        disabledReason: fileExportDisabledReason,
                                     },
                                 ],
                             },

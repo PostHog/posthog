@@ -1,12 +1,16 @@
+import { useValues } from 'kea'
 import { RE2JS } from 're2js'
 import { useEffect, useState } from 'react'
 
 import { LemonBanner, LemonDropdownProps, LemonSelect, LemonSelectProps, LemonSelectSection } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isMobile } from 'lib/utils/dom'
 import {
     allOperatorsMapping,
@@ -21,6 +25,7 @@ import {
 } from 'lib/utils/operators'
 import { RE2_DOCS_LINK, formatRE2Error } from 'lib/utils/regexp'
 
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     GroupTypeIndex,
     PropertyDefinition,
@@ -31,6 +36,13 @@ import {
 } from '~/types'
 
 import { PropertyValue } from './PropertyValue'
+
+const STARTS_ENDS_WITH_OPERATORS = [
+    PropertyOperator.StartsWith,
+    PropertyOperator.NotStartsWith,
+    PropertyOperator.EndsWith,
+    PropertyOperator.NotEndsWith,
+]
 
 // OTel span.kind enum (https://opentelemetry.io/docs/specs/otel/trace/api/#spankind).
 const SPAN_KIND_OPTIONS: { key: number; label: string }[] = [
@@ -214,6 +226,9 @@ export function OperatorValueSelect({
 
     const [currentOperator, setCurrentOperator] = useState(startingOperator)
 
+    const { featureFlags } = useValues(featureFlagLogic)
+    const startsEndsWithEnabled = !!featureFlags[FEATURE_FLAGS.STARTS_WITH_ENDS_WITH_OPERATORS]
+
     const [operators, setOperators] = useState([] as Array<PropertyOperator>)
     useEffect(() => {
         let propertyType = propertyDefinition?.property_type
@@ -235,6 +250,12 @@ export function OperatorValueSelect({
             )
         ) {
             propertyType = PropertyType.StringArray
+        } else if (type === PropertyFilterType.Recording && propertyKey) {
+            // Recording properties have no entry in propertyDefinitions, so resolve their type from
+            // the authoritative taxonomy (e.g. numeric activity counts get range operators + a numeric
+            // input). Reading CORE_FILTER_DEFINITIONS_BY_GROUP keeps this in sync with the one source
+            // of truth rather than a hardcoded key list that drifts as new recording filters are added.
+            propertyType = getCoreFilterDefinition(propertyKey, TaxonomicFilterGroupType.Replay)?.type ?? propertyType
         }
 
         const operatorMapping: Record<string, string> = chooseOperatorMap(propertyType)
@@ -243,7 +264,16 @@ export function OperatorValueSelect({
             (op) => !operatorAllowlist || operatorAllowlist.includes(op)
         )
 
-        // Restrict message log property to only allow exact, is_not, contains, not contains, regex, and not regex operators
+        // Hidden until SDK local evaluation supports these operators; existing filters using them still
+        // render and evaluate, they just can't be newly selected without the flag. Keep the
+        // currently-selected operator in the list even when hidden, so an existing filter doesn't get
+        // silently reset to Exact and lose its operator on the next edit. Deliberately compares the
+        // saved `operator` prop, not `currentOperator` state: the prop is what protects a saved filter.
+        if (!startsEndsWithEnabled) {
+            operators = operators.filter((op) => !STARTS_ENDS_WITH_OPERATORS.includes(op) || op === operator)
+        }
+
+        // Restrict message log property to only allow string-search operators
         if (propertyKey === 'message' && type === PropertyFilterType.Log) {
             operators = operators.filter((op) =>
                 [
@@ -251,6 +281,7 @@ export function OperatorValueSelect({
                     PropertyOperator.IsNot,
                     PropertyOperator.IContains,
                     PropertyOperator.NotIContains,
+                    ...STARTS_ENDS_WITH_OPERATORS,
                     PropertyOperator.Regex,
                     PropertyOperator.NotRegex,
                 ].includes(op)
@@ -289,7 +320,7 @@ export function OperatorValueSelect({
             )
         }
 
-        // Restrict span name to string equality/contains operators
+        // Restrict span name to string-search operators
         if (propertyKey === 'name' && type === PropertyFilterType.Span) {
             operators = operators.filter((op) =>
                 [
@@ -297,6 +328,7 @@ export function OperatorValueSelect({
                     PropertyOperator.IsNot,
                     PropertyOperator.IContains,
                     PropertyOperator.NotIContains,
+                    ...STARTS_ENDS_WITH_OPERATORS,
                     PropertyOperator.Regex,
                     PropertyOperator.NotRegex,
                 ].includes(op)
@@ -319,7 +351,7 @@ export function OperatorValueSelect({
             }
             setCurrentOperator(defaultProperty)
         }
-    }, [propertyDefinition, propertyKey, operator, operatorAllowlist, type]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [propertyDefinition, propertyKey, operator, operatorAllowlist, type, startsEndsWithEnabled]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const validationError = currentOperator && value ? getValidationError(currentOperator, value, propertyKey) : null
 

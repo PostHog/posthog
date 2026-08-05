@@ -1,5 +1,6 @@
-import { createTestEventHeaders } from '../../../../tests/helpers/event-headers'
-import { dlq, ok } from '../../pipelines/results'
+import { dlq, ok } from '~/ingestion/framework/results'
+import { createTestEventHeaders } from '~/tests/helpers/event-headers'
+
 import { createDenyEventsStep } from './deny-events'
 
 function makeInput(eventName: string | undefined) {

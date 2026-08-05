@@ -1,27 +1,72 @@
 import { JSONContent } from '@tiptap/core'
+import { useRef, useState } from 'react'
 
-import { IconCopy, IconLock, IconWarning } from '@posthog/icons'
-import { LemonButton, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
+import {
+    IconCopy,
+    IconThumbsDown,
+    IconThumbsDownFilled,
+    IconThumbsUp,
+    IconThumbsUpFilled,
+    IconWarning,
+} from '@posthog/icons'
+import { LemonButton, LemonInput, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import type { ChatMessage, MessageDeliveryStatus } from '../../types'
+import type { AiReplyFeedbackRating, ChatMessage, MessageDeliveryStatus } from '../../types'
 import { SupportMarkdown, SupportRichContentPreview } from '../Editor'
+import { TeamOnlyBadge } from './TeamOnlyBadge'
 
 export interface MessageProps {
     message: ChatMessage
     isCustomer: boolean
     deliveryStatus?: MessageDeliveryStatus
+    showAiReplyFeedback?: boolean
+    aiReplyFeedbackRating?: AiReplyFeedbackRating | null
+    aiReplyFeedbackDisabledReason?: string
+    onSubmitAiReplyFeedback?: (rating: AiReplyFeedbackRating, feedbackText?: string) => void
 }
 
-export function Message({ message, isCustomer, deliveryStatus }: MessageProps): JSX.Element {
+export function Message({
+    message,
+    isCustomer,
+    deliveryStatus,
+    showAiReplyFeedback = false,
+    aiReplyFeedbackRating = null,
+    aiReplyFeedbackDisabledReason,
+    onSubmitAiReplyFeedback,
+}: MessageProps): JSX.Element {
     const profileType = message.authorType === 'AI' ? 'bot' : 'person'
     const isPrivate = message.isPrivate
+    const [feedbackText, setFeedbackText] = useState('')
+    const [feedbackTextSubmitted, setFeedbackTextSubmitted] = useState(false)
+    const wasRatedOnMount = useRef(!!aiReplyFeedbackRating)
+    const showBadFeedbackInput =
+        showAiReplyFeedback &&
+        aiReplyFeedbackRating === 'bad' &&
+        !wasRatedOnMount.current &&
+        !feedbackTextSubmitted &&
+        !!onSubmitAiReplyFeedback
+
+    function submitRating(rating: AiReplyFeedbackRating): void {
+        if (aiReplyFeedbackDisabledReason || aiReplyFeedbackRating || !onSubmitAiReplyFeedback) {
+            return
+        }
+        onSubmitAiReplyFeedback(rating)
+    }
+
+    function submitBadFeedbackText(): void {
+        if (aiReplyFeedbackDisabledReason || !feedbackText.trim() || !onSubmitAiReplyFeedback) {
+            return
+        }
+        onSubmitAiReplyFeedback('bad', feedbackText.trim())
+        setFeedbackTextSubmitted(true)
+    }
 
     return (
         <div className={`flex ${isCustomer ? 'mr-10' : 'flex-row-reverse ml-10'} mb-4`}>
-            <div className="flex gap-2">
+            <div className="flex gap-2 min-w-0">
                 <div className="flex flex-col min-w-0 items-start">
                     <div className="flex items-center justify-between w-full gap-2 mb-1">
                         <ProfilePicture
@@ -32,14 +77,7 @@ export function Message({ message, isCustomer, deliveryStatus }: MessageProps): 
                             showName={true}
                         />
                         <div className="flex items-center gap-1.5">
-                            {isPrivate && (
-                                <Tooltip title="Only visible to your team">
-                                    <span className="inline-flex items-center gap-0.5 text-xs text-warning-dark bg-warning-highlight px-1.5 py-0.5 rounded">
-                                        <IconLock className="text-xs" />
-                                        Private note
-                                    </span>
-                                </Tooltip>
-                            )}
+                            {isPrivate && <TeamOnlyBadge label="Private note" />}
                             <span className="text-xs text-muted-alt">
                                 <TZLabel time={message.createdAt} />
                             </span>
@@ -48,7 +86,11 @@ export function Message({ message, isCustomer, deliveryStatus }: MessageProps): 
                     <div className="max-w-full min-w-80">
                         <div
                             className={`border py-2 px-3 rounded-lg ${
-                                isPrivate ? 'bg-warning-highlight border-warning' : 'bg-surface-primary'
+                                isPrivate
+                                    ? 'bg-warning-highlight border-warning'
+                                    : isCustomer
+                                      ? 'bg-surface-secondary'
+                                      : 'bg-surface-primary'
                             } [&_img]:max-h-64 [&_.SupportEditor__image]:max-h-64`}
                         >
                             {isPrivate && (
@@ -63,15 +105,98 @@ export function Message({ message, isCustomer, deliveryStatus }: MessageProps): 
                                     </Tooltip>
                                 </div>
                             )}
+                            {/* Every message here is untrusted: customers write them, imports carry them,
+                                and agents generate them from customer text. An inline remote image would
+                                fetch on open, leaking the reader's IP or probing hosts their browser can
+                                reach. PostHog-hosted images (attachments included) still render inline;
+                                anything else becomes a click-to-open link. */}
                             {message.richContent ? (
                                 <SupportRichContentPreview
                                     content={message.richContent as JSONContent}
                                     className="text-sm"
+                                    fallbackContent={message.content}
+                                    fallbackDisableImages={message.fromZendesk}
                                 />
                             ) : (
-                                <SupportMarkdown className="text-sm">{message.content}</SupportMarkdown>
+                                <SupportMarkdown className="text-sm" disableImages>
+                                    {message.content}
+                                </SupportMarkdown>
                             )}
                         </div>
+                        {showAiReplyFeedback && (
+                            <div className="mt-1.5 space-y-1.5">
+                                <div className="flex items-center gap-1">
+                                    {aiReplyFeedbackRating !== 'bad' && (
+                                        <LemonButton
+                                            icon={
+                                                aiReplyFeedbackRating === 'good' ? (
+                                                    <IconThumbsUpFilled />
+                                                ) : (
+                                                    <IconThumbsUp />
+                                                )
+                                            }
+                                            type="tertiary"
+                                            size="xsmall"
+                                            tooltip="Good reply"
+                                            disabledReason={
+                                                aiReplyFeedbackDisabledReason ??
+                                                (aiReplyFeedbackRating ? 'Feedback already recorded' : undefined)
+                                            }
+                                            onClick={() => submitRating('good')}
+                                            data-attr="ai-reply-feedback-good"
+                                        />
+                                    )}
+                                    {aiReplyFeedbackRating !== 'good' && (
+                                        <LemonButton
+                                            icon={
+                                                aiReplyFeedbackRating === 'bad' ? (
+                                                    <IconThumbsDownFilled />
+                                                ) : (
+                                                    <IconThumbsDown />
+                                                )
+                                            }
+                                            type="tertiary"
+                                            size="xsmall"
+                                            tooltip="Bad reply"
+                                            disabledReason={
+                                                aiReplyFeedbackDisabledReason ??
+                                                (aiReplyFeedbackRating ? 'Feedback already recorded' : undefined)
+                                            }
+                                            onClick={() => submitRating('bad')}
+                                            data-attr="ai-reply-feedback-bad"
+                                        />
+                                    )}
+                                </div>
+                                {showBadFeedbackInput && (
+                                    <div className="flex w-full gap-1.5 items-center">
+                                        <LemonInput
+                                            placeholder="What was wrong with this reply?"
+                                            fullWidth
+                                            size="small"
+                                            value={feedbackText}
+                                            onChange={setFeedbackText}
+                                            onPressEnter={submitBadFeedbackText}
+                                            disabledReason={aiReplyFeedbackDisabledReason}
+                                            autoFocus
+                                        />
+                                        <LemonButton
+                                            type="primary"
+                                            size="small"
+                                            onClick={submitBadFeedbackText}
+                                            disabledReason={
+                                                aiReplyFeedbackDisabledReason ??
+                                                (!feedbackText.trim() ? 'Please type a few words' : undefined)
+                                            }
+                                        >
+                                            Submit
+                                        </LemonButton>
+                                    </div>
+                                )}
+                                {aiReplyFeedbackRating === 'bad' && feedbackTextSubmitted && (
+                                    <span className="text-xs text-muted-alt">Thanks for your feedback</span>
+                                )}
+                            </div>
+                        )}
                         <div className="flex items-center justify-end gap-1">
                             {message.emailDeliveryStatus === 'failed' ? (
                                 <Tooltip title="We couldn't deliver this email reply. Please check the email channel settings and contact support if the issue persists.">

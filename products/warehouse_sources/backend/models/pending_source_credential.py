@@ -7,7 +7,7 @@ from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UUIDTModel, sane_repr
 
-from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 PENDING_CREDENTIAL_TTL = timedelta(hours=24)
 

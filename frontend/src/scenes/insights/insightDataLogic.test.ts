@@ -4,22 +4,30 @@ jest.mock('~/queries/query', () => ({
     performQuery: jest.fn().mockResolvedValue({ result: [] }),
 }))
 
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 import { useMocks } from '~/mocks/jest'
+import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { performQuery } from '~/queries/query'
 import {
     FunnelsQuery,
     InsightVizNode,
+    Node,
     NodeKind,
     ResultCustomizationBy,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import { FunnelVizType, InsightShortId, InsightType } from '~/types'
 
@@ -38,6 +46,14 @@ describe('insightDataLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/insights/trend': [],
+                // insightLogic mounts alongside and fetches its insight by short_id; without
+                // a match it errors with "Insight ... not found"
+                '/api/environments/:team_id/insights/': ({ request }: { request: Request }) => [
+                    200,
+                    {
+                        results: [{ id: 1, short_id: new URL(request.url).searchParams.get('short_id'), query: null }],
+                    },
+                ],
             },
         })
         initKeaTests()
@@ -234,6 +250,88 @@ describe('insightDataLogic', () => {
                 }).mount()
             }).toMatchValues({ query: updatedCachedQuery })
         })
+
+        // On a dashboard tile, `setQuery` is shared with insightVizDataLogic, whose listener calls
+        // props.setQuery (persistDisplayOptions). If a tile re-render re-syncs the incoming cached
+        // query via setQuery, it loops back into a PATCH of that (stale) query, reverting a display
+        // option the user just saved. propsChanged must use syncQueryFromProps on dashboard tiles.
+        it('syncs a changed cached query via syncQueryFromProps, not setQuery, on a dashboard tile', async () => {
+            const localUpdatedQuery = buildLocalUpdatedQuery()
+            const staleCachedQuery: InsightVizNode = {
+                ...baseQuery,
+                source: {
+                    ...baseQuery.source,
+                    dateRange: {
+                        ...baseQuery.source.dateRange,
+                        date_from: '-14d',
+                    },
+                },
+            }
+
+            const logic = insightDataLogic({
+                dashboardItemId: Insight123,
+                dashboardId: 99,
+                cachedInsight: { short_id: Insight123, query: baseQuery } as any,
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setQuery(localUpdatedQuery)
+            }).toMatchValues({ query: localUpdatedQuery })
+
+            await expectLogic(logic, () => {
+                insightDataLogic({
+                    dashboardItemId: Insight123,
+                    dashboardId: 99,
+                    cachedInsight: { short_id: Insight123, query: staleCachedQuery } as any,
+                    loadPriority: 1,
+                }).mount()
+            })
+                .toDispatchActions(['syncQueryFromProps'])
+                .toNotHaveDispatchedActions(['setQuery'])
+                .toMatchValues({ query: staleCachedQuery })
+        })
+    })
+
+    describe('a query carried in the URL', () => {
+        it('is not overwritten when the saved insight loads', async () => {
+            const savedQuery = setLatestVersionsOnQuery({
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                    dateRange: { date_from: '-7d' },
+                    interval: 'day',
+                },
+            }) as InsightVizNode
+            const sharedQuery = setLatestVersionsOnQuery({
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                    dateRange: { date_from: '-30d' },
+                    interval: 'week',
+                },
+            }) as InsightVizNode
+
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': {
+                        results: [{ id: 1, short_id: Insight123, query: savedQuery }],
+                    },
+                },
+            })
+
+            theInsightDataLogic.actions.setQuery(sharedQuery, true)
+
+            await expectLogic(theInsightDataLogic, () => {
+                theInsightLogic.actions.loadInsight(Insight123)
+            })
+                .toDispatchActions(theInsightLogic, ['loadInsightSuccess'])
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['syncQueryFromProps'])
+                .toMatchValues({ query: sharedQuery })
+        })
     })
 
     describe('reacts when the insight changes', () => {
@@ -245,7 +343,7 @@ describe('insightDataLogic', () => {
             })
                 .toDispatchActions(['setQuery'])
                 .toMatchValues({
-                    query: {
+                    query: setLatestVersionsOnQuery({
                         kind: NodeKind.InsightVizNode,
                         source: {
                             breakdownFilter: {
@@ -305,9 +403,8 @@ describe('insightDataLogic', () => {
                             trendsFilter: {
                                 display: 'ActionsAreaGraph',
                             },
-                            version: 2,
                         },
-                    },
+                    }),
                 })
         })
         it('does not set query override is not set', async () => {
@@ -415,5 +512,150 @@ describe('insightDataLogic', () => {
             expect(mockedPerformQuery).not.toHaveBeenCalled()
             logic.unmount()
         })
+    })
+
+    describe('persistDisplayOptions', () => {
+        const insightId = 42
+        const Insight42 = '42' as InsightShortId
+        const baseQuery: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: { kind: NodeKind.TrendsQuery, series: [] },
+        }
+        const updatedQuery: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: { kind: NodeKind.TrendsQuery, series: [], trendsFilter: { showLegend: true } as any },
+        }
+
+        let logic: ReturnType<typeof insightDataLogic.build>
+        let patchSpy: jest.Mock
+
+        beforeEach(() => {
+            patchSpy = jest.fn().mockResolvedValue([200, { id: insightId, short_id: Insight42, query: updatedQuery }])
+            useMocks({
+                patch: { '/api/environments/:team_id/insights/:id': patchSpy },
+            })
+
+            const props = {
+                dashboardItemId: Insight42,
+                cachedInsight: { id: insightId, short_id: Insight42, query: baseQuery } as any,
+            }
+            insightsModel.mount()
+            insightLogic(props).mount()
+            logic = insightDataLogic(props)
+            logic.mount()
+        })
+
+        it('debounces and fires renameInsightSuccess on success', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.persistDisplayOptions(updatedQuery)
+            })
+                .toFinishAllListeners()
+                .toDispatchActions(['renameInsightSuccess'])
+
+            expect(patchSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('collapses multiple rapid dispatches into a single PATCH', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.persistDisplayOptions(updatedQuery)
+                logic.actions.persistDisplayOptions(updatedQuery)
+                logic.actions.persistDisplayOptions(updatedQuery)
+            })
+                .toFinishAllListeners()
+                .toDispatchActions(['renameInsightSuccess'])
+
+            expect(patchSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('skips the PATCH when the query is unchanged from the saved insight', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.persistDisplayOptions(baseQuery)
+            }).toFinishAllListeners()
+
+            expect(patchSpy).not.toHaveBeenCalled()
+        })
+
+        it('skips the PATCH while this insight is being edited in the insight scene', async () => {
+            // Editing an insight opened from a dashboard reuses the tile's keyed logic, which wired
+            // persistDisplayOptions as props.setQuery. The scene must persist only via explicit save.
+            sceneLogic.mount()
+            sceneLogic.actions.setScene(Scene.Insight, undefined, {} as any)
+            const findMountedSpy = jest.spyOn(insightSceneLogic, 'findMounted').mockReturnValue({
+                values: { insightLogicRef: { logic: { key: Insight42 } } },
+            } as any)
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.persistDisplayOptions(updatedQuery)
+                }).toFinishAllListeners()
+
+                expect(patchSpy).not.toHaveBeenCalled()
+            } finally {
+                findMountedSpy.mockRestore()
+                sceneLogic.unmount()
+            }
+        })
+    })
+
+    describe('draft query persistence', () => {
+        const draftKey = `draft-query-${MOCK_TEAM_ID}`
+        const newInsightQuery = (mutate?: (query: any) => void): Node => {
+            const query = JSON.parse(JSON.stringify(getDefaultQuery(InsightType.TRENDS, false)))
+            mutate?.(query)
+            return query
+        }
+
+        let logic: ReturnType<typeof insightDataLogic.build>
+
+        beforeEach(() => {
+            localStorage.removeItem(draftKey)
+            sceneLogic.mount()
+            sceneLogic.actions.setScene(Scene.Insight, undefined, {} as any)
+            logic = insightDataLogic({ dashboardItemId: 'new' })
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            sceneLogic.unmount()
+            localStorage.removeItem(draftKey)
+        })
+
+        const cosmeticOnlyEdit = (q: any): void => {
+            q.source.dateRange = { date_from: '-90d' }
+        }
+        const tooLargeEdit = (q: any): void => {
+            q.source.series[0].event = 'x'.repeat(1024 * 1024 + 1)
+        }
+
+        it.each([
+            ['reverts to a cosmetic-only diff', cosmeticOnlyEdit],
+            ['grows too large to store', tooLargeEdit],
+        ])('clears the draft it persisted when the query %s', async (_, mutate) => {
+            await expectLogic(logic, () => {
+                logic.actions.setQuery(newInsightQuery((q) => (q.source.series[0].event = 'purchase')))
+            }).toFinishAllListeners()
+            expect(localStorage.getItem(draftKey)).not.toBeNull()
+
+            await expectLogic(logic, () => {
+                logic.actions.setQuery(newInsightQuery(mutate))
+            }).toFinishAllListeners()
+            expect(localStorage.getItem(draftKey)).toBeNull()
+        })
+
+        it.each([
+            ['a cosmetic-only query', cosmeticOnlyEdit],
+            ['a too-large query', tooLargeEdit],
+        ])(
+            "does not clear another session's draft when it has not persisted one itself and sets %s",
+            async (_, mutate) => {
+                localStorage.setItem(draftKey, JSON.stringify({ query: { kind: 'TrendsQuery' }, timestamp: 1 }))
+
+                await expectLogic(logic, () => {
+                    logic.actions.setQuery(newInsightQuery(mutate))
+                }).toFinishAllListeners()
+                expect(localStorage.getItem(draftKey)).not.toBeNull()
+            }
+        )
     })
 })

@@ -1,65 +1,67 @@
-from django.db.models import Q
-
-import structlog
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
+from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
+from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 
-from products.error_tracking.backend.models import ErrorTrackingStackFrame
-from products.error_tracking.backend.presentation.views.releases import ErrorTrackingReleaseSerializer
+from products.error_tracking.backend.facade import (
+    api as error_tracking_api,
+    contracts,
+)
+from products.error_tracking.backend.presentation.pagination import paginate_via_facade
 
-logger = structlog.get_logger(__name__)
 
-
-class ErrorTrackingStackFrameSerializer(serializers.ModelSerializer):
-    symbol_set_ref = serializers.CharField(source="symbol_set.ref", default=None)
-    release = ErrorTrackingReleaseSerializer(source="symbol_set.release", read_only=True)
-    raw_id = serializers.SerializerMethodField()
-
+class ErrorTrackingStackFrameSerializer(DataclassSerializer):
     class Meta:
-        model = ErrorTrackingStackFrame
-        fields = ["id", "raw_id", "created_at", "contents", "resolved", "context", "symbol_set_ref", "release"]
-
-    @extend_schema_field(serializers.CharField(help_text="Raw frame ID in 'hash/part' format"))
-    def get_raw_id(self, obj):
-        return obj.raw_id + "/" + str(obj.part)
+        dataclass = contracts.ErrorTrackingStackFrame
 
 
-class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ReadOnlyModelViewSet):
+class ErrorTrackingStackFrameBatchGetRequestSerializer(serializers.Serializer):
+    raw_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Raw frame IDs in 'hash/part' format to resolve in a single request.",
+    )
+    symbol_set = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Optional symbol set reference to scope the lookup to a single symbol set.",
+    )
+
+
+class ErrorTrackingStackFrameBatchGetResponseSerializer(serializers.Serializer):
+    results = ErrorTrackingStackFrameSerializer(many=True, help_text="Resolved stack frames for the requested raw IDs.")
+
+
+class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
     scope_object = "error_tracking"
     scope_object_read_actions = ["list", "retrieve", "batch_get"]
     scope_object_write_actions: list = []
-    queryset = ErrorTrackingStackFrame.objects.all()
     serializer_class = ErrorTrackingStackFrameSerializer
 
+    def list(self, request, *args, **kwargs):
+        return paginate_via_facade(
+            self,
+            request,
+            lambda limit, offset: error_tracking_api.list_stack_frames(self.team.id, limit=limit, offset=offset),
+        )
+
+    def retrieve(self, request, *args, pk=None, **kwargs):
+        frame = error_tracking_api.get_stack_frame(self.team.id, pk)
+        if frame is None:
+            raise NotFound()
+        return Response(self.get_serializer(frame).data)
+
+    @extend_schema(
+        request=ErrorTrackingStackFrameBatchGetRequestSerializer,
+        responses={200: OpenApiResponse(response=ErrorTrackingStackFrameBatchGetResponseSerializer)},
+    )
     @action(methods=["POST"], detail=False)
     def batch_get(self, request, **kwargs):
         raw_ids = request.data.get("raw_ids", [])
         symbol_set = request.data.get("symbol_set", None)
-
-        queryset = self.queryset.filter(team_id=self.team.id).select_related("symbol_set__release")
-
-        if raw_ids:
-            query_id_objects = Q()
-            for raw_id in raw_ids:
-                hash_id, part = get_raw_id_part(raw_id)
-                query_id_objects |= Q(raw_id=hash_id, part=part)
-
-            queryset = queryset.filter(query_id_objects)
-
-        if symbol_set:
-            queryset = queryset.filter(symbol_set=symbol_set)
-
-        serializer = self.get_serializer(queryset, many=True)
-        return Response({"results": serializer.data})
-
-
-def get_raw_id_part(raw_id):
-    res = raw_id.split("/")
-    if len(res) != 2:
-        return raw_id, 0
-    return res[0], int(res[1])
+        frames = error_tracking_api.batch_get_stack_frames(self.team.id, raw_ids, symbol_set)
+        return Response({"results": self.get_serializer(frames, many=True).data})

@@ -311,7 +311,7 @@ class MessageTemplatesViewSet(
         instance = self.get_object()
 
         with transaction.atomic():
-            # nosemgrep: semgrep.rules.idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = MessageTemplate.objects.select_for_update().get(pk=instance.pk)
 
             content = deepcopy(locked.content or {})

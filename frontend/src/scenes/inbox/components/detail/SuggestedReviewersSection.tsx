@@ -1,16 +1,18 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useMemo, useState } from 'react'
 
-import { IconCheck, IconPeople, IconPlus, IconX } from '@posthog/icons'
+import { IconCheck, IconInfo, IconPeople, IconPlus, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
+import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { EnrichedReviewer, SignalReport } from '../../types'
-import { RightColumnSection } from './DetailSection'
+
+const MAX_VISIBLE_REVIEWERS = 5
+import { DetailSection } from './DetailSection'
 import {
     AvailableReviewerOption,
     getReviewerOptionDisplayName,
@@ -25,24 +27,13 @@ import {
  */
 export function SuggestedReviewersSection({ report }: { report: SignalReport }): JSX.Element | null {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
-    const {
-        reportReviewers,
-        displayReviewers,
-        addReviewerOptions,
-        availableReviewersLoading,
-        isUpdatingReviewers,
-        reportArtefacts,
-    } = useValues(logic)
+    const { displayReviewers, addReviewerOptions, availableReviewersLoading, isUpdatingReviewers, reportArtefacts } =
+        useValues(logic)
     const { updateReviewers, searchAvailableReviewers } = useActions(logic)
-
-    // The writable artefact id; without it there's nothing to PUT against, so the section can't render.
-    const artefactId = useMemo(
-        () => reportArtefacts?.find((a) => a.type === 'suggested_reviewers')?.id ?? null,
-        [reportArtefacts]
-    )
 
     const [addOpen, setAddOpen] = useState(false)
     const [query, setQuery] = useState('')
+    const [showAllReviewers, setShowAllReviewers] = useState(false)
 
     const reviewers = displayReviewers
     const baseReviewers = reviewers ?? []
@@ -54,9 +45,10 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
     )
     const meUuid = addReviewerOptions[0]?.user_uuid
 
-    // Render nothing only when there is no artefact at all (no reviewers ever computed). An empty list with
-    // an artefact still renders so the user can add reviewers.
-    if (!artefactId || reportReviewers === null) {
+    // Wait for the artefact log to load before rendering, so we don't flash an empty state that then
+    // fills in. Once loaded, always render — a report with zero reviewers still shows the "Add" affordance
+    // so a reviewer can be assigned from scratch.
+    if (reportArtefacts === null) {
         return null
     }
 
@@ -64,21 +56,18 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
         action: 'add_suggested_reviewer' | 'remove_suggested_reviewer',
         login?: string | null
     ): void => {
-        posthog.capture('Inbox report action', {
-            report_id: report.id,
-            report_title: report.title ?? null,
-            priority: report.priority ?? null,
-            actionability: report.actionability ?? null,
-            action_type: action,
+        captureInboxReportAction({
+            report,
+            actionType: action,
             surface: 'detail_pane',
-            suggested_reviewer_login: login || undefined,
+            extra: { suggested_reviewer_login: login || undefined },
         })
     }
 
     const removeReviewer = (target: EnrichedReviewer): void => {
         const next = baseReviewers.filter((r) => r !== target)
         fireAction('remove_suggested_reviewer', target.github_login)
-        updateReviewers(artefactId, reviewersToWriteContent(next), next)
+        updateReviewers(reviewersToWriteContent(next), next)
     }
 
     const toggleOption = (option: AvailableReviewerOption): void => {
@@ -101,13 +90,21 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
         }
         const next = [...baseReviewers, optimisticEntry]
         fireAction('add_suggested_reviewer', option.user_uuid)
-        updateReviewers(artefactId, [...reviewersToWriteContent(baseReviewers), { user_uuid: option.user_uuid }], next)
+        updateReviewers([...reviewersToWriteContent(baseReviewers), { user_uuid: option.user_uuid }], next)
     }
 
     return (
-        <RightColumnSection
+        <DetailSection
             icon={<IconPeople />}
             title="Reviewers"
+            collapsible
+            afterTitle={
+                <Tooltip title="Suggested reviewers are tracked in PostHog. To request a review on GitHub, add them on the pull request directly.">
+                    <span className="-m-1 flex cursor-help items-center p-1 text-base text-tertiary">
+                        <IconInfo />
+                    </span>
+                </Tooltip>
+            }
             rightSlot={
                 <div className="flex items-center gap-2">
                     {isUpdatingReviewers && <Spinner className="size-3" />}
@@ -193,17 +190,30 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
                 <span className="text-xs text-tertiary">No reviewers assigned. Use "Add" to suggest one.</span>
             ) : (
                 <div className="flex flex-col gap-1.5">
-                    {baseReviewers.map((reviewer: EnrichedReviewer) => (
-                        <ReviewerRow
-                            key={reviewer.user?.uuid ?? reviewer.github_login}
-                            reviewer={reviewer}
-                            disabled={isUpdatingReviewers}
-                            onRemove={() => removeReviewer(reviewer)}
-                        />
-                    ))}
+                    {(showAllReviewers ? baseReviewers : baseReviewers.slice(0, MAX_VISIBLE_REVIEWERS)).map(
+                        (reviewer: EnrichedReviewer) => (
+                            <ReviewerRow
+                                key={reviewer.user?.uuid ?? reviewer.github_login}
+                                reviewer={reviewer}
+                                disabled={isUpdatingReviewers}
+                                onRemove={() => removeReviewer(reviewer)}
+                            />
+                        )
+                    )}
+                    {baseReviewers.length > MAX_VISIBLE_REVIEWERS && (
+                        <LemonButton
+                            size="xsmall"
+                            type="tertiary"
+                            fullWidth
+                            onClick={() => setShowAllReviewers((show) => !show)}
+                            className="text-tertiary"
+                        >
+                            {showAllReviewers ? 'Show less' : `Show all (${baseReviewers.length})`}
+                        </LemonButton>
+                    )}
                 </div>
             )}
-        </RightColumnSection>
+        </DetailSection>
     )
 }
 
@@ -217,7 +227,7 @@ function ReviewerRow({
     onRemove: () => void
 }): JSX.Element {
     const displayName = reviewer.github_name ?? reviewer.user?.first_name ?? reviewer.github_login
-    const reason = reviewer.relevant_commits[0]?.reason ?? null
+    const reason = reviewer.reason ?? reviewer.relevant_commits[0]?.reason ?? null
     const githubUrl = reviewer.github_login ? `https://github.com/${reviewer.github_login}` : null
 
     const person = (
@@ -236,7 +246,8 @@ function ReviewerRow({
     )
 
     return (
-        <div className="group flex items-start gap-2 rounded px-1.5 py-1.5 transition-colors hover:bg-fill-highlight-50">
+        <div className="group grid grid-cols-[minmax(8rem,10rem)_minmax(0,1fr)_auto] items-center gap-2 rounded px-1.5 py-1.5">
+            {/* no row hover: the row isn't clickable, only the remove button (revealed on group hover) is */}
             <Tooltip
                 title={
                     reviewer.user
@@ -246,7 +257,7 @@ function ReviewerRow({
                         : `${displayName} hasn't connected their GitHub account to PostHog. Ask them to do so in Settings!`
                 }
             >
-                <span className={!reviewer.user ? 'opacity-75' : undefined}>
+                <span className={!reviewer.user ? 'min-w-0 opacity-75' : 'min-w-0'}>
                     {/* The GitHub handle's link is merged into the name: clicking it opens the
                         reviewer's GitHub profile, flagged by the external-link icon. */}
                     {githubUrl ? (
@@ -264,24 +275,22 @@ function ReviewerRow({
             </Tooltip>
             <div className="flex flex-col min-w-0 flex-1 gap-0.5">
                 {reviewer.relevant_commits.length > 0 && (
-                    <span className="text-[0.6875rem] text-tertiary">
+                    <span className="text-xs text-tertiary">
                         {reviewer.relevant_commits.map((commit, i) => (
                             <span key={commit.sha}>
                                 {i > 0 && ', '}
-                                <Tooltip title={commit.reason || undefined}>
-                                    <Link
-                                        to={commit.url}
-                                        target="_blank"
-                                        className="font-mono text-tertiary hover:text-primary"
-                                    >
-                                        {commit.sha.slice(0, 7)}
-                                    </Link>
-                                </Tooltip>
+                                <Link
+                                    to={commit.url}
+                                    target="_blank"
+                                    className="font-mono text-tertiary hover:text-primary"
+                                >
+                                    {commit.sha.slice(0, 7)}
+                                </Link>
                             </span>
                         ))}
                     </span>
                 )}
-                {reason && <span className="text-[0.6875rem] text-tertiary leading-snug">{reason}</span>}
+                {reason && <span className="text-xs text-tertiary leading-snug">{reason}</span>}
             </div>
             <LemonButton
                 size="xsmall"

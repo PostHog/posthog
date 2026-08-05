@@ -1,156 +1,17 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { IconCalendar, IconCollapse, IconEllipsis, IconExpand } from '@posthog/icons'
+import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { QuickFilterSelector } from 'lib/components/QuickFilters/QuickFilterSelector'
-import { quickFiltersLogic } from 'lib/components/QuickFilters/quickFiltersLogic'
-import { quickFiltersSectionLogic } from 'lib/components/QuickFilters/quickFiltersSectionLogic'
-import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { QuickFilterContext } from '~/queries/schema/schema-general'
-import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
+import { DashboardMode, DashboardPlacement } from '~/types'
 
 import { DashboardEditBar } from './DashboardEditBar'
-import { dashboardFiltersLogic } from './dashboardFiltersLogic'
 import { DashboardEditSaveCancelButtons } from './DashboardHeaderActions'
 import { dashboardLogic } from './dashboardLogic'
-import { DashboardQuickFiltersButton } from './DashboardQuickFiltersButton'
-import { dashboardQuickFiltersSelectionLogic } from './dashboardQuickFiltersSelectionLogic'
 import { DashboardReloadAction, LastRefreshText } from './DashboardReloadAction'
-
-export function DashboardPrimaryFilters(): JSX.Element {
-    const { dashboard, dashboardMode, hasVariables, effectiveEditBarFilters, canEditDashboard } =
-        useValues(dashboardLogic)
-    const { setDates, setDashboardMode } = useActions(dashboardLogic)
-
-    return (
-        <>
-            <div className={clsx('content-end min-w-0', { 'h-[61px]': hasVariables })}>
-                <AppShortcut
-                    name="DashboardDateFilter"
-                    keybind={[keyBinds.dateFilter]}
-                    intent="Date filter"
-                    interaction="click"
-                    scope={Scene.Dashboard}
-                >
-                    <DateFilter
-                        showCustom
-                        showExplicitDateToggle
-                        allowTimePrecision
-                        allowFixedRangeWithTime
-                        dateFrom={effectiveEditBarFilters.date_from}
-                        dateTo={effectiveEditBarFilters.date_to}
-                        explicitDate={effectiveEditBarFilters.explicitDate}
-                        onChange={(from_date, to_date, explicitDate) => {
-                            if (dashboardMode !== DashboardMode.Edit) {
-                                setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
-                            }
-                            setDates(from_date, to_date, explicitDate)
-                        }}
-                        makeLabel={(key) => (
-                            <>
-                                <IconCalendar />
-                                <span className="hide-when-small"> {key}</span>
-                            </>
-                        )}
-                    />
-                </AppShortcut>
-            </div>
-
-            {canEditDashboard && dashboard && (
-                <DashboardQuickFiltersButton context={QuickFilterContext.Dashboards} dashboard={dashboard} />
-            )}
-        </>
-    )
-}
-
-export function DashboardQuickFiltersRow(): JSX.Element | null {
-    const { dashboard } = useValues(dashboardLogic)
-
-    if (!dashboard) {
-        return null
-    }
-
-    return <DashboardQuickFiltersRowContent dashboard={dashboard} />
-}
-
-function DashboardQuickFiltersRowContent({ dashboard }: { dashboard: DashboardType<any> }): JSX.Element | null {
-    const { selectedDashboardFilterIds } = useValues(dashboardQuickFiltersSelectionLogic({ dashboard }))
-
-    const context = QuickFilterContext.Dashboards
-    const { quickFilters } = useValues(quickFiltersLogic({ context }))
-    const { selectedQuickFilters } = useValues(quickFiltersSectionLogic({ context }))
-    const { setQuickFilterValue, clearQuickFilter } = useActions(quickFiltersSectionLogic({ context }))
-
-    if (selectedDashboardFilterIds.length === 0) {
-        return null
-    }
-
-    const filtersToShow = quickFilters.filter((filter) => selectedDashboardFilterIds.includes(filter.id))
-
-    return (
-        <>
-            {filtersToShow.map((filter) => {
-                const selectedFilter = selectedQuickFilters[filter.id]
-                return (
-                    <QuickFilterSelector
-                        key={filter.id}
-                        label={filter.name}
-                        options={filter.options}
-                        selectedOptionId={selectedFilter?.optionId || null}
-                        onChange={(option) => {
-                            if (option === null) {
-                                clearQuickFilter(filter.id)
-                            } else {
-                                setQuickFilterValue(filter.id, filter.property_name, option)
-                            }
-                        }}
-                    />
-                )
-            })}
-        </>
-    )
-}
-
-export function DashboardAdvancedOptionsToggle(): JSX.Element {
-    const { dashboard, totalAdvancedFilters } = useValues(dashboardLogic)
-    const filtersLogicProps = { dashboardId: dashboard?.id ?? 0 }
-    const { showAdvancedFilters } = useValues(dashboardFiltersLogic(filtersLogicProps))
-    const { toggleAdvancedFilters } = useActions(dashboardFiltersLogic(filtersLogicProps))
-
-    return (
-        <LemonButton
-            size="small"
-            sideIcon={showAdvancedFilters ? <IconCollapse /> : <IconExpand />}
-            onClick={toggleAdvancedFilters}
-            title={showAdvancedFilters ? 'Show less' : 'Show more'}
-            data-attr="dashboard-advanced-filters-toggle"
-        >
-            <span className="font-semibold">
-                Advanced options
-                {totalAdvancedFilters > 0 && <span className="ml-1 text-muted">({totalAdvancedFilters})</span>}
-            </span>
-        </LemonButton>
-    )
-}
-
-export function DashboardAdvancedOptions(): JSX.Element | null {
-    const { dashboard } = useValues(dashboardLogic)
-    const { showAdvancedFilters } = useValues(dashboardFiltersLogic({ dashboardId: dashboard?.id ?? 0 }))
-
-    if (!showAdvancedFilters) {
-        return null
-    }
-
-    return <DashboardEditBar showDateFilter={false} className="flex gap-2 items-end flex-wrap border rounded p-2" />
-}
 
 /**
  * Edit-mode actions for the filter bar.
@@ -197,7 +58,7 @@ interface DashboardFilterBarProps {
 }
 
 export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Element {
-    const { placement, dashboard, dashboardMode, hasVariables, dashboardFiltersEnabled } = useValues(dashboardLogic)
+    const { placement, dashboard, dashboardMode, hasVariables } = useValues(dashboardLogic)
 
     return (
         <div className="@container/dashboard-filters flex min-w-0 flex-1 flex-col gap-2">
@@ -212,8 +73,7 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                             DashboardPlacement.DataOps,
                             DashboardPlacement.Builtin,
                         ].includes(placement) &&
-                            dashboard &&
-                            (dashboardFiltersEnabled ? <DashboardPrimaryFilters /> : <DashboardEditBar />)}
+                            dashboard && <DashboardEditBar />}
                         <DashboardEditActions />
                     </div>
                 </div>
@@ -227,7 +87,6 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                             }
                         )}
                     >
-                        {dashboardFiltersEnabled && <DashboardAdvancedOptionsToggle />}
                         <div className={`left-item ${placement === DashboardPlacement.Public ? 'text-right' : ''}`}>
                             {[DashboardPlacement.Public].includes(placement) ? (
                                 <LastRefreshText />
@@ -262,14 +121,6 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                     </div>
                 )}
             </div>
-
-            {dashboardFiltersEnabled && (
-                <div className="flex items-center gap-2 flex-wrap">
-                    <DashboardQuickFiltersRow />
-                </div>
-            )}
-
-            {dashboardFiltersEnabled && <DashboardAdvancedOptions />}
         </div>
     )
 }

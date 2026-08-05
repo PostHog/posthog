@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
@@ -14,6 +14,8 @@ from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
     ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE,
     ACCESS_CONTROL_RESOURCES,
+    RESOURCE_INHERITANCE_MAP,
+    RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS,
     AccessControlLevel,
     AccessSource,
     UserAccessControl,
@@ -283,20 +285,49 @@ class AccessControlViewSetMixin(_GenericViewSet):
         serializer = self._get_access_control_serializer(instance=access_controls, many=True)
         user_access_level = user_access_control.get_user_access_level(obj)
 
-        return Response(
-            {
-                "access_controls": serializer.data,
-                # NOTE: For resource level based controls we are always configuring resource level items
-                "available_access_levels": ACCESS_CONTROL_LEVELS_RESOURCE
-                if is_resource_level
-                else ordered_access_levels(resource),
-                "default_access_level": "editor" if is_resource_level else default_access_level(resource),
-                "minimum_access_level": minimum_access_level(resource) if not is_resource_level else "none",
-                "maximum_access_level": highest_access_level(resource) if not is_resource_level else "manager",
-                "user_access_level": user_access_level,
-                "user_can_edit_access_levels": user_access_control.check_can_modify_access_levels_for_object(obj),
-            }
-        )
+        payload: dict[str, Any] = {
+            "access_controls": serializer.data,
+            # NOTE: For resource level based controls we are always configuring resource level items
+            "available_access_levels": ACCESS_CONTROL_LEVELS_RESOURCE
+            if is_resource_level
+            else ordered_access_levels(resource),
+            "default_access_level": "editor" if is_resource_level else default_access_level(resource),
+            "minimum_access_level": minimum_access_level(resource) if not is_resource_level else "none",
+            "maximum_access_level": highest_access_level(resource) if not is_resource_level else "manager",
+            "user_access_level": user_access_level,
+            "user_can_edit_access_levels": user_access_control.check_can_modify_access_levels_for_object(obj),
+        }
+
+        if not is_resource_level:
+            # The level this object falls back to when it carries no default of its own, so the UI
+            # can spell out what removing the override means. Follows RESOURCE_INHERITANCE_MAP
+            # because that's the resource the runtime check consults — a warehouse view is gated by
+            # the warehouse_objects rules, not by its own.
+            #
+            # None for a project is load-bearing: it is what stops the UI offering "No override" on
+            # a project's own default, which has nothing above it to fall back to. "No override"
+            # belongs to object defaults only — project-level access is configured in its own
+            # panel, which has no inherited tier to fall back to.
+            inherited_resource = (
+                None
+                if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS
+                else RESOURCE_INHERITANCE_MAP.get(resource, resource)
+            )
+            payload["inherited_resource"] = inherited_resource
+            payload["inherited_access_level"] = None
+            if inherited_resource:
+                everyone_rule = AccessControl.objects.filter(
+                    team=team,
+                    resource=inherited_resource,
+                    resource_id=None,
+                    organization_member=None,
+                    role=None,
+                ).first()
+                payload["inherited_access_level"] = (
+                    everyone_rule.access_level if everyone_rule else default_access_level(inherited_resource)
+                )
+
+        return Response(payload)
 
     def _get_users_with_access(self, request: Request):
         """
@@ -642,6 +673,11 @@ class AccessControlViewSetMixin(_GenericViewSet):
             .prefetch_related("role_memberships")
         )
 
+        can_edit = user_access_control.check_can_modify_access_levels_for_object(team)
+        hide_non_project_members = (
+            not team.organization.members_can_see_org_members and not user_access_control.is_organization_admin
+        )
+
         results = []
         for membership in memberships:
             mid = str(membership.id)
@@ -662,6 +698,19 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 member_level=project_member_level,
                 is_org_admin=is_org_admin,
             )
+
+            # When the org restricts member list visibility, project members only see users with
+            # project-scoped access (explicit grant, role, or default) — org admins aren't implied in
+            if hide_non_project_members:
+                project_scoped_result = get_effective_access_level_for_member(
+                    resource="project",
+                    default_level=project_default_level,
+                    role_levels=project_role_levels,
+                    member_level=project_member_level,
+                    is_org_admin=False,
+                )
+                if project_scoped_result.effective_access_level in (None, "none"):
+                    continue
 
             resource_entries: dict[str, dict] = {}
             for resource in ACCESS_CONTROL_RESOURCES:
@@ -715,7 +764,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
             {
                 "available_project_levels": list(ordered_access_levels("project")),
                 "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
-                "can_edit": user_access_control.check_can_modify_access_levels_for_object(team),
+                "can_edit": can_edit,
                 "results": results,
             }
         )

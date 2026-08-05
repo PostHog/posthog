@@ -1,4 +1,5 @@
-{# Citation policy that scanners can opt into. Call as `{{ cite_in('reasoning') }}` or `{{ cite_in('summary') }}`. #}
+{# Per-field citation pointer. The full citation rules live in the preamble's <citations> block (cached once);
+   each task just names the field to cite in. Call as `{{ cite_in('reasoning') }}` or `{{ cite_in('summary') }}`. #}
 {%- macro cite_in(field_name) -%}
-Inside `{{ field_name }}`, cite key events as `(event_uuid <uuid>)`, e.g. `(event_uuid 0193abcd-1234-7e89-9abc-deadbeefcafe)`. One event per parens; max 1–2 citations per paragraph. Cite only turning points, blockers, and climaxes — skip routine navigation. Never cite by ordinal, position, or any identifier other than the UUID exactly as it appears in the events table.
+Cite key moments inside `{{ field_name }}` as `(t <seconds>)`, following the Citations rules above.
 {%- endmacro -%}

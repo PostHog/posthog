@@ -1,5 +1,6 @@
 import json
 import asyncio
+from dataclasses import dataclass
 from textwrap import dedent
 from typing import Any, Literal, cast
 
@@ -65,6 +66,13 @@ class SummarizeSessionsToolArgs(BaseModel):
         """
         ).strip()
     )
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class SessionsSummaryResult:
+    summary_text: str
+    summary_id: str | None
+    failed_sessions: list[FailedSessionInfo]
 
 
 class SummarizeSessionsTool(MaxTool):
@@ -156,21 +164,21 @@ class SummarizeSessionsTool(MaxTool):
         )
         try:
             # Summarize the sessions
-            summaries_content, session_group_summary_id, failed_sessions = await self._summarize_sessions(
+            result = await self._summarize_sessions(
                 session_ids=session_ids,
                 summary_title=summary_title,
                 session_ids_source=llm_provided_session_ids_source,
             )
             content: str | None = None
             artifact: dict | None = None
-            if session_group_summary_id:
-                content = summaries_content
+            if result.summary_id:
+                content = result.summary_text
                 artifact = {
                     "title": summary_title or "Sessions summary",
-                    "session_group_summary_id": session_group_summary_id,
+                    "session_group_summary_id": result.summary_id,
                 }
             else:
-                content, artifact = summaries_content, None
+                content = result.summary_text
         except Exception as err:
             capture_session_summary_generated(
                 user=self._user,
@@ -192,7 +200,7 @@ class SummarizeSessionsTool(MaxTool):
             summary_type=summary_type,
             session_ids=session_ids,
             success=True,
-            failed_session_count=len(failed_sessions),
+            failed_session_count=len(result.failed_sessions),
         )
         return content, artifact
 
@@ -263,7 +271,7 @@ class SummarizeSessionsTool(MaxTool):
                 org_id=self._team.organization_id,
             ):
                 query_runner = SessionRecordingListFromQuery(
-                    team=self._team, query=replay_filters, hogql_query_modifiers=None
+                    team=self._team, query=replay_filters, hogql_query_modifiers=None, user=self._user
                 )
                 results = query_runner.run()
         except Exception as e:
@@ -352,11 +360,11 @@ class SummarizeSessionsTool(MaxTool):
         self,
         session_ids: list[str],
         summary_title: str | None,
-    ) -> tuple[str, str, list[FailedSessionInfo]]:
-        """Summarize sessions as a group. Returns (summary_str, summary_id, failed_sessions)."""
+    ) -> SessionsSummaryResult:
+        """Summarize sessions as a group. The result's summary_id is always set on this path."""
         from ee.hogai.session_summaries.utils import logging_session_ids
 
-        min_timestamp, max_timestamp = await database_sync_to_async(find_sessions_timestamps, thread_sensitive=False)(
+        timestamps = await database_sync_to_async(find_sessions_timestamps, thread_sensitive=False)(
             session_ids=session_ids, team=self._team
         )
         trigger_session_id = self._get_trigger_session_id()
@@ -365,8 +373,8 @@ class SummarizeSessionsTool(MaxTool):
                 session_ids=session_ids,
                 user=self._user,
                 team=self._team,
-                min_timestamp=min_timestamp,
-                max_timestamp=max_timestamp,
+                min_timestamp=timestamps.min_timestamp,
+                max_timestamp=timestamps.max_timestamp,
                 summary_title=summary_title,
                 extra_summary_context=None,
                 trigger_session_id=trigger_session_id,
@@ -407,7 +415,11 @@ class SummarizeSessionsTool(MaxTool):
                     stringifier = SessionGroupSummaryStringifier(summary.model_dump(exclude_none=False))
                     summary_str = stringifier.stringify_patterns()
                     note = self._format_failed_sessions_note(failed_sessions, total_requested=len(session_ids))
-                    return note + summary_str, session_group_summary_id, failed_sessions
+                    return SessionsSummaryResult(
+                        summary_text=note + summary_str,
+                        summary_id=session_group_summary_id,
+                        failed_sessions=failed_sessions,
+                    )
                 else:
                     msg = f"Unexpected update type ({update_type}) in session group summarization (session_ids: {logging_session_ids(session_ids)})."  # type: ignore[unreachable]
                     logger.error(msg, signals_type="session-summaries")
@@ -419,9 +431,9 @@ class SummarizeSessionsTool(MaxTool):
 
     async def _summarize_sessions(
         self, session_ids: list[str], summary_title: str | None, *, session_ids_source: Literal["filters", "explicit"]
-    ) -> tuple[str, str | None, list[FailedSessionInfo]]:
-        """Returns (summary_str, summary_id, failed_sessions). summary_id and failed_sessions are
-        only populated for the group path; the individual path logs per-session errors inline."""
+    ) -> SessionsSummaryResult:
+        """summary_id and failed_sessions are only populated for the group path; the individual
+        path logs per-session errors inline."""
         # Fetch per-session metadata for the progress widget
         metadata = await database_sync_to_async(self._get_session_metadata, thread_sensitive=False)(session_ids)
         # Emit sessions_discovered for the frontend progress widget
@@ -444,23 +456,22 @@ class SummarizeSessionsTool(MaxTool):
         # Process sessions based on count
         if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS:
             summaries_content = await self._summarize_sessions_individually(session_ids=session_ids)
-            return summaries_content, None, []
+            return SessionsSummaryResult(summary_text=summaries_content, summary_id=None, failed_sessions=[])
         # For large groups, process in detail, searching for patterns
-        summaries_content, session_group_summary_id, failed_sessions = await self._summarize_sessions_as_group(
+        return await self._summarize_sessions_as_group(
             session_ids=session_ids,
             summary_title=summary_title,
         )
-        return summaries_content, session_group_summary_id, failed_sessions
 
     def _validate_specific_session_ids(self, session_ids: list[str]) -> list[str] | None:
         """Validate that specific session IDs exist in the database."""
         from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
         replay_events = SessionReplayEvents()
-        sessions_found, _, _ = replay_events.sessions_found_with_timestamps(
+        sessions_found = replay_events.sessions_found_with_timestamps(
             session_ids=session_ids,
             team=self._team,
-        )
+        ).session_ids
         if not sessions_found:
             return None
         # Preserve the original order, filtering out invalid sessions

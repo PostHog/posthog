@@ -13,7 +13,7 @@ import { ManualCalculatorMetricType } from './calculations'
 import { runningTimeLogic } from './runningTimeLogic'
 
 export interface RunningTimeConfigModalProps {
-    experimentId: Experiment['id']
+    experiment: Experiment
 }
 
 const METRIC_TYPE_OPTIONS: { value: ManualCalculatorMetricType; label: string }[] = [
@@ -44,7 +44,7 @@ function getBaselineHelp(metricType: ManualCalculatorMetricType): string {
     }
 }
 
-export function RunningTimeConfigModal({ experimentId }: RunningTimeConfigModalProps): JSX.Element {
+export function RunningTimeConfigModal({ experiment: experimentProp }: RunningTimeConfigModalProps): JSX.Element {
     const {
         config,
         manualFormPreview,
@@ -54,8 +54,9 @@ export function RunningTimeConfigModal({ experimentId }: RunningTimeConfigModalP
         remainingDays,
         isRunningTimeConfigModalOpen,
         experiment,
-    } = useValues(runningTimeLogic({ experimentId }))
-    const { setConfig, save, cancel } = useActions(runningTimeLogic({ experimentId }))
+        isSaving,
+    } = useValues(runningTimeLogic({ experiment: experimentProp }))
+    const { setConfig, save, cancel } = useActions(runningTimeLogic({ experiment: experimentProp }))
 
     const hasAutomaticData = remainingDays !== null
     const isPreLaunch = !isLaunched(experiment)
@@ -267,10 +268,10 @@ export function RunningTimeConfigModal({ experimentId }: RunningTimeConfigModalP
                     </div>
                 )}
                 <div className="flex items-center gap-2 justify-end w-full">
-                    <LemonButton type="secondary" onClick={cancel}>
+                    <LemonButton type="secondary" onClick={cancel} disabledReason={isSaving ? 'Saving…' : undefined}>
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" onClick={save}>
+                    <LemonButton type="primary" onClick={save} loading={isSaving}>
                         Save
                     </LemonButton>
                 </div>

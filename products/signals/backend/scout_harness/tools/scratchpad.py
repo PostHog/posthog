@@ -12,15 +12,19 @@ dropped (none were earning their keep on the stack). Retrieval is ILIKE on
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from typing import Any
 
 from django.db import IntegrityError, transaction
+from django.db.models import Q, QuerySet, TextField, Value
+from django.db.models.functions import Left
 
 from products.signals.backend.models import SignalScratchpad
+from products.signals.backend.scout_harness.tools.runs import _build_task_url
 
 # Defensive cap on search results.
 DEFAULT_SCRATCHPAD_SEARCH_LIMIT = 20
-MAX_SCRATCHPAD_SEARCH_LIMIT = 100
+MAX_SCRATCHPAD_SEARCH_LIMIT = 1000
 
 # Keys/content are agent-chosen prose. Match the model's column lengths so callers
 # get a clean error before hitting the DB.
@@ -42,6 +46,9 @@ class ScratchpadEntry:
     created_at: str | None = None
     updated_at: str | None = None
     created_by_run_id: str | None = None
+    # Identity + deep-link of the scout run that created the entry, resolved from `created_by_run`.
+    created_by_skill: str | None = None
+    created_by_run_url: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -51,14 +58,27 @@ def search_scratchpad(
     *,
     team_id: int,
     text: str | None = None,
+    key: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
     limit: int = DEFAULT_SCRATCHPAD_SEARCH_LIMIT,
     keys_only: bool = False,
     content_max_chars: int | None = None,
 ) -> list[ScratchpadEntry]:
-    """Return memories the agent should consider when planning a run.
+    """Return memories the agent should consider when planning a run, newest first.
 
     `text` matches ILIKE against `content` and `key`. The previous `tags` filter
     + GIN index were dropped in PR 2 review.
+
+    `key` is an exact match on the unique `(team, key)` pair — at most one row, and the
+    only way to fetch a known entry reliably. `text` can't stand in for it: an ILIKE
+    across content *and* key means a key mentioned inside enough other bodies pushes the
+    row you wanted past the limit.
+
+    `date_from` / `date_to` are a half-open window on `updated_at` (the entry's
+    sort key) — `updated_at >= date_from` and `updated_at < date_to`. Pass `date_to`
+    (the `updated_at` of the oldest entry seen) to walk backwards past the result
+    cap on subsequent calls (cursor-style iteration), mirroring `search_recent_runs`.
 
     Result-scoping projections keep an orientation/dedupe scan from pulling every
     entry's full body — `content` is an unbounded TextField, so a wide scan can
@@ -68,13 +88,24 @@ def search_scratchpad(
       pick the entries worth a full read, then re-query the chosen ones.
     - `content_max_chars=N` truncates each `content` to the first `N` characters
       (a preview). Ignored when `keys_only=True`, which already drops the body.
+
+    Both projections are applied in SQL, not after the fact: a preview that Postgres
+    trims still costs the full row to fetch and hand to Django, which defeats the point
+    on exactly the wide scans these exist for.
     """
     clamped_limit = _clamp_search_limit(limit)
-    qs = SignalScratchpad.objects.filter(team_id=team_id)
+    # Join the creating run (and its task_run) so per-row skill/url resolution in `_to_entry`
+    # stays a single query rather than an N+1 across the result window.
+    qs = SignalScratchpad.objects.filter(team_id=team_id).select_related("created_by_run", "created_by_run__task_run")
+    qs = _project_content_in_sql(qs, keys_only=keys_only, content_max_chars=content_max_chars)
+    if key:
+        qs = qs.filter(key=key)
     if text:
-        from django.db.models import Q
-
         qs = qs.filter(Q(content__icontains=text) | Q(key__icontains=text))
+    if date_from is not None:
+        qs = qs.filter(updated_at__gte=date_from)
+    if date_to is not None:
+        qs = qs.filter(updated_at__lt=date_to)
     qs = qs.order_by("-updated_at", "-id")[:clamped_limit]
     return [_to_entry(row, keys_only=keys_only, content_max_chars=content_max_chars) for row in qs]
 
@@ -157,13 +188,54 @@ def _to_entry(
     # Django's FK descriptor exposes both `created_by_run` (object) and `created_by_run_id`
     # (the raw FK column). `getattr` keeps Pyright happy without a join.
     run_pk = getattr(row, "created_by_run_id", None)
+    # Resolve the creating scout's identity + a deep-link to its run. `search_scratchpad` joins
+    # both via select_related, so this is a no-N+1 read on the list path; the single-row write
+    # path lazy-loads, which is fine. A human-authored entry (no run) leaves these null.
+    run = row.created_by_run if run_pk else None
+    task_run = getattr(run, "task_run", None) if run is not None else None
     return ScratchpadEntry(
         key=row.key,
-        content=_project_content(row.content, keys_only=keys_only, content_max_chars=content_max_chars),
+        content=_resolve_content(row, keys_only=keys_only, content_max_chars=content_max_chars),
         created_at=row.created_at.isoformat() if row.created_at else None,
         updated_at=row.updated_at.isoformat() if row.updated_at else None,
         created_by_run_id=str(run_pk) if run_pk else None,
+        created_by_skill=run.skill_name if run is not None else None,
+        created_by_run_url=_build_task_url(
+            team_id=row.team_id,
+            task_id=str(task_run.task_id) if task_run is not None else None,
+            task_run_id=str(task_run.id) if task_run is not None else None,
+        ),
     )
+
+
+def _project_content_in_sql(
+    qs: QuerySet[SignalScratchpad], *, keys_only: bool, content_max_chars: int | None
+) -> QuerySet[SignalScratchpad]:
+    """Push the body projection into the query so Postgres never ships prose we drop.
+
+    `content` is unbounded (50k chars by the write clamp), so a 1000-row scan that trims
+    in Python still moves ~50 MB through the driver first. `defer` keeps the column out
+    of the SELECT; the annotation carries whatever slice the caller actually asked for.
+    """
+    # `Left` rejects a length below 1, and a zero-char preview is a blank body anyway.
+    if keys_only or (content_max_chars is not None and content_max_chars <= 0):
+        return qs.defer("content").annotate(projected_content=Value("", output_field=TextField()))
+    if content_max_chars is None:
+        return qs
+    # Clamp to the write cap: a preview longer than the longest storable body is a no-op, and an
+    # unbounded value would reach Postgres as an out-of-range `LEFT()` length and 500.
+    return qs.defer("content").annotate(
+        projected_content=Left("content", min(content_max_chars, MAX_SCRATCHPAD_CONTENT_LENGTH))
+    )
+
+
+def _resolve_content(row: SignalScratchpad, *, keys_only: bool, content_max_chars: int | None) -> str:
+    # Present only on the search path, where the projection was pushed into SQL above.
+    # The write path returns whole rows and falls through to the in-memory projection.
+    projected = getattr(row, "projected_content", None)
+    if projected is not None:
+        return projected
+    return _project_content(row.content, keys_only=keys_only, content_max_chars=content_max_chars)
 
 
 def _project_content(content: str, *, keys_only: bool, content_max_chars: int | None) -> str:

@@ -15,6 +15,7 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     StringJSONDatabaseField,
     Table,
+    UUIDDatabaseField,
     VirtualTable,
 )
 from posthog.hogql.database.schema.groups import GroupsTable
@@ -22,10 +23,16 @@ from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsT
 from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
 from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
 
+from posthog.clickhouse.events_json import DISTRIBUTED_EVENTS_JSON_TABLE
+
+
+def events_table_clickhouse_table_ref(context) -> str:
+    return DISTRIBUTED_EVENTS_JSON_TABLE if context.uses_new_events_schema() else "events"
+
 
 class EventsPersonSubTable(VirtualTable):
     fields: dict[str, FieldOrTable] = {
-        "id": StringDatabaseField(name="person_id", nullable=False),
+        "id": UUIDDatabaseField(name="person_id", nullable=False),
         "created_at": DateTimeDatabaseField(name="person_created_at", nullable=False),
         "properties": StringJSONDatabaseField(name="person_properties", nullable=False),
         "revenue_analytics": LazyJoin(
@@ -36,6 +43,14 @@ class EventsPersonSubTable(VirtualTable):
     }
 
     def to_printed_clickhouse(self, context):
+        return "events"
+
+    def to_printed_clickhouse_table_ref(self, context, use_logical_alias=True):
+        if context.uses_new_events_schema() and use_logical_alias:
+            return f"{events_table_clickhouse_table_ref(context)} AS events"
+        return events_table_clickhouse_table_ref(context)
+
+    def to_printed_postgres(self, context):
         return "events"
 
     def to_printed_hogql(self):
@@ -58,23 +73,58 @@ class EventsGroupSubTable(VirtualTable):
     def to_printed_clickhouse(self, context):
         return "events"
 
+    def to_printed_clickhouse_table_ref(self, context, use_logical_alias=True):
+        if context.uses_new_events_schema() and use_logical_alias:
+            return f"{events_table_clickhouse_table_ref(context)} AS events"
+        return events_table_clickhouse_table_ref(context)
+
+    def to_printed_postgres(self, context):
+        return "events"
+
     def to_printed_hogql(self):
         return "events"
 
 
 class EventsTable(Table):
+    description: str = "Every analytics event captured for the project. The central fact table for product analytics."
     fields: dict[str, FieldOrTable] = {
-        "uuid": StringDatabaseField(name="uuid", nullable=False),
-        "event": StringDatabaseField(name="event", nullable=False),
-        "properties": StringJSONDatabaseField(name="properties", nullable=False),
-        "timestamp": DateTimeDatabaseField(name="timestamp", nullable=False),
+        "uuid": UUIDDatabaseField(name="uuid", nullable=False, description="Unique identifier of this event row."),
+        "event": StringDatabaseField(
+            name="event",
+            nullable=False,
+            description="Event name, e.g. '$pageview' or 'purchase'. Autocapture/PostHog events are prefixed with '$'.",
+        ),
+        "properties": StringJSONDatabaseField(
+            name="properties",
+            nullable=False,
+            description="JSON map of event properties. Access nested keys with `properties.$browser` etc.",
+        ),
+        "timestamp": DateTimeDatabaseField(
+            name="timestamp", nullable=False, description="When the event occurred (client timestamp, in UTC)."
+        ),
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
-        "distinct_id": StringDatabaseField(name="distinct_id", nullable=False),
-        "elements_chain": StringDatabaseField(name="elements_chain", nullable=False),
-        "created_at": DateTimeDatabaseField(name="created_at", nullable=False),
-        "$session_id": StringDatabaseField(name="$session_id", nullable=False),
+        "distinct_id": StringDatabaseField(
+            name="distinct_id",
+            nullable=False,
+            description="Identifier of the user/device that sent the event; resolved to a person via `person_id`.",
+        ),
+        "elements_chain": StringDatabaseField(
+            name="elements_chain",
+            nullable=False,
+            description="Serialized DOM element chain for autocapture events; usually parsed via the `elements` helpers.",
+        ),
+        "created_at": DateTimeDatabaseField(
+            name="created_at",
+            nullable=False,
+            description="When the event was ingested by PostHog (server timestamp); differs from `timestamp`.",
+        ),
+        "$session_id": StringDatabaseField(
+            name="$session_id", nullable=False, description="Session this event belongs to; join to `sessions`."
+        ),
         "$session_id_uuid": DatabaseField(name="$session_id_uuid", nullable=False),
-        "$window_id": StringDatabaseField(name="$window_id", nullable=False),
+        "$window_id": StringDatabaseField(
+            name="$window_id", nullable=False, description="Window/tab identifier within a session."
+        ),
         "person_mode": StringDatabaseField(name="person_mode", nullable=False),
         # Lazy table that adds a join to the persons table
         "pdi": LazyJoin(
@@ -90,8 +140,13 @@ class EventsTable(Table):
         "goe_3": EventsGroupSubTable(group_index=3),
         "goe_4": EventsGroupSubTable(group_index=4),
         # These are swapped out if the user has PoE enabled
-        "person": FieldTraverser(chain=["pdi", "person"]),
-        "person_id": FieldTraverser(chain=["pdi", "person_id"]),
+        "person": FieldTraverser(
+            chain=["pdi", "person"],
+            description="The person this event is attributed to. Access person properties via `person.properties.*`.",
+        ),
+        "person_id": FieldTraverser(
+            chain=["pdi", "person_id"], description="Stable person identifier resolved from `distinct_id`."
+        ),
         "$group_0": StringDatabaseField(name="$group_0", nullable=False),
         "group_0": LazyJoin(
             from_field=["$group_0"],
@@ -139,6 +194,14 @@ class EventsTable(Table):
     }
 
     def to_printed_clickhouse(self, context):
+        return "events"
+
+    def to_printed_clickhouse_table_ref(self, context, use_logical_alias=True):
+        if context.uses_new_events_schema() and use_logical_alias:
+            return f"{events_table_clickhouse_table_ref(context)} AS events"
+        return events_table_clickhouse_table_ref(context)
+
+    def to_printed_postgres(self, context):
         return "events"
 
     def to_printed_hogql(self):

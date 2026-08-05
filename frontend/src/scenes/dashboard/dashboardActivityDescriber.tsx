@@ -148,6 +148,7 @@ const dashboardActionsMapping: Record<
     breakdown_colors: () => null,
     data_color_theme_id: () => null,
     last_accessed_at: () => null,
+    folder: () => null,
     is_shared: () => null,
     creation_mode: () => null,
     user_access_level: () => null,

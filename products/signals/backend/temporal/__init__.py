@@ -16,6 +16,7 @@ from products.signals.backend.temporal.backfill_error_tracking import (
 )
 from products.signals.backend.temporal.buffer import (
     BufferSignalsWorkflow,
+    check_signals_quota_limited_activity,
     flush_signals_to_s3_activity,
     signal_with_start_grouping_v2_activity,
     submit_signal_to_buffer_activity,
@@ -62,6 +63,7 @@ from products.signals.backend.temporal.signal_queries import (
 )
 from products.signals.backend.temporal.summary import (
     SignalReportSummaryWorkflow,
+    check_report_quota_gate_activity,
     dispatch_inbox_slack_notifications_activity,
     mark_report_failed_activity,
     mark_report_in_progress_activity,
@@ -69,6 +71,7 @@ from products.signals.backend.temporal.summary import (
     mark_report_ready_activity,
     publish_report_completed_activity,
     reset_report_to_potential_activity,
+    revert_report_to_candidate_activity,
 )
 
 WORKFLOWS = [
@@ -98,6 +101,7 @@ ACTIVITIES = [
     stamp_dispatched_signals_scout_runs_activity,
     assign_and_emit_signal_activity,
     capture_signal_dropped_activity,
+    check_signals_quota_limited_activity,
     delete_report_activity,
     emit_eval_signal_activity,
     fetch_report_contexts_activity,
@@ -111,10 +115,12 @@ ACTIVITIES = [
     match_signal_to_report_activity,
     mark_report_failed_activity,
     read_signals_from_s3_activity,
+    check_report_quota_gate_activity,
     mark_report_in_progress_activity,
     mark_report_pending_input_activity,
     mark_report_ready_activity,
     publish_report_completed_activity,
+    revert_report_to_candidate_activity,
     delete_team_reports_activity,
     get_grouping_paused_state_activity,
     pause_grouping_until_activity,

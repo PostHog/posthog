@@ -4,35 +4,26 @@ from pathlib import Path
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
-from posthog.schema import (
-    CurrencyCode,
-    DateRange,
-    HogQLQueryModifiers,
-    RevenueAnalyticsTopCustomersGroupBy,
-    RevenueAnalyticsTopCustomersQuery,
-    RevenueAnalyticsTopCustomersQueryResponse,
-)
+from posthog.schema import CurrencyCode, HogQLQueryModifiers, HogQLQueryResponse
 
-from posthog.temporal.data_imports.sources.stripe.constants import (
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
+from products.revenue_analytics.backend.views.schemas.customer import SCHEMA as CUSTOMER_SCHEMA
+from products.revenue_analytics.backend.views.schemas.revenue_item import SCHEMA as REVENUE_ITEM_SCHEMA
+from products.revenue_analytics.backend.views.test.data.structure import STRIPE_CHARGE_COLUMNS, STRIPE_INVOICE_COLUMNS
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+from products.warehouse_sources.backend.facade.sources import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
-
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
-from products.revenue_analytics.backend.hogql_queries.revenue_analytics_top_customers_query_runner import (
-    RevenueAnalyticsTopCustomersQueryRunner,
-)
-from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
-    STRIPE_CHARGE_COLUMNS,
-    STRIPE_INVOICE_COLUMNS,
-)
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 
 def _nullable_columns(basic_types: dict[str, str]) -> dict[str, dict[str, str | bool]]:
-    from products.warehouse_sources.backend.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type
+    from products.warehouse_sources.backend.facade.hogql import CLICKHOUSE_HOGQL_MAPPING, clean_type
 
     return {
         key: {
@@ -200,23 +191,20 @@ class TestStripeCustomerMetadataResolution(ClickhouseTestMixin, APIBaseTest):
             Path(f.name).unlink(missing_ok=True)
         super().tearDown()
 
-    def _run_top_customers_query(self) -> RevenueAnalyticsTopCustomersQueryResponse:
+    def _select_all_from_view(self, view_name: str) -> HogQLQueryResponse:
         with freeze_time(self.QUERY_TIMESTAMP):
-            query = RevenueAnalyticsTopCustomersQuery(
-                dateRange=DateRange(date_from="all"),
-                groupBy=RevenueAnalyticsTopCustomersGroupBy.ALL,
-                properties=[],
+            query = ast.SelectQuery(
+                select=[ast.Field(chain=["*"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=[view_name])),
             )
-            runner = RevenueAnalyticsTopCustomersQueryRunner(
-                team=self.team,
+            return execute_hogql_query(
                 query=query,
+                team=self.team,
                 modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True),
             )
-            response = runner.calculate()
-            RevenueAnalyticsTopCustomersQueryResponse.model_validate(response)
-            return response
 
-    def test_top_customers_query_works_with_nullable_metadata_columns(self):
-        response = self._run_top_customers_query()
+    def test_views_work_with_nullable_metadata_columns(self):
+        for schema in [CUSTOMER_SCHEMA, REVENUE_ITEM_SCHEMA]:
+            response = self._select_all_from_view(f"stripe.posthog_test.{schema.source_suffix}")
 
-        self.assertIsNotNone(response)
+            self.assertIsNotNone(response.results)

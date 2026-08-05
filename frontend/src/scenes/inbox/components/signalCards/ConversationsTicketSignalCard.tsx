@@ -4,18 +4,21 @@ import { Link } from '@posthog/lemon-ui'
 import { IconMicrosoftTeams, IconSlack } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTag, type LemonTagType } from 'lib/lemon-ui/LemonTag'
-import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { urls } from 'scenes/urls'
 
-import type { ConversationsTicketSignalExtra } from '~/queries/schema/schema-signals'
+import type { ConversationsTicketSignalExtraApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalCardShell } from './SignalCardShell'
 import type { SignalCardEntry, SignalCardProps } from './types'
 
 /** Guard for Conversations ticket extras. Keys on the ticket number + channel source unique to this source. */
 export function isConversationsTicketExtra(
-    extra: Record<string, unknown>
-): extra is Record<string, unknown> & ConversationsTicketSignalExtra {
+    value: unknown
+): value is Record<string, unknown> & ConversationsTicketSignalExtraApi {
+    if (typeof value !== 'object' || value === null) {
+        return false
+    }
+    const extra = value as Record<string, unknown>
     return 'ticket_number' in extra && 'channel_source' in extra
 }
 
@@ -77,7 +80,7 @@ export function conversationsChannelIcon(source: string): JSX.Element | null {
 }
 
 export function ConversationsTicketSignalCard({ signal }: SignalCardProps): JSX.Element {
-    const extra = signal.extra as Record<string, unknown> & ConversationsTicketSignalExtra
+    const extra = signal.extra as Record<string, unknown> & ConversationsTicketSignalExtraApi
     const channelIcon = conversationsChannelIcon(extra.channel_source)
 
     return (
@@ -106,7 +109,6 @@ export function ConversationsTicketSignalCard({ signal }: SignalCardProps): JSX.
                         </span>
                     </span>
                 </LemonTag>
-                <span>{humanFriendlyDetailedTime(extra.created_at)}</span>
             </div>
             <div className="flex items-center mt-2">
                 <span className="flex-1" />

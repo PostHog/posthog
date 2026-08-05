@@ -18,14 +18,14 @@ use async_trait::async_trait;
 use cymbal::error::{ResolveError, UnhandledError};
 use cymbal::frames::{Frame, RawFrame};
 use cymbal::langs::native::DebugImage;
+use cymbal::modes::resolution::load_monitor::LoadMonitor;
+use cymbal::modes::resolution::service::{CymbalResolutionService, ServiceConfig};
 use cymbal::stages::resolution::remote::{EndpointPool, RemoteResolutionConfig};
-use cymbal::stages::resolution::symbol::SymbolResolver;
-use cymbal::symbol_store::chunk_id::OrChunkId;
-use cymbal::symbol_store::proguard::ProguardRef;
+use cymbal::symbolication::symbol::SymbolResolver;
+use cymbal::symbolication::symbol_store::chunk_id::OrChunkId;
+use cymbal::symbolication::symbol_store::proguard::ProguardRef;
 use cymbal::types::operator::TeamId;
 use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_server::CymbalResolutionServer;
-use cymbal_resolution::load_monitor::LoadMonitor;
-use cymbal_resolution::service::{CymbalResolutionService, ServiceConfig};
 use tokio::sync::Semaphore;
 
 #[derive(Default)]
@@ -119,7 +119,6 @@ fn pool_config(host: &str, tick_hint: Duration) -> RemoteResolutionConfig {
         max_retries: 0,
         retry_backoff: Duration::from_millis(1),
         retry_max_backoff: Duration::from_millis(2),
-        sample_rate: 1.0,
         routing_jitter: 0.0,
         routing_acceptance_concurrency: 10,
         overload_ejection_initial: Duration::ZERO,

@@ -20,9 +20,11 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
-from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
-from posthog.temporal.ai import SyncVectorsInputs
-from posthog.temporal.ai.sync_vectors import EmbeddingVersion
+from posthog.slo.types import SloArea, SloConfig, SloOperation
+from posthog.temporal.ai.checkpoint_compaction.schedule import (
+    create_checkpoint_compaction_schedule,
+    should_register_checkpoint_compaction_schedule,
+)
 from posthog.temporal.ai_observability.eval_reports.schedule import (
     create_count_trigger_schedule,
     create_eval_reports_schedule,
@@ -46,10 +48,6 @@ from posthog.temporal.alerts.schedule import (
 )
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
-from posthog.temporal.data_imports.signals.conversations_schedule import (
-    create_conversations_signals_coordinator_schedule,
-)
-from posthog.temporal.ducklake.compaction_types import DucklakeCompactionInput
 from posthog.temporal.experiments.schedule import (
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
@@ -58,9 +56,9 @@ from posthog.temporal.health_checks.schedule import create_health_check_schedule
 from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
 from posthog.temporal.logs_alerting.schedule import create_logs_alert_check_schedule
 from posthog.temporal.mcp_analytics.intent_clustering.schedule import create_intent_clustering_coordinator_schedule
-from posthog.temporal.messaging.schedule import create_all_realtime_cohort_calculation_schedules
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
+from posthog.temporal.salesforce_enrichment.conversations_slack_workflow import ConversationsSlackEnrichmentInputs
 from posthog.temporal.salesforce_enrichment.stripe_workflow import StripeEnrichmentInputs
 from posthog.temporal.salesforce_enrichment.usage_workflow import UsageEnrichmentInputs
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
@@ -71,7 +69,11 @@ from posthog.temporal.session_replay.replay_count_metrics.types import ReplayCou
 from posthog.temporal.session_replay.summarization_sweep.reconciler import (
     create_summarization_sweep_reconciler_schedule,
 )
+from posthog.temporal.session_replay.surfacing_score_export_sweep.schedule import (
+    create_surfacing_score_export_sweep_schedule,
+)
 from posthog.temporal.session_replay.surfacing_scoring_sweep.schedule import create_surfacing_scoring_sweep_schedule
+from posthog.temporal.sync_events_retention.types import SyncEventsRetentionInput
 from posthog.temporal.usage_report.types import RunUsageReportsInputs
 from posthog.temporal.warehouse_sources_queue_partition_management.schedule import (
     create_warehouse_sources_queue_partition_management_schedule,
@@ -79,6 +81,12 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
 from products.business_knowledge.backend.temporal.schedule import create_business_knowledge_refresh_coordinator_schedule
+from products.conversations.backend.temporal.channel_summary.schedule import create_channel_summary_coordinator_schedule
+from products.conversations.backend.temporal.schedule import create_support_reply_coordinator_schedule
+from products.engineering_analytics.backend.facade.temporal import (
+    create_ci_signals_coordinator_schedule,
+    create_github_job_logs_coordinator_schedule,
+)
 from products.error_tracking.backend.facade.temporal import (
     RecommendationsRefreshInputs,
     create_error_tracking_spike_event_cleanup_schedule,
@@ -86,13 +94,15 @@ from products.error_tracking.backend.facade.temporal import (
 )
 from products.experiments.backend.temporal.schedule import create_experiment_precompute_canary_schedule
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
+from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
 from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     create_replay_vision_gemini_cleanup_sweep_schedule,
 )
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
+from products.review_hog.backend.temporal.outcomes_schedule import create_review_hog_finding_outcomes_schedule
+from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
 from products.signals.backend.temporal.agentic.schedule import create_signals_scout_coordinator_schedule
-from products.tasks.backend.temporal.code_workstreams.schedule import create_evaluate_code_workstreams_schedule
 from products.web_analytics.backend.temporal.digest_notification.types import WADigestNotificationInput
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
 
@@ -101,20 +111,10 @@ from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 logger = structlog.get_logger(__name__)
 
 
-async def create_sync_vectors_schedule(client: Client):
-    sync_vectors_schedule = Schedule(
-        action=ScheduleActionStartWorkflow(
-            "ai-sync-vectors",
-            asdict(SyncVectorsInputs(embedding_versions=EmbeddingVersion(actions=LATEST_ACTIONS_EMBEDDING_VERSION))),
-            id="ai-sync-vectors-schedule",
-            task_queue=settings.MAX_AI_TASK_QUEUE,
-        ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=30))]),
-    )
+async def cleanup_sync_vectors_schedule(client: Client):
+    """Disabled: delete the actions embedding sync schedule. Any in-flight runs die on their own execution_timeout."""
     if await a_schedule_exists(client, "ai-sync-vectors-schedule"):
-        await a_update_schedule(client, "ai-sync-vectors-schedule", sync_vectors_schedule)
-    else:
-        await a_create_schedule(client, "ai-sync-vectors-schedule", sync_vectors_schedule, trigger_immediately=True)
+        await a_delete_schedule(client, "ai-sync-vectors-schedule")
 
 
 async def create_run_quota_limiting_schedule(client: Client):
@@ -295,6 +295,46 @@ async def create_salesforce_stripe_enrichment_schedule(client: Client):
         )
 
 
+async def create_salesforce_conversations_slack_enrichment_schedule(client: Client):
+    """Create or update the schedule for the Salesforce Conversations Slack enrichment workflow.
+
+    Runs daily at 5 AM UTC to push Conversations Slack support signals to
+    Salesforce Accounts. ``SKIP`` prevents overlapping runs if Slack API calls
+    or Salesforce updates take longer than expected.
+    """
+    salesforce_conversations_slack_enrichment_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "salesforce-conversations-slack-enrichment",
+            asdict(ConversationsSlackEnrichmentInputs()),
+            id="salesforce-conversations-slack-enrichment-schedule",
+            task_queue=settings.BILLING_TASK_QUEUE,
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at 5 AM UTC",
+                    hour=[ScheduleRange(start=5, end=5)],
+                )
+            ]
+        ),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+    if await a_schedule_exists(client, "salesforce-conversations-slack-enrichment-schedule"):
+        await a_update_schedule(
+            client,
+            "salesforce-conversations-slack-enrichment-schedule",
+            salesforce_conversations_slack_enrichment_schedule,
+        )
+    else:
+        await a_create_schedule(
+            client,
+            "salesforce-conversations-slack-enrichment-schedule",
+            salesforce_conversations_slack_enrichment_schedule,
+            trigger_immediately=False,
+        )
+
+
 async def create_enforce_max_replay_retention_schedule(client: Client):
     """Create or update the schedule for the enforce max replay retention workflow.
 
@@ -327,6 +367,53 @@ async def create_enforce_max_replay_retention_schedule(client: Client):
             client,
             "enforce-max-replay-retention-schedule",
             enforce_max_replay_retention_schedule,
+            trigger_immediately=False,
+        )
+
+
+async def create_sync_events_retention_schedule(client: Client):
+    """Create or update the schedule for the events retention sync workflow.
+
+    Runs daily at 02:22 UTC — an off-the-hour minute so it doesn't pile onto the cluster of jobs that fire at the
+    top of the hour.
+    """
+    sync_events_retention_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "sync-events-retention",
+            SyncEventsRetentionInput(
+                dry_run=False,
+                slo=SloConfig(
+                    operation=SloOperation.SYNC_EVENTS_RETENTION,
+                    area=SloArea.ANALYTIC_PLATFORM,
+                    team_id=0,
+                    resource_id="sync-events-retention",
+                    distinct_id="sync-events-retention",
+                ),
+            ),
+            id="sync-events-retention-schedule",
+            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=1,
+            ),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at 02:22 UTC",
+                    hour=[ScheduleRange(start=2, end=2)],
+                    minute=[ScheduleRange(start=22, end=22)],
+                )
+            ]
+        ),
+    )
+
+    if await a_schedule_exists(client, "sync-events-retention-schedule"):
+        await a_update_schedule(client, "sync-events-retention-schedule", sync_events_retention_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "sync-events-retention-schedule",
+            sync_events_retention_schedule,
             trigger_immediately=False,
         )
 
@@ -550,33 +637,55 @@ async def cleanup_legacy_session_summarization_schedules(client: Client):
             await a_delete_schedule(client, schedule_id)
 
 
-async def create_run_usage_reports_schedule(client: Client):
-    """Daily Temporal-based usage report run at 04:45 UTC.
+async def cleanup_cohort_calculation_schedules(client: Client):
+    """Delete the realtime cohort calculation and precalculated-data reconcile schedules.
 
-    Runs an hour after the existing Celery beat for `send_all_org_usage_reports`
-    (03:45 UTC) so ClickHouse has breathing room while both flows run side by
-    side. The workflow writes per-org usage data to S3 and sends a single SQS
-    pointer to the billing service.
+    This ClickHouse-query-based path did not scale and was putting load on ClickHouse it could not
+    carry. rust/cohort-stream-processor replaces it with incremental evaluation off the event stream,
+    and owns reconciliation too (its workers/reconcile.rs and sweep/reconcile.rs), so nothing here
+    needs to run on a cadence any more.
+
+    The workflows stay registered on the messaging worker only until the Python implementation is
+    deleted. In-flight executions finish on their own; deleting a schedule doesn't cancel them.
+    """
+    legacy_schedule_ids = [
+        "realtime-cohort-calculation-p0-p50",
+        "realtime-cohort-calculation-p50-p80",
+        "realtime-cohort-calculation-p80-p90",
+        "realtime-cohort-calculation-p90-p95",
+        "realtime-cohort-calculation-p95-p99",
+        "realtime-cohort-calculation-p99-p100",
+        "realtime-cohort-calculation-p0-p90",
+        "realtime-cohort-calculation-p95-p100",
+        "realtime-cohort-calculation-schedule",
+        "reconcile-precalculated-data-schedule",
+    ]
+    for schedule_id in legacy_schedule_ids:
+        if await a_schedule_exists(client, schedule_id):
+            await a_delete_schedule(client, schedule_id)
+
+
+async def create_run_usage_reports_schedule(client: Client):
+    """Intraday usage report run every 30 minutes.
+
+    Reports *today's* usage so far (`day_offset=0`) so billing gets fresh
+    numbers throughout the day. A failed slot is superseded by the next one
+    30 minutes later, so no retries. The complete-day capture is handled by the
+    daily finalizer schedule (`create_finalize_usage_reports_schedule`). The
+    workflow writes per-org usage data to S3 and sends a single SQS pointer
+    to the billing service.
     """
     run_usage_reports_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "run-usage-reports",
             # `RunUsageReportsInputs` is a pydantic model, not a dataclass —
             # `dataclasses.asdict` would TypeError on registration.
-            RunUsageReportsInputs().model_dump(mode="json"),
+            RunUsageReportsInputs(day_offset=0).model_dump(mode="json"),
             id="run-usage-reports-schedule",
             task_queue=settings.BILLING_TASK_QUEUE,
             retry_policy=common.RetryPolicy(maximum_attempts=1),
         ),
-        spec=ScheduleSpec(
-            calendars=[
-                ScheduleCalendarSpec(
-                    comment="Daily at 04:45 UTC",
-                    hour=[ScheduleRange(start=4, end=4)],
-                    minute=[ScheduleRange(start=45, end=45)],
-                )
-            ]
-        ),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=30))]),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
@@ -587,6 +696,60 @@ async def create_run_usage_reports_schedule(client: Client):
             client,
             "run-usage-reports-schedule",
             run_usage_reports_schedule,
+            trigger_immediately=False,
+        )
+
+
+async def create_finalize_usage_reports_schedule(client: Client):
+    """Daily finalizer for the usage reports v2 flow, 02:45 UTC.
+
+    Reports *yesterday* (`day_offset=1`) once the day is complete — its
+    pointer carries `report_completeness="complete"`, billing's signal that
+    the numbers are final for that date.
+    02:45 leaves ~2.75 hours for ingestion lag after midnight and stays ahead
+    of the legacy Celery run at 03:45 UTC. The intraday schedule now runs
+    every 30 minutes, so this slot sits between the 02:30 and 03:00 intraday
+    runs rather than clearing them by an hour, and the two schedules' SKIP
+    policies don't see each other. A brief overlap is harmless: every run
+    writes under its own `{date}/{run_id}` S3 prefix, and the finalizer
+    reports yesterday while the intraday runs report today, so overlapping
+    runs touch distinct data and at worst add concurrent query load. Unlike
+    the intraday schedule this run has no later slot to supersede it, so the
+    retry policy keeps re-running it across the day (5m, 10m, ... capped at
+    2h) until it succeeds. Anything longer than that is a manual backfill:
+    trigger the workflow with `day_offset=N` for the missed day.
+    """
+    finalize_usage_reports_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "run-usage-reports",
+            RunUsageReportsInputs(day_offset=1).model_dump(mode="json"),
+            id="finalize-usage-reports-schedule",
+            task_queue=settings.BILLING_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=8,
+                initial_interval=timedelta(minutes=5),
+                maximum_interval=timedelta(hours=2),
+            ),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at 02:45 UTC",
+                    hour=[ScheduleRange(start=2, end=2)],
+                    minute=[ScheduleRange(start=45, end=45)],
+                )
+            ]
+        ),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+    if await a_schedule_exists(client, "finalize-usage-reports-schedule"):
+        await a_update_schedule(client, "finalize-usage-reports-schedule", finalize_usage_reports_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "finalize-usage-reports-schedule",
+            finalize_usage_reports_schedule,
             trigger_immediately=False,
         )
 
@@ -664,12 +827,13 @@ async def create_error_tracking_recommendations_refresh_schedule(client: Client)
 
 
 schedules = [
-    create_sync_vectors_schedule,
+    cleanup_sync_vectors_schedule,
     create_run_quota_limiting_schedule,
     create_upgrade_queries_schedule,
     create_count_all_playlists_schedule,
     create_error_tracking_recommendations_refresh_schedule,
     create_enforce_max_replay_retention_schedule,
+    create_sync_events_retention_schedule,
     create_replay_count_metrics_schedule,
     create_weekly_digest_schedule,
     create_batch_trace_summarization_schedule,
@@ -683,13 +847,14 @@ schedules = [
     create_evaluation_clustering_schedule,
     cleanup_legacy_session_summarization_schedules,
     create_summarization_sweep_reconciler_schedule,
+    create_surfacing_score_export_sweep_schedule,
     create_surfacing_scoring_sweep_schedule,
     create_ducklake_compaction_schedule,
     create_purge_deleted_recording_metadata_schedule,
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
     create_experiment_precompute_canary_schedule,
-    create_all_realtime_cohort_calculation_schedules,
+    cleanup_cohort_calculation_schedules,
     create_ingestion_acceptance_test_schedule,
     create_warehouse_sources_queue_partition_management_schedule,
     create_health_check_schedules,
@@ -704,9 +869,13 @@ schedules = [
     create_run_investigation_safety_net_schedule,
     create_cleanup_alert_checks_schedule,
     create_signals_scout_coordinator_schedule,
+    create_support_reply_coordinator_schedule,
+    create_channel_summary_coordinator_schedule,
     create_replay_vision_reconciler_schedule,
     create_replay_vision_estimates_schedule,
-    create_evaluate_code_workstreams_schedule,
+    create_github_job_logs_coordinator_schedule,
+    create_review_hog_finding_outcomes_schedule,
+    create_ci_signals_coordinator_schedule,
 ]
 
 if settings.CLOUD_DEPLOYMENT:
@@ -715,9 +884,17 @@ if settings.CLOUD_DEPLOYMENT:
     schedules.append(create_gemini_cleanup_sweep_schedule)
     schedules.append(create_replay_vision_gemini_cleanup_sweep_schedule)
     schedules.append(create_run_usage_reports_schedule)
+    schedules.append(create_finalize_usage_reports_schedule)
+    if should_register_checkpoint_compaction_schedule():
+        schedules.append(create_checkpoint_compaction_schedule)
 
 if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)
+    # Conversations tickets are region-local, so unlike the other (US-only) Salesforce
+    # writers this one runs per region — each region's tickets enrich that region's
+    # orgs, which map to disjoint Salesforce Accounts.
+    if settings.CLOUD_DEPLOYMENT in ("US", "EU"):
+        schedules.append(create_salesforce_conversations_slack_enrichment_schedule)
     if settings.CLOUD_DEPLOYMENT == "US":
         schedules.append(create_salesforce_enrichment_schedule)
         schedules.append(create_salesforce_usage_enrichment_schedule)

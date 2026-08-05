@@ -11,6 +11,7 @@
  * * `events` - Events
  * * `persons` - Persons
  * * `sessions` - Sessions
+ * * `hogql` - Hogql
  */
 export type ModelEnumApi = (typeof ModelEnumApi)[keyof typeof ModelEnumApi]
 
@@ -18,6 +19,7 @@ export const ModelEnumApi = {
     Events: 'events',
     Persons: 'persons',
     Sessions: 'sessions',
+    Hogql: 'hogql',
 } as const
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
@@ -107,14 +109,14 @@ export const CompressionEnumApi = {
 } as const
 
 /**
- * * `JSONLines` - JSONLines
  * * `Parquet` - Parquet
+ * * `JSONLines` - JSONLines
  */
 export type FileFormatEnumApi = (typeof FileFormatEnumApi)[keyof typeof FileFormatEnumApi]
 
 export const FileFormatEnumApi = {
-    JSONLines: 'JSONLines',
     Parquet: 'Parquet',
+    JSONLines: 'JSONLines',
 } as const
 
 export type AzureBlobDestinationConfigApiType =
@@ -180,18 +182,175 @@ export interface BigQueryDestinationConfigApi {
     type: BigQueryDestinationConfigApiType
 }
 
+export type PostgresDestinationConfigApiType =
+    (typeof PostgresDestinationConfigApiType)[keyof typeof PostgresDestinationConfigApiType]
+
+export const PostgresDestinationConfigApiType = {
+    Postgres: 'Postgres',
+} as const
+
+/**
+ * Typed configuration for a PostgreSQL batch-export destination.
+ *
+ * Connection credentials may live in a linked Integration (when one is provided) or
+ * inline in this config (legacy). Mirrors the non-credential fields of
+ * `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
+ */
+export interface PostgresDestinationConfigApi {
+    /** PostgreSQL database name to connect to. */
+    database: string
+    /** PostgreSQL schema name containing the destination table. */
+    schema?: string
+    /** PostgreSQL table name to write exported rows into. */
+    table_name?: string
+    /** Legacy SSL option for direct credential configuration. Ignored when using a PostgreSQL integration. */
+    has_self_signed_cert?: boolean
+    type: PostgresDestinationConfigApiType
+}
+
+export type AwsS3DestinationConfigApiType =
+    (typeof AwsS3DestinationConfigApiType)[keyof typeof AwsS3DestinationConfigApiType]
+
+export const AwsS3DestinationConfigApiType = {
+    AwsS3: 'AwsS3',
+} as const
+
+/**
+ * Typed configuration for an AWS S3 batch-export destination.
+ *
+ * AWS credentials live in the linked aws-s3 Integration. Mirrors the non-credential fields of
+ * `AwsS3BatchExportInputs` in `products/batch_exports/backend/service.py`.
+ */
+export interface AwsS3DestinationConfigApi {
+    /** Name of the destination bucket. */
+    bucket_name: string
+    /** Region the bucket is in (e.g. 'us-east-1'). */
+    region: string
+    /** Object key prefix applied to every exported file. */
+    prefix: string
+    /** Optional compression codec applied to exported files. Valid codecs depend on file_format.
+     *
+     * * `brotli` - brotli
+     * * `gzip` - gzip
+     * * `lz4` - lz4
+     * * `snappy` - snappy
+     * * `zstd` - zstd */
+    compression?: CompressionEnumApi | null
+    /** File format used for exported objects.
+     *
+     * * `Parquet` - Parquet
+     * * `JSONLines` - JSONLines */
+    file_format?: FileFormatEnumApi
+    /**
+     * If set, rolls to a new file once the current file exceeds this size in MB.
+     * @nullable
+     */
+    max_file_size_mb?: number | null
+    /**
+     * Optional S3 server-side encryption algorithm (e.g. 'AES256' or 'aws:kms').
+     * @nullable
+     */
+    encryption?: string | null
+    /**
+     * KMS key ID to use when encryption is 'aws:kms'.
+     * @nullable
+     */
+    kms_key_id?: string | null
+    type: AwsS3DestinationConfigApiType
+}
+
+export type S3CompatibleDestinationConfigApiType =
+    (typeof S3CompatibleDestinationConfigApiType)[keyof typeof S3CompatibleDestinationConfigApiType]
+
+export const S3CompatibleDestinationConfigApiType = {
+    S3Compatible: 'S3Compatible',
+} as const
+
+/**
+ * Typed configuration for an S3-compatible batch-export destination (Cloudflare R2,
+ * DigitalOcean Spaces, etc.).
+ *
+ * Credentials and the provider `endpoint_url` live in the linked s3-compatible Integration.
+ * Mirrors the non-credential fields of `S3CompatibleBatchExportInputs` in
+ * `products/batch_exports/backend/service.py`.
+ */
+export interface S3CompatibleDestinationConfigApi {
+    /** Name of the destination bucket. */
+    bucket_name: string
+    /** Region the bucket is in (e.g. 'us-east-1'). */
+    region: string
+    /** Object key prefix applied to every exported file. */
+    prefix: string
+    /** Optional compression codec applied to exported files. Valid codecs depend on file_format.
+     *
+     * * `brotli` - brotli
+     * * `gzip` - gzip
+     * * `lz4` - lz4
+     * * `snappy` - snappy
+     * * `zstd` - zstd */
+    compression?: CompressionEnumApi | null
+    /** File format used for exported objects.
+     *
+     * * `Parquet` - Parquet
+     * * `JSONLines` - JSONLines */
+    file_format?: FileFormatEnumApi
+    /**
+     * If set, rolls to a new file once the current file exceeds this size in MB.
+     * @nullable
+     */
+    max_file_size_mb?: number | null
+    /** Use virtual-hosted-style addressing rather than path-style. */
+    use_virtual_style_addressing?: boolean
+    type: S3CompatibleDestinationConfigApiType
+}
+
+export type SnowflakeDestinationConfigApiType =
+    (typeof SnowflakeDestinationConfigApiType)[keyof typeof SnowflakeDestinationConfigApiType]
+
+export const SnowflakeDestinationConfigApiType = {
+    Snowflake: 'Snowflake',
+} as const
+
+/**
+ * Typed configuration for a Snowflake batch-export destination.
+ *
+ * Account, user, authentication type and credentials may live in a linked Integration (when one is
+ * provided) or inline in this config (legacy). Mirrors the non-credential fields of
+ * `SnowflakeBatchExportInputs` in `products/batch_exports/backend/service.py`.
+ */
+export interface SnowflakeDestinationConfigApi {
+    /** Snowflake database to write to. */
+    database: string
+    /** Snowflake compute warehouse to use. */
+    warehouse: string
+    /** Schema inside the database containing the destination table. */
+    schema: string
+    /** Destination table name. */
+    table_name?: string
+    /**
+     * Optional Snowflake role to assume for the session.
+     * @nullable
+     */
+    role?: string | null
+    type: SnowflakeDestinationConfigApiType
+}
+
 export type BatchExportDestinationConfigApi =
     | DatabricksDestinationConfigApi
     | AzureBlobDestinationConfigApi
     | BigQueryDestinationConfigApi
+    | PostgresDestinationConfigApi
+    | AwsS3DestinationConfigApi
+    | S3CompatibleDestinationConfigApi
+    | SnowflakeDestinationConfigApi
 
 /**
  * Serializer for an BatchExportDestination model.
  *
  * The `config` field is polymorphic and typed only for destinations that keep
- * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery).
- * Other destination types accept the same JSON shape but without a typed
- * OpenAPI schema. Secret fields are stripped from `config` on read.
+ * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,
+ * AwsS3, S3Compatible, Snowflake). Other destination types accept the same JSON shape but without a
+ * typed OpenAPI schema. Secret fields are stripped from `config` on read.
  */
 export interface BatchExportDestinationApi {
     /** A choice of supported BatchExportDestination types.
@@ -210,7 +369,7 @@ export interface BatchExportDestinationApi {
      * * `NoOp` - Noop
      * * `FileDownload` - File Download */
     type: BatchExportDestinationTypeEnumApi
-    /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
+    /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
     config: BatchExportDestinationConfigApi
     /**
      * The integration for this destination.
@@ -218,7 +377,7 @@ export interface BatchExportDestinationApi {
      */
     integration?: number | null
     /**
-     * ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; unused for other types.
+     * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, and BigQuery destinations; optional for AwsS3, S3Compatible and Snowflake (inline credentials remain supported); unused for other types.
      * @nullable
      */
     integration_id?: number | null
@@ -370,7 +529,8 @@ export interface BatchExportApi {
      *
      * * `events` - Events
      * * `persons` - Persons
-     * * `sessions` - Sessions */
+     * * `sessions` - Sessions
+     * * `hogql` - Hogql */
     model?: ModelEnumApi | BlankEnumApi | null
     /** Destination configuration (type, config, and optional integration). */
     destination: BatchExportDestinationApi
@@ -1085,10 +1245,82 @@ export interface BigQueryDestinationRequestApi {
     config: BigQueryDestinationConfigApi
 }
 
+export type PostgresDestinationRequestApiType =
+    (typeof PostgresDestinationRequestApiType)[keyof typeof PostgresDestinationRequestApiType]
+
+export const PostgresDestinationRequestApiType = {
+    Postgres: 'Postgres',
+} as const
+
+/**
+ * Request shape for creating or updating a PostgreSQL batch-export destination.
+ */
+export interface PostgresDestinationRequestApi {
+    type: PostgresDestinationRequestApiType
+    /** ID of a postgresql-kind Integration providing connection credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+    integration_id: number
+    config: PostgresDestinationConfigApi
+}
+
+export type AwsS3DestinationRequestApiType =
+    (typeof AwsS3DestinationRequestApiType)[keyof typeof AwsS3DestinationRequestApiType]
+
+export const AwsS3DestinationRequestApiType = {
+    AwsS3: 'AwsS3',
+} as const
+
+/**
+ * Request shape for creating or updating an AWS S3 batch-export destination.
+ */
+export interface AwsS3DestinationRequestApi {
+    type: AwsS3DestinationRequestApiType
+    /** ID of an aws-s3-kind Integration providing AWS credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
+    integration_id?: number
+    config: AwsS3DestinationConfigApi
+}
+
+export type S3CompatibleDestinationRequestApiType =
+    (typeof S3CompatibleDestinationRequestApiType)[keyof typeof S3CompatibleDestinationRequestApiType]
+
+export const S3CompatibleDestinationRequestApiType = {
+    S3Compatible: 'S3Compatible',
+} as const
+
+/**
+ * Request shape for creating or updating an S3-compatible batch-export destination.
+ */
+export interface S3CompatibleDestinationRequestApi {
+    type: S3CompatibleDestinationRequestApiType
+    /** ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
+    integration_id?: number
+    config: S3CompatibleDestinationConfigApi
+}
+
+export type SnowflakeDestinationRequestApiType =
+    (typeof SnowflakeDestinationRequestApiType)[keyof typeof SnowflakeDestinationRequestApiType]
+
+export const SnowflakeDestinationRequestApiType = {
+    Snowflake: 'Snowflake',
+} as const
+
+/**
+ * Request shape for creating or updating a Snowflake batch-export destination.
+ */
+export interface SnowflakeDestinationRequestApi {
+    type: SnowflakeDestinationRequestApiType
+    /** ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
+    integration_id?: number
+    config: SnowflakeDestinationConfigApi
+}
+
 export type BatchExportDestinationRequestApi =
     | DatabricksDestinationRequestApi
     | AzureBlobDestinationRequestApi
     | BigQueryDestinationRequestApi
+    | PostgresDestinationRequestApi
+    | AwsS3DestinationRequestApi
+    | S3CompatibleDestinationRequestApi
+    | SnowflakeDestinationRequestApi
 
 /**
  * Request body for create/partial_update on BatchExportViewSet.
@@ -1104,7 +1336,8 @@ export interface BatchExportRequestApi {
      *
      * * `events` - Events
      * * `persons` - Persons
-     * * `sessions` - Sessions */
+     * * `sessions` - Sessions
+     * * `hogql` - Hogql */
     model?: ModelEnumApi
     /** Destination configuration. Required integration_id is enforced per destination type. */
     destination: BatchExportDestinationRequestApi
@@ -1120,6 +1353,7 @@ export interface BatchExportRequestApi {
     paused?: boolean
     /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
     hogql_query?: string
+    /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
     filters?: unknown
     /**
      * IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries.
@@ -1263,7 +1497,8 @@ export interface PatchedBatchExportRequestApi {
      *
      * * `events` - Events
      * * `persons` - Persons
-     * * `sessions` - Sessions */
+     * * `sessions` - Sessions
+     * * `hogql` - Hogql */
     model?: ModelEnumApi
     /** Destination configuration. Required integration_id is enforced per destination type. */
     destination?: BatchExportDestinationRequestApi
@@ -1279,6 +1514,7 @@ export interface PatchedBatchExportRequestApi {
     paused?: boolean
     /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
     hogql_query?: string
+    /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
     filters?: unknown
     /**
      * IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries.
@@ -1409,10 +1645,28 @@ export interface FileDownloadSessionsRequestApi {
     data_interval_end: string
 }
 
+export type FileDownloadHogQLRequestApiModel =
+    (typeof FileDownloadHogQLRequestApiModel)[keyof typeof FileDownloadHogQLRequestApiModel]
+
+export const FileDownloadHogQLRequestApiModel = {
+    Hogql: 'hogql',
+} as const
+
+/**
+ * Typed configuration for the hogql model.
+ */
+export interface FileDownloadHogQLRequestApi {
+    file: FileDownloadDestinationFileConfigApi
+    model: FileDownloadHogQLRequestApiModel
+    /** HogQL SELECT query whose results are exported. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. The query runs as of thetime the export starts; events ingested moments before may not be included yet. */
+    hogql_query: string
+}
+
 export type CreateFileDownloadRequestApi =
     | FileDownloadEventsRequestApi
     | FileDownloadPersonsRequestApi
     | FileDownloadSessionsRequestApi
+    | FileDownloadHogQLRequestApi
 
 /**
  * Typed output for view set `create`.
@@ -1480,6 +1734,7 @@ export type RetrieveFileDownloadResponseApi =
  * * `events` - events
  * * `persons` - persons
  * * `sessions` - sessions
+ * * `hogql` - hogql
  */
 export type FileDownloadBatchExportOnDemandModelEnumApi =
     (typeof FileDownloadBatchExportOnDemandModelEnumApi)[keyof typeof FileDownloadBatchExportOnDemandModelEnumApi]
@@ -1488,6 +1743,7 @@ export const FileDownloadBatchExportOnDemandModelEnumApi = {
     Events: 'events',
     Persons: 'persons',
     Sessions: 'sessions',
+    Hogql: 'hogql',
 } as const
 
 /**
@@ -1498,8 +1754,12 @@ export interface FileDownloadBatchExportOnDemandApi {
     model: FileDownloadBatchExportOnDemandModelEnumApi
     include?: string[]
     exclude?: string[]
-    data_interval_start: string
-    data_interval_end: string
+    /** HogQL SELECT query whose results are exported. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. The query runs as of thetime the export starts; events ingested moments before may not be included yet. */
+    hogql_query?: string
+    /** Start of the data interval to export */
+    data_interval_start?: string
+    /** End of the data interval to export */
+    data_interval_end?: string
 }
 
 /**
@@ -1530,6 +1790,16 @@ export type FileDownloadSessionsRequestModelEnumApi =
 
 export const FileDownloadSessionsRequestModelEnumApi = {
     Sessions: 'sessions',
+} as const
+
+/**
+ * * `hogql` - hogql
+ */
+export type FileDownloadHogQLRequestModelEnumApi =
+    (typeof FileDownloadHogQLRequestModelEnumApi)[keyof typeof FileDownloadHogQLRequestModelEnumApi]
+
+export const FileDownloadHogQLRequestModelEnumApi = {
+    Hogql: 'hogql',
 } as const
 
 /**
@@ -1602,6 +1872,46 @@ export type BigQueryDestinationRequestTypeEnumApi =
 
 export const BigQueryDestinationRequestTypeEnumApi = {
     BigQuery: 'BigQuery',
+} as const
+
+/**
+ * * `Postgres` - Postgres
+ */
+export type PostgresDestinationRequestTypeEnumApi =
+    (typeof PostgresDestinationRequestTypeEnumApi)[keyof typeof PostgresDestinationRequestTypeEnumApi]
+
+export const PostgresDestinationRequestTypeEnumApi = {
+    Postgres: 'Postgres',
+} as const
+
+/**
+ * * `AwsS3` - AwsS3
+ */
+export type AwsS3DestinationRequestTypeEnumApi =
+    (typeof AwsS3DestinationRequestTypeEnumApi)[keyof typeof AwsS3DestinationRequestTypeEnumApi]
+
+export const AwsS3DestinationRequestTypeEnumApi = {
+    AwsS3: 'AwsS3',
+} as const
+
+/**
+ * * `S3Compatible` - S3Compatible
+ */
+export type S3CompatibleDestinationRequestTypeEnumApi =
+    (typeof S3CompatibleDestinationRequestTypeEnumApi)[keyof typeof S3CompatibleDestinationRequestTypeEnumApi]
+
+export const S3CompatibleDestinationRequestTypeEnumApi = {
+    S3Compatible: 'S3Compatible',
+} as const
+
+/**
+ * * `Snowflake` - Snowflake
+ */
+export type SnowflakeDestinationRequestTypeEnumApi =
+    (typeof SnowflakeDestinationRequestTypeEnumApi)[keyof typeof SnowflakeDestinationRequestTypeEnumApi]
+
+export const SnowflakeDestinationRequestTypeEnumApi = {
+    Snowflake: 'Snowflake',
 } as const
 
 export type BatchExportsListParams = {

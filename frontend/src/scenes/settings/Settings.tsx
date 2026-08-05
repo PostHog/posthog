@@ -8,6 +8,7 @@ import React from 'react'
 import { IconExternal, IconList } from '@posthog/icons'
 import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { SupportedPlatforms } from 'lib/components/SupportedPlatforms/SupportedPlatforms'
 import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
@@ -65,9 +66,9 @@ export function Settings({
 }): JSX.Element {
     const {
         selectedSectionId,
+        selectedSection,
         selectedLevel,
         selectedSettingId,
-        selectedSetting,
         settings,
         isCompactNavigationOpen,
         searchTerm,
@@ -111,7 +112,24 @@ export function Settings({
     // in normal flow instead, so it sits beside the content rather than overlapping.
     const isFullScene = props.logicKey === 'settingsScene'
 
-    const settingsInSidebar = props.sectionId && !!selectedSetting
+    // Sections gated by access control render a generic denial instead of their settings,
+    // which would otherwise mount and immediately 403 against their endpoints.
+    const sectionAccessDeniedReason = selectedSection?.accessControl
+        ? getAccessControlDisabledReason(
+              selectedSection.accessControl.resourceType,
+              selectedSection.accessControl.minimumAccessLevel
+          )
+        : null
+
+    // When embedded in a specific section (replay, logs, error tracking, etc. — anything that
+    // passes a `sectionId`), the nav always lists that section's settings as in-context sub-tabs.
+    // It must NOT depend on `selectedSetting` resolving: that value is derived from asynchronously
+    // loaded feature flags / team config, so on a cold load it is briefly null. Folding it in here
+    // made the nav fall back to the full multi-level settings map, whose items link out to
+    // `/settings/...` — which is why clicking a replay settings sub-tab would occasionally bounce
+    // the user to the top-level settings page. The standalone settings scene passes no `sectionId`
+    // and keeps the full map. (Content single-vs-stacked is decided separately in SettingsRenderer.)
+    const settingsInSidebar = !!props.sectionId
 
     const searchItems: SearchResult[] = React.useMemo(
         () => searchResults.flatMap((group) => group.results),
@@ -147,13 +165,13 @@ export function Settings({
         return () => clearTimeout(timer)
     }, [selectedSectionId, isSearching])
 
-    // Currently environment and project settings do not require periodic re-authentication,
-    // though this is likely to change (see https://github.com/posthog/posthog/pull/22421).
-    // In the meantime, we don't want a needless re-authentication modal:
-    const AuthenticationAreaComponent =
-        selectedLevel !== 'environment' && selectedLevel !== 'project'
-            ? TimeSensitiveAuthenticationArea
-            : React.Fragment
+    // Environment and project settings don't require periodic re-authentication by default,
+    // so we avoid a needless re-authentication modal (see https://github.com/posthog/posthog/pull/22421).
+    // The exception is sections that opt in via `requiresReauthentication` — e.g. credential
+    // management — which prompt on navigation like user- and organization-level settings do.
+    const requiresReauthentication =
+        (selectedLevel !== 'environment' && selectedLevel !== 'project') || !!selectedSection?.requiresReauthentication
+    const AuthenticationAreaComponent = requiresReauthentication ? TimeSensitiveAuthenticationArea : React.Fragment
 
     const options: SettingOption[] = settingsInSidebar
         ? settings.map((s) => ({
@@ -323,9 +341,13 @@ export function Settings({
         </Combobox>
     )
 
+    // Embeds show only the denied section's sub-tabs, so hide the nav along with the content.
+    // The full settings scene keeps its nav so other sections stay reachable.
+    const hideNav = hideSections || (settingsInSidebar && !!sectionAccessDeniedReason)
+
     return (
         <div className={clsx('Settings flex items-start', isCompact && 'Settings--compact')}>
-            {hideSections ? null : isCompact ? (
+            {hideNav ? null : isCompact ? (
                 <>
                     <Button variant="outline" left className="w-full" onClick={() => openCompactNavigation()}>
                         <IconList className="stroke-2 size-4 mr-1" />{' '}
@@ -362,7 +384,7 @@ export function Settings({
                     className={clsx(
                         'border rounded w-[var(--settings-nav-width)] flex flex-col',
                         isFullScene
-                            ? 'fixed top-(--scene-padding) bottom-(--scene-padding)'
+                            ? 'fixed top-(--settings-nav-top) bottom-(--scene-padding)'
                             : 'sticky top-(--scene-layout-header-height) self-start max-h-[calc(100dvh-var(--scene-layout-header-height)-var(--scene-padding))]'
                     )}
                 >
@@ -379,7 +401,11 @@ export function Settings({
                 <AuthenticationAreaComponent>
                     <div className="space-y-2">
                         {headerSlot}
-                        <SettingsRenderer {...props} handleLocally={handleLocally} />
+                        {sectionAccessDeniedReason ? (
+                            <AccessDenied reason={sectionAccessDeniedReason} />
+                        ) : (
+                            <SettingsRenderer {...props} handleLocally={handleLocally} />
+                        )}
                     </div>
                 </AuthenticationAreaComponent>
             </div>

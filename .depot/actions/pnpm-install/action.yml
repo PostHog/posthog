@@ -1,0 +1,85 @@
+# Depot mirror of .github/actions/pnpm-install (same pattern as .depot/actions/setup-sqlx-cli).
+# Kept byte-for-byte equivalent to canonical except the node-gyp chmod below, which is hardened
+# for Depot Cache restores. actions/cache routes to Depot Cache, so the shared key does not collide.
+name: Install pnpm dependencies
+description: |
+    Sets up pnpm + Node, restores the shared pnpm store cache, installs, and
+    saves the cache only on the default branch.
+
+    Single source of truth for the pnpm cache key. Every node workflow shares
+    one namespace (`pnpm-<os>-<lockfile-hash>`), so the store is cached once
+    instead of fragmenting across runner-arch casings or per-workflow keys.
+
+    Deliberately does NOT use setup-node's `cache: pnpm`: that auto-saves on
+    every run (PRs included, and the post-save can't be gated) and keys on
+    `os.arch()` (lowercase `x64`), which never matches a hand-written
+    `runner.arch` key (uppercase `X64`). We restore/save explicitly instead.
+
+inputs:
+    install-command:
+        description: 'Command used to install dependencies. Override for filtered installs.'
+        required: false
+        default: 'pnpm install --frozen-lockfile'
+    node-version-file:
+        description: 'File specifying the Node version.'
+        required: false
+        default: .nvmrc
+    working-directory:
+        description: 'Directory to run the install command in.'
+        required: false
+        default: '.'
+
+runs:
+    using: composite
+    steps:
+        - name: Install pnpm
+          uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+
+        - name: Fix node-gyp permissions
+          shell: bash
+          # Depot CI's restored pnpm store can land node-gyp's gyp_main.py without +x.
+          # Locate it across pnpm/action-setup layouts and never fail if it is absent.
+          run: find ~/setup-pnpm -name gyp_main.py -path '*/node-gyp/*' -exec chmod +x {} + 2>/dev/null || true
+
+        - name: Set up Node.js
+          uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+          with:
+              node-version-file: ${{ inputs.node-version-file }}
+              token: ${{ github.token }}
+
+        - name: Get pnpm store path
+          id: pnpm-store
+          shell: bash
+          run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+        - name: Restore pnpm store
+          id: restore
+          uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+          with:
+              path: ${{ steps.pnpm-store.outputs.path }}
+              key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+              restore-keys: pnpm-${{ runner.os }}-
+
+        - name: Install dependencies
+          shell: bash
+          working-directory: ${{ inputs.working-directory }}
+          # Pass the command through env and eval it rather than interpolating
+          # ${{ }} straight into run: — that trips semgrep's run-shell-injection
+          # rule. eval keeps shell parsing so quoted --filter globs survive.
+          # pnpm reads npm_config_* — keep cache-miss fetches resilient to blips.
+          env:
+              INSTALL_COMMAND: ${{ inputs.install-command }}
+              npm_config_fetch_retries: 3
+              npm_config_fetch_retry_mintimeout: 10000
+              npm_config_fetch_retry_maxtimeout: 60000
+          run: eval "$INSTALL_COMMAND"
+
+        # Save only on the default branch. Caches written on a PR/branch ref are
+        # scoped to that ref alone — no other branch can read them, they evict
+        # the shared master cache, and they only ever help that one PR's re-runs.
+        - name: Save pnpm store
+          if: github.ref == 'refs/heads/master' && steps.restore.outputs.cache-hit != 'true'
+          uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+          with:
+              path: ${{ steps.pnpm-store.outputs.path }}
+              key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}

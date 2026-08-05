@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "basic": {
-            "description": "Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.",
+            "description": "Return a basic payload that omits the `query`, `groups`, `last_error_message`, and `experiment_set` fields (`filters` is kept). Useful for pickers that only need id/name/count.",
             "type": "boolean"
         },
         "hide_behavioral_cohorts": {
@@ -16,6 +16,10 @@
         "offset": {
             "description": "The initial index from which to return the results.",
             "type": "number"
+        },
+        "search": {
+            "description": "Find cohorts by name. Fuzzy trigram match (tolerates typos and partial words), exact matches ordered first.",
+            "type": "string"
         }
     },
     "type": "object"

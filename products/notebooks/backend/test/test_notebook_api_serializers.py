@@ -1,6 +1,6 @@
 import pytest
 
-from products.notebooks.backend.api.notebook import NotebookCollabSaveSerializer
+from products.notebooks.backend.presentation.views.notebook import NotebookCollabSaveSerializer
 
 
 @pytest.mark.parametrize(

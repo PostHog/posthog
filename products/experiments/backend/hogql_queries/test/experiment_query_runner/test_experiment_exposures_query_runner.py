@@ -1,8 +1,9 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
+from unittest.mock import patch
 
 from django.forms.models import model_to_dict
 from django.test import override_settings
@@ -16,11 +17,15 @@ from posthog.test.test_journeys import journeys_for
 from products.actions.backend.models.action import Action
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    EXPERIMENT_EXPOSURE_EVENT,
+    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
+    EXPERIMENT_EXPOSURE_EVENT_FLAG,
+)
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.utils import (
     create_standard_group_test_events,
 )
-from products.experiments.backend.models.experiment import ExperimentHoldout
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -102,6 +107,90 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         response = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
 
         self.assertEqual(response.total_exposures, {"control": 2, "test": 1})
+
+    @parameterized.expand(
+        [
+            # (name, flag enabled, experiment start/end offsets, query start offset, expected exposures)
+            ("fully_before_cutoff", True, -14, -7, -14, {"control": 2, "test": 1}),
+            ("start_before_end_after_cutoff", True, -7, 7, -7, {"control": 2, "test": 1}),
+            ("fully_after_cutoff", True, 7, 14, 7, {"control": 1, "test": 2}),
+            ("fully_after_cutoff_flag_disabled", False, 7, 14, 7, {"control": 2, "test": 1}),
+            ("query_window_starts_after_cutoff", True, -7, 14, 7, {"control": 2, "test": 1}),
+        ]
+    )
+    @freeze_time(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=30))
+    def test_exposure_event_selected_relative_to_cutoff(
+        self,
+        _name,
+        new_event_enabled,
+        start_offset_days,
+        end_offset_days,
+        query_start_offset_days,
+        expected_exposures,
+    ):
+        cutoff = EXPERIMENT_EXPOSURE_EVENT_CUTOFF.replace(tzinfo=None)
+        start_date = cutoff + timedelta(days=start_offset_days)
+        end_date = cutoff + timedelta(days=end_offset_days)
+        query_start_date = cutoff + timedelta(days=query_start_offset_days)
+        experiment = self.create_experiment(
+            name="cutoff-experiment",
+            feature_flag=self.feature_flag,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+        ff_property = f"$feature/{self.feature_flag.key}"
+
+        def exposure(event: str, variant: str, timestamp: datetime) -> dict:
+            return {
+                "event": event,
+                "timestamp": timestamp.isoformat(),
+                "properties": {
+                    "$feature_flag_response": variant,
+                    ff_property: variant,
+                    "$feature_flag": self.feature_flag.key,
+                },
+            }
+
+        legacy_ts = query_start_date + timedelta(days=1)
+        new_ts = end_date - timedelta(days=1)
+        # Both events are seeded inside every experiment window, with disjoint user sets and
+        # asymmetric counts, so total_exposures reveals which event the query counted:
+        # $feature_flag_called yields control=2/test=1, $experiment_exposure yields
+        # control=1/test=2, and counting both would yield control=3/test=3.
+        journeys_for(
+            {
+                "user_legacy_control_1": [exposure("$feature_flag_called", "control", legacy_ts)],
+                "user_legacy_control_2": [exposure("$feature_flag_called", "control", legacy_ts)],
+                "user_legacy_test_1": [exposure("$feature_flag_called", "test", legacy_ts)],
+                "user_new_control_1": [exposure(EXPERIMENT_EXPOSURE_EVENT, "control", new_ts)],
+                "user_new_test_1": [exposure(EXPERIMENT_EXPOSURE_EVENT, "test", new_ts)],
+                "user_new_test_2": [exposure(EXPERIMENT_EXPOSURE_EVENT, "test", new_ts)],
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=experiment.id,
+            experiment_name=experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=None,
+            start_date=query_start_date.isoformat(),
+            end_date=experiment.end_date.isoformat(),
+            exposure_criteria=experiment.exposure_criteria,
+        )
+
+        # Only answer for the exposure-event flag; returning True for every flag would flip
+        # unrelated HogQL query modifiers on and break the query under test.
+        def fake_feature_enabled(flag_key: str, *args, **kwargs) -> bool:
+            return new_event_enabled if flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG else False
+
+        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
+            response = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
+
+        self.assertEqual(response.total_exposures, expected_exposures)
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
     @freeze_time("2024-01-07T12:00:00Z")
@@ -1675,134 +1764,49 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         total_exposures = {"control": 800, "test": 200, MULTIPLE_VARIANT_KEY: 20}
 
-        ended_query = ExperimentExposureQuery(
-            kind="ExperimentExposureQuery",
-            experiment_id=experiment.id,
-            experiment_name=experiment.name,
-            feature_flag=model_to_dict(feature_flag),
-            start_date=experiment.start_date.isoformat(),
-            end_date=experiment.end_date.isoformat(),
-            exposure_criteria=experiment.exposure_criteria,
-        )
-        ended_runner = ExperimentExposuresQueryRunner(team=self.team, query=ended_query)
-        self.assertIsNone(ended_runner._evaluate_bias_risk(total_exposures))
+        def _runner(end_date: str | None) -> ExperimentExposuresQueryRunner:
+            query = ExperimentExposureQuery(
+                kind="ExperimentExposureQuery",
+                experiment_id=experiment.id,
+                experiment_name=experiment.name,
+                feature_flag=model_to_dict(feature_flag),
+                start_date=experiment.start_date.isoformat(),
+                end_date=end_date,
+                exposure_criteria=experiment.exposure_criteria,
+            )
+            return ExperimentExposuresQueryRunner(team=self.team, query=query)
 
-        running_query = ExperimentExposureQuery(
-            kind="ExperimentExposureQuery",
-            experiment_id=experiment.id,
-            experiment_name=experiment.name,
-            feature_flag=model_to_dict(feature_flag),
-            start_date=experiment.start_date.isoformat(),
-            end_date=None,
-            exposure_criteria=experiment.exposure_criteria,
-        )
-        running_runner = ExperimentExposuresQueryRunner(team=self.team, query=running_query)
-        risk = running_runner._evaluate_bias_risk(total_exposures)
+        # The running/stopped decision is read from the query, not the model — the experiment row is
+        # left ended throughout. Query end_date set -> reads as stopped, warning skipped.
+        self.assertIsNone(_runner(experiment.end_date.isoformat())._evaluate_bias_risk(total_exposures))
+
+        # Query end_date cleared -> reads as running, warning evaluated.
+        risk = _runner(None)._evaluate_bias_risk(total_exposures)
         assert risk is not None
         self.assertGreater(risk.multiple_variant_percentage, 0)
 
-
-@override_settings(IN_UNIT_TESTING=True)
-class TestExposureRunnerVariantFiltering(ExperimentQueryRunnerBaseTest):
-    @staticmethod
-    def _holdout_to_dict(holdout):
-        # model_to_dict includes team/created_at as Python objects, which fail pydantic
-        # validation. Build a minimal dict that matches ExperimentHoldoutType instead.
-        return {
-            "id": holdout.id,
-            "name": holdout.name,
-            "filters": holdout.filters,
-        }
-
-    def _make_query(self, experiment):
-        return ExperimentExposureQuery(
+    def test_date_range_follows_query_not_model(self):
+        # The result is cached under a key hashed from the query (see get_cache_payload), so the window
+        # must come from the query — not live model state. A query whose end_date differs from the
+        # model's must yield the query's window, or the cache key would describe a window the result
+        # wasn't computed for.
+        feature_flag = self.create_feature_flag(key="stateless-window")
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 31),
+        )
+        query_end = datetime(2024, 1, 10).replace(tzinfo=ZoneInfo("UTC"))
+        query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=experiment.id,
             experiment_name=experiment.name,
-            feature_flag=model_to_dict(experiment.feature_flag),
-            holdout=self._holdout_to_dict(experiment.holdout) if experiment.holdout else None,
-            start_date=experiment.start_date.isoformat() if experiment.start_date else None,
-            end_date=experiment.end_date.isoformat() if experiment.end_date else None,
+            feature_flag=model_to_dict(feature_flag),
+            start_date=experiment.start_date.isoformat(),
+            end_date=query_end.isoformat(),
             exposure_criteria=experiment.exposure_criteria,
         )
-
-    # Sentinel used in `excluded_variants` specs to mean "the attached holdout's pseudo-key",
-    # resolved to `holdout-{id}` once the holdout row exists.
-    _HOLDOUT_KEY = "<holdout>"
-
-    @parameterized.expand(
-        [
-            # name, extra_variants, attach_holdout, parameters
-            ("no_holdout_no_exclusions", [], False, "unset"),
-            ("holdout_attached", [], True, "unset"),
-            ("excluded_variant_dropped", ["test-2"], False, {"excluded_variants": ["test-2"]}),
-            ("holdout_and_excluded_both_filtered", ["test-2"], True, {"excluded_variants": ["test-2"]}),
-            ("null_parameters_does_not_raise", [], False, None),
-            ("empty_excluded_variants_is_noop", [], False, {"excluded_variants": []}),
-            ("excluded_variants_naming_holdout_is_idempotent", [], True, {"excluded_variants": [_HOLDOUT_KEY]}),
-        ]
-    )
-    @freeze_time("2024-01-01T12:00:00Z")
-    def test_runner_variant_filtering(self, name, extra_variants, attach_holdout, parameters):
-        feature_flag = self.create_feature_flag(key=f"{name.replace('_', '-')}-test")
-        for index, variant_key in enumerate(extra_variants):
-            feature_flag.filters["multivariate"]["variants"].append(
-                {"key": variant_key, "name": f"Test {index + 2}", "rollout_percentage": 33}
-            )
-        if extra_variants:
-            feature_flag.save()
-
-        experiment = self.create_experiment(feature_flag=feature_flag)
-
-        holdout = None
-        if attach_holdout:
-            holdout = ExperimentHoldout.objects.create(
-                team=self.team,
-                name=f"Holdout {name}",
-                filters=[{"properties": [], "rollout_percentage": 20}],
-            )
-            experiment.holdout = holdout
-
-        if parameters != "unset":
-            resolved = parameters
-            if isinstance(parameters, dict):
-                holdout_key = f"holdout-{holdout.id}" if holdout is not None else self._HOLDOUT_KEY
-                resolved = {
-                    **parameters,
-                    "excluded_variants": [
-                        holdout_key if key == self._HOLDOUT_KEY else key
-                        for key in parameters.get("excluded_variants", [])
-                    ],
-                }
-            experiment.parameters = resolved
-        experiment.save()
-
-        runner = ExperimentExposuresQueryRunner(team=self.team, query=self._make_query(experiment))
-
-        # The runner always reports exactly the analyzable variants — holdout pseudo-variants
-        # and excluded variants are filtered out regardless of how they were specified.
-        assert set(runner.variants) == {"control", "test"}
-        if holdout is not None:
-            assert f"holdout-{holdout.id}" not in runner.variants
-            assert runner.query.holdout is not None  # still available for SRM
-
-    def test_srm_no_false_alarm_when_holdout_present_but_balanced(self):
-        feature_flag = self.create_feature_flag(key="srm-balanced-with-holdout-test")
-        holdout = ExperimentHoldout.objects.create(
-            team=self.team,
-            name="Holdout SRM",
-            filters=[{"properties": [], "rollout_percentage": 20}],
-        )
-        experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.holdout = holdout
-        experiment.save()
-        runner = ExperimentExposuresQueryRunner(team=self.team, query=self._make_query(experiment))
-
-        # 100 exposed users at 50/50 split. Holdout key absent (matches new reality).
-        # total_observed = 50+50 = 100, meeting SRM_MINIMUM_SAMPLE_SIZE.
-        total_exposures = {"control": 50, "test": 50}
-        result = runner._calculate_srm(total_exposures)
-        assert result is not None
-        # Expected percentages should be the holdout-adjusted 40/40 = 50/50 of exposed
-        # (we drop holdout from rollout_percentages). p_value should be 1.0 for perfect balance.
-        assert result.p_value == 1.0
+        runner = ExperimentExposuresQueryRunner(team=self.team, query=query)
+        date_to = runner._get_date_range().date_to
+        assert date_to is not None
+        assert datetime.fromisoformat(date_to) == query_end

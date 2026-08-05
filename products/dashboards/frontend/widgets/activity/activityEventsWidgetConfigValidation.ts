@@ -2,6 +2,8 @@ import { z } from 'zod'
 
 import { ApiError } from 'lib/api-error'
 
+import type { AnyPropertyFilter } from '~/types'
+
 import {
     activityEventsWidgetConfigSchema,
     activityEventsWidgetFormSchema,
@@ -36,6 +38,8 @@ export function patchActivityEventsWidgetFilterFields(
     config: Record<string, unknown>,
     patch: {
         dateFrom?: WidgetDateFromValue
+        eventName?: string | null
+        properties?: AnyPropertyFilter[]
     }
 ): ActivityEventsWidgetConfig {
     const base = parseActivityEventsWidgetConfig(config)
@@ -43,6 +47,9 @@ export function patchActivityEventsWidgetFilterFields(
     return activityEventsWidgetConfigSchema.parse({
         ...base,
         dateRange: { date_from: patch.dateFrom ?? base.dateRange?.date_from ?? ACTIVITY_EVENTS_DEFAULT_DATE_FROM },
+        // `in` (not ??) so an explicit null clears the filter — ?? would fall back to base
+        eventName: 'eventName' in patch ? patch.eventName : base.eventName,
+        properties: patch.properties ?? base.properties,
     })
 }
 

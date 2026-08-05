@@ -1,6 +1,7 @@
-use std::time::Instant;
+use std::{path::PathBuf, time::Instant};
 
 use anyhow::{Context, Result};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde_json::json;
 use tracing::{debug, info, warn};
 
@@ -18,7 +19,8 @@ use crate::{
     },
     invocation_context::context,
     sourcemaps::{
-        args::{FileSelectionArgs, ReleaseArgs, UploadConflictArgs},
+        args::{FileSelectionArgs, ReleaseArgs, UploadConcurrencyArgs, UploadConflictArgs},
+        content::MinifiedSourceFile,
         inject::get_release_for_maps,
         plain::inject::is_javascript_file,
         source_pairs::read_pairs,
@@ -37,7 +39,8 @@ pub struct Args {
     #[arg(short, long)]
     pub public_path_prefix: Option<String>,
 
-    /// Whether to delete the source map files after uploading them [default: false]
+    /// Whether to delete the source map files and strip sourceMappingURL comments after uploading them
+    /// [default: false]
     #[arg(long, default_value = "false")]
     pub delete_after: bool,
 
@@ -50,6 +53,9 @@ pub struct Args {
 
     #[clap(flatten)]
     pub conflict: UploadConflictArgs,
+
+    #[clap(flatten)]
+    pub upload_concurrency: UploadConcurrencyArgs,
 
     /// DEPRECATED - this flag is a no-op. Use top-level `--skip-ssl-verification` instead.
     #[arg(long)]
@@ -73,6 +79,10 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
     let sourcemap_paths = pairs
         .iter()
         .map(|pair| pair.sourcemap.inner.path.clone())
+        .collect::<Vec<_>>();
+    let source_paths = pairs
+        .iter()
+        .map(|pair| pair.source.inner.path.clone())
         .collect::<Vec<_>>();
     info!("Found {} chunks to upload", pairs.len());
 
@@ -120,8 +130,10 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
     }
     let empty_skipped = empty_pairs.len();
 
+    // Payload preparation (serialization + zstd compression) is CPU-bound,
+    // so spread it across cores.
     let uploads = valid_pairs
-        .into_iter()
+        .into_par_iter()
         .map(TryInto::try_into)
         .collect::<Result<Vec<SymbolSetUpload>>>()
         .context("While preparing files for upload")?;
@@ -141,12 +153,13 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
     );
 
     let started_at = Instant::now();
-    let upload_result = symbol_sets::upload_with_retry(
+    let (summary, upload_result) = symbol_sets::upload_with_retry_and_concurrency(
         uploads,
         args.batch_size,
         args.release.skip_release_on_fail,
         args.conflict.force,
         args.conflict.skip_on_conflict,
+        args.upload_concurrency.concurrency,
     );
     let duration_ms = started_at.elapsed().as_millis();
 
@@ -157,6 +170,7 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
         ("duration_ms", json!(duration_ms)),
         ("success", json!(upload_result.is_ok())),
     ];
+    props.extend(summary.telemetry_props());
     if let Err(ref e) = upload_result {
         props.push(("error", json!(format!("{:#}", e))));
     }
@@ -165,8 +179,23 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
     upload_result?;
 
     if args.delete_after {
+        remove_sourcemap_references(source_paths)
+            .context("While stripping sourcemap references")?;
         delete_files(sourcemap_paths).context("While deleting sourcemaps")?;
     }
 
+    Ok(())
+}
+
+fn remove_sourcemap_references(paths: Vec<PathBuf>) -> Result<()> {
+    for path in paths {
+        let mut source = MinifiedSourceFile::load(&path)
+            .with_context(|| format!("Failed to read source file: {}", path.display()))?;
+        if source.remove_sourcemap_reference() {
+            source
+                .save()
+                .with_context(|| format!("Failed to save source file: {}", path.display()))?;
+        }
+    }
     Ok(())
 }

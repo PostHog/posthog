@@ -96,7 +96,7 @@ def _evaluate_service_leaf(leaf: dict, service_name: str) -> int:
         return _INDETERMINATE
     if not sn:
         # For negation operators, empty string doesn't match non-empty values
-        if operator in ("is_not", "not_in", "not_icontains", "not_regex"):
+        if operator in ("is_not", "not_in", "not_icontains", "not_starts_with", "not_ends_with", "not_regex"):
             return _TRUE
         # For positive match operators, empty string can't match
         return _FALSE
@@ -109,6 +109,14 @@ def _evaluate_service_leaf(leaf: dict, service_name: str) -> int:
         return _TRUE if str(value).lower() in sn.lower() else _FALSE
     if operator == "not_icontains":
         return _FALSE if str(value).lower() in sn.lower() else _TRUE
+    if operator == "starts_with":
+        return _TRUE if sn.lower().startswith(str(value).lower()) else _FALSE
+    if operator == "not_starts_with":
+        return _FALSE if sn.lower().startswith(str(value).lower()) else _TRUE
+    if operator == "ends_with":
+        return _TRUE if sn.lower().endswith(str(value).lower()) else _FALSE
+    if operator == "not_ends_with":
+        return _FALSE if sn.lower().endswith(str(value).lower()) else _TRUE
     if operator in ("regex", "not_regex"):
         # RE2 (linear-time, no catastrophic backtracking) — same engine the Node
         # ingestion worker uses via `tracked-re2`. A project member can pick the
@@ -170,19 +178,30 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             workload=Workload.LOGS,
             timings=self.timings,
             limit_context=self.limit_context,
+            filters=self.query_date_range.to_hogql_filters(),
             settings=self.settings,
         )
 
-        sparkline_response = execute_hogql_query(
-            query_type="LogsQuery",
-            query=self._sparkline_query(),
-            modifiers=self.modifiers,
-            team=self.team,
-            workload=Workload.LOGS,
-            timings=self.timings,
-            limit_context=self.limit_context,
-            settings=self.settings,
-        )
+        # The table only renders sparklines for the services in the aggregates
+        # result (top 25 by volume), so scope the sparkline scan to those names
+        # rather than every service in the window: service_name is in the table's
+        # sort key, so the IN filter prunes the scan, and it removes the chance of
+        # the row LIMIT truncating a displayed service's trend.
+        top_service_names = [row[0] for row in aggregates_response.results]
+        sparkline_rows: list[Any] = []
+        if top_service_names:
+            sparkline_response = execute_hogql_query(
+                query_type="LogsQuery",
+                query=self._sparkline_query(top_service_names),
+                modifiers=self.modifiers,
+                team=self.team,
+                workload=Workload.LOGS,
+                timings=self.timings,
+                limit_context=self.limit_context,
+                filters=self.query_date_range.to_hogql_filters(),
+                settings=self.settings,
+            )
+            sparkline_rows = sparkline_response.results
 
         enabled_rules = list(
             LogsExclusionRule.objects.filter(team_id=self.team.pk, enabled=True).order_by("priority", "created_at")
@@ -241,7 +260,7 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         top_share = round(sum(float(s["volume_share_pct"]) for s in services[:top_n]), 2) if services else 0.0
 
         sparkline = []
-        for row in sparkline_response.results:
+        for row in sparkline_rows:
             sparkline.append(
                 {
                     "time": row[0],
@@ -294,7 +313,7 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         assert isinstance(query, ast.SelectQuery)
         return query
 
-    def _sparkline_query(self) -> ast.SelectQuery:
+    def _sparkline_query(self, service_names: list[str]) -> ast.SelectQuery:
         query = parse_select(
             """
             SELECT
@@ -302,7 +321,7 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                 service_name,
                 count() AS event_count
             FROM logs
-            WHERE {where}
+            WHERE {where} AND service_name IN {service_names}
             GROUP BY service_name, time
             ORDER BY time ASC, service_name ASC
             LIMIT 10000
@@ -313,6 +332,7 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                 if self.query_date_range.interval_name != "second"
                 else ast.Field(chain=["timestamp"]),
                 "where": self.where(),
+                "service_names": ast.Tuple(exprs=[ast.Constant(value=str(sn)) for sn in service_names]),
             },
         )
         assert isinstance(query, ast.SelectQuery)

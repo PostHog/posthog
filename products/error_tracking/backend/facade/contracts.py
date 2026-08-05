@@ -89,3 +89,153 @@ class ErrorTrackingIssueAssignmentNotification:
     assigned_user_id: int | None
     role_id: UUID | None = None
     role_member_user_ids: list[int] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ErrorTrackingSettings:
+    project_rate_limit_value: int | None
+    project_rate_limit_bucket_size_minutes: int | None
+    per_issue_rate_limit_value: int | None
+    per_issue_rate_limit_bucket_size_minutes: int | None
+
+
+@dataclass(frozen=True)
+class ErrorTrackingSpikeDetectionConfig:
+    snooze_duration_minutes: int
+    multiplier: int
+    threshold: int
+
+
+@dataclass(frozen=True)
+class ErrorTrackingSpikeEventIssue:
+    id: UUID
+    name: str | None
+    description: str | None
+
+
+@dataclass(frozen=True)
+class ErrorTrackingSpikeEvent:
+    id: UUID
+    issue: ErrorTrackingSpikeEventIssue
+    detected_at: datetime
+    computed_baseline: float
+    current_bucket_value: int
+
+
+@dataclass(frozen=True)
+class ErrorTrackingRelease:
+    id: UUID
+    hash_id: str
+    team_id: int
+    created_at: datetime
+    metadata: dict | None
+    version: str
+    project: str
+
+
+@dataclass(frozen=True)
+class ErrorTrackingSymbolSet:
+    id: UUID
+    ref: str
+    team_id: int
+    created_at: datetime
+    last_used: datetime | None
+    failure_reason: str | None
+    has_uploaded_file: bool
+    release: ErrorTrackingRelease | None
+
+
+@dataclass(frozen=True)
+class ErrorTrackingSymbolSetDownload:
+    has_file: bool
+    url: str | None
+
+
+@dataclass(frozen=True)
+class ErrorTrackingStackFrame:
+    id: UUID
+    raw_id: str
+    created_at: datetime
+    contents: dict
+    resolved: bool
+    context: dict | None
+    symbol_set_ref: str | None
+    release: ErrorTrackingRelease | None
+
+
+@dataclass(frozen=True)
+class ErrorTrackingRuleAssignee:
+    type: str
+    id: int | UUID
+
+
+@dataclass(frozen=True)
+class ErrorTrackingAssignmentRule:
+    id: UUID
+    filters: dict
+    assignee: ErrorTrackingRuleAssignee | None
+    order_key: int
+    disabled_data: dict | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ErrorTrackingGroupingRuleIssue:
+    id: UUID
+    name: str | None
+
+
+@dataclass(frozen=True)
+class ErrorTrackingGroupingRule:
+    id: UUID
+    filters: dict
+    assignee: ErrorTrackingRuleAssignee | None
+    description: str | None
+    issue: ErrorTrackingGroupingRuleIssue | None
+    order_key: int
+    disabled_data: dict | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ErrorTrackingSuppressionRule:
+    id: UUID
+    filters: dict
+    order_key: int
+    disabled_data: dict | None
+    sampling_rate: float
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ErrorTrackingBypassRule:
+    id: UUID
+    filters: dict
+    order_key: int
+    disabled_data: dict | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueBasics:
+    id: UUID
+    name: str | None
+    description: str | None
+    status: str
+
+
+@dataclass(frozen=True)
+class ErrorTrackingRecommendation:
+    id: UUID
+    type: str
+    meta: dict
+    completed: bool
+    status: str
+    computed_at: datetime | None
+    dismissed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime

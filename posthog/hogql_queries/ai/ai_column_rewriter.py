@@ -1,8 +1,7 @@
 """AST rewriter that translates queries written against `ai_events` columns to work with the `events` table.
 
 This is the reverse of `AiPropertyRewriter`. When a query targets the `events` table
-as a fallback (e.g. data older than the `ai_events` TTL, or the kill switch is off),
-this rewriter:
+as a fallback (e.g. data older than the `ai_events` retention TTL), this rewriter:
 
 1. Rewrites dedicated column references (e.g. `trace_id`) to property access
    (e.g. `properties.$ai_trace_id`) so they resolve against the `events` table.
@@ -60,6 +59,26 @@ _NUMERIC_COLUMNS: frozenset[str] = frozenset(
 )
 
 _BOOLEAN_COLUMNS: frozenset[str] = frozenset({"is_error"})
+_RAW_JSON_COLUMNS: frozenset[str] = frozenset(
+    {"input", "output", "output_choices", "input_state", "output_state", "tools"}
+)
+_EVENTS_TABLE_ALIAS = "__ai_events_fallback"
+
+# Forced String so detection can't coerce timestamp-/number-shaped IDs and break an exact match.
+_STRING_ID_COLUMNS: frozenset[str] = frozenset(
+    {
+        "trace_id",
+        "session_id",
+        "parent_id",
+        "span_id",
+        "generation_id",
+        "experiment_id",
+    }
+)
+
+EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES: dict[str, str] = {
+    AI_COLUMN_TO_PROPERTY[col]: "String" for col in _STRING_ID_COLUMNS
+}
 
 
 class AiColumnToPropertyRewriter(CloningVisitor):
@@ -111,10 +130,10 @@ class AiColumnToPropertyRewriter(CloningVisitor):
             col_name = chain[1]
             if isinstance(col_name, str) and col_name in AI_COLUMN_TO_PROPERTY:
                 prop_name = AI_COLUMN_TO_PROPERTY[col_name]
-                new_chain: list[str | int] = ["events", "properties", prop_name, *chain[2:]]
-                return _wrap_for_events_type(col_name, prop_name, new_chain)
+                new_chain: list[str | int] = [_EVENTS_TABLE_ALIAS, "properties", prop_name, *chain[2:]]
+                return _wrap_for_events_type(col_name, new_chain)
             # Native column (timestamp, event, distinct_id, etc.) — just swap table prefix
-            return ast.Field(chain=["events", *chain[1:]])
+            return ast.Field(chain=[_EVENTS_TABLE_ALIAS, *chain[1:]])
 
         # Bare column: ["column_name", ...]
         if len(chain) >= 1:
@@ -122,7 +141,7 @@ class AiColumnToPropertyRewriter(CloningVisitor):
             if isinstance(col_name, str) and col_name in AI_COLUMN_TO_PROPERTY:
                 prop_name = AI_COLUMN_TO_PROPERTY[col_name]
                 new_chain = ["properties", prop_name, *chain[1:]]
-                return _wrap_for_events_type(col_name, prop_name, new_chain)
+                return _wrap_for_events_type(col_name, new_chain)
 
         return super().visit_field(node)
 
@@ -135,7 +154,7 @@ class AiColumnToPropertyRewriter(CloningVisitor):
         # nosemgrep: hogql-no-string-table-chain
         if isinstance(new_node.table, ast.Field) and new_node.table.chain == ["posthog", "ai_events"]:
             new_node.table = ast.Field(chain=["events"])
-            new_node.alias = None
+            new_node.alias = _EVENTS_TABLE_ALIAS
         return new_node
 
 
@@ -176,7 +195,7 @@ def _has_ai_events_from(query: ast.SelectQuery) -> bool:
     )
 
 
-def _wrap_for_events_type(col_name: str, prop_name: str, chain: list[str | int]) -> ast.Expr:
+def _wrap_for_events_type(col_name: str, chain: list[str | int]) -> ast.Expr:
     """Wrap a rewritten property reference to preserve the ai_events column type.
 
     On the events table, properties are strings (JSON extraction). Aggregate functions
@@ -197,6 +216,15 @@ def _wrap_for_events_type(col_name: str, prop_name: str, chain: list[str | int])
         )
     if col_name in _NUMERIC_COLUMNS:
         return ast.Call(name="toFloat", args=[ast.Field(chain=chain)])
+    if col_name in _RAW_JSON_COLUMNS:
+        properties_index = chain.index("properties")
+        return ast.Call(
+            name="JSONExtractRaw",
+            args=[
+                ast.Field(chain=chain[: properties_index + 1]),
+                *[ast.Constant(value=key) for key in chain[properties_index + 1 :]],
+            ],
+        )
     return ast.Field(chain=chain)
 
 

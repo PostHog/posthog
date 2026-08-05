@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh, IconRevert, IconX } from '@posthog/icons'
-import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjsUtcToTimezone } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -13,7 +12,6 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
-import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { teamLogic } from 'scenes/teamLogic'
@@ -30,8 +28,12 @@ import {
 
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { materializationJobsLogic } from './materializationJobsLogic'
+import { computeJobDuration, jobLogsWindow } from './materializationJobUtils'
 
 const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
+
+// Matches DataModelingJobEngine.CLICKHOUSE, the engine materialized queries are served from.
+const SERVING_ENGINE = 'clickhouse'
 
 interface MaterializationStatusPanelProps {
     viewId: string
@@ -139,10 +141,13 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
         dataModelingJobsLoading,
         hasMoreJobsToLoad,
         startingMaterialization,
+        resumingMaterialization,
         savedQuery,
         savedQueryLoading,
     } = useValues(jobsLogic)
-    const { loadDataModelingJobs, loadOlderDataModelingJobs, setStartingMaterialization } = useActions(jobsLogic)
+    const { loadDataModelingJobs, loadOlderDataModelingJobs, setStartingMaterialization, resumeMaterialization } =
+        useActions(jobsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const {
@@ -153,11 +158,14 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
         revertMaterialization,
     } = useActions(dataWarehouseViewsLogic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
     const { timezone } = useValues(teamLogic)
     const { user } = useValues(userLogic)
     const showDebugLogs = user?.is_staff || user?.is_impersonated
-    const isDagSchedulesOnly = !!featureFlags[FEATURE_FLAGS.DATA_MODELING_BACKEND_V2]
+    // The two ways a cadence write gets rejected. Single-schedule v2 teams have the cadence on the
+    // DAG's one schedule, which the server tells us because the flag that distinguishes per-node
+    // schedules is evaluated server-side and never reaches the frontend. Managed viewsets reject
+    // every update regardless of team.
+    const canEditSyncFrequency = !savedQuery?.sync_frequency_managed_by_dag && !savedQuery?.managed_viewset_kind
     const materializationAccessReason = getAccessControlDisabledReason(
         AccessControlResourceType.WarehouseObjects,
         AccessControlLevel.Editor
@@ -174,6 +182,15 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
     const currentJobStatus = dataModelingJobs?.results?.[0]?.status || null
     const { sync, cancel, revert } = getMaterializationDisabledReasons(currentJobStatus, startingMaterialization)
 
+    // Prefer the serving engine's entry when several engines are suspended.
+    const suspension = savedQuery.suspended
+        ? (savedQuery.suspended[SERVING_ENGINE] ?? Object.values(savedQuery.suspended)[0])
+        : undefined
+    const showSuspendedBanner =
+        !!featureFlags[FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES] &&
+        !!suspension &&
+        !!savedQuery.is_materialized
+
     return (
         <div className="overflow-auto" data-attr="materialization-status-panel">
             <div className="flex flex-col flex-1 gap-4">
@@ -187,12 +204,37 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                             </Tooltip>
                         )}
                     </div>
+                    {showSuspendedBanner && suspension && (
+                        <LemonBanner
+                            type="error"
+                            className="mt-2"
+                            action={{
+                                children: 'Resume',
+                                onClick: () => resumeMaterialization(),
+                                loading: resumingMaterialization,
+                                disabledReason: materializationAccessReason || undefined,
+                                tooltip: 'If the query keeps failing, it will pause again.',
+                            }}
+                        >
+                            <div data-attr="materialization-suspended-banner">
+                                <div>
+                                    Scheduled runs are paused for this {kind === 'endpoint' ? 'endpoint' : 'view'}{' '}
+                                    because materialization kept failing. Fix the query, then resume.
+                                </div>
+                                <Tooltip title={suspension.reason} interactive>
+                                    <div className="mt-1 text-xs font-normal line-clamp-2">
+                                        Paused {humanFriendlyDetailedTime(suspension.at)} · {suspension.reason}
+                                    </div>
+                                </Tooltip>
+                            </div>
+                        </LemonBanner>
+                    )}
                     <div>
                         {savedQuery?.is_materialized ? (
                             <div>
                                 {savedQuery?.last_run_at ? (
                                     `Last run at ${humanFriendlyDetailedTime(savedQuery?.last_run_at)}`
-                                ) : (
+                                ) : showSuspendedBanner ? null : (
                                     <div>
                                         <span>Materialization scheduled</span>
                                     </div>
@@ -220,7 +262,7 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                               ? 'Running...'
                                               : 'Sync now'}
                                     </LemonButton>
-                                    {kind !== 'endpoint' && !isDagSchedulesOnly && (
+                                    {kind !== 'endpoint' && canEditSyncFrequency && (
                                         <LemonSelect
                                             className="h-9"
                                             disabledReason={sync || materializationAccessReason}
@@ -370,23 +412,12 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                         {
                             title: 'Updated',
                             dataIndex: 'last_run_at',
-                            render: (_, { last_run_at }: DataModelingJob) => humanFriendlyDetailedTime(last_run_at),
+                            render: (_, { last_run_at }: DataModelingJob) =>
+                                last_run_at ? humanFriendlyDetailedTime(last_run_at) : '-',
                         },
                         {
                             title: 'Duration',
-                            render: (_, job: DataModelingJob) => {
-                                if (job.status === 'Running') {
-                                    return 'In progress'
-                                }
-                                const start = new Date(job.created_at).getTime()
-                                const end = new Date(job.last_run_at).getTime()
-
-                                if (start > end) {
-                                    return 'N/A'
-                                }
-
-                                return humanFriendlyDuration((end - start) / 1000)
-                            },
+                            render: (_, job: DataModelingJob) => computeJobDuration(job),
                         },
                     ]}
                     expandable={
@@ -403,15 +434,8 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                               hideLevelsFilter
                                               hideInstanceIdColumn
                                               defaultFilters={{
-                                                  instanceId: job.workflow_run_id,
-                                                  dateFrom: dayjsUtcToTimezone(job.created_at, timezone).format(
-                                                      'YYYY-MM-DD HH:mm:ss'
-                                                  ),
-                                                  dateTo: job.last_run_at
-                                                      ? dayjsUtcToTimezone(job.last_run_at, timezone)
-                                                            .add(1, 'hour')
-                                                            .format('YYYY-MM-DD HH:mm:ss')
-                                                      : undefined,
+                                                  instanceId: job.workflow_run_id ?? undefined,
+                                                  ...jobLogsWindow(job, timezone),
                                                   levels: showDebugLogs ? ['DEBUG', ...LOG_LEVELS] : LOG_LEVELS,
                                               }}
                                           />

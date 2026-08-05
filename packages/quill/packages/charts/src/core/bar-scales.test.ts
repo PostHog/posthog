@@ -234,6 +234,22 @@ describe('hog-charts bar scales', () => {
             const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, { barLayout, valueDomain })
             expect(value.domain()).toEqual(valueDomain)
         })
+
+        // A non-finite or collapsed fixed domain maps every bar (and axis tick) to NaN, so the chart
+        // paints nothing while x-only tooltips keep working — the same failure the line path guards
+        // against via sanitizeFixedDomain. The bar value scale must stay well-formed too.
+        it.each([
+            { name: 'NaN bounds', valueDomain: [NaN, NaN] as [number, number] },
+            { name: 'a NaN max (e.g. Math.max of empty data)', valueDomain: [0, NaN] as [number, number] },
+            { name: 'an infinite max', valueDomain: [0, Infinity] as [number, number] },
+            { name: 'collapsed bounds', valueDomain: [50, 50] as [number, number] },
+        ])('keeps a finite, non-degenerate domain for $name', ({ valueDomain }) => {
+            const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
+            const [min, max] = createBarScales(series, ['a', 'b', 'c'], dimensions, { valueDomain }).value.domain()
+            expect(isFinite(min)).toBe(true)
+            expect(isFinite(max)).toBe(true)
+            expect(min).toBeLessThan(max)
+        })
     })
 
     describe('createBarScales — log scale', () => {
@@ -350,11 +366,37 @@ describe('hog-charts bar scales', () => {
             expect(yAxes).toBeUndefined()
         })
 
-        it('ignores per-series axes for stacked layouts (shared axis only)', () => {
+        it('builds per-axis scales for stacked layouts (stacks are per-axis)', () => {
             const { yAxes } = createBarScales([smallSeries, largeSeries], ['a', 'b', 'c'], dimensions, {
                 barLayout: 'stacked',
             })
-            expect(yAxes).toBeUndefined()
+            expect(yAxes!.left.position).toBe('left')
+            expect(yAxes!.y1.position).toBe('right')
+            expect(yAxes!.left.scale(30)).toBeCloseTo(yAxes!.y1.scale(3000), 0)
+        })
+
+        it('honors explicit position and scaleType overrides from `axes`', () => {
+            const { yAxes } = createBarScales([smallSeries, largeSeries], ['a', 'b', 'c'], dimensions, {
+                barLayout: 'grouped',
+                axes: [
+                    { id: 'left', position: 'right' },
+                    { id: 'y1', position: 'left', scaleType: 'log' },
+                ],
+            })
+            expect(yAxes!.left.position).toBe('right')
+            expect(yAxes!.y1.position).toBe('left')
+            expect(yAxes!.left.scale.domain()[0]).toBe(0)
+            expect(yAxes!.y1.scale.domain()[0]).toBeGreaterThan(0)
+        })
+
+        it('produces a yAxes record for a sole axis explicitly positioned right', () => {
+            const series = [makeSeries({ key: 's1', data: [10, 20, 30], yAxisId: 'right' })]
+            const { yAxes, value } = createBarScales(series, ['a', 'b', 'c'], dimensions, {
+                barLayout: 'stacked',
+                axes: [{ id: 'right', position: 'right' }],
+            })
+            expect(yAxes!.right.position).toBe('right')
+            expect(value(30)).toBeCloseTo(yAxes!.right.scale(30), 5)
         })
     })
 })

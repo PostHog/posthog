@@ -19,7 +19,7 @@ export const azureBlobDefinition: DestinationDefinition = {
         container_name: validateAzureContainerName(formValues.container_name),
     }),
     eventTableOverrides: { teamIdHogql: 'team_id' },
-    Fields: function AzureBlobFields({ isNew, formValues, configurationChanged }) {
+    Fields: function AzureBlobFields({ formValues }) {
         return (
             <>
                 <LemonField name="integration_id" label="Azure connection">
@@ -60,11 +60,7 @@ export const azureBlobDefinition: DestinationDefinition = {
                     <MaxFileSizeField />
                 </div>
 
-                <CompressionField
-                    fileFormat={formValues.file_format}
-                    isNew={isNew}
-                    configurationChanged={configurationChanged}
-                />
+                <CompressionField fileFormat={formValues.file_format} />
             </>
         )
     },

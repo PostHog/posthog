@@ -34,7 +34,7 @@ pytestmark = [
 def test_delete_batch_export(client: HttpClient, temporal, organization, team, user):
     """Test deleting a BatchExport."""
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -92,7 +92,7 @@ async def wait_for_workflow_in_status(
 def test_delete_batch_export_cancels_backfills(client: HttpClient, temporal, organization, team, user):
     """Test deleting a BatchExport cancels ongoing BatchExportBackfill."""
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -149,7 +149,7 @@ def test_delete_batch_export_cancels_backfills(client: HttpClient, temporal, org
 
 def test_cannot_delete_export_of_other_organizations(client: HttpClient, temporal, organization, team, user):
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -184,7 +184,7 @@ def test_cannot_delete_export_of_other_organizations(client: HttpClient, tempora
 
 def test_deletes_are_partitioned_by_team_id(client: HttpClient, temporal, organization, team, user):
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -218,7 +218,7 @@ def test_deletes_are_partitioned_by_team_id(client: HttpClient, temporal, organi
 def test_delete_batch_export_even_without_underlying_schedule(client: HttpClient, temporal, organization, team, user):
     """Test deleting a BatchExport completes even if underlying Schedule was already deleted."""
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",

@@ -1,13 +1,8 @@
+from pathlib import Path
+
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import (
-    BaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    events_cache_tests,
-    persons_cache_tests,
-)
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, events_cache_tests
 
 from parameterized import parameterized
 
@@ -29,14 +24,14 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.models.event.util import bulk_create_events
-from posthog.models.person.util import bulk_create_persons
 
 from products.actions.backend.models.action import Action
-from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import (
-    ConversionGoalProcessor,
+from products.marketing_analytics.backend.hogql_queries.conversion_goal_conditions import (
     add_conversion_goal_property_filters,
 )
+from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import ConversionGoalProcessor
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 
 def _create_action(**kwargs):
@@ -54,13 +49,11 @@ def flush_persons_and_events_in_batches(batch_size: int = 25):
     Custom flush function that processes events in smaller batches to avoid memory limits.
     This helps prevent ClickHouse memory exceeded errors during bulk inserts.
     """
-    person_mapping = {}
-    if len(persons_cache_tests) > 0:
-        person_mapping = bulk_create_persons(persons_cache_tests)
-        persons_cache_tests.clear()
+    from posthog.test.persons import flush_persons_to_db_and_clickhouse
+
+    person_mapping = flush_persons_to_db_and_clickhouse()
 
     if len(events_cache_tests) > 0:
-        # Process events in smaller batches to avoid memory issues
         for i in range(0, len(events_cache_tests), batch_size):
             batch = events_cache_tests[i : i + batch_size]
             bulk_create_events(batch, person_mapping)
@@ -262,6 +255,59 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         assert processor.get_table_name() == "warehouse_table"
         assert processor.get_date_field() == "event_timestamp"
+
+    def test_data_warehouse_node_empty_utm_falls_back_to_organic(self):
+        csv_path = Path(__file__).parent / "test/external/warehouse_conversions_empty_utm.csv"
+        table, _source, _credential, _df, cleanup_fn = create_data_warehouse_table_from_csv(
+            csv_path,
+            "conversions_empty_utm",
+            {
+                "user_id": "String",
+                "event_timestamp": "DateTime",
+                "campaign_name": "String",
+                "source_name": "String",
+                "revenue": "Int64",
+            },
+            "test_storage_bucket-posthog.marketing_analytics.empty_utm",
+            self.team,
+        )
+        self.addCleanup(cleanup_fn)
+
+        goal = ConversionGoalFilter3(
+            kind="DataWarehouseNode",
+            id=table.name,
+            table_name=table.name,
+            conversion_goal_id="warehouse_empty_utm",
+            conversion_goal_name="Warehouse Empty UTM",
+            math=BaseMathType.TOTAL,
+            distinct_id_field="user_id",
+            id_field="user_id",
+            timestamp_field="event_timestamp",
+            schema_map={
+                "utm_campaign_name": "campaign_name",
+                "utm_source_name": "source_name",
+                "distinct_id_field": "user_id",
+                "timestamp_field": "event_timestamp",
+            },
+        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+
+        additional_conditions: list[ast.Expr] = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["event_timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-01-01")]),
+            ),
+        ]
+        cte_query = processor.generate_cte_query(additional_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        # Schema: [0]=match_key, [1]=campaign, [2]=id, [3]=source, [4]=conversion
+        results = {row[1]: (row[3], row[4]) for row in response.results}
+        assert results == {
+            "organic": ("organic", 1),
+            "summer_sale": ("google", 1),
+        }, f"Empty utm columns must fall back to organic like event goals do, got {response.results}"
 
     # ================================================================
     # 3. MATH TYPE TESTS - TOTAL, DAU, SUM, etc.
@@ -604,6 +650,73 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert total_revenue == 100, (
             f"Expected total revenue of 100 (100+0+missing=0+missing=0), got {total_revenue}. Missing revenue properties should be treated as 0."
         )
+
+    @parameterized.expand(
+        [
+            ("no_currency", None),
+            ("static_currency", {"static": "EUR"}),
+            ("property_currency", {"property": "currency_code"}),
+        ]
+    )
+    def test_sum_math_currency_conversion_matches_across_live_and_precompute_paths(self, _name, currency_config):
+        goal = ConversionGoalFilter1(
+            kind="EventsNode",
+            event="purchase",
+            conversion_goal_id="currency_goal",
+            conversion_goal_name="Currency Goal",
+            math=PropertyMathType.SUM,
+            math_property="revenue",
+            math_property_revenue_currency=currency_config,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+
+        live = processor.get_select_field().to_hogql()
+        precompute = processor._get_conversion_value_expr().to_hogql()
+
+        should_convert = currency_config is not None
+        assert ("convertCurrency" in live) is should_convert
+        assert ("convertCurrency" in precompute) is should_convert
+
+    def test_sum_math_static_currency_uses_the_configured_code_without_a_property_lookup(self):
+        goal = ConversionGoalFilter1(
+            kind="EventsNode",
+            event="purchase",
+            conversion_goal_id="static_goal",
+            conversion_goal_name="Static Goal",
+            math=PropertyMathType.SUM,
+            math_property="revenue",
+            math_property_revenue_currency={"static": "GBP"},
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+
+        live = processor.get_select_field().to_hogql()
+
+        assert "'GBP'" in live
+        assert "upper(" not in live
+
+    def test_sum_math_property_currency_reads_the_property_and_falls_back_to_base_when_missing(self):
+        goal = ConversionGoalFilter1(
+            kind="EventsNode",
+            event="purchase",
+            conversion_goal_id="property_goal",
+            conversion_goal_name="Property Goal",
+            math=PropertyMathType.SUM,
+            math_property="revenue",
+            math_property_revenue_currency={"property": "currency_code"},
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+
+        live = processor.get_select_field().to_hogql()
+
+        assert "upper(" in live
+        assert "currency_code" in live
+        # The guard keeps rows with no currency property (or an empty-string value, which convertCurrency
+        # would null out) in the base currency instead of dropping their revenue
+        assert "isNull(" in live
+        assert "nullIf(" in live
 
     def test_math_type_average_fallback_behavior(self):
         """Test AVERAGE math type fallback behavior - counts events since AVG not implemented - business logic validation"""
@@ -1174,7 +1287,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
     # ================================================================
 
     def test_error_missing_action(self):
-        """Test error handling when Action doesn't exist"""
+        # A goal whose action was deleted matches nothing, rather than raising and taking every other
+        # goal on the dashboard down with it. The conversion-array branch already behaved this way.
         goal = ConversionGoalFilter2(
             kind="ActionsNode",
             id=999999,
@@ -1186,8 +1300,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
-        with pytest.raises(Action.DoesNotExist):
-            processor.get_base_where_conditions()
+        assert processor.get_base_where_conditions() == [ast.Constant(value=False)]
 
     def test_error_invalid_math_property_combination(self):
         """Test graceful handling of invalid math+property combinations"""
@@ -1707,205 +1820,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert source_name == "google", f"Expected google source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
-
-    def test_temporal_attribution_forward_order_validation_example(self):
-        """
-        EXAMPLE: How to validate attribution results properly
-
-        This test shows the pattern for validating attribution results.
-        """
-        # Setup: Create ad touchpoint before conversion
-        with freeze_time("2023-04-15"):
-            _create_person(distinct_ids=["validation_user"], team=self.team)
-            _create_event(
-                distinct_id="validation_user",
-                event="$pageview",
-                team=self.team,
-                properties={"utm_campaign": "spring_sale", "utm_source": "google"},
-            )
-            flush_persons_and_events_in_batches()
-
-        with freeze_time("2023-05-10"):
-            _create_event(distinct_id="validation_user", event="purchase", team=self.team, properties={"revenue": 100})
-            flush_persons_and_events_in_batches()
-
-        # Create processor and execute query
-        goal = ConversionGoalFilter1(
-            kind="EventsNode",
-            event="purchase",
-            conversion_goal_id="validation_test",
-            conversion_goal_name="Validation Test",
-            math=BaseMathType.TOTAL,
-            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
-        )
-
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
-
-        additional_conditions = [
-            ast.CompareOperation(
-                left=ast.Field(chain=["events", "timestamp"]),
-                op=ast.CompareOperationOp.GtEq,
-                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-05-01")]),
-            ),
-        ]
-
-        cte_query = processor.generate_cte_query(additional_conditions)
-        response = execute_hogql_query(query=cte_query, team=self.team)
-
-        # 1. Basic response validation
-        assert response is not None
-        assert response.results is not None
-        assert len(response.results) == 1, f"Expected 1 result, got {len(response.results)}"
-
-        # 2. Expected result structure validation
-        # The query returns: [campaign_name, source_name, conversion_count]
-        first_result = response.results[0]
-
-        # Validate attribution values (correct indices based on actual query structure)
-        expected_campaign = "spring_sale"
-        expected_source = "google"
-        expected_conversion_count = 1
-
-        # Schema: [0]=match_key, [1]=campaign, [2]=id, [3]=source, [4]=conversion
-        assert first_result[1] == expected_campaign, f"Expected campaign '{expected_campaign}', got '{first_result[1]}'"
-        assert first_result[3] == expected_source, f"Expected source '{expected_source}', got '{first_result[3]}'"
-        assert first_result[4] == expected_conversion_count, (
-            f"Expected {expected_conversion_count} conversion, got {first_result[4]}"
-        )
-
-    def test_temporal_attribution_backward_order_validation_example(self):
-        """
-        Test that wrong temporal order produces Unknown attribution.
-
-        Scenario: Conversion occurs before ad touchpoint
-        Expected: Should show Unknown attribution since ad came after conversion
-        """
-        # Setup: Create conversion before ad touchpoint (wrong order)
-        with freeze_time("2023-04-15"):
-            _create_person(distinct_ids=["backward_validation_user"], team=self.team)
-            _create_event(
-                distinct_id="backward_validation_user",
-                event="purchase",
-                team=self.team,
-                properties={"revenue": 100},  # Conversion first
-            )
-            flush_persons_and_events_in_batches()
-
-        with freeze_time("2023-05-10"):
-            _create_event(
-                distinct_id="backward_validation_user",
-                event="$pageview",
-                team=self.team,
-                properties={"utm_campaign": "too_late", "utm_source": "google"},  # Ad after conversion
-            )
-            flush_persons_and_events_in_batches()
-
-        goal = ConversionGoalFilter1(
-            kind="EventsNode",
-            event="purchase",
-            conversion_goal_id="backward_validation",
-            conversion_goal_name="Backward Validation",
-            math=BaseMathType.TOTAL,
-            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
-        )
-
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
-
-        additional_conditions = [
-            ast.CompareOperation(
-                left=ast.Field(chain=["events", "timestamp"]),
-                op=ast.CompareOperationOp.GtEq,
-                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-04-01")]),
-            ),
-        ]
-
-        cte_query = processor.generate_cte_query(additional_conditions)
-        response = execute_hogql_query(query=cte_query, team=self.team)
-
-        # Validation: Should show Unknown attribution since ad came after conversion
-        assert response is not None
-        assert len(response.results) == 1
-
-        first_result = response.results[0]
-        # Schema: [0]=match_key, [1]=campaign, [2]=id, [3]=source, [4]=conversion
-        campaign_name, source_name, conversion_count = first_result[1], first_result[3], first_result[4]
-
-        # Assert that attribution is Unknown because ad came after conversion
-        assert campaign_name == "organic", f"Expected organic attribution, got {campaign_name}"
-        assert source_name == "organic", f"Expected organic source, got {source_name}"
-        assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
-
-    def test_multiple_touchpoints_attribution_validation_example(self):
-        """
-        Test multi-touch attribution with last-touch logic.
-
-        Timeline: Email touchpoint → Facebook touchpoint → Purchase
-        Expected: Should attribute to Facebook (last touchpoint before conversion)
-        """
-        # Setup: Create email touchpoint first
-        with freeze_time("2023-04-01"):
-            _create_person(distinct_ids=["multi_user"], team=self.team)
-            _create_event(
-                distinct_id="multi_user",
-                event="$pageview",
-                team=self.team,
-                properties={"utm_campaign": "newsletter", "utm_source": "email"},
-            )
-            flush_persons_and_events_in_batches()
-
-        # Setup: Create Facebook touchpoint later (last touch)
-        with freeze_time("2023-04-15"):
-            _create_event(
-                distinct_id="multi_user",
-                event="$pageview",
-                team=self.team,
-                properties={"utm_campaign": "spring_promo", "utm_source": "facebook"},
-            )
-            flush_persons_and_events_in_batches()
-
-        # Conversion with no UTM (should use last touchpoint)
-        with freeze_time("2023-05-10"):
-            _create_event(distinct_id="multi_user", event="purchase", team=self.team, properties={"revenue": 100})
-            flush_persons_and_events_in_batches()
-
-        # Create processor and execute query
-        goal = ConversionGoalFilter1(
-            kind="EventsNode",
-            event="purchase",
-            conversion_goal_id="multi_touch_test",
-            conversion_goal_name="Multi Touch Test",
-            math=BaseMathType.TOTAL,
-            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
-        )
-
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
-
-        additional_conditions = [
-            ast.CompareOperation(
-                left=ast.Field(chain=["events", "timestamp"]),
-                op=ast.CompareOperationOp.GtEq,
-                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-04-01")]),
-            ),
-        ]
-
-        cte_query = processor.generate_cte_query(additional_conditions)
-        response = execute_hogql_query(query=cte_query, team=self.team)
-
-        # Validate basic response
-        assert response is not None
-        assert len(response.results) == 1
-
-        # Validation: Last-touch attribution should choose Facebook over Email
-        # Timeline: newsletter/email (Apr 1) → spring_promo/facebook (Apr 15) → purchase (May 10)
-        first_result = response.results[0]
-        # Schema: [0]=match_key, [1]=campaign, [2]=id, [3]=source, [4]=conversion
-        campaign_name, source_name, conversion_count = first_result[1], first_result[3], first_result[4]
-
-        assert campaign_name == "spring_promo", (
-            f"Last-touch attribution should choose Facebook campaign over Email, got {campaign_name}"
-        )
-        assert source_name == "meta", f"Last-touch attribution should choose Meta source over Email, got {source_name}"
-        assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_direct_utm_attribution_priority_over_temporal(self):

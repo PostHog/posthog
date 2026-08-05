@@ -122,6 +122,13 @@ def _embedding_metadata(batch_run_id: str, job_id: str) -> dict[str, str]:
     }
 
 
+def _embedding_document_id(item_id: str, job_id: str) -> str:
+    """Scope the embedding's `document_id` per (item, job) so overlapping jobs don't collapse on
+    the document_embeddings ReplacingMergeTree key — see EMBEDDING_DOCUMENT_ID_JOB_DELIMITER.
+    """
+    return f"{item_id}{constants.EMBEDDING_DOCUMENT_ID_JOB_DELIMITER}{job_id}"
+
+
 def _embed_trace_summary(
     summary_result: SummarizationResponse,
     trace_id: str,
@@ -136,7 +143,7 @@ def _embed_trace_summary(
     embedder = LLMTracesSummarizerEmbedder(team=team)
     embedder.embed_document(
         content=summary_text,
-        document_id=trace_id,
+        document_id=_embedding_document_id(trace_id, job_id),
         document_type=document_type_with_mode,
         rendering=mode,
         product=LLM_TRACES_SUMMARIES_PRODUCT,
@@ -157,7 +164,7 @@ def _embed_generation_summary(
     embedder = LLMTracesSummarizerEmbedder(team=team)
     embedder.embed_document(
         content=summary_text,
-        document_id=generation_id,
+        document_id=_embedding_document_id(generation_id, job_id),
         document_type=constants.GENERATION_DOCUMENT_TYPE,
         rendering=mode,
         product="llm-analytics",

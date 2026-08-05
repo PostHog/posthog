@@ -5,7 +5,7 @@ import { initKeaTests } from '~/test/init'
 
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
-import { EvaluationConfig } from './types'
+import { HogEvaluation, LLMJudgeEvaluation, SentimentEvaluation } from './types'
 
 const mockProviderKeys: LLMProviderKey[] = [
     {
@@ -49,18 +49,21 @@ const mockProviderKeys: LLMProviderKey[] = [
     },
 ]
 
-const evaluationWithKey = (id: string, providerKeyId: string | null): EvaluationConfig => ({
+const evaluationWithKey = (id: string, providerKeyId: string | null): LLMJudgeEvaluation => ({
     id,
     name: `Evaluation ${id}`,
     description: '',
     enabled: true,
     status: 'active',
     status_reason: null,
+    status_reason_detail: null,
     evaluation_type: 'llm_judge',
     evaluation_config: { prompt: 'Prompt' },
     output_type: 'boolean',
     output_config: {},
     conditions: [{ id: `cond-${id}`, rollout_percentage: 100, properties: [] }],
+    target: 'generation',
+    target_config: {},
     model_configuration: providerKeyId
         ? {
               provider: 'openai',
@@ -73,6 +76,22 @@ const evaluationWithKey = (id: string, providerKeyId: string | null): Evaluation
     updated_at: '2024-01-01T00:00:00Z',
 })
 
+const hogEvaluation = (id: string): HogEvaluation => ({
+    ...evaluationWithKey(id, null),
+    evaluation_type: 'hog',
+    evaluation_config: { source: 'return true' },
+    model_configuration: null,
+})
+
+const sentimentEvaluation = (id: string): SentimentEvaluation => ({
+    ...evaluationWithKey(id, null),
+    evaluation_type: 'sentiment',
+    evaluation_config: { source: 'user_messages' },
+    output_type: 'sentiment',
+    output_config: {},
+    model_configuration: null,
+})
+
 describe('llmEvaluationsLogic', () => {
     let logic: ReturnType<typeof llmEvaluationsLogic.build>
     let keysLogic: ReturnType<typeof llmProviderKeysLogic.build>
@@ -82,9 +101,6 @@ describe('llmEvaluationsLogic', () => {
             get: {
                 '/api/environments/:teamId/llm_analytics/provider_keys/': { results: mockProviderKeys },
                 '/api/environments/:teamId/llm_analytics/evaluation_config/': {
-                    trial_eval_limit: 100,
-                    trial_evals_used: 0,
-                    trial_evals_remaining: 100,
                     active_provider_key: null,
                     created_at: '2024-01-01T00:00:00Z',
                     updated_at: '2024-01-01T00:00:00Z',
@@ -115,6 +131,60 @@ describe('llmEvaluationsLogic', () => {
     })
 
     describe('unhealthyProviderKeysUsedByEvaluations', () => {
+        it('allows Hog and sentiment evaluations when a provider key is required', async () => {
+            // Team with no active key → requiresProviderKey.
+            keysLogic.actions.loadEvaluationConfigSuccess({
+                active_provider_key: null,
+                created_at: '2024-01-01T00:00:00Z',
+                updated_at: '2024-01-01T00:00:00Z',
+            })
+
+            expect(logic.values.canEnableEvaluation(hogEvaluation('hog'))).toBe(true)
+            expect(logic.values.canEnableEvaluation(sentimentEvaluation('sentiment'))).toBe(true)
+            expect(logic.values.canEnableEvaluation(evaluationWithKey('llm-default', null))).toBe(false)
+        })
+
+        it('an active team key unlocks keyless llm_judge evaluations', async () => {
+            keysLogic.actions.loadEvaluationConfigSuccess({
+                active_provider_key: mockProviderKeys[0],
+                created_at: '2024-01-01T00:00:00Z',
+                updated_at: '2024-01-01T00:00:00Z',
+            })
+
+            expect(logic.values.canEnableEvaluation(evaluationWithKey('llm-default', null))).toBe(true)
+        })
+
+        it('the active key must be healthy and match an explicit keyless config provider', async () => {
+            const explicitKeyless: LLMJudgeEvaluation = {
+                ...evaluationWithKey('llm-explicit', null),
+                model_configuration: { provider: 'openai', model: 'gpt-5-mini', provider_key_id: null },
+            }
+
+            // Unhealthy active key resolves nothing.
+            keysLogic.actions.loadEvaluationConfigSuccess({
+                active_provider_key: mockProviderKeys[1],
+                created_at: '2024-01-01T00:00:00Z',
+                updated_at: '2024-01-01T00:00:00Z',
+            })
+            expect(logic.values.canEnableEvaluation(evaluationWithKey('llm-default', null))).toBe(false)
+
+            // Healthy, but for a different provider than the explicit config.
+            keysLogic.actions.loadEvaluationConfigSuccess({
+                active_provider_key: { ...mockProviderKeys[1], state: 'ok' },
+                created_at: '2024-01-01T00:00:00Z',
+                updated_at: '2024-01-01T00:00:00Z',
+            })
+            expect(logic.values.canEnableEvaluation(explicitKeyless)).toBe(false)
+
+            // Healthy and matching.
+            keysLogic.actions.loadEvaluationConfigSuccess({
+                active_provider_key: mockProviderKeys[0],
+                created_at: '2024-01-01T00:00:00Z',
+                updated_at: '2024-01-01T00:00:00Z',
+            })
+            expect(logic.values.canEnableEvaluation(explicitKeyless)).toBe(true)
+        })
+
         it('returns unhealthy keys used by evaluations without duplicates', async () => {
             logic.actions.loadEvaluations()
             keysLogic.actions.loadProviderKeys()
@@ -130,13 +200,20 @@ describe('llmEvaluationsLogic', () => {
             const errored = evaluationWithKey('eval-errored', 'key-ok')
             errored.enabled = false
             errored.status = 'error'
-            errored.status_reason = 'trial_limit_reached'
+            errored.status_reason = 'provider_key_required'
             logic.actions.loadEvaluationsSuccess([errored])
 
             logic.actions.toggleEvaluationEnabledSuccess('eval-errored')
 
             await expectLogic(logic).toMatchValues({
-                evaluations: [expect.objectContaining({ enabled: true, status: 'active', status_reason: null })],
+                evaluations: [
+                    expect.objectContaining({
+                        enabled: true,
+                        status: 'active',
+                        status_reason: null,
+                        status_reason_detail: null,
+                    }),
+                ],
             })
         })
 
@@ -146,7 +223,7 @@ describe('llmEvaluationsLogic', () => {
                     '/api/environments/:teamId/evaluations/:id/': () => [
                         400,
                         {
-                            enabled: ['Trial evaluation limit reached. Add a provider API key to re-enable.'],
+                            enabled: ['Add a provider API key to enable this evaluation.'],
                         },
                     ],
                 },
@@ -174,6 +251,25 @@ describe('llmEvaluationsLogic', () => {
 
             await expectLogic(logic).toMatchValues({
                 unhealthyProviderKeysUsedByEvaluations: [],
+            })
+        })
+    })
+
+    describe('filteredEvaluations', () => {
+        const enabledEval = evaluationWithKey('eval-enabled', null)
+        const disabledEval = { ...evaluationWithKey('eval-disabled', null), enabled: false }
+
+        it('includes disabled evaluations by default and excludes them when hidden', async () => {
+            logic.actions.loadEvaluationsSuccess([enabledEval, disabledEval])
+
+            await expectLogic(logic).toMatchValues({
+                filteredEvaluations: [enabledEval, disabledEval],
+            })
+
+            logic.actions.setShowDisabledEvaluations(false)
+
+            await expectLogic(logic).toMatchValues({
+                filteredEvaluations: [enabledEval],
             })
         })
     })

@@ -1,16 +1,17 @@
 import { DateTime } from 'luxon'
 
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
+import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
 
 import { RedisV2 } from '../../common/redis/redis-v2'
 import { KeyedRateLimitRequest, KeyedRateLimiterService } from '../../common/services/keyed-rate-limiter.service'
 import { QuotaLimiting } from '../../common/services/quota-limiting.service'
-import { logger } from '../../utils/logger'
-import { captureException } from '../../utils/posthog'
 import { CdpValkeyShadowPools } from '../cdp-services'
 import { counterRateLimited } from '../consumers/metrics'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals, LogEntry, MinimalAppMetric } from '../types'
-import { mirrorCall } from '../utils/mirror-call'
+import { mirrorCompare } from '../utils/mirror-call'
 import { HogFlowExecutorService } from './hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './hogflows/hogflow-manager.service'
 import { shouldBlockHogFlowDueToQuota } from './hogflows/hogflow-quota-limiting'
@@ -64,18 +65,30 @@ export class HogFlowInvocationPipeline {
 
     @instrumented('cdpConsumer.handleEachBatch.queueMatchingFlows')
     public async buildInvocations(
-        invocationGlobals: HogFunctionInvocationGlobals[]
+        invocationGlobals: HogFunctionInvocationGlobals[],
+        options?: {
+            // Predicate evaluated per (flow, globals) before the executor runs filter bytecode.
+            // The consumer is the natural layer to decide trigger-source compatibility because it
+            // knows its own source (events consumer → event triggers; DWH consumer → matching
+            // warehouse-table triggers). Flows that fail the predicate are skipped without
+            // touching the executor.
+            eligibilityFn?: (hogFlow: HogFlow, globals: HogFunctionInvocationGlobals) => boolean
+        }
     ): Promise<CyclotronJobInvocation[]> {
         const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
         const hogFlowsByTeam = await this.deps.hogFlowManager.getHogFlowsForTeams(teamsToLoad)
+        const eligibilityFn = options?.eligibilityFn
 
         const possibleInvocations = (
             await Promise.all(
                 invocationGlobals.map(async (globals) => {
                     const teamHogFlows = hogFlowsByTeam[globals.project.id]
+                    const eligibleFlows = eligibilityFn
+                        ? teamHogFlows.filter((flow) => eligibilityFn(flow, globals))
+                        : teamHogFlows
 
                     const { invocations, metrics, logs } = await this.deps.hogFlowExecutor.buildHogFlowInvocations(
-                        teamHogFlows,
+                        eligibleFlows,
                         globals
                     )
 
@@ -88,27 +101,29 @@ export class HogFlowInvocationPipeline {
         ).flat()
 
         const hogFlowIds = possibleInvocations.map((x) => x.hogFlow.id)
-        const [states] = await Promise.all([
-            instrumentFn('cdpConsumer.handleEachBatch.hogWatcher.getEffectiveStates', async () => {
-                return await this.deps.hogWatcher.getEffectiveStates(hogFlowIds)
-            }),
-            mirrorCall('hog-watcher.getEffectiveStates', () =>
-                this.deps.hogWatcherMirror?.getEffectiveStates(hogFlowIds)
-            ),
-        ])
+        const states = await mirrorCompare(
+            'hog-watcher.getEffectiveStates',
+            () =>
+                instrumentFn('cdpConsumer.handleEachBatch.hogWatcher.getEffectiveStates', async () => {
+                    return await this.deps.hogWatcher.getEffectiveStates(hogFlowIds)
+                }),
+            () => this.deps.hogWatcherMirror?.getEffectiveStates(hogFlowIds)
+        )
 
         const rateLimitInputs: KeyedRateLimitRequest[] = possibleInvocations.map((x) => ({
             id: x.hogFlow.id,
             cost: 1,
         }))
-        const [rateLimits] = await Promise.all([
-            instrumentFn('cdpConsumer.handleEachBatch.hogRateLimiter.rateLimitGrouped', async () => {
-                return await this.hogRateLimiter.rateLimitGrouped(rateLimitInputs)
-            }),
-            mirrorCall('hog-rate-limiter.rateLimitGrouped', () =>
-                this.hogRateLimiterMirror?.rateLimitGrouped(rateLimitInputs)
-            ),
-        ])
+        const rateLimits = await mirrorCompare(
+            'hog-rate-limiter.rateLimitGrouped',
+            () =>
+                instrumentFn('cdpConsumer.handleEachBatch.hogRateLimiter.rateLimitGrouped', async () => {
+                    return await this.hogRateLimiter.rateLimitGrouped(rateLimitInputs)
+                }),
+            () => this.hogRateLimiterMirror?.rateLimitGrouped(rateLimitInputs),
+            (primary, mirror) =>
+                primary.every(([, result], index) => result.isRateLimited === mirror[index]?.[1].isRateLimited)
+        )
         const validInvocations: CyclotronJobInvocation[] = []
 
         await Promise.all(

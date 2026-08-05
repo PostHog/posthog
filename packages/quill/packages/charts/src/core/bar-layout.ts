@@ -1,6 +1,6 @@
 import type { BarRect, BarRoundedCorners } from './canvas-renderer'
 import { type BarScaleSet, groupedBandSlot, type StackedBand } from './scales'
-import type { Series } from './types'
+import type { ResolvedSeries, Series } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
 /** Brand for the BarChart `ChartScales._private` slot — populated by BarChart and
@@ -51,6 +51,120 @@ export function cornersFor(
         }
     }
     return corners
+}
+
+// A segment thinner than this can't visibly carry a rounded cap; skipping it stops an invisible
+// sliver (e.g. a zero-valued breakdown at the top of the stack order) from stealing the cap.
+const MIN_CAP_SEGMENT_PX = 0.5
+
+// How far a cap edge must clear the baseline to count as extending in that direction. Same value
+// as MIN_CAP_SEGMENT_PX but a distinct concept: an epsilon around the baseline, not a segment size.
+const BASELINE_TOLERANCE_PX = 0.5
+
+/** Re-resolve stacked cap rounding per band, geometrically, from the laid-out rects: within each
+ *  `dataIndex`, only the segment reaching furthest away from the baseline in each direction keeps
+ *  a rounded cap — everything else's cap is squared. Decided after layout so breakdown stacks
+ *  (whose top layer varies band to band) and diverging stacks (negative bottoms) round the actual
+ *  outer segment, not the last series in stack order. Mutates `corners` in place; baseline
+ *  corners are untouched. */
+export function roundOuterStackCaps(bars: BarRect[], isHorizontal: boolean, baselinePx: number): void {
+    const outerPositive = new Map<number, BarRect>()
+    const outerNegative = new Map<number, BarRect>()
+    for (const bar of bars) {
+        const size = isHorizontal ? bar.width : bar.height
+        if (size < MIN_CAP_SEGMENT_PX) {
+            continue
+        }
+        // The cap edge, signed so "further from the baseline" compares uniformly per direction.
+        // Vertical: smaller y is further up; horizontal: larger x+width is further right.
+        if (isHorizontal) {
+            if (bar.x + bar.width > baselinePx + BASELINE_TOLERANCE_PX) {
+                const prev = outerPositive.get(bar.dataIndex)
+                if (!prev || bar.x + bar.width >= prev.x + prev.width) {
+                    outerPositive.set(bar.dataIndex, bar)
+                }
+            }
+            if (bar.x < baselinePx - BASELINE_TOLERANCE_PX) {
+                const prev = outerNegative.get(bar.dataIndex)
+                if (!prev || bar.x <= prev.x) {
+                    outerNegative.set(bar.dataIndex, bar)
+                }
+            }
+        } else {
+            if (bar.y < baselinePx - BASELINE_TOLERANCE_PX) {
+                const prev = outerPositive.get(bar.dataIndex)
+                if (!prev || bar.y <= prev.y) {
+                    outerPositive.set(bar.dataIndex, bar)
+                }
+            }
+            if (bar.y + bar.height > baselinePx + BASELINE_TOLERANCE_PX) {
+                const prev = outerNegative.get(bar.dataIndex)
+                if (!prev || bar.y + bar.height >= prev.y + prev.height) {
+                    outerNegative.set(bar.dataIndex, bar)
+                }
+            }
+        }
+    }
+    for (const bar of bars) {
+        const isOuterPositive = outerPositive.get(bar.dataIndex) === bar
+        const isOuterNegative = outerNegative.get(bar.dataIndex) === bar
+        // Rewrite only the bar's own cap side (away from the baseline), so baseline-side rounding
+        // a caller may have applied is preserved. Same tolerance as the outer-segment classification
+        // above — a bar straddling the baseline within tolerance must resolve to the same direction
+        // it was classified under, or its rounding lands on the wrong side.
+        const positive = isHorizontal
+            ? bar.x + bar.width > baselinePx + BASELINE_TOLERANCE_PX
+            : bar.y < baselinePx - BASELINE_TOLERANCE_PX
+        const cap = isOuterPositive || isOuterNegative || undefined
+        if (isHorizontal) {
+            if (positive) {
+                bar.corners.topRight = bar.corners.bottomRight = cap
+            } else {
+                bar.corners.topLeft = bar.corners.bottomLeft = cap
+            }
+        } else if (positive) {
+            bar.corners.topLeft = bar.corners.topRight = cap
+        } else {
+            bar.corners.bottomLeft = bar.corners.bottomRight = cap
+        }
+    }
+}
+
+/** A laid-out bar paired with the axis its series scales against (`Series.yAxisId`). */
+export interface AxisBarEntry {
+    bar: BarRect
+    yAxisId?: string
+}
+
+/** The shared cap-rounding pass over laid-out bars: groups them by value axis and runs
+ *  {@link roundOuterStackCaps} per group against that axis's own zero pixel — a secondary-axis
+ *  stack (ComboChart) must not be judged against the primary baseline. Owns the layout guard:
+ *  no-op for grouped layouts (caps are per-bar) and under `roundStackEnds` (the pill clip owns
+ *  the corners), so static, hover, and cursor paths can't diverge on when the pass applies. */
+export function applyOuterStackCaps(
+    entries: readonly AxisBarEntry[],
+    scales: BarScaleSet,
+    isHorizontal: boolean,
+    layout: 'stacked' | 'grouped' | 'percent',
+    roundStackEnds: boolean = false
+): void {
+    if (layout === 'grouped' || roundStackEnds) {
+        return
+    }
+    const barsByAxis = new Map<string, BarRect[]>()
+    for (const { bar, yAxisId } of entries) {
+        const axisId = yAxisId ?? DEFAULT_Y_AXIS_ID
+        const group = barsByAxis.get(axisId)
+        if (group) {
+            group.push(bar)
+        } else {
+            barsByAxis.set(axisId, [bar])
+        }
+    }
+    for (const [axisId, bars] of barsByAxis) {
+        const valueScale = scales.yAxes?.[axisId]?.scale ?? scales.value
+        roundOuterStackCaps(bars, isHorizontal, valueScale(0))
+    }
 }
 
 function makeBarRect(
@@ -116,6 +230,74 @@ export function computeSeriesBars({
     return result
 }
 
+/** One drawn series and its computed rects — the unit both BarChart and ComboChart iterate. */
+export interface BarLayer {
+    series: ResolvedSeries
+    bars: BarRect[]
+}
+
+export interface BuildBarLayersOptions {
+    series: readonly ResolvedSeries[]
+    labels: string[]
+    scales: BarScaleSet
+    layout: 'stacked' | 'grouped' | 'percent'
+    isHorizontal: boolean
+    stackedData?: Map<string, StackedBand>
+    topStackedKeyByAxis: Map<string, string>
+}
+
+/** Compute the bar rects for every visible series — the per-series `computeSeriesBars` loop shared by
+ *  `drawBarChartStatic` and ComboChart so the band/axis/stack wiring lives in one place. Excluded
+ *  series are dropped; nulls (overlay/CI-band series with no stacked entry) are filtered out. */
+export function buildBarLayers({
+    series,
+    labels,
+    scales,
+    layout,
+    isHorizontal,
+    stackedData,
+    topStackedKeyByAxis,
+}: BuildBarLayersOptions): BarLayer[] {
+    const layers: BarLayer[] = []
+    for (const s of series) {
+        if (s.visibility?.excluded) {
+            continue
+        }
+        const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
+        const bars = computeSeriesBars({
+            series: s,
+            labels,
+            scales,
+            layout,
+            isHorizontal,
+            stackedBand: stackedData?.get(s.key),
+            isTopOfStack: topStackedKeyByAxis.get(axisId) === s.key,
+        }).filter((b): b is BarRect => b !== null)
+        layers.push({ series: s, bars })
+    }
+    return layers
+}
+
+/** Push a bar's value-axis edge out to `minBarSize` px from its baseline-side edge when the bar
+ *  would otherwise be thinner, so a tiny non-zero value still reads as a bar. Zero-valued bars keep
+ *  their exact (empty) extent. The direction to grow is taken from the segment's own geometry
+ *  (`valuePixel` vs `basePixel`), not from `raw`'s sign — a stacked/percent layout clamps negative
+ *  data to a zero-extent segment (`raw !== 0` but `valuePixel === basePixel`), and a diverging
+ *  stack's negative segment has `valuePixel > basePixel`, both of which disagree with `raw`'s sign.
+ *  The `raw === 0` guard still keys off the value, not the geometry: on the grouped path a clamped
+ *  baseline (e.g. a fixed `valueDomain` excluding 0) can make a zero-valued bar geometrically
+ *  non-empty, and that must stay unfloored. */
+function floorValuePixel(valuePixel: number, basePixel: number, raw: number, minBarSize: number | undefined): number {
+    const direction = Math.sign(valuePixel - basePixel)
+    if (!minBarSize || minBarSize <= 0 || raw === 0 || direction === 0) {
+        return valuePixel
+    }
+    if (Math.abs(valuePixel - basePixel) >= minBarSize) {
+        return valuePixel
+    }
+    return basePixel + direction * minBarSize
+}
+
 export interface ComputeBarAtIndexOptions {
     series: Series
     label: string
@@ -179,16 +361,36 @@ export function computeBarAtIndex({
         // plot, so the bar would bleed through the axis. Clamp the baseline to the scale's range.
         const [r0, r1] = valueScale.range()
         const baseline = Math.min(Math.max(valueScale(0), Math.min(r0, r1)), Math.max(r0, r1))
-        return makeBarRect(isHorizontal, slot.x, slot.width, baseline, valuePixel, corners, dataIndex)
+        const cap = floorValuePixel(valuePixel, baseline, raw, scales.minBarSize)
+        return makeBarRect(isHorizontal, slot.x, slot.width, baseline, cap, corners, dataIndex)
     }
 
     // Resolve against the series' own axis (mirrors the grouped branch above), so a stacked bar on
     // a non-default `yAxisId` — only ComboChart combines stacking with per-series axes — is hit-tested
     // and drawn against the same scale. For single-axis charts `valueScale` is `scales.value`.
-    const topPixel = valueScale(stackedBand!.top[dataIndex])
+    const rawTopPixel = valueScale(stackedBand!.top[dataIndex])
     const bottomPixel = valueScale(stackedBand!.bottom[dataIndex])
-    if (!isFinite(topPixel) || !isFinite(bottomPixel)) {
+    if (!isFinite(rawTopPixel) || !isFinite(bottomPixel)) {
         return null
+    }
+    // Only the outermost segment is floored. Flooring an interior one oversizes its rect without
+    // moving the segment above it, so the extension is invisible — immediately overpainted — yet
+    // still wins hit-testing, since `resolveBarsAtCursor` takes the first rect containing the cursor:
+    // the tooltip and click would resolve to a series that isn't drawn there.
+    //
+    // Floored against this segment's own bottom, not the axis baseline, so a floored segment grows
+    // out of where it actually starts in the stack. Only a pixel the floor itself pushed out is
+    // clamped back into the value scale's range (mirrors the grouped branch's baseline clamp above)
+    // — an unfloored `rawTopPixel` outside the range is legitimate (e.g. a `valueDomain` narrower
+    // than the stack total) and hit-testing above the plot still needs to resolve to it, so clamping
+    // unconditionally would break that.
+    const flooredTopPixel = floorValuePixel(rawTopPixel, bottomPixel, raw, isTopOfStack ? scales.minBarSize : undefined)
+    let topPixel = flooredTopPixel
+    if (flooredTopPixel !== rawTopPixel) {
+        const [valueRangeA, valueRangeB] = valueScale.range()
+        const valueRangeMin = Math.min(valueRangeA, valueRangeB)
+        const valueRangeMax = Math.max(valueRangeA, valueRangeB)
+        topPixel = Math.min(Math.max(flooredTopPixel, valueRangeMin), valueRangeMax)
     }
     // For stacked/percent the bar's "positive direction" depends on which pixel is further from baseline,
     // which differs by orientation: horizontal = larger x-pixel, vertical = smaller y-pixel (axis is inverted).

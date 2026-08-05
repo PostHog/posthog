@@ -1,15 +1,38 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
+import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
+
+import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
+import { urls } from 'scenes/urls'
+
+import { initKeaTests } from '~/test/init'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+
+import { HARNESS_BY_LABEL, harnessLogo } from './dashboard/harnessRegistry'
 import {
-    aggregateHarnessRows,
+    type ActivityRow,
     type BucketRow,
+    buildDailyActivity,
     buildKPIs,
+    buildKpiWindow,
     buildToolDailySeries,
-    categorizeHarness,
     deltaPct,
-    type HarnessRawRow,
+    mcpDashboardOverviewLogic,
     pickNotableSessions,
     type SessionRow,
     type ToolDailyRow,
 } from './mcpDashboardOverviewLogic'
+import { BUCKET_FORMAT } from './timeBuckets'
+
+jest.mock('lib/api')
+jest.mock('./generated/api', () => ({
+    mcpAnalyticsIntentClustersRetrieve: jest.fn().mockResolvedValue({ status: 'idle', clusters: [] }),
+    mcpAnalyticsIntentClustersRecompute: jest.fn(),
+}))
+
+const mockApi = api as jest.Mocked<typeof api>
 
 function session(overrides: Partial<SessionRow> & { session_id: string }): SessionRow {
     return {
@@ -23,24 +46,74 @@ function session(overrides: Partial<SessionRow> & { session_id: string }): Sessi
     }
 }
 
-describe('mcpDashboardOverviewLogic helpers', () => {
-    describe('categorizeHarness', () => {
-        it.each([
-            ['claude-code/1.0.0', 'Claude Code'],
-            ['claude-ai', 'Claude.ai'],
-            ['anthropic/claudeai', 'Claude.ai'],
-            ['cursor/0.42', 'Cursor'],
-            ['codex-cli', 'OpenAI Codex'],
-            ['visual studio code', 'VS Code'],
-            ['something-nobody-knows', 'Other'],
-            ['', 'Other'],
-        ])('maps %s -> %s', (raw, expected) => {
-            expect(categorizeHarness(raw)).toBe(expected)
+describe('mcpDashboardOverviewLogic', () => {
+    describe('harnessLogo', () => {
+        // The expected labels mirror HARNESS_LABELS in mcp_harness.py, minus "Other".
+        // If the backend renames or adds a label, update this list to keep it in sync
+        // and add the corresponding entry to HARNESS_BY_LABEL in harnessRegistry.ts.
+        const EXPECTED_HARNESS_LABELS = [
+            'Claude Desktop',
+            'Claude Code (VS Code)',
+            'Claude Agent SDK',
+            'Claude Code',
+            'Claude.ai',
+            'Anthropic API',
+            'Cowork',
+            'Claude Design',
+            'ChatGPT',
+            'OpenAI Agent Builder',
+            'OpenAI Responses API',
+            'OpenAI',
+            'OpenAI Codex',
+            'Grok',
+            'Cursor',
+            'VS Code',
+            'Windsurf',
+            'Replit',
+            'Lovable',
+            'Manus',
+            'CodeRabbit',
+            'Notion',
+            'Linear',
+            'LibreChat',
+            'Pi',
+            'Antigravity',
+            'Poke',
+            'opencode',
+            'Kiro',
+            'Desktop Commander',
+            'PostHog CLI',
+        ]
+
+        it.each(EXPECTED_HARNESS_LABELS)('HARNESS_BY_LABEL has an entry for backend label %s', (label) => {
+            expect(Object.prototype.hasOwnProperty.call(HARNESS_BY_LABEL, label)).toBe(true)
         })
 
-        it('strips the "(via mcp-remote …)" suffix before matching', () => {
-            expect(categorizeHarness('claude-code (via mcp-remote 1.2.3)')).toBe('Claude Code')
+        it.each([
+            'Claude Code',
+            'OpenAI',
+            'Cursor',
+            'Linear',
+            'CodeRabbit',
+            'Notion',
+            'Replit',
+            'Windsurf',
+            'opencode',
+            'Lovable',
+            'Manus',
+            'LibreChat',
+            'Pi',
+            'Antigravity',
+        ])('resolves a logo for the %s category', (category) => {
+            expect(harnessLogo(category)?.src).toBeTruthy()
         })
+
+        it.each(['Anthropic API', 'Poke', 'Kiro', 'Desktop Commander', 'Other'])(
+            'has no logo for the logo-less %s category',
+            (category) => {
+                expect(harnessLogo(category)).toBeUndefined()
+            }
+        )
     })
 
     describe('deltaPct', () => {
@@ -51,27 +124,6 @@ describe('mcpDashboardOverviewLogic helpers', () => {
             [100, 0, null],
         ])('deltaPct(%s, %s) = %s', (current, previous, expected) => {
             expect(deltaPct(current, previous)).toBe(expected)
-        })
-    })
-
-    describe('aggregateHarnessRows', () => {
-        it('folds raw clients into categories, sums counts, and sorts by volume', () => {
-            const raw: HarnessRawRow[] = [
-                { client: 'claude-code/1.0', total_calls: 100, errors: 10, sessions: 5 },
-                { client: 'claude-code/2.0', total_calls: 50, errors: 5, sessions: 3 },
-                { client: 'cursor/0.4', total_calls: 40, errors: 0, sessions: 2 },
-            ]
-            const result = aggregateHarnessRows(raw)
-            expect(result).toHaveLength(2)
-            expect(result[0]).toEqual({
-                category: 'Claude Code',
-                total_calls: 150,
-                errors: 15,
-                error_rate_pct: 10,
-                sessions: 8,
-                raw_clients: ['claude-code/1.0', 'claude-code/2.0'],
-            })
-            expect(result[1]).toMatchObject({ category: 'Cursor', total_calls: 40, error_rate_pct: 0 })
         })
     })
 
@@ -113,22 +165,114 @@ describe('mcpDashboardOverviewLogic helpers', () => {
             // Other = tool-8 (92) + tool-9 (91)
             expect(tools[8]).toEqual({ tool: 'Other', data: [183] })
         })
+
+        it('spans the supplied bucket keys and zero-fills days without calls', () => {
+            const rows: ToolDailyRow[] = [{ day: '2024-01-02', tool: 'a', calls: 5 }]
+            const bucketKeys = ['2024-01-01', '2024-01-02', '2024-01-03']
+            expect(buildToolDailySeries(rows, bucketKeys)).toEqual({
+                labels: bucketKeys,
+                tools: [{ tool: 'a', data: [0, 5, 0] }],
+            })
+        })
+
+        it('returns empty tools with the supplied labels when there are no rows', () => {
+            expect(buildToolDailySeries([], ['2024-01-01'])).toEqual({ labels: ['2024-01-01'], tools: [] })
+        })
+    })
+
+    describe('buildDailyActivity', () => {
+        it('projects rows onto the bucket keys, defaulting missing buckets to zero', () => {
+            const rows: ActivityRow[] = [
+                { day: '2024-01-01 00:00:00', successes: 10, errors: 2 },
+                { day: '2024-01-03 00:00:00', successes: 4, errors: 1 },
+            ]
+            const bucketKeys = ['2024-01-01 00:00:00', '2024-01-02 00:00:00', '2024-01-03 00:00:00']
+            expect(buildDailyActivity(rows, bucketKeys)).toEqual({
+                labels: bucketKeys,
+                successes: [10, 0, 4],
+                errors: [2, 0, 1],
+            })
+        })
+
+        it('returns all-zero series when there are no rows', () => {
+            const bucketKeys = ['2024-01-01 00:00:00', '2024-01-02 00:00:00', '2024-01-03 00:00:00']
+            expect(buildDailyActivity([], bucketKeys)).toEqual({
+                labels: bucketKeys,
+                successes: [0, 0, 0],
+                errors: [0, 0, 0],
+            })
+        })
+
+        // The in-progress-tail dash applies `fromIndex = successes.length - 1` to line up with the
+        // last bucket key, so the series must stay exactly bucketKeys-length — including when rows
+        // fall outside the window. If this drifts, the dashed segment lands on the wrong point.
+        it('keeps series length equal to bucketKeys, ignoring rows outside the window', () => {
+            const bucketKeys = ['2024-01-01 00:00:00', '2024-01-02 00:00:00', '2024-01-03 00:00:00']
+            const rows: ActivityRow[] = [
+                { day: '2024-01-02 00:00:00', successes: 5, errors: 1 },
+                { day: '2023-12-31 00:00:00', successes: 9, errors: 9 }, // outside bucketKeys — must be dropped
+            ]
+            const result = buildDailyActivity(rows, bucketKeys)
+            expect(result.labels).toHaveLength(bucketKeys.length)
+            expect(result.successes).toHaveLength(bucketKeys.length)
+            expect(result.errors).toHaveLength(bucketKeys.length)
+            expect(result.successes).toEqual([0, 5, 0])
+        })
+    })
+
+    describe('buildKpiWindow', () => {
+        it.each([
+            ['2024-01-08', '2024-01-15', 'day', '2024-01-08 00:00:00', '2023-12-31'],
+            ['2024-01-01', '2024-01-31', 'day', '2024-01-01 00:00:00', '2023-12-01'],
+        ])(
+            'extends [%s, %s] back to an equal-length prior window with cutoff at the selected start',
+            (dateFrom, dateTo, interval, expectedCutoff, expectedPriorStart) => {
+                const window = buildKpiWindow({ dateFrom, dateTo }, 'UTC', interval as 'day')
+                expect(window.currentStartBucket).toBe(expectedCutoff)
+                expect(dayjs(window.dateFrom).format('YYYY-MM-DD')).toBe(expectedPriorStart)
+            }
+        )
+
+        it('rolls an hour-level range from now and steps the prior window back equally', () => {
+            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:30:00Z'))
+            try {
+                // "-1h" resolves to the trailing hour; prior window is the hour before that.
+                const window = buildKpiWindow({ dateFrom: '-1h', dateTo: null }, 'UTC', 'minute')
+                expect(window.currentStartBucket).toBe('2026-06-18 11:30:00')
+                expect(dayjs(window.dateFrom).toISOString()).toBe('2026-06-18T10:29:00.000Z')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('resolves the relative -7d default against now', () => {
+            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
+            try {
+                const window = buildKpiWindow({ dateFrom: '-7d', dateTo: null }, 'UTC', 'day')
+                expect(window.currentStartBucket).toBe('2026-06-11 00:00:00')
+                // doubled window: prior 8 day-buckets before the cutoff
+                expect(dayjs(window.dateFrom).format('YYYY-MM-DD')).toBe('2026-06-03')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
     })
 
     describe('buildKPIs', () => {
         it('splits current vs prior buckets and computes values, deltas, and sparklines', () => {
             const rows: BucketRow[] = [
-                { bucket: '2024-01-09', sessions: 20, tool_calls: 200, errors: 15, p95: 300, in_current: true },
-                { bucket: '2024-01-08', sessions: 10, tool_calls: 100, errors: 5, p95: 200, in_current: true },
-                { bucket: '2024-01-01', sessions: 5, tool_calls: 50, errors: 5, p95: 150, in_current: false },
+                { bucket: '2024-01-09', sessions: 20, tool_calls: 200, errors: 15, p95: 300 },
+                { bucket: '2024-01-08', sessions: 10, tool_calls: 100, errors: 5, p95: 200 },
+                { bucket: '2024-01-01', sessions: 5, tool_calls: 50, errors: 5, p95: 150 },
             ]
-            const kpis = buildKPIs(rows)
+            const kpis = buildKPIs(rows, '2024-01-08')
 
             expect(kpis.sessions).toEqual({
                 value: 30,
                 previousValue: 5,
                 deltaPct: 500,
                 sparkline: [10, 20], // current sorted by bucket
+                sparklineLabels: ['2024-01-08', '2024-01-09'],
                 goodDirection: 'up',
             })
             expect(kpis.toolCalls).toMatchObject({
@@ -143,16 +287,17 @@ describe('mcpDashboardOverviewLogic helpers', () => {
                 deltaPct: 100,
                 goodDirection: 'down',
             })
-            expect(kpis.errorRatePct.value).toBeCloseTo(6.667, 2)
-            expect(kpis.errorRatePct.previousValue).toBeCloseTo(10, 5)
-            expect(kpis.errorRatePct.goodDirection).toBe('down')
+            expect(kpis.errorRatePct).toMatchObject({
+                value: 7.5,
+                previousValue: 10,
+                deltaPct: -25,
+                goodDirection: 'down',
+            })
         })
 
         it('returns null deltas when there is no prior-period data', () => {
-            const rows: BucketRow[] = [
-                { bucket: '2024-01-08', sessions: 10, tool_calls: 100, errors: 0, p95: 200, in_current: true },
-            ]
-            expect(buildKPIs(rows).sessions.deltaPct).toBeNull()
+            const rows: BucketRow[] = [{ bucket: '2024-01-08', sessions: 10, tool_calls: 100, errors: 0, p95: 200 }]
+            expect(buildKPIs(rows, '2024-01-08').sessions.deltaPct).toBeNull()
         })
     })
 
@@ -161,7 +306,7 @@ describe('mcpDashboardOverviewLogic helpers', () => {
             expect(pickNotableSessions([])).toEqual([])
         })
 
-        it('picks one session per rule, then tops up with the busiest, capped and deduped', () => {
+        it('picks one session per rule', () => {
             const rows: SessionRow[] = [
                 session({
                     session_id: 'A',
@@ -204,17 +349,251 @@ describe('mcpDashboardOverviewLogic helpers', () => {
                     distinct_tools: 2,
                 }),
             ]
-            const picked = pickNotableSessions(rows)
-            expect(picked.map((p) => ({ id: p.session.session_id, rule: p.rule }))).toEqual([
+            // A is the busiest, but it is already listed under worst_error_rate, so no high_activity row.
+            expect(pickNotableSessions(rows).map((p) => ({ id: p.session.session_id, rule: p.rule }))).toEqual([
                 { id: 'A', rule: 'worst_error_rate' },
                 { id: 'B', rule: 'all_fail' },
                 { id: 'C', rule: 'most_exploratory' },
                 { id: 'D', rule: 'exemplar' },
-                { id: 'E', rule: 'high_activity' },
             ])
-            // never more than the cap, never the same session twice
-            expect(picked).toHaveLength(5)
-            expect(new Set(picked.map((p) => p.session.session_id)).size).toBe(5)
+        })
+
+        it('lists a session that satisfies two rules once, under the first that matched', () => {
+            const rows: SessionRow[] = [
+                session({ session_id: 'both', tool_calls: 50, distinct_tools: 8, duration_seconds: 100 }),
+                session({ session_id: 'filler-a', tool_calls: 2, distinct_tools: 1 }),
+                session({ session_id: 'filler-b', tool_calls: 2, distinct_tools: 1 }),
+            ]
+            // 'both' is the most exploratory session and the volume outlier. Two rows would mean a
+            // duplicate session_id, which is the table's React key.
+            expect(pickNotableSessions(rows).map((p) => ({ id: p.session.session_id, rule: p.rule }))).toEqual([
+                { id: 'both', rule: 'most_exploratory' },
+            ])
+        })
+
+        it('returns nothing when every session is small, rather than reaching for a filler row', () => {
+            const rows: SessionRow[] = [
+                session({ session_id: 'errored', tool_calls: 2, errors: 1, error_rate_pct: 50, distinct_tools: 2 }),
+                session({ session_id: 'clean', tool_calls: 2, distinct_tools: 2 }),
+            ]
+            expect(pickNotableSessions(rows)).toEqual([])
+        })
+
+        it('flags a genuine volume outlier and leaves unremarkable sessions out entirely', () => {
+            const rows: SessionRow[] = [
+                session({ session_id: 'firehose', tool_calls: 40, distinct_tools: 2, duration_seconds: 100 }),
+                session({ session_id: 'explorer', tool_calls: 4, distinct_tools: 6, duration_seconds: 10 }),
+                session({ session_id: 'single-a', tool_calls: 1, distinct_tools: 1 }),
+                session({ session_id: 'single-b', tool_calls: 1, distinct_tools: 1 }),
+            ]
+            expect(pickNotableSessions(rows).map((p) => ({ id: p.session.session_id, rule: p.rule }))).toEqual([
+                { id: 'explorer', rule: 'most_exploratory' },
+                { id: 'firehose', rule: 'high_activity' },
+            ])
+        })
+    })
+
+    describe('kpiIncompleteTail', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            initKeaTests()
+            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] })
+        })
+
+        // Reads the sparkline's own labels rather than the zero-filled axis: on a day with no calls
+        // yet the KPI series stops at yesterday, which is settled, so dashing its last point would
+        // mark a complete bucket as in progress.
+        it('tracks the KPI sparkline labels, not the chart axis', async () => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const bucket = (daysAgo: number): string =>
+                dayjs().tz(logic.values.timezone).subtract(daysAgo, 'day').startOf('day').format(BUCKET_FORMAT)
+            const row = (daysAgo: number): BucketRow => ({
+                bucket: bucket(daysAgo),
+                sessions: 3,
+                tool_calls: 30,
+                errors: 1,
+                p95: 100,
+            })
+
+            logic.actions.loadKPIsSuccess(buildKPIs([row(1), row(0)], bucket(1)))
+            expect(logic.values.kpiIncompleteTail).toBe(true)
+
+            logic.actions.loadKPIsSuccess(buildKPIs([row(3), row(2)], bucket(3)))
+            expect(logic.values.kpiIncompleteTail).toBe(false)
+        })
+    })
+
+    describe('filter wiring', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            initKeaTests()
+            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] } as any)
+        })
+
+        function reloadCallsSince(callIndex: number): any[] {
+            return mockApi.query.mock.calls.slice(callIndex).map((call) => call[0] as any)
+        }
+
+        // HogQL query nodes carry filters under `.filters`; the typed
+        // MCPHarnessBreakdownQuery node carries dateRange/properties/filterTestAccounts
+        // at the top level. This reads whichever shape a reload used.
+        const filtersOf = (call: any): Record<string, any> => call.filters ?? call
+
+        // The users query returns a single [current_users, prior_users] row; loadUsers maps
+        // column 0 → value, column 1 → previousValue, and derives the delta. Pins that column
+        // mapping and the deltaPct wiring — a swap or a dropped delta would slip past the other
+        // tests, which only ever see empty results.
+        it('maps the users query columns to the current/prior metric', async () => {
+            mockApi.query.mockImplementation(async (node: any) =>
+                typeof node?.query === 'string' && node.query.includes('current_users')
+                    ? ({ results: [[42, 30]] } as any)
+                    : ({ results: [] } as any)
+            )
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.users).toEqual({
+                value: 42,
+                previousValue: 30,
+                deltaPct: 40,
+                sparkline: [],
+                sparklineLabels: [],
+                goodDirection: 'up',
+            })
+        })
+
+        // A bare dateTrunc returns a typed DateTime that the query API stamps with the project's UTC
+        // offset, which the client reads back as an instant and converts, shifting the bucket away
+        // from the wall-clock keys it joins and compares against (an empty activity chart and a
+        // skewed KPI split on any non-UTC project). Pins the toString on all three bucketed queries.
+        it('renders every bucketed query with a stringified dateTrunc', async () => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const bucketed = mockApi.query.mock.calls
+                .map((call) => (call[0] as any).query)
+                .filter((query: string | undefined): query is string => !!query?.includes('dateTrunc('))
+            expect(bucketed).toHaveLength(1)
+            expect(bucketed.filter((query) => !query.includes('toString(dateTrunc('))).toEqual([])
+        })
+
+        it('reloads every tile when the date filter changes', async () => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                logic.actions.setDateFilter('-30d', null)
+            }).toFinishAllListeners()
+
+            const reloads = reloadCallsSince(callsBefore)
+            // Seven tiles: KPI + users + the five breakdown queries.
+            expect(reloads.length).toBe(7)
+            // The five breakdowns pass the raw selected range straight through.
+            const breakdowns = reloads.filter((call) => filtersOf(call).dateRange?.date_from === '-30d')
+            expect(breakdowns).toHaveLength(5)
+            // The KPI and users tiles widen to an absolute doubled window so they can compare against the prior period.
+            const kpi = reloads.find((call) => call.query?.includes('AS bucket'))
+            expect(kpi?.filters.dateRange.date_from).not.toBe('-30d')
+            expect(dayjs(kpi?.filters.dateRange.date_from).isValid()).toBe(true)
+            const usersTile = reloads.find((call) => call.query?.includes('current_users'))
+            expect(usersTile?.filters.dateRange.date_from).not.toBe('-30d')
+            expect(dayjs(usersTile?.filters.dateRange.date_from).isValid()).toBe(true)
+        })
+
+        it.each([[false], [true]])('passes filterTestAccounts=%s to every tile', async (enabled) => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            // enabled=false is the default mount state; enabled=true reloads after toggling.
+            const callsBefore = enabled ? mockApi.query.mock.calls.length : 0
+
+            if (enabled) {
+                await expectLogic(logic, () => {
+                    logic.actions.setFilterTestAccounts(true)
+                }).toFinishAllListeners()
+            }
+
+            const reloads = reloadCallsSince(callsBefore)
+            expect(reloads.length).toBe(7)
+            expect(reloads.every((call) => filtersOf(call).filterTestAccounts === enabled)).toBe(true)
+        })
+
+        it('defaults the filter from the team test_account_filters_default_checked setting', async () => {
+            initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
+            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] } as any)
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // No explicit toggle, yet every tile filters internal users because the team default is on.
+            const reloads = mockApi.query.mock.calls.map((call) => call[0] as any)
+            expect(reloads.length).toBeGreaterThanOrEqual(7)
+            expect(reloads.every((call) => filtersOf(call).filterTestAccounts === true)).toBe(true)
+        })
+
+        const EVENT_FILTER: AnyPropertyFilter = {
+            key: '$mcp_tool_name',
+            value: ['create_insight'],
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Event,
+        }
+        // Feature-flag filters arrive as ordinary $feature/<key> event-property filters.
+        const FLAG_FILTER: AnyPropertyFilter = {
+            key: '$feature/mcp-new-thing',
+            value: ['test'],
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Event,
+        }
+
+        it.each([
+            ['event property', EVENT_FILTER],
+            ['feature flag', FLAG_FILTER],
+        ])('passes %s filters to every tile', async (_label, filter) => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                logic.actions.setPropertyFilters([filter])
+            }).toFinishAllListeners()
+
+            const reloads = reloadCallsSince(callsBefore)
+            expect(reloads.length).toBe(7)
+            expect(
+                reloads.every((call) => JSON.stringify(filtersOf(call).properties) === JSON.stringify([filter]))
+            ).toBe(true)
+        })
+
+        it('syncs property filters to the URL and clears the param when emptied', async () => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setPropertyFilters([EVENT_FILTER])
+            }).toFinishAllListeners()
+            expect(router.values.searchParams.properties).toEqual([EVENT_FILTER])
+
+            await expectLogic(logic, () => {
+                logic.actions.setPropertyFilters([])
+            }).toFinishAllListeners()
+            expect(router.values.searchParams.properties).toBeUndefined()
+        })
+
+        it('hydrates property filters from the URL on mount', async () => {
+            router.actions.push(urls.mcpAnalyticsDashboard(), { properties: [EVENT_FILTER] })
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.propertyFilters).toEqual([EVENT_FILTER])
         })
     })
 })

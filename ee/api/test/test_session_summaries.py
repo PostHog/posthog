@@ -20,6 +20,10 @@ from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPatternsList,
     EnrichedSessionGroupSummaryPatternStats,
 )
+from ee.hogai.session_summaries.session_group.summarize_session_group import (
+    SessionRecordingPartition,
+    SessionsTimestampRange,
+)
 from ee.hogai.session_summaries.tests.conftest import get_mock_enriched_llm_json_response
 
 
@@ -104,9 +108,9 @@ class TestSessionSummariesAPI(APIBaseTest):
         mock_capture_started: Mock,
         mock_capture_generated: Mock,
     ) -> None:
-        mock_find_sessions.return_value = (
-            datetime(2024, 1, 1, 10, 0, 0),
-            datetime(2024, 1, 1, 11, 0, 0),
+        mock_find_sessions.return_value = SessionsTimestampRange(
+            min_timestamp=datetime(2024, 1, 1, 10, 0, 0),
+            max_timestamp=datetime(2024, 1, 1, 11, 0, 0),
         )
         mock_result = self.create_mock_result()
         mock_failed_sessions = [
@@ -262,9 +266,9 @@ class TestSessionSummariesAPI(APIBaseTest):
         mock_execute: Mock,
         mock_find_sessions: Mock,
     ) -> None:
-        mock_find_sessions.return_value = (
-            datetime(2024, 1, 1, 10, 0, 0),
-            datetime(2024, 1, 1, 11, 0, 0),
+        mock_find_sessions.return_value = SessionsTimestampRange(
+            min_timestamp=datetime(2024, 1, 1, 10, 0, 0),
+            max_timestamp=datetime(2024, 1, 1, 11, 0, 0),
         )
 
         # Mock execution failure - create async generator that raises exception
@@ -298,7 +302,9 @@ class TestSessionSummariesAPI(APIBaseTest):
         mock_execute: Mock,
         mock_partition: Mock,
     ) -> None:
-        mock_partition.return_value = (["session_1", "session_2"], [])
+        mock_partition.return_value = SessionRecordingPartition(
+            found_session_ids=["session_1", "session_2"], missing_session_ids=[]
+        )
         mock_execute.side_effect = lambda session_id, **kwargs: get_mock_enriched_llm_json_response(session_id)
         # Make request
         url = f"/api/environments/{self.team.id}/session_summaries/create_session_summaries_individually/"
@@ -324,7 +330,9 @@ class TestSessionSummariesAPI(APIBaseTest):
         if endpoint == "create_session_summaries":
             sessions_lookup_patch = patch(
                 "ee.api.session_summaries.find_sessions_timestamps",
-                return_value=(datetime(2024, 1, 1, 10, 0, 0), datetime(2024, 1, 1, 11, 0, 0)),
+                return_value=SessionsTimestampRange(
+                    min_timestamp=datetime(2024, 1, 1, 10, 0, 0), max_timestamp=datetime(2024, 1, 1, 11, 0, 0)
+                ),
             )
             executor_patch = patch(
                 "ee.api.session_summaries.execute_summarize_session_group",
@@ -333,7 +341,7 @@ class TestSessionSummariesAPI(APIBaseTest):
         else:
             sessions_lookup_patch = patch(
                 "ee.api.session_summaries.partition_sessions_by_recording_existence",
-                return_value=(["session1"], []),
+                return_value=SessionRecordingPartition(found_session_ids=["session1"], missing_session_ids=[]),
             )
             executor_patch = patch(
                 "ee.api.session_summaries.execute_summarize_session",
@@ -364,7 +372,9 @@ class TestSessionSummariesAPI(APIBaseTest):
         mock_execute: Mock,
         mock_partition: Mock,
     ) -> None:
-        mock_partition.return_value = (["session_1", "session_2"], [])
+        mock_partition.return_value = SessionRecordingPartition(
+            found_session_ids=["session_1", "session_2"], missing_session_ids=[]
+        )
 
         # Mock execute to succeed for first session, fail for second
         def mock_execute_side_effect(session_id: str, **kwargs: Any) -> dict[str, Any]:
@@ -423,7 +433,7 @@ class TestSessionSummariesAPI(APIBaseTest):
         mock_execute: Mock,
         mock_partition: Mock,
     ) -> None:
-        mock_partition.return_value = (["session_x"], [])
+        mock_partition.return_value = SessionRecordingPartition(found_session_ids=["session_x"], missing_session_ids=[])
         mock_execute.side_effect = raised_exception
 
         url = f"/api/environments/{self.team.id}/session_summaries/create_session_summaries_individually/"
@@ -442,7 +452,9 @@ class TestSessionSummariesAPI(APIBaseTest):
         mock_execute: Mock,
         mock_partition: Mock,
     ) -> None:
-        mock_partition.return_value = (["session_1"], ["missing_session"])
+        mock_partition.return_value = SessionRecordingPartition(
+            found_session_ids=["session_1"], missing_session_ids=["missing_session"]
+        )
         mock_execute.side_effect = lambda session_id, **kwargs: get_mock_enriched_llm_json_response(session_id)
 
         url = f"/api/environments/{self.team.id}/session_summaries/create_session_summaries_individually/"
@@ -654,7 +666,7 @@ class TestStreamSessionSummariesAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get("Content-Type"), "text/event-stream")
-        self.assertEqual(response.get("Cache-Control"), "no-cache")
+        self.assertEqual(response.get("Cache-Control"), "no-cache, no-transform")
         self.assertEqual(response.get("X-Accel-Buffering"), "no")
 
     @patch("ee.api.session_summaries.capture_session_summary_generated")

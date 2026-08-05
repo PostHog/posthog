@@ -1,16 +1,22 @@
+import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip'
 import { BindLogic, useMountedLogic, useValues } from 'kea'
+import posthog from 'posthog-js'
 import React, { Suspense, useEffect } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
 
+import { PostHogProvider } from '@posthog/react'
+
+import { ProductEmptyStateGate } from 'lib/components/ProductEmptyState/ProductEmptyStateGate'
+import { productSetupPreloadLogic } from 'lib/components/ProductEmptyState/productSetupPreloadLogic'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { useCancelAnimationsOnUnmount } from 'lib/hooks/useCancelAnimationsOnUnmount'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
-import { KeaDevtools } from 'lib/KeaDevTools'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { autofillReleaseLogic } from 'lib/memory/autofillReleaseLogic'
 import { OAuthCallback } from 'lib/oauth/OAuthCallback'
 import { oauthLogic } from 'lib/oauth/oauthLogic'
+import { retryImport } from 'lib/utils/retryImport'
 import { appLogic } from 'scenes/appLogic'
 import { appScenes } from 'scenes/appScenes'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -21,7 +27,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
 
-const AuthenticatedShell = React.lazy(() => import('./AuthenticatedShell'))
+const AuthenticatedShell = React.lazy(() => retryImport(() => import('./AuthenticatedShell')))
 
 window.process = MOCK_NODE_PROCESS
 
@@ -48,44 +54,77 @@ function SceneAnimationRoot({ children }: { children: React.ReactNode }): JSX.El
     )
 }
 
+/** Lazy-loaded Kea devtools panel, only rendered in dev mode with dev tools open */
+function KeaDevtoolsLoader(): JSX.Element | null {
+    const [DevTools, setDevTools] = React.useState<React.ComponentType | null>(null)
+    React.useEffect(() => {
+        import('lib/KeaDevTools').then((mod) => setDevTools(() => mod.KeaDevtools)).catch(() => {})
+    }, [])
+    return DevTools ? <DevTools /> : null
+}
+
 export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner, showingDevTools } = useValues(appLogic)
 
     useMountedLogic(sceneLogic({ scenes: appScenes }))
     useMountedLogic(autofillReleaseLogic)
+
+    // Resolves product setup statuses on idle, so gated scenes open without a spinner.
+    useMountedLogic(productSetupPreloadLogic)
+
     // Unconditional so /oauth/callback's urlToAction is registered before routing. Inert in prod
     // (OAuth UI gated on preflight.is_debug); no timers/listeners, so cheap to always mount.
     useMountedLogic(oauthLogic)
+
+    // Mount the support-hash router (handles #panel=support) on every page, lazily so it stays out
+    // of App's import graph — a static import drags supportLogic/sceneLogic/organizationLogic into
+    // root init and triggers a circular-import TDZ. Its urlToAction fires on the current URL on mount.
+    useEffect(() => {
+        let unmount: (() => void) | undefined
+        void retryImport(() => import('lib/components/Support/supportRouterLogic')).then(({ supportRouterLogic }) => {
+            unmount = supportRouterLogic.mount()
+        })
+        return () => unmount?.()
+    }, [])
 
     useThemedHtml()
 
     // A cloud OAuth redirect lands at /oauth/callback on the local origin. Render the exchange
     // screen here (oauthLogic's urlToAction performs the token exchange), before normal routing.
     if (window.location.pathname === '/oauth/callback') {
-        return <OAuthCallback />
-    }
-
-    if (showApp) {
         return (
-            <>
-                <AppScene />
-                {showingDevTools ? <KeaDevtools /> : null}
-            </>
+            <ErrorBoundary>
+                <PostHogProvider client={posthog}>
+                    <OAuthCallback />
+                </PostHogProvider>
+            </ErrorBoundary>
         )
     }
 
-    return <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
+    const sceneContent = (
+        <ErrorBoundary>
+            <PostHogProvider client={posthog}>
+                <BaseTooltip.Provider delay={500} closeDelay={0} timeout={400}>
+                    {showApp ? (
+                        <>
+                            <AppScene />
+                            {showingDevTools ? <KeaDevtoolsLoader /> : null}
+                        </>
+                    ) : (
+                        <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
+                    )}
+                </BaseTooltip.Provider>
+            </PostHogProvider>
+        </ErrorBoundary>
+    )
+
+    return sceneContent
 }
 
 function AppScene(): JSX.Element | null {
     const { user } = useValues(userLogic)
-    const {
-        activeSceneId,
-        activeExportedScene,
-        activeSceneComponentParamsWithTabId,
-        activeSceneLogicPropsWithTabId,
-        sceneConfig,
-    } = useValues(sceneLogic)
+    const { activeSceneId, activeExportedScene, activeSceneComponentParams, activeSceneLogicProps, sceneConfig } =
+        useValues(sceneLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 
@@ -119,22 +158,24 @@ function AppScene(): JSX.Element | null {
 
     let sceneElement: JSX.Element
     if (activeExportedScene?.component) {
-        const { component: SceneComponent } = activeExportedScene
-        sceneElement = (
-            <SceneAnimationRoot key={`scene-${activeSceneId}-${activeSceneLogicPropsWithTabId.tabId}`}>
-                <SceneComponent user={user} {...activeSceneComponentParamsWithTabId} />
-            </SceneAnimationRoot>
+        const { component: SceneComponent, emptyState } = activeExportedScene
+        const sceneNode = <SceneComponent user={user} {...activeSceneComponentParams} />
+
+        // Scenes that declare an empty state are gated behind the product's
+        // setup screen until the product has data (or the user skips).
+        const resolvedNode = emptyState ? (
+            <ProductEmptyStateGate emptyState={emptyState}>{sceneNode}</ProductEmptyStateGate>
+        ) : (
+            sceneNode
         )
+
+        sceneElement = <SceneAnimationRoot key={`scene-${activeSceneId}`}>{resolvedNode}</SceneAnimationRoot>
     } else {
         sceneElement = <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
     }
 
     const sceneContent = activeExportedScene?.logic ? (
-        <BindLogic
-            key={`bind-${activeSceneLogicPropsWithTabId.tabId}`}
-            logic={activeExportedScene.logic}
-            props={activeSceneLogicPropsWithTabId}
-        >
+        <BindLogic key={`bind-${activeSceneId}`} logic={activeExportedScene.logic} props={activeSceneLogicProps}>
             {sceneElement}
         </BindLogic>
     ) : (
@@ -142,10 +183,7 @@ function AppScene(): JSX.Element | null {
     )
 
     const wrappedSceneElement = (
-        <ErrorBoundary
-            key={`error-${activeSceneLogicPropsWithTabId.tabId}`}
-            exceptionProps={{ feature: activeSceneId }}
-        >
+        <ErrorBoundary key={`error-${activeSceneId}`} exceptionProps={{ feature: activeSceneId }}>
             {/* Keep chunk-load failures out of the scene error reporter so stale assets reload once instead. */}
             <ChunkLoadErrorBoundary>{sceneContent}</ChunkLoadErrorBoundary>
         </ErrorBoundary>

@@ -1,15 +1,10 @@
-import { useValues } from 'kea'
-
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
+import type { LLMSentimentResult } from '~/queries/schema/schema-general'
 import { EventDetails } from '~/scenes/activity/explore/EventDetails'
 import { EventType } from '~/types'
 
-import { llmGenerationSentimentLazyLoaderLogic } from '../llmGenerationSentimentLazyLoaderLogic'
 import { asString, costContextFromProperties, formatLLMCost, hasCostBreakdown } from '../utils'
 import { CostBreakdownTooltip } from './CostBreakdownTooltip'
 import { SentimentBar } from './SentimentTag'
@@ -20,21 +15,17 @@ interface AIObservabilityEventCardProps {
         event: string
         createdAt: string
         properties: Record<string, any>
+        sentiment?: LLMSentimentResult
     }
     isExpanded: boolean
     onToggleExpand: () => void
-    traceId?: string
 }
 
 export function AIObservabilityEventCard({
     event,
     isExpanded,
     onToggleExpand,
-    traceId,
 }: AIObservabilityEventCardProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { getGenerationSentiment } = useValues(llmGenerationSentimentLazyLoaderLogic)
-
     const isGeneration = event.event === '$ai_generation'
     const isEmbedding = event.event === '$ai_embedding'
     const eventForDetails: EventType = {
@@ -109,19 +100,13 @@ export function AIObservabilityEventCard({
                             </LemonTag>
                         </Tooltip>
                     )}
-                    {isGeneration &&
-                        traceId &&
-                        !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT] &&
-                        (() => {
-                            const genSentiment = getGenerationSentiment(event.id)
-                            return genSentiment ? (
-                                <SentimentBar
-                                    label={genSentiment.label}
-                                    score={genSentiment.score}
-                                    messages={genSentiment.messages}
-                                />
-                            ) : null
-                        })()}
+                    {isGeneration && event.sentiment && (
+                        <SentimentBar
+                            label={event.sentiment.label}
+                            score={event.sentiment.score}
+                            messages={event.sentiment.messages}
+                        />
+                    )}
                 </div>
             </div>
             {isExpanded && (

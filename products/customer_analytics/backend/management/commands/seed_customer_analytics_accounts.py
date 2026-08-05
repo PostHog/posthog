@@ -24,12 +24,16 @@ from uuid import uuid4
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
-from posthog.models import Group, OrganizationMembership, Team, User
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
+from posthog.persons_db import persons_db_connection
 
-from products.customer_analytics.backend.models.account import Account, AccountAssignment, AccountProperties
+from products.customer_analytics.backend.facade.api import create_account
+from products.customer_analytics.backend.logic import relationships as relationships_logic
+from products.customer_analytics.backend.models.account import Account, AccountProperties
+from products.customer_analytics.backend.models.relationship import AccountRelationshipDefinition
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
-from products.notebooks.backend.models import Notebook, ResourceNotebook
+from products.notebooks.backend.facade import api as notebooks
 
 ACCOUNT_GROUP_TYPE_INDEX = 0
 
@@ -97,14 +101,13 @@ class Command(BaseCommand):
             raise CommandError(f"Team {team_id} does not exist.")
 
     def _read_account_groups(self, team: Team, limit: int | None) -> list[tuple[str, dict[str, Any]]]:
-        rows = [
-            (group_key, props or {})
-            for group_key, props in Group.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-                team_id=team.pk, group_type_index=ACCOUNT_GROUP_TYPE_INDEX
-            )
-            .order_by("group_key")
-            .values_list("group_key", "group_properties")
-        ]
+        query = (
+            "SELECT group_key, group_properties FROM posthog_group "
+            "WHERE team_id = %(team_id)s AND group_type_index = %(gti)s ORDER BY group_key"
+        )
+        with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
+            cursor.execute(query, {"team_id": team.pk, "gti": ACCOUNT_GROUP_TYPE_INDEX})
+            rows = [(group_key, props or {}) for group_key, props in cursor.fetchall()]
         return rows[:limit] if limit is not None else rows
 
     def _set_config(self, team: Team) -> None:
@@ -152,10 +155,10 @@ class Command(BaseCommand):
     def _create_accounts(
         self, team: Team, groups: list[tuple[str, dict[str, Any]]], user_pool: list[User]
     ) -> list[Account]:
-        assignments = [AccountAssignment(id=user.id, email=user.email) for user in user_pool]
         creator = team.organization.members.first()
         created = 0
         accounts: list[Account] = []
+        definitions = self._ensure_role_definitions(team, creator)
         with team_scope(team.pk):
             existing = {
                 account.external_id: account
@@ -164,27 +167,47 @@ class Command(BaseCommand):
             for index, (group_key, props) in enumerate(groups):
                 account = existing.get(group_key)
                 if account is None:
-                    account = Account.objects.create(
+                    account = create_account(
                         team=team,
                         name=props.get("name") or group_key,
                         external_id=group_key,
                         created_by=creator,
-                        _properties=self._account_roles(assignments, index, group_key).model_dump(mode="json"),
+                        properties=AccountProperties(stripe_customer_id=f"cus_{group_key[:14]}"),
                     )
+                    self._assign_roles(team, account, definitions, user_pool, index, creator)
                     created += 1
                 accounts.append(account)
         self.stdout.write(f"Created {created} account(s) ({len(groups) - created} already existed).")
         return accounts
 
     @staticmethod
-    def _account_roles(assignments: list[AccountAssignment], index: int, group_key: str) -> AccountProperties:
-        count = len(assignments)
-        return AccountProperties(
-            csm=assignments[index % count] if count else None,
-            account_executive=assignments[(index + 1) % count] if count else None,
-            account_owner=assignments[(index + 2) % count] if count else None,
-            stripe_customer_id=f"cus_{group_key[:14]}",
-        )
+    def _ensure_role_definitions(team: Team, creator: User | None) -> list[AccountRelationshipDefinition]:
+        return [
+            AccountRelationshipDefinition.objects.for_team(team.pk).get_or_create(
+                team_id=team.pk, name=name, defaults={"created_by": creator}
+            )[0]
+            for name in ("CSM", "Account executive", "Account owner")
+        ]
+
+    @staticmethod
+    def _assign_roles(
+        team: Team,
+        account: Account,
+        definitions: list[AccountRelationshipDefinition],
+        user_pool: list[User],
+        index: int,
+        creator: User | None,
+    ) -> None:
+        if not user_pool:
+            return
+        for offset, definition in enumerate(definitions):
+            relationships_logic.assign(
+                team_id=team.pk,
+                account=account,
+                definition=definition,
+                user=user_pool[(index + offset) % len(user_pool)],
+                created_by=creator,
+            )
 
     @transaction.atomic
     def _create_notes(
@@ -205,16 +228,15 @@ class Command(BaseCommand):
                 continue
             for note_index in range(notes_per_account):
                 title, body = NOTE_TEMPLATES[note_index % len(NOTE_TEMPLATES)]
-                notebook = Notebook.objects.create(
-                    team=team,
+                notebooks.create_account_notebook(
+                    team.id,
+                    account.id,
                     title=f"{account.name} — {title}",
                     content=_paragraph_doc(body),
                     text_content=body,
-                    created_by=author,
-                    last_modified_by=author,
-                    visibility=Notebook.Visibility.INTERNAL,
+                    created_by_id=author.id if author else None,
+                    last_modified_by_id=author.id if author else None,
                 )
-                ResourceNotebook.objects.create(notebook=notebook, account=account)
                 created += 1
         self.stdout.write(f"Created {created} note(s) across up to {len(selected)} account(s).")
 

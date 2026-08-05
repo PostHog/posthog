@@ -3,7 +3,12 @@ import { describe, expect, it, vi } from 'vitest'
 import { buildAppStubHtml } from '@/resources/ui-apps'
 import { DISPATCHABLE_APP_KEYS, UI_APPS, URI_MAP } from '@/resources/ui-apps.generated'
 
-import { generateDispatchModule, resolveDetailApp, resolveListApp } from '../../scripts/generate-ui-apps'
+import {
+    generateDispatchModule,
+    resolveCustomApp,
+    resolveDetailApp,
+    resolveListApp,
+} from '../../scripts/generate-ui-apps'
 
 describe('ui-apps', () => {
     describe('buildAppStubHtml', () => {
@@ -136,6 +141,7 @@ describe('ui-apps', () => {
             const result = await handler(new URL('ui://posthog/debug.html'))
 
             expect(result.contents[0]._meta.ui.csp.resourceDomains).toContain('https://mcp.posthog.com')
+            expect(result.contents[0]._meta['openai/widgetCSP'].resource_domains).toContain('https://mcp.posthog.com')
         })
 
         it('includes analytics URL in CSP when set', async () => {
@@ -153,6 +159,8 @@ describe('ui-apps', () => {
 
             expect(result.contents[0]._meta.ui.csp.resourceDomains).toContain('https://us.i.posthog.com')
             expect(result.contents[0]._meta.ui.csp.connectDomains).toContain('https://us.i.posthog.com')
+            expect(result.contents[0]._meta['openai/widgetCSP'].resource_domains).toContain('https://us.i.posthog.com')
+            expect(result.contents[0]._meta['openai/widgetCSP'].connect_domains).toContain('https://us.i.posthog.com')
         })
 
         it('omits analytics URL from CSP when not set', async () => {
@@ -167,6 +175,8 @@ describe('ui-apps', () => {
 
             expect(result.contents[0]._meta.ui.csp.resourceDomains).toEqual(['https://mcp.posthog.com'])
             expect(result.contents[0]._meta.ui.csp.connectDomains).toEqual([])
+            expect(result.contents[0]._meta['openai/widgetCSP'].resource_domains).toEqual(['https://mcp.posthog.com'])
+            expect(result.contents[0]._meta['openai/widgetCSP'].connect_domains).toEqual([])
         })
 
         it('resource handler returns stub HTML with correct base URL', async () => {
@@ -209,15 +219,30 @@ describe('ui-apps', () => {
     })
 
     describe('render-ui dispatch', () => {
-        it('DISPATCHABLE_APP_KEYS excludes custom apps', () => {
+        it('DISPATCHABLE_APP_KEYS includes opted-in custom apps', () => {
             expect(DISPATCHABLE_APP_KEYS).toContain('survey')
             expect(DISPATCHABLE_APP_KEYS).toContain('survey-list')
-            for (const customKey of ['debug', 'query-results', 'render-ui', 'visual-review-snapshots']) {
+            expect(DISPATCHABLE_APP_KEYS).toContain('query-results')
+            for (const customKey of ['debug', 'render-ui', 'visual-review-snapshots']) {
                 expect(DISPATCHABLE_APP_KEYS).not.toContain(customKey)
             }
         })
 
-        it('generates a dispatch entry per detail/list app and a Content component for list apps', () => {
+        it('generates dispatch entries for reusable views and a Content component for list apps', () => {
+            const queryResultsConfig = resolveCustomApp({
+                type: 'custom',
+                app_name: 'Query Results',
+                description: 'Interactive query results',
+                render_ui: {
+                    component_import: '../components/Component',
+                    view_component: 'Component',
+                    view_prop: 'data',
+                },
+            })
+            if (!queryResultsConfig.render_ui) {
+                throw new Error('Expected query results to configure render-ui dispatch')
+            }
+
             const code = generateDispatchModule([
                 {
                     appKey: 'survey',
@@ -227,6 +252,11 @@ describe('ui-apps', () => {
                         { type: 'detail', view_prop: 'survey' },
                         'products/surveys/mcp/apps'
                     ),
+                },
+                {
+                    appKey: 'query-results',
+                    type: 'custom',
+                    config: { ...queryResultsConfig, render_ui: queryResultsConfig.render_ui },
                 },
                 {
                     appKey: 'survey-list',
@@ -240,6 +270,8 @@ describe('ui-apps', () => {
             ])
 
             expect(code).toContain("'survey': ({ data }) => <SurveyView survey={data as SurveyData} />")
+            expect(code).toContain("import { Component } from '../components/Component'")
+            expect(code).toContain("'query-results': ({ data }) => <Component data={data} />")
             expect(code).toContain(
                 "'survey-list': ({ data, app }) => <SurveyListContent data={data as SurveyListData} app={app} />"
             )

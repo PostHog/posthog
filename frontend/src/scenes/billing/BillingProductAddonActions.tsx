@@ -15,6 +15,7 @@ import { billingLogic } from './billingLogic'
 import { formatFlatRate } from './BillingProductAddon'
 import { billingProductLogic } from './billingProductLogic'
 import { ConfirmDowngradeModal } from './ConfirmDowngradeModal'
+import { ConfirmPurchaseModal } from './ConfirmPurchaseModal'
 import { ConfirmUpgradeModal } from './ConfirmUpgradeModal'
 import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
 import { TrialCancellationSurveyModal } from './TrialCancellationSurveyModal'
@@ -28,6 +29,10 @@ interface BillingProductAddonActionsProps {
     align?: 'left' | 'right'
     /** Collapse pricing into the CTA: hide the paragraph below and swap the next-to-button flat rate for the prorated amount when it applies. */
     hidePricingNote?: boolean
+    /** Disable the purchase/trial CTA (e.g. while a sibling package is being activated). */
+    purchaseDisabledReason?: string
+    /** Called when the purchase/trial CTA is clicked, before the activation fires. */
+    onPurchaseClick?: () => void
 }
 
 export const BillingProductAddonActions = ({
@@ -37,9 +42,10 @@ export const BillingProductAddonActions = ({
     ctaTextOverride,
     align = 'right',
     hidePricingNote = false,
+    purchaseDisabledReason,
+    onPurchaseClick,
 }: BillingProductAddonActionsProps): JSX.Element => {
-    const { billing, billingError, currentPlatformAddon, unusedPlatformAddonAmount, switchPlanLoading } =
-        useValues(billingLogic)
+    const { billing, billingError, currentPlatformAddon, switchPlanLoading } = useValues(billingLogic)
     const { preflight } = useValues(preflightLogic)
     const {
         currentAndUpgradePlans,
@@ -48,17 +54,29 @@ export const BillingProductAddonActions = ({
         isSubscribedToAnotherAddon,
         isDataPipelinesDeprecated,
         isLowerTierThanCurrentAddon,
-        proratedAmount,
+        amountDueToday,
+        appliedCreditBalance,
         isProrated,
         surveyID,
     } = useValues(billingProductLogic({ product: addon, productRef }))
 
     const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse, initiateProductUpgrade, activateTrial } =
         useActions(billingProductLogic({ product: addon }))
-    const { showConfirmUpgradeModal, showConfirmDowngradeModal } = useActions(billingProductLogic({ product: addon }))
+    const { showConfirmUpgradeModal, showConfirmDowngradeModal, showConfirmPurchaseModal } = useActions(
+        billingProductLogic({ product: addon })
+    )
     const { reportBillingAddonPlanSwitchStarted } = useActions(eventUsageLogic)
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
     const isTrialEligible = !!addon.trial
+    // amountDueToday is what will actually hit the card right now — prorated and net of any credit
+    // balance (the same number the confirmation modal itemizes). The qualifier says which of the
+    // two mechanisms produced it, so "$0.00 today" is never left unexplained.
+    const todayPriceQualifier =
+        appliedCreditBalance > 0
+            ? amountDueToday === 0
+                ? 'covered by credits'
+                : 'prorated, credits applied'
+            : 'prorated'
     const renderSubscribedActions = (): JSX.Element | null => {
         if (addon.contact_support) {
             return null
@@ -115,11 +133,13 @@ export const BillingProductAddonActions = ({
             <>
                 {hasFlatRate ? (
                     showLabel ? (
-                        <h4 className="leading-5 font-bold mb-0 flex gap-x-0.5">
+                        <h4 className="leading-5 font-bold mb-0 flex gap-x-0.5 whitespace-nowrap">
                             {isTrialEligible ? (
                                 <span>{addon.trial?.length} day free trial</span>
                             ) : hidePricingNote && isProrated ? (
-                                <span>${proratedAmount.toFixed(2)} today (prorated)</span>
+                                <span>
+                                    ${amountDueToday.toFixed(2)} today ({todayPriceQualifier})
+                                </span>
                             ) : (
                                 <span>{formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)}</span>
                             )}
@@ -139,14 +159,26 @@ export const BillingProductAddonActions = ({
                         disableClientSideRouting
                         disabledReason={
                             (billingError && billingError.message) ||
-                            (billing?.subscription_level === 'free' && 'Upgrade to add add-ons')
+                            (billing?.subscription_level === 'free' && 'Upgrade to add add-ons') ||
+                            purchaseDisabledReason
                         }
                         loading={billingProductLoading === addon.type || trialLoading}
-                        onClick={
-                            isTrialEligible
-                                ? () => activateTrial()
-                                : () => initiateProductUpgrade(addon, currentAndUpgradePlans?.upgradePlan, '')
-                        }
+                        onClick={() => {
+                            if (isTrialEligible) {
+                                onPurchaseClick?.()
+                                activateTrial()
+                            } else if (hasFlatRate) {
+                                // Flat-rate add-ons are charged immediately when a card is on file, so
+                                // confirm the amount first. Defer onPurchaseClick (the parent "activating"
+                                // lock) until the user actually confirms — firing it on open would strand
+                                // the cards on "Please wait…" if they cancel, since that lock only clears
+                                // on a billing reload.
+                                showConfirmPurchaseModal()
+                            } else {
+                                onPurchaseClick?.()
+                                initiateProductUpgrade(addon, currentAndUpgradePlans?.upgradePlan, '')
+                            }
+                        }}
                     >
                         {ctaTextOverride ?? (isTrialEligible ? 'Start trial' : 'Add')}
                     </LemonButton>
@@ -178,22 +210,12 @@ export const BillingProductAddonActions = ({
             )
         }
 
-        if (isProrated && !isSubscribedToAnotherAddon) {
+        // Fresh add or upgrade from another add-on (amountDueToday nets out unused time on the
+        // current add-on when switching). Downgrades don't show a pay-today line.
+        if (isProrated && (!isSubscribedToAnotherAddon || !isLowerTierThanCurrentAddon)) {
             return (
                 <p className={pricingInfoClassName}>
-                    Pay ~${proratedAmount.toFixed(2)} today (prorated) and
-                    <br />
-                    {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month thereafter.
-                </p>
-            )
-        }
-
-        // Upgrading from another add-on to this one
-        if (isSubscribedToAnotherAddon && !isLowerTierThanCurrentAddon && isProrated) {
-            const amountDue = Math.max(0, proratedAmount - unusedPlatformAddonAmount)
-            return (
-                <p className={pricingInfoClassName}>
-                    Pay ~${amountDue.toFixed(2)} today (prorated) and
+                    Pay ~${amountDueToday.toFixed(2)} today ({todayPriceQualifier}) and
                     <br />
                     {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month thereafter.
                 </p>
@@ -232,15 +254,16 @@ export const BillingProductAddonActions = ({
         }
 
         const hasFlatRate = !!upgradePlan.flat_rate
-        const amountDue = Math.max(0, proratedAmount - unusedPlatformAddonAmount)
         const showLabel = hasFlatRate && !(hidePricingNote && !isProrated)
 
         return (
             <>
                 {showLabel && (
-                    <h4 className="leading-5 font-bold mb-0 flex gap-x-0.5">
+                    <h4 className="leading-5 font-bold mb-0 flex gap-x-0.5 whitespace-nowrap">
                         {hidePricingNote && isProrated ? (
-                            <span>${amountDue.toFixed(2)} today (prorated)</span>
+                            <span>
+                                ${amountDueToday.toFixed(2)} today ({todayPriceQualifier})
+                            </span>
                         ) : (
                             formatFlatRate(Number(upgradePlan.unit_amount_usd), upgradePlan.unit)
                         )}
@@ -273,12 +296,35 @@ export const BillingProductAddonActions = ({
     } else if (billing?.trial && billing?.trial?.target === addon.type) {
         // Current trial on this addon
         content = renderTrialActions()
-    } else if (addon.type === 'enterprise' && !preflight?.is_debug) {
-        // In local development, show the standard "Add" purchase flow instead of the sales "Contact us" button.
+    } else if (addon.type === 'enterprise') {
+        // Enterprise is sales-led — always route to sales (matches prod). In local dev, also offer an
+        // explicit override so engineers can still start the self-serve trial; it's gated on is_debug so
+        // it never renders in production.
         content = (
-            <LemonButton type="primary" to="https://posthog.com/talk-to-a-human" targetBlank>
-                Contact us
-            </LemonButton>
+            <>
+                <LemonButton type="primary" to="https://posthog.com/talk-to-a-human" targetBlank>
+                    Contact us
+                </LemonButton>
+                {preflight?.is_debug && (
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        loading={trialLoading || billingProductLoading === addon.type}
+                        disabledReason={purchaseDisabledReason}
+                        tooltip="Local dev only — starts the self-serve trial. Never shown in production."
+                        onClick={() => {
+                            onPurchaseClick?.()
+                            if (isTrialEligible) {
+                                activateTrial()
+                            } else {
+                                initiateProductUpgrade(addon, currentAndUpgradePlans?.upgradePlan, '')
+                            }
+                        }}
+                    >
+                        Local dev override
+                    </LemonButton>
+                )}
+            </>
         )
     } else if (addon.contact_support) {
         content = (
@@ -301,7 +347,7 @@ export const BillingProductAddonActions = ({
         <div className={clsx(align === 'right' && 'min-w-64')}>
             <div
                 className={clsx(
-                    'mt-2 self-center flex items-center gap-x-3 whitespace-nowrap justify-end',
+                    'mt-2 self-center flex flex-wrap items-center gap-x-3 gap-y-1 justify-end',
                     align === 'left' ? 'flex-row-reverse' : 'ml-4'
                 )}
             >
@@ -312,6 +358,7 @@ export const BillingProductAddonActions = ({
             {surveyID === TRIAL_CANCELLATION_SURVEY_ID && <TrialCancellationSurveyModal product={addon} />}
             <ConfirmUpgradeModal product={addon} />
             <ConfirmDowngradeModal product={addon} />
+            <ConfirmPurchaseModal product={addon} onConfirm={onPurchaseClick} />
         </div>
     )
 }

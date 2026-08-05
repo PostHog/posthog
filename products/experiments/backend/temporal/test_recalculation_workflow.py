@@ -12,11 +12,13 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from products.experiments.backend.temporal.models import (
+    MAX_METRIC_ATTEMPTS,
     ExperimentMetricsRecalculationWorkflowInputs,
     ExperimentMetricToRecalculate,
     MetricRecalculationResult,
     RecalculationProgressUpdate,
 )
+from products.experiments.backend.temporal.recalculation_activities import calculate_experiment_metric_for_recalculation
 from products.experiments.backend.temporal.recalculation_workflow import ExperimentMetricsRecalculationWorkflow
 
 _START_QUERY_TO = "2026-05-29T12:00:00+00:00"
@@ -124,6 +126,80 @@ class TestExperimentMetricsRecalculationWorkflow:
         assert progress_updates[-1].status == expected_final_status
         assert progress_updates[-1].mark_completed is True
 
+    async def test_transient_failure_is_retried_until_it_succeeds(self):
+        # A raised activity is a transient failure: Temporal's retry policy re-dispatches it. m2 raises on
+        # its first two attempts, then succeeds on the third; m1 succeeds immediately. The run ends fully
+        # succeeded, and m2 was invoked three times.
+        metrics = [_metric("m1"), _metric("m2")]
+        attempts: dict[str, int] = {}
+
+        @activity.defn(name="discover_experiment_metrics")
+        async def mock_discover(recalculation_id: str) -> list[ExperimentMetricToRecalculate]:
+            return metrics
+
+        @activity.defn(name="update_recalculation_progress")
+        async def mock_update_progress(update: RecalculationProgressUpdate) -> str | None:
+            return _START_QUERY_TO if update.mark_started else None
+
+        @activity.defn(name="calculate_experiment_metric_for_recalculation")
+        async def mock_calculate(
+            experiment_id: int,
+            metric_uuid: str,
+            recalculation_id: str,
+            query_to: str,
+            metric_type: str = "primary",
+        ) -> MetricRecalculationResult:
+            attempts[metric_uuid] = attempts.get(metric_uuid, 0) + 1
+            if metric_uuid == "m2" and attempts[metric_uuid] <= 2:
+                raise RuntimeError("transient blip")
+            return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
+
+        result = await _run_workflow([mock_discover, mock_update_progress, mock_calculate])
+
+        assert result == {"total": 2, "succeeded": 2, "failed": 0}
+        assert attempts["m1"] == 1
+        assert attempts["m2"] == 3
+
+    async def test_exhausted_retries_mark_failed_and_finality_derives_from_attempt_count(self):
+        # A metric that raises on every attempt is retried by the activity retry policy until
+        # MAX_METRIC_ATTEMPTS is exhausted, then counted as failed. Runs the REAL activity wrapper (with the
+        # DB-touching sync implementation patched out) because the wrapper derives is_final_attempt from
+        # activity.info().attempt against the same constant the retry policy is built from — if those two
+        # sides drift, the FAILED row never persists and the metric row stays in its loading state forever.
+        recorded_flags: list[bool] = []
+
+        @activity.defn(name="discover_experiment_metrics")
+        async def mock_discover(recalculation_id: str) -> list[ExperimentMetricToRecalculate]:
+            return [_metric("m1")]
+
+        @activity.defn(name="update_recalculation_progress")
+        async def mock_update_progress(update: RecalculationProgressUpdate) -> str | None:
+            return _START_QUERY_TO if update.mark_started else None
+
+        async def failing_sync(
+            experiment_id: int,
+            metric_uuid: str,
+            recalculation_id: str,
+            query_to: str,
+            metric_type: str,
+            is_final_attempt: bool,
+            attempt: int,
+        ) -> MetricRecalculationResult:
+            recorded_flags.append(is_final_attempt)
+            raise RuntimeError("always fails")
+
+        with patch(
+            "products.experiments.backend.temporal.recalculation_activities._calculate_experiment_metric_for_recalculation_sync",
+            new=failing_sync,
+        ):
+            result = await _run_workflow(
+                [mock_discover, mock_update_progress, calculate_experiment_metric_for_recalculation]
+            )
+
+        assert result == {"total": 1, "succeeded": 0, "failed": 1}
+        # Only the final attempt is flagged final; earlier attempts must not be, or they'd persist early.
+        assert recorded_flags == [False] * (MAX_METRIC_ATTEMPTS - 1) + [True]
+
     @parameterized.expand(
         [
             # name, metrics — exercise both the empty-metrics path and the fan-out path.
@@ -219,3 +295,109 @@ class TestExperimentMetricsRecalculationWorkflow:
         assert isinstance(cause, ApplicationError)
         assert cause.non_retryable is True
         assert "expected str" in str(cause)
+
+    async def test_failure_before_finalize_records_terminal_failed_status(self):
+        # A failure after the workflow starts but before it finalizes (here: discovery raises) must still leave
+        # the job row terminal. The workflow catches the error, writes status=failed via the progress activity,
+        # then re-raises so Temporal still sees the run as failed. Without this backstop the row stays
+        # non-terminal and the UI polls it until the 30-min staleness TTL reaps it (the orphan we are guarding).
+        progress_updates: list[RecalculationProgressUpdate] = []
+
+        @activity.defn(name="discover_experiment_metrics")
+        async def failing_discover(recalculation_id: str) -> list[ExperimentMetricToRecalculate]:
+            raise ApplicationError("discovery boom", non_retryable=True)
+
+        @activity.defn(name="update_recalculation_progress")
+        async def mock_update_progress(update: RecalculationProgressUpdate) -> str | None:
+            progress_updates.append(update)
+            return _START_QUERY_TO if update.mark_started else None
+
+        @activity.defn(name="calculate_experiment_metric_for_recalculation")
+        async def mock_calculate(
+            experiment_id: int,
+            metric_uuid: str,
+            recalculation_id: str,
+            query_to: str,
+            metric_type: str = "primary",
+        ) -> MetricRecalculationResult:
+            return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
+
+        with pytest.raises(WorkflowFailureError):
+            await _run_workflow([failing_discover, mock_update_progress, mock_calculate])
+
+        # Exactly the terminal-fail write: the backstop marks the run completed with status=failed even though
+        # discovery never produced metrics or a mark_started call.
+        assert len(progress_updates) == 1
+        assert progress_updates[0].mark_completed is True
+        assert progress_updates[0].mark_started is False
+        assert progress_updates[0].status == "failed"
+
+    async def test_finalize_write_failure_records_real_status_not_failed(self):
+        # A run where every metric succeeded, but the finalize write (mark_completed, status=completed) exhausts
+        # its retries. The workflow must record the REAL status via the finalize-failure backstop, not let
+        # run()'s except overwrite it with a spurious "failed" (which would mislabel a healthy run).
+        progress_updates: list[RecalculationProgressUpdate] = []
+        finalize_attempts = {"count": 0}
+
+        @activity.defn(name="discover_experiment_metrics")
+        async def mock_discover(recalculation_id: str) -> list[ExperimentMetricToRecalculate]:
+            return [_metric("m1")]
+
+        @activity.defn(name="update_recalculation_progress")
+        async def mock_update_progress(update: RecalculationProgressUpdate) -> str | None:
+            # Fail the finish write (mark_completed) hard on its first invocation to simulate the finalize
+            # activity exhausting its retries; the workflow's finalize-failure path then re-writes via the
+            # backstop, which we let succeed.
+            if update.mark_completed and finalize_attempts["count"] == 0:
+                finalize_attempts["count"] += 1
+                raise ApplicationError("finalize boom", non_retryable=True)
+            progress_updates.append(update)
+            return _START_QUERY_TO if update.mark_started else None
+
+        @activity.defn(name="calculate_experiment_metric_for_recalculation")
+        async def mock_calculate(
+            experiment_id: int,
+            metric_uuid: str,
+            recalculation_id: str,
+            query_to: str,
+            metric_type: str = "primary",
+        ) -> MetricRecalculationResult:
+            return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
+
+        result = await _run_workflow([mock_discover, mock_update_progress, mock_calculate])
+
+        # The run is recorded completed with the real counts, NOT failed.
+        assert result == {"total": 1, "succeeded": 1, "failed": 0}
+        terminal = progress_updates[-1]
+        assert terminal.mark_completed is True
+        assert terminal.status == "completed"
+        assert terminal.succeeded_metrics == 1
+        assert terminal.failed_metrics == 0
+
+    async def test_finalize_and_backstop_both_failing_fails_the_workflow(self):
+        # The finalize write AND the backstop write both exhaust their retries (every mark_completed throws).
+        # The workflow must FAIL, not swallow the error and report success on a non-terminal row; the row's
+        # terminality then falls to the interceptor + staleness TTL, as it did before the terminal-state wrapper.
+        @activity.defn(name="discover_experiment_metrics")
+        async def mock_discover(recalculation_id: str) -> list[ExperimentMetricToRecalculate]:
+            return [_metric("m1")]
+
+        @activity.defn(name="update_recalculation_progress")
+        async def mock_update_progress(update: RecalculationProgressUpdate) -> str | None:
+            # Every terminal write fails (finalize and its backstop), only mark_started succeeds.
+            if update.mark_completed:
+                raise ApplicationError("terminal write down", non_retryable=True)
+            return _START_QUERY_TO if update.mark_started else None
+
+        @activity.defn(name="calculate_experiment_metric_for_recalculation")
+        async def mock_calculate(
+            experiment_id: int,
+            metric_uuid: str,
+            recalculation_id: str,
+            query_to: str,
+            metric_type: str = "primary",
+        ) -> MetricRecalculationResult:
+            return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
+
+        with pytest.raises(WorkflowFailureError):
+            await _run_workflow([mock_discover, mock_update_progress, mock_calculate])

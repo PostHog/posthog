@@ -1,5 +1,6 @@
 {
     "id": 12,
+    "is_legacy": true,
     "name": "experiment-trends-query",
     "description": null,
     "start_date": "2025-05-20T14:01:00Z",

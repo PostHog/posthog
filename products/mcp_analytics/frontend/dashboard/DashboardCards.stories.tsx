@@ -28,6 +28,14 @@ const DAILY_ACTIVITY: DailyActivity = {
     errors: [120, 140, 160, 170, 180, 176, 168],
 }
 
+// The shape the in-progress stories exist for: the last bucket is a few hours into the day, so its
+// counts sit far below its neighbours. Dashing it is what stops that reading as a collapse.
+const DAILY_ACTIVITY_PARTIAL_TAIL: DailyActivity = {
+    labels: DAYS,
+    successes: [4180, 4360, 4560, 4430, 4720, 4920, 1680],
+    errors: [120, 140, 160, 170, 180, 176, 54],
+}
+
 const TOOL_DAILY: ToolDailySeries = {
     labels: DAYS,
     tools: [
@@ -48,11 +56,11 @@ const TOOL_ROWS: ToolRow[] = [
 ]
 
 const HARNESS_ROWS: HarnessRow[] = [
-    { category: 'Claude Code', total_calls: 6200, errors: 240, error_rate_pct: 3.9, sessions: 820, raw_clients: [] },
-    { category: 'Cursor', total_calls: 2100, errors: 96, error_rate_pct: 4.6, sessions: 410, raw_clients: [] },
-    { category: 'OpenAI Codex', total_calls: 980, errors: 71, error_rate_pct: 7.2, sessions: 180, raw_clients: [] },
-    { category: 'Claude.ai', total_calls: 760, errors: 22, error_rate_pct: 2.9, sessions: 240, raw_clients: [] },
-    { category: 'VS Code', total_calls: 540, errors: 12, error_rate_pct: 2.2, sessions: 120, raw_clients: [] },
+    { category: 'Claude Code', total_calls: 6200, errors: 240, error_rate_pct: 3.9, sessions: 820 },
+    { category: 'Cursor', total_calls: 2100, errors: 96, error_rate_pct: 4.6, sessions: 410 },
+    { category: 'OpenAI Codex', total_calls: 980, errors: 71, error_rate_pct: 7.2, sessions: 180 },
+    { category: 'Claude.ai', total_calls: 760, errors: 22, error_rate_pct: 2.9, sessions: 240 },
+    { category: 'VS Code', total_calls: 540, errors: 12, error_rate_pct: 2.2, sessions: 120 },
 ]
 
 const NOTABLE_SESSIONS: NotableSession[] = [
@@ -71,7 +79,7 @@ const NOTABLE_SESSIONS: NotableSession[] = [
     },
     {
         rule: 'all_fail',
-        label: 'Every call failed — likely auth scope',
+        label: 'Every call failed, likely an auth scope issue',
         session: {
             session_id: '0193f2a1aaaabbbbcccc000000000002',
             tool_calls: 6,
@@ -84,7 +92,7 @@ const NOTABLE_SESSIONS: NotableSession[] = [
     },
     {
         rule: 'exemplar',
-        label: 'Exemplar — concise success',
+        label: 'Concise success',
         session: {
             session_id: '0193f2a1aaaabbbbcccc000000000003',
             tool_calls: 31,
@@ -103,6 +111,7 @@ function metric(value: number, previousValue: number, sparkline: number[], goodD
         previousValue,
         deltaPct: previousValue ? ((value - previousValue) / previousValue) * 100 : null,
         sparkline,
+        sparklineLabels: sparkline.map((_, i) => `2026-06-${String(10 + i).padStart(2, '0')} 00:00:00`),
         goodDirection,
     }
 }
@@ -141,16 +150,57 @@ export const KeyMetrics: Story = {
         <div className="w-[960px]">
             <KpiTiles
                 kpis={KPIS}
+                users={metric(1840, 1655, [], 'up')}
                 intentClusterCount={metric(6, 0, [], 'up')}
                 kpisLoading={false}
+                usersLoading={false}
                 theme={buildTheme()}
+                incompleteTail={false}
+            />
+        </div>
+    ),
+}
+
+export const KeyMetricsInProgressBucket: Story = {
+    render: () => (
+        <div className="w-[960px]">
+            <KpiTiles
+                kpis={KPIS}
+                users={metric(1840, 1655, [], 'up')}
+                intentClusterCount={metric(6, 0, [], 'up')}
+                kpisLoading={false}
+                usersLoading={false}
+                theme={buildTheme()}
+                incompleteTail
             />
         </div>
     ),
 }
 
 export const DailyCallsAndErrors: Story = {
-    render: withTheme((theme) => <ActivityChart daily={DAILY_ACTIVITY} loading={false} theme={theme} timezone="UTC" />),
+    render: withTheme((theme) => (
+        <ActivityChart
+            daily={DAILY_ACTIVITY}
+            loading={false}
+            theme={theme}
+            timezone="UTC"
+            interval="day"
+            incompleteTail={false}
+        />
+    )),
+}
+
+export const DailyCallsAndErrorsInProgressBucket: Story = {
+    render: withTheme((theme) => (
+        <ActivityChart
+            daily={DAILY_ACTIVITY_PARTIAL_TAIL}
+            loading={false}
+            theme={theme}
+            timezone="UTC"
+            interval="day"
+            incompleteTail
+        />
+    )),
 }
 
 export const ShareByHarness: Story = {
@@ -162,7 +212,9 @@ export const ErrorRateByTool: Story = {
 }
 
 export const DailyToolBreakdown: Story = {
-    render: withTheme((theme) => <ToolUsageChart data={TOOL_DAILY} loading={false} theme={theme} timezone="UTC" />),
+    render: withTheme((theme) => (
+        <ToolUsageChart data={TOOL_DAILY} loading={false} theme={theme} timezone="UTC" interval="day" />
+    )),
 }
 
 export const FlaggedSessions: Story = {

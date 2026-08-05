@@ -162,6 +162,23 @@ class TestScoreChunkPipelineClickhouse(ClickhouseTestMixin, BaseTest):
 
         assert df.empty, "INNER JOIN should drop sessions with no replay features"
 
+    def test_eventless_session_is_excluded_even_with_features(self) -> None:
+        # A session with no replay events can't be scored; it must be dropped at
+        # the eligibility stage (not just by the join) so it never consumes the
+        # chunk's LIMIT budget — even though a features row exists for it here.
+        insert_session_replay_event(
+            team_id=self.team.id,
+            session_id=self.session_id,
+            distinct_id=self.distinct_id,
+            start=self.session_start,
+            event_count=0,
+        )
+        self._seed_replay_features()
+
+        spec = ChunkSpec(chunk_id=0, of_chunks=1, chunk_size=10, lookback_days=7)
+        df = _fetch_features_dataframe(spec)
+        assert df.empty
+
     def test_already_scored_session_is_excluded(self) -> None:
         insert_session_replay_event(
             team_id=self.team.id,

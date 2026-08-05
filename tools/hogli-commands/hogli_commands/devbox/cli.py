@@ -35,6 +35,7 @@ from .coder import (
     _diagnose_unreachable_coder,
     _fail,
     _start_app_param,
+    clone_workspace,
     coder_authenticated,
     coder_installed,
     coder_reachable,
@@ -56,7 +57,10 @@ from .coder import (
     get_default_git_identity,
     get_shared_users,
     get_sharing_status,
+    get_source_instance_id,
+    get_username,
     get_workspace,
+    get_workspace_disk_size,
     get_workspace_name,
     get_workspace_region,
     get_workspace_status,
@@ -1306,7 +1310,7 @@ def _maybe_hint_region_mismatch(name: str) -> None:
 @workspace_argument
 @click.option(
     "--disk",
-    type=click.Choice(["60", "80", "100"]),
+    type=click.Choice(["100", "200"]),
     default="100",
     help="Disk size in GiB (default: 100)",
 )
@@ -1392,6 +1396,88 @@ def devbox_start(
     )
     click.echo("Created.")
     _print_connection_info(name)
+
+
+@click.command(
+    name="devbox:clone",
+    help="Clone a running devbox into a new one, carrying its full disk state",
+)
+@workspace_argument
+@click.option(
+    "--as",
+    "new_label",
+    default="clone",
+    show_default=True,
+    help="Label for the new devbox (becomes devbox-<you>-<label>)",
+)
+@click.option("-y", "--yes", is_flag=True, help="Skip the confirmation prompt")
+@click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
+def devbox_clone(workspace: str | None, new_label: str, yes: bool, verbose: bool) -> None:
+    """Duplicate a running devbox, disk and all.
+
+    Captures the source box's root volume into a private, short-lived AMI and
+    boots a new devbox from it, so the clone comes up with the source's full
+    disk state -- uncommitted work, local databases, installed tooling -- not
+    just the settings that dotfiles and user secrets already carry. The source
+    must be running; quiesce its dev stack first for an application-consistent
+    copy. The capture image is private to you and auto-expires.
+    """
+    ensure_runtime_ready()
+    source_name, workspaces = resolve_workspace_name(workspace)
+    ws = _get_workspace_or_fail(source_name, workspaces)
+
+    owner = get_username()
+    if str(ws.get("owner_name") or "").lower() not in ("", owner):
+        _fail("You can only clone your own devbox.")
+
+    template = ws.get("template_name") or DEFAULT_TEMPLATE
+    if template != DEFAULT_TEMPLATE:
+        _fail(f"Clone supports the '{DEFAULT_TEMPLATE}' template only (this devbox uses '{template}').")
+
+    # The clone lands in the source's region -- a per-clone AMI is region-scoped,
+    # so the template images and boots within that same region.
+    region = region_from_workspace_name(source_name)
+
+    status = get_workspace_status(ws)
+    if status != "running":
+        suffix = _workspace_arg_suffix(source_name)
+        _fail(
+            f"The source devbox must be running to clone it (status: {status}). Start it: `hogli devbox:start{suffix}`."
+        )
+
+    target_name = get_workspace_name(new_label, region=region)
+    if get_workspace(target_name, workspaces) is not None:
+        _fail(f"A devbox named '{target_name}' already exists. Pass `--as <label>` to pick another name.")
+
+    if not yes:
+        click.echo(f"Clone '{source_name}' -> '{target_name}'.")
+        click.echo(
+            "This images the source box's entire disk (including any on-disk secrets) into a\n"
+            "private AMI and boots the new box from it. The image auto-expires after a few days."
+        )
+        if not click.confirm("Proceed?"):
+            click.echo("Cancelled.")
+            return
+
+    disk_size = get_workspace_disk_size(ws)
+    if disk_size is None:
+        _fail("Could not determine the source devbox's disk size. Rebuild it on the latest template and retry.")
+
+    source_instance_id = get_source_instance_id(source_name)
+    click.echo(
+        f"Cloning '{source_name}' ({source_instance_id}) -> '{target_name}'. "
+        "The template captures its disk into a private image (a few minutes) and boots the clone from it."
+    )
+    clone_workspace(
+        target_name,
+        source_instance_id=source_instance_id,
+        disk_size=disk_size,
+        region=region,
+        template=template,
+        verbose=verbose,
+    )
+    click.echo("Cloned.")
+    _print_connection_info(target_name)
 
 
 @click.command(name="devbox:stop", help="Stop your devbox (preserves disk, stops billing)")
@@ -1832,6 +1918,7 @@ def _rm_dir(label: str, path: Path) -> None:
 
 
 @click.command(name="devbox:cleanup:disk", help="Free disk space by cleaning caches and build artifacts")
+@workspace_argument
 @click.option("--docker", "prune_docker", is_flag=True, help="Also prune stopped Docker containers")
 @click.option(
     "--cargo",
@@ -1839,14 +1926,37 @@ def _rm_dir(label: str, path: Path) -> None:
     is_flag=True,
     help="Also remove Cargo build artifacts (forces full Rust recompile on next build)",
 )
-def devbox_cleanup_disk(prune_docker: bool, prune_cargo: bool) -> None:
+def devbox_cleanup_disk(workspace: str | None, prune_docker: bool, prune_cargo: bool) -> None:
     """Free disk space by removing caches and build artifacts that are safe to delete.
 
     The default run is safe: it only removes orphaned packages, download caches,
     and old Nix generations — none of which force a full rebuild on next use.
     Use --cargo to also remove Cargo build artifacts (forces full Rust recompile).
     Use --docker to also prune stopped containers.
+
+    Runs locally by default. Pass a WORKSPACE (or --name/-n) to run it remotely
+    on that devbox over ssh instead.
     """
+    if workspace:
+        ensure_runtime_ready()
+        # Cleanup is destructive (removes caches and build artifacts), so refuse
+        # to run it against someone else's shared `@user[/label]` devbox.
+        if workspace.startswith("@"):
+            _fail("devbox:cleanup:disk only runs against your own devboxes, not a shared '@user' workspace.")
+        name, workspaces = resolve_workspace_name(workspace)
+        _get_workspace_or_fail(name, workspaces)
+        if not coder_ssh_alias_configured(name):
+            _fail(
+                "SSH access for devboxes isn't configured. Run `hogli devbox:setup` (it runs `coder config-ssh`), then retry."
+            )
+        remote_cmd = ["hogli", "devbox:cleanup:disk"]
+        if prune_docker:
+            remote_cmd.append("--docker")
+        if prune_cargo:
+            remote_cmd.append("--cargo")
+        exec_replace(name, remote_cmd)
+        return  # unreachable; exec_replace replaces the process
+
     home = Path.home()
     # Watch distinct filesystems: home covers uv/sccache/cargo; /nix covers Nix store
     # (may be a separate volume); / covers Docker storage and anything else.

@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -11,7 +11,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models.project import Project
-from posthog.models.remote_config import RemoteConfig
+from posthog.models.remote_config import REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET, RemoteConfig
 
 from products.actions.backend.models.action import Action
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -282,6 +282,15 @@ class TestRemoteConfig(_RemoteConfigBase):
 
         list_limited_team_attributes.clear_cache()
 
+    def test_site_functions_query_failure_degrades_to_empty_list(self):
+        with patch(
+            "products.cdp.backend.models.hog_functions.hog_function.HogFunction.objects.select_related",
+            side_effect=Exception("column posthog_hogfunction.version does not exist"),
+        ):
+            result = self.remote_config._build_site_apps_js()
+
+        assert result == []
+
 
 class TestRemoteConfigSurveys(_RemoteConfigBase):
     # Largely copied from TestSurveysAPIList
@@ -290,7 +299,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
 
         self.team.save()
 
-    def test_includes_survey_config(self):
+    def test_excludes_survey_config(self):
         survey_appearance = {
             "thankYouMessageHeader": "Thanks for your feedback!",
             "thankYouMessageDescription": "We'll use it to make notebooks better",
@@ -309,12 +318,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
         self.team.save()
 
         self.sync_remote_config()
-        assert self.remote_config.config["survey_config"] == {
-            "appearance": {
-                "thankYouMessageHeader": "Thanks for your feedback!",
-                "thankYouMessageDescription": "We'll use it to make notebooks better",
-            }
-        }
+        assert "survey_config" not in self.remote_config.config
 
     def test_includes_range_of_survey_types(self):
         survey_basic = Survey.objects.create(
@@ -390,7 +394,6 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "current_iteration_start_date": None,
                     "schedule": "once",
                     "enable_partial_responses": False,
-                    "base_language": "en",
                 },
                 {
                     "id": str(survey_with_flags.id),
@@ -418,7 +421,6 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "current_iteration_start_date": None,
                     "schedule": "once",
                     "enable_partial_responses": False,
-                    "base_language": "en",
                 },
                 {
                     "id": str(survey_with_actions.id),
@@ -467,7 +469,6 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "current_iteration_start_date": None,
                     "schedule": "once",
                     "enable_partial_responses": False,
-                    "base_language": "en",
                 },
             ],
             key=lambda s: str(s["id"]),  # type: ignore
@@ -508,6 +509,48 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
     def test_persists_data_to_redis_on_sync(self):
         self.remote_config.config["surveys"] = True
         self.remote_config.sync()
+        assert RemoteConfig.get_hypercache().get_from_cache(self.team.api_token) is not None
+
+    @patch("posthog.storage.hypercache.get_client")
+    def test_change_path_writes_s3_and_tracks_expiry_with_single_build(self, mock_get_client):
+        mock_redis = MagicMock()
+        mock_get_client.return_value = mock_redis
+
+        # Force a content change so sync() takes the change path.
+        self.remote_config.config["surveys"] = True
+
+        with (
+            patch("posthog.storage.object_storage.write") as mock_s3_write,
+            patch.object(RemoteConfig, "build_config", wraps=self.remote_config.build_config) as mock_build,
+        ):
+            self.remote_config.sync()
+
+        # The already-built config is reused — build_config() runs exactly once.
+        assert mock_build.call_count == 1
+        # Change path writes through to S3 and stamps expiry tracking.
+        mock_s3_write.assert_called()
+        mock_redis.zadd.assert_called_once()
+        assert mock_redis.zadd.call_args[0][0] == REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET
+
+    @patch("posthog.storage.hypercache.get_client")
+    def test_no_change_path_restamps_redis_and_expiry_without_s3_or_cdn(self, mock_get_client):
+        mock_redis = MagicMock()
+        mock_get_client.return_value = mock_redis
+
+        with (
+            patch("posthog.storage.object_storage.write") as mock_s3_write,
+            patch.object(RemoteConfig, "_purge_cdn") as mock_purge,
+        ):
+            # No content change → self-heal path.
+            self.remote_config.sync()
+
+        # Self-heal must skip the content-dependent work (S3 PUT, CDN purge)...
+        mock_s3_write.assert_not_called()
+        mock_purge.assert_not_called()
+        # ...but still re-stamp the expiry sorted set so the entry stays tracked.
+        mock_redis.zadd.assert_called_once()
+        assert mock_redis.zadd.call_args[0][0] == REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET
+        # And the Redis tier is repopulated with the unchanged config.
         assert RemoteConfig.get_hypercache().get_from_cache(self.team.api_token) is not None
 
     def test_hypercache_uses_dedicated_cache_when_alias_registered(self):
@@ -552,7 +595,7 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
             REMOTE_CONFIG_CDN_PURGE_DOMAINS=["cdn.posthog.com", "https://cdn2.posthog.com"],
         ):
             # Force a change to the config
-            self.remote_config.config["token"] = "NOT"
+            self.remote_config.config["surveys"] = True
             self.remote_config.sync()
             mock_post.assert_called_once_with(
                 "https://api.cloudflare.com/client/v4/zones/MY_ZONE_ID/purge_cache",
@@ -565,6 +608,7 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
                         {"url": "https://cdn2.posthog.com/array/phc_12345/config.js"},
                     ]
                 },
+                timeout=10,
             )
 
 

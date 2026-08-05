@@ -1,18 +1,30 @@
 import uuid
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+
+from django.core.cache import cache
 
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import User
+from posthog.constants import AvailableFeature
+from posthog.models import Team, User
+from posthog.models.organization import OrganizationMembership
 
-from ...api.skill_services import MAX_SKILL_FILE_COUNT
+from ee.models.rbac.access_control import AccessControl
+
+from ...api.skill_serializers import DEFAULT_BODY_PAGE_LENGTH
+from ...api.skill_services import (
+    MAX_SKILL_FILE_COUNT,
+    archive_skill,
+    create_skill,
+    publish_skill_version,
+    resolve_skill_owners,
+    set_skill_owners,
+)
 from ...models.skills import LLMSkill, LLMSkillFile
 
 
-@patch("products.skills.backend.api.skills.posthoganalytics.feature_enabled", return_value=True)
 class TestLLMSkillAPI(APIBaseTest):
     def _url(self, path: str = "") -> str:
         return f"/api/environments/{self.team.id}/llm_skills/{path}"
@@ -30,6 +42,7 @@ class TestLLMSkillAPI(APIBaseTest):
         compatibility: str = "",
         allowed_tools: list | None = None,
         metadata: dict | None = None,
+        category: str = "",
         created_by: User | None = None,
     ) -> LLMSkill:
         return LLMSkill.objects.create(
@@ -44,12 +57,13 @@ class TestLLMSkillAPI(APIBaseTest):
             compatibility=compatibility,
             allowed_tools=allowed_tools or [],
             metadata=metadata or {},
+            category=category,
             created_by=created_by or self.user,
         )
 
     # --- Create ---
 
-    def test_create_skill_succeeds(self, mock_feature_enabled):
+    def test_create_skill_succeeds(self):
         response = self.client.post(
             self._url(),
             data={
@@ -70,7 +84,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["latest_version"] == 1
         assert data["version_count"] == 1
 
-    def test_create_skill_with_all_fields(self, mock_feature_enabled):
+    def test_create_skill_with_all_fields(self):
         response = self.client.post(
             self._url(),
             data={
@@ -92,7 +106,27 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["allowed_tools"] == ["Bash", "Read"]
         assert data["metadata"] == {"author": "test-org", "version": "1.0"}
 
-    def test_create_skill_with_duplicate_name_fails(self, mock_feature_enabled):
+    @parameterized.expand(
+        [
+            ("review_hog_prefix", "review-hog-perspective-custom-x", "review_hog"),
+            ("scout_prefix", "signals-scout-custom-x", "scout"),
+            ("plain_name", "my-plain-skill", ""),
+        ]
+    )
+    def test_create_stamps_category_from_name_prefix(self, _label, name, expected_category):
+        # The Skills page's category tabs filter on `category`, which is server-owned (read-only on
+        # the serializer) — without the create-time stamp, a custom scout / review-hog skill never
+        # surfaces on its tab beside the canonical siblings.
+        response = self.client.post(
+            self._url(),
+            data={"name": name, "description": "d", "body": "# B\nDo."},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert LLMSkill.objects.get(team=self.team, name=name).category == expected_category
+
+    def test_create_skill_with_duplicate_name_fails(self):
         self.create_skill(name="existing-skill")
 
         response = self.client.post(
@@ -116,9 +150,11 @@ class TestLLMSkillAPI(APIBaseTest):
             ("trailing_hyphen", "my-skill-"),
             ("consecutive_hyphens", "my--skill"),
             ("reserved_new", "new"),
+            ("reserved_scouts", "scouts"),
+            ("reserved_review_hog", "review-hog"),
         ]
     )
-    def test_create_skill_validates_name_format(self, mock_feature_enabled, _label, skill_name):
+    def test_create_skill_validates_name_format(self, _label, skill_name):
         response = self.client.post(
             self._url(),
             data={
@@ -131,7 +167,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_create_skill_requires_description(self, mock_feature_enabled):
+    def test_create_skill_requires_description(self):
         response = self.client.post(
             self._url(),
             data={
@@ -143,7 +179,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_create_skill_with_files(self, mock_feature_enabled):
+    def test_create_skill_with_files(self):
         response = self.client.post(
             self._url(),
             data={
@@ -171,7 +207,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert file_response.json()["content"] == "#!/bin/bash\necho hi"
         assert file_response.json()["content_type"] == "text/x-shellscript"
 
-    def test_create_skill_with_oversized_file_fails(self, mock_feature_enabled):
+    def test_create_skill_with_oversized_file_fails(self):
         response = self.client.post(
             self._url(),
             data={
@@ -187,7 +223,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_create_skill_with_too_many_files_fails(self, mock_feature_enabled):
+    def test_create_skill_with_too_many_files_fails(self):
         response = self.client.post(
             self._url(),
             data={
@@ -201,7 +237,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_create_skill_with_duplicate_file_paths_fails(self, mock_feature_enabled):
+    def test_create_skill_with_duplicate_file_paths_fails(self):
         response = self.client.post(
             self._url(),
             data={
@@ -220,7 +256,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- List ---
 
-    def test_list_skills_returns_name_and_description_without_body(self, mock_feature_enabled):
+    def test_list_skills_returns_name_and_description_without_body(self):
         self.create_skill(name="skill-a", description="Does A things.")
         self.create_skill(name="skill-b", description="Does B things.")
 
@@ -233,8 +269,10 @@ class TestLLMSkillAPI(APIBaseTest):
         assert len(results) == 2
         assert all("description" in r for r in results)
         assert all("body" not in r for r in results)
+        # Body-paging metadata is meaningless without the body — it must not leak into the list.
+        assert all("body_total_length" not in r and "body_next_offset" not in r for r in results)
 
-    def test_list_skills_search_by_name(self, mock_feature_enabled):
+    def test_list_skills_search_by_name(self):
         self.create_skill(name="pdf-processing", description="Handles PDFs.")
         self.create_skill(name="code-review", description="Reviews code.")
 
@@ -244,7 +282,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.json()["count"] == 1
         assert response.json()["results"][0]["name"] == "pdf-processing"
 
-    def test_list_skills_search_by_description(self, mock_feature_enabled):
+    def test_list_skills_search_by_description(self):
         self.create_skill(name="skill-one", description="Handles PDF documents.")
         self.create_skill(name="skill-two", description="Reviews Python code.")
 
@@ -254,7 +292,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.json()["count"] == 1
         assert response.json()["results"][0]["name"] == "skill-two"
 
-    def test_list_skills_filter_by_created_by_id(self, mock_feature_enabled):
+    def test_list_skills_filter_by_created_by_id(self):
         other_user = self._create_user("other-skills-author@example.com")
         self.create_skill(name="mine-one", description="Mine.")
         self.create_skill(name="mine-two", description="Mine too.")
@@ -267,7 +305,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.json()["count"] == 1
         assert [r["name"] for r in results] == ["theirs"]
 
-    def test_list_skills_without_created_by_id_returns_all(self, mock_feature_enabled):
+    def test_list_skills_without_created_by_id_returns_all(self):
         other_user = self._create_user("other-skills-author@example.com")
         self.create_skill(name="mine", description="Mine.")
         self.create_skill(name="theirs", description="Theirs.", created_by=other_user)
@@ -283,16 +321,35 @@ class TestLLMSkillAPI(APIBaseTest):
             ("float", "1.5"),
         ]
     )
-    def test_list_skills_invalid_created_by_id_returns_400(self, mock_feature_enabled, _label, value):
+    def test_list_skills_invalid_created_by_id_returns_400(self, _label, value):
         self.create_skill(name="some-skill")
 
         response = self.client.get(self._url() + f"?created_by_id={value}")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    @parameterized.expand(
+        [
+            # (label, query_suffix, expected names) — scouts only, uncategorized only, all categories.
+            ("scout_only", "?category=scout", ["signals-scout-errors", "signals-scout-web"]),
+            ("uncategorized_only", "?category=", ["ordinary-skill"]),
+            ("no_param_returns_all", "", ["ordinary-skill", "signals-scout-errors", "signals-scout-web"]),
+        ]
+    )
+    def test_list_skills_filter_by_category(self, _label, query_suffix, expected_names):
+        self.create_skill(name="ordinary-skill", description="Plain.")
+        self.create_skill(name="signals-scout-errors", description="A scout.", category="scout")
+        self.create_skill(name="signals-scout-web", description="Another scout.", category="scout")
+
+        response = self.client.get(self._url() + query_suffix)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == len(expected_names)
+        assert sorted(r["name"] for r in response.json()["results"]) == sorted(expected_names)
+
     # --- Get by name ---
 
-    def test_get_skill_by_name(self, mock_feature_enabled):
+    def test_get_skill_by_name(self):
         self.create_skill(name="fetch-me", description="Fetchable.", body="# Fetch me body")
 
         response = self.client.get(self._url("name/fetch-me"))
@@ -304,7 +361,56 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["body"] == "# Fetch me body"
         assert "files" in data
 
-    def test_get_skill_by_name_returns_file_manifest(self, mock_feature_enabled):
+    def test_get_skill_by_name_returns_short_body_whole_without_paging(self):
+        self.create_skill(name="whole-body", body="0123456789")
+
+        data = self.client.get(self._url("name/whole-body")).json()
+
+        assert data["body"] == "0123456789"
+        assert data["body_total_length"] == 10
+        # A body under the default page cap fits in the first page, so nothing is left to fetch.
+        assert data["body_next_offset"] is None
+
+    def test_get_skill_by_name_caps_first_page_and_reports_next_offset_without_paging(self):
+        # A body larger than the default page cap would be truncated in transit; the un-paged
+        # response must hand back a valid continuation offset rather than claiming completeness.
+        body = "x" * (DEFAULT_BODY_PAGE_LENGTH + 50)
+        self.create_skill(name="huge-body", body=body)
+
+        data = self.client.get(self._url("name/huge-body")).json()
+
+        assert data["body"] == body[:DEFAULT_BODY_PAGE_LENGTH]
+        assert data["body_total_length"] == DEFAULT_BODY_PAGE_LENGTH + 50
+        assert data["body_next_offset"] == DEFAULT_BODY_PAGE_LENGTH
+
+    @parameterized.expand(
+        [
+            # label, query, expected_body, expected_next_offset
+            ("first_page_has_more", "?body_offset=0&body_length=4", "0123", 4),
+            ("middle_page_has_more", "?body_offset=4&body_length=3", "456", 7),
+            ("last_page_exact_end", "?body_offset=8&body_length=2", "89", None),
+            ("length_past_end", "?body_offset=8&body_length=50", "89", None),
+            ("offset_only_returns_remainder", "?body_offset=7", "789", None),
+        ]
+    )
+    def test_get_skill_by_name_pages_through_body(self, _label, query, expected_body, expected_next_offset):
+        self.create_skill(name="paged-body", body="0123456789")
+
+        data = self.client.get(self._url(f"name/paged-body{query}")).json()
+
+        assert data["body"] == expected_body
+        # Total always reflects the full body, so a client can detect a truncated response.
+        assert data["body_total_length"] == 10
+        assert data["body_next_offset"] == expected_next_offset
+
+    def test_get_skill_by_name_rejects_negative_body_offset(self):
+        self.create_skill(name="bad-offset", body="hello")
+
+        response = self.client.get(self._url("name/bad-offset?body_offset=-1"))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_get_skill_by_name_returns_file_manifest(self):
         skill = self.create_skill(name="with-files")
         LLMSkillFile.objects.create(skill=skill, path="scripts/setup.sh", content="#!/bin/bash\necho hi")
         LLMSkillFile.objects.create(skill=skill, path="references/guide.md", content="# Guide")
@@ -318,7 +424,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert "scripts/setup.sh" in paths
         assert "references/guide.md" in paths
 
-    def test_get_skill_not_found(self, mock_feature_enabled):
+    def test_get_skill_not_found(self):
         response = self.client.get(self._url("name/nonexistent"))
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -329,7 +435,7 @@ class TestLLMSkillAPI(APIBaseTest):
             ("with_version_query_string", "?version=1", 1),
         ]
     )
-    def test_get_skill_by_uuid_redirects_to_name(self, mock_feature_enabled, _label, query_suffix, _version):
+    def test_get_skill_by_uuid_redirects_to_name(self, _label, query_suffix, _version):
         skill = self.create_skill(name="uuid-redirect-target")
         skill_id = str(skill.id)
 
@@ -341,13 +447,13 @@ class TestLLMSkillAPI(APIBaseTest):
         if query_suffix:
             assert query_suffix.lstrip("?") in response["Location"]
 
-    def test_get_skill_by_uuid_not_found_returns_404(self, mock_feature_enabled):
+    def test_get_skill_by_uuid_not_found_returns_404(self):
         nonexistent_id = str(uuid.uuid4())
         response = self.client.get(self._url(f"name/{nonexistent_id}"))
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_get_skill_with_uuid_shaped_name_returns_skill_not_redirect(self, mock_feature_enabled):
+    def test_get_skill_with_uuid_shaped_name_returns_skill_not_redirect(self):
         uuid_shaped_name = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
         self.create_skill(name=uuid_shaped_name, body="# UUID-named skill")
 
@@ -358,7 +464,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Publish new version ---
 
-    def test_publish_new_version(self, mock_feature_enabled):
+    def test_publish_new_version(self):
         self.create_skill(name="evolving-skill", body="# V1")
 
         response = self.client.patch(
@@ -373,7 +479,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["body"] == "# V2 - improved"
         assert data["is_latest"] is True
 
-    def test_publish_carries_forward_unchanged_fields(self, mock_feature_enabled):
+    def test_publish_carries_forward_unchanged_fields(self):
         self.create_skill(
             name="carry-forward",
             description="Original desc.",
@@ -394,7 +500,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["license"] == "MIT"
         assert data["compatibility"] == "Python 3.12+"
 
-    def test_publish_can_update_description(self, mock_feature_enabled):
+    def test_publish_can_update_description(self):
         self.create_skill(name="update-desc", description="Old desc.", body="# Body")
 
         response = self.client.patch(
@@ -406,7 +512,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["description"] == "New desc."
 
-    def test_publish_with_version_conflict_fails(self, mock_feature_enabled):
+    def test_publish_with_version_conflict_fails(self):
         self.create_skill(name="conflict-skill", body="# V1")
         self.client.patch(
             self._url("name/conflict-skill"),
@@ -422,7 +528,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_409_CONFLICT
 
-    def test_publish_copies_files_forward(self, mock_feature_enabled):
+    def test_publish_copies_files_forward(self):
         skill = self.create_skill(name="files-carry", body="# V1")
         LLMSkillFile.objects.create(skill=skill, path="scripts/run.sh", content="#!/bin/bash")
 
@@ -439,7 +545,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Publish with edits (find/replace) ---
 
-    def test_publish_with_edits_applies_single_replacement(self, mock_feature_enabled):
+    def test_publish_with_edits_applies_single_replacement(self):
         self.create_skill(name="edit-me", body="# Title\n\nHello world.\n")
 
         response = self.client.patch(
@@ -456,7 +562,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["version"] == 2
         assert data["body"] == "# Title\n\nHello there.\n"
 
-    def test_publish_with_edits_applies_sequential_replacements(self, mock_feature_enabled):
+    def test_publish_with_edits_applies_sequential_replacements(self):
         self.create_skill(name="seq-edits", body="alpha\nbeta\ngamma\n")
 
         response = self.client.patch(
@@ -480,7 +586,7 @@ class TestLLMSkillAPI(APIBaseTest):
             ("multi_matches", "pick pick pick\n", [{"old": "pick", "new": "chose"}], "3 times"),
         ]
     )
-    def test_publish_with_edits_apply_errors(self, mock_feature_enabled, label, initial_body, edits, detail_fragment):
+    def test_publish_with_edits_apply_errors(self, label, initial_body, edits, detail_fragment):
         skill_name = f"edit-apply-err-{label.replace('_', '-')}"
         self.create_skill(name=skill_name, body=initial_body)
 
@@ -509,7 +615,7 @@ class TestLLMSkillAPI(APIBaseTest):
             ("empty_edits_list", {"edits": [], "base_version": 1}),
         ]
     )
-    def test_publish_rejects_invalid_edit_requests(self, mock_feature_enabled, label, payload):
+    def test_publish_rejects_invalid_edit_requests(self, label, payload):
         skill_name = f"invalid-{label.replace('_', '-')}"
         self.create_skill(name=skill_name, body="content\n")
 
@@ -521,7 +627,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_publish_with_edits_exceeding_body_size_limit_fails(self, mock_feature_enabled):
+    def test_publish_with_edits_exceeding_body_size_limit_fails(self):
         # Seed a body just under the 1 MB limit, then edit to push the result over.
         seeded_body = "x" * (1_000_000 - len("MARKER")) + "MARKER"
         self.create_skill(name="size-edit", body=seeded_body)
@@ -540,7 +646,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert body_resp["edit_index"] == 0
         assert "size limit" in body_resp["detail"]
 
-    def test_publish_with_edits_carries_files_forward(self, mock_feature_enabled):
+    def test_publish_with_edits_carries_files_forward(self):
         skill = self.create_skill(name="edits-files", body="original\n")
         LLMSkillFile.objects.create(skill=skill, path="references/a.md", content="A")
 
@@ -560,7 +666,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Publish with file_edits (per-file find/replace) ---
 
-    def test_publish_with_file_edits_patches_single_file(self, mock_feature_enabled):
+    def test_publish_with_file_edits_patches_single_file(self):
         skill = self.create_skill(name="file-patch", body="# Body\n")
         LLMSkillFile.objects.create(skill=skill, path="references/ranking.md", content="rank high\n")
         LLMSkillFile.objects.create(skill=skill, path="references/other.md", content="untouched\n")
@@ -586,7 +692,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert ranking.content == "rank higher\n"
         assert other.content == "untouched\n"
 
-    def test_publish_with_file_edits_patches_multiple_files(self, mock_feature_enabled):
+    def test_publish_with_file_edits_patches_multiple_files(self):
         skill = self.create_skill(name="multi-patch", body="# Body\n")
         LLMSkillFile.objects.create(skill=skill, path="references/a.md", content="alpha\n")
         LLMSkillFile.objects.create(skill=skill, path="references/b.md", content="beta\n")
@@ -641,7 +747,6 @@ class TestLLMSkillAPI(APIBaseTest):
     )
     def test_publish_with_file_edits_apply_errors(
         self,
-        mock_feature_enabled,
         label,
         seed_path,
         seed_content,
@@ -711,7 +816,7 @@ class TestLLMSkillAPI(APIBaseTest):
             ),
         ]
     )
-    def test_publish_rejects_invalid_file_edit_requests(self, mock_feature_enabled, label, payload):
+    def test_publish_rejects_invalid_file_edit_requests(self, label, payload):
         skill_name = f"invalid-file-edit-{label.replace('_', '-')}"
         skill = self.create_skill(name=skill_name, body="# Body\n")
         LLMSkillFile.objects.create(skill=skill, path="references/a.md", content="hello\n")
@@ -724,7 +829,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_publish_combines_body_edits_and_file_edits(self, mock_feature_enabled):
+    def test_publish_combines_body_edits_and_file_edits(self):
         skill = self.create_skill(name="body-and-file", body="# Title\noriginal\n")
         LLMSkillFile.objects.create(skill=skill, path="references/a.md", content="old\n")
 
@@ -745,7 +850,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Archive ---
 
-    def test_archive_skill(self, mock_feature_enabled):
+    def test_archive_skill(self):
         self.create_skill(name="to-archive")
 
         response = self.client.post(self._url("name/to-archive/archive"))
@@ -755,7 +860,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Duplicate ---
 
-    def test_duplicate_skill(self, mock_feature_enabled):
+    def test_duplicate_skill(self):
         skill = self.create_skill(name="original", description="Original skill.", body="# Original")
         LLMSkillFile.objects.create(skill=skill, path="scripts/run.sh", content="#!/bin/bash")
 
@@ -774,7 +879,7 @@ class TestLLMSkillAPI(APIBaseTest):
         copy_skill = LLMSkill.objects.get(name="the-copy", deleted=False)
         assert LLMSkillFile.objects.filter(skill=copy_skill).count() == 1
 
-    def test_duplicate_to_existing_name_fails(self, mock_feature_enabled):
+    def test_duplicate_to_existing_name_fails(self):
         self.create_skill(name="source")
         self.create_skill(name="taken")
 
@@ -788,7 +893,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Get file ---
 
-    def test_get_file_by_path(self, mock_feature_enabled):
+    def test_get_file_by_path(self):
         skill = self.create_skill(name="file-skill")
         LLMSkillFile.objects.create(
             skill=skill,
@@ -805,7 +910,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["content"] == "#!/bin/bash\necho hello"
         assert data["content_type"] == "text/x-shellscript"
 
-    def test_get_nonexistent_file_returns_404(self, mock_feature_enabled):
+    def test_get_nonexistent_file_returns_404(self):
         self.create_skill(name="no-files")
 
         response = self.client.get(self._url("name/no-files/files/missing.txt"))
@@ -814,7 +919,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- File CRUD (create / delete / rename) ---
 
-    def test_create_file_adds_file_and_bumps_version(self, mock_feature_enabled):
+    def test_create_file_adds_file_and_bumps_version(self):
         self.create_skill(name="crud-create", body="# V1")
 
         response = self.client.post(
@@ -830,7 +935,7 @@ class TestLLMSkillAPI(APIBaseTest):
         stored = LLMSkillFile.objects.get(skill__name="crud-create", skill__is_latest=True, path="scripts/setup.sh")
         assert stored.content == "#!/bin/bash\necho hi"
 
-    def test_create_file_carries_existing_files_forward(self, mock_feature_enabled):
+    def test_create_file_carries_existing_files_forward(self):
         skill = self.create_skill(name="crud-carry")
         LLMSkillFile.objects.create(skill=skill, path="references/a.md", content="A")
 
@@ -844,7 +949,7 @@ class TestLLMSkillAPI(APIBaseTest):
         paths = {f["path"] for f in response.json()["files"]}
         assert paths == {"references/a.md", "references/b.md"}
 
-    def test_create_file_fails_when_path_exists(self, mock_feature_enabled):
+    def test_create_file_fails_when_path_exists(self):
         skill = self.create_skill(name="crud-dup")
         LLMSkillFile.objects.create(skill=skill, path="dup.md", content="existing")
 
@@ -857,7 +962,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_409_CONFLICT
         assert "already exists" in response.json()["detail"]
 
-    def test_create_file_rejects_path_traversal(self, mock_feature_enabled):
+    def test_create_file_rejects_path_traversal(self):
         self.create_skill(name="crud-traversal")
 
         response = self.client.post(
@@ -868,7 +973,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_create_file_enforces_max_file_count(self, mock_feature_enabled):
+    def test_create_file_enforces_max_file_count(self):
         skill = self.create_skill(name="crud-max")
         LLMSkillFile.objects.bulk_create(
             [LLMSkillFile(skill=skill, path=f"f{i}.md", content="x") for i in range(MAX_SKILL_FILE_COUNT)]
@@ -883,7 +988,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert str(MAX_SKILL_FILE_COUNT) in response.json()["detail"]
 
-    def test_create_file_on_unknown_skill_returns_404(self, mock_feature_enabled):
+    def test_create_file_on_unknown_skill_returns_404(self):
         response = self.client.post(
             self._url("name/missing/files"),
             data={"path": "a.md", "content": "A"},
@@ -892,7 +997,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_delete_file_removes_file_and_bumps_version(self, mock_feature_enabled):
+    def test_delete_file_removes_file_and_bumps_version(self):
         skill = self.create_skill(name="crud-delete")
         LLMSkillFile.objects.create(skill=skill, path="keep.md", content="K")
         LLMSkillFile.objects.create(skill=skill, path="remove.md", content="R")
@@ -905,14 +1010,14 @@ class TestLLMSkillAPI(APIBaseTest):
         paths = {f["path"] for f in data["files"]}
         assert paths == {"keep.md"}
 
-    def test_delete_file_returns_404_when_path_missing(self, mock_feature_enabled):
+    def test_delete_file_returns_404_when_path_missing(self):
         self.create_skill(name="crud-delete-missing")
 
         response = self.client.delete(self._url("name/crud-delete-missing/files/nope.md"))
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_delete_file_rejects_path_traversal(self, mock_feature_enabled):
+    def test_delete_file_rejects_path_traversal(self):
         self.create_skill(name="crud-delete-traversal")
 
         response = self.client.delete(self._url("name/crud-delete-traversal/files/..%2Fetc%2Fpasswd"))
@@ -935,7 +1040,7 @@ class TestLLMSkillAPI(APIBaseTest):
             ("write_scope_allowed", ["llm_skill:write"], status.HTTP_200_OK),
         ]
     )
-    def test_delete_file_pak_scope_end_to_end(self, mock_feature_enabled, _label, scopes, expected_status):
+    def test_delete_file_pak_scope_end_to_end(self, _label, scopes, expected_status):
         skill = self.create_skill(name="pak-scope-delete")
         LLMSkillFile.objects.create(skill=skill, path="doomed.md", content="bye")
         api_key = self.create_personal_api_key_with_scopes(scopes)
@@ -959,7 +1064,7 @@ class TestLLMSkillAPI(APIBaseTest):
             ("head_with_read_scope", "head"),
         ]
     )
-    def test_get_file_pak_read_scope_end_to_end(self, mock_feature_enabled, _label, method):
+    def test_get_file_pak_read_scope_end_to_end(self, _label, method):
         skill = self.create_skill(name="pak-scope-get")
         LLMSkillFile.objects.create(skill=skill, path="readable.md", content="hello")
         api_key = self.create_personal_api_key_with_scopes(["llm_skill:read"])
@@ -970,7 +1075,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
 
-    def test_rename_file_moves_file_and_bumps_version(self, mock_feature_enabled):
+    def test_rename_file_moves_file_and_bumps_version(self):
         skill = self.create_skill(name="crud-rename")
         LLMSkillFile.objects.create(skill=skill, path="old/name.md", content="X", content_type="text/markdown")
 
@@ -990,7 +1095,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert new_file.content == "X"
         assert new_file.content_type == "text/markdown"
 
-    def test_rename_file_returns_404_when_old_path_missing(self, mock_feature_enabled):
+    def test_rename_file_returns_404_when_old_path_missing(self):
         self.create_skill(name="crud-rename-missing")
 
         response = self.client.post(
@@ -1001,7 +1106,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_rename_file_returns_409_when_new_path_exists(self, mock_feature_enabled):
+    def test_rename_file_returns_409_when_new_path_exists(self):
         skill = self.create_skill(name="crud-rename-conflict")
         LLMSkillFile.objects.create(skill=skill, path="a.md", content="A")
         LLMSkillFile.objects.create(skill=skill, path="b.md", content="B")
@@ -1014,7 +1119,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_409_CONFLICT
 
-    def test_rename_file_rejects_same_path(self, mock_feature_enabled):
+    def test_rename_file_rejects_same_path(self):
         skill = self.create_skill(name="crud-rename-noop")
         LLMSkillFile.objects.create(skill=skill, path="a.md", content="A")
 
@@ -1033,7 +1138,7 @@ class TestLLMSkillAPI(APIBaseTest):
             ("rename",),
         ]
     )
-    def test_file_write_respects_base_version(self, mock_feature_enabled, endpoint):
+    def test_file_write_respects_base_version(self, endpoint):
         skill_name = f"crud-{endpoint}-bv"
         skill = self.create_skill(name=skill_name, body="# V1")
         LLMSkillFile.objects.create(skill=skill, path="target.md", content="T")
@@ -1057,7 +1162,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.json()["current_version"] == 1
         assert LLMSkillFile.objects.filter(skill__name=skill_name, path="target.md").exists()
 
-    def test_file_crud_sequence_is_chainable_with_base_version(self, mock_feature_enabled):
+    def test_file_crud_sequence_is_chainable_with_base_version(self):
         """Agents should be able to chain create/rename/delete via base_version."""
         self.create_skill(name="crud-chain", body="# V1")
 
@@ -1087,7 +1192,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Resolve ---
 
-    def test_resolve_returns_skill_with_version_history(self, mock_feature_enabled):
+    def test_resolve_returns_skill_with_version_history(self):
         self.create_skill(name="versioned", body="# V1", version=1, is_latest=False)
         self.create_skill(name="versioned", body="# V2", version=2, is_latest=True)
 
@@ -1100,11 +1205,312 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["versions"][0]["version"] == 2
         assert data["versions"][1]["version"] == 1
 
-    # --- Feature flag ---
 
-    def test_returns_403_when_feature_flag_disabled(self, mock_feature_enabled):
-        mock_feature_enabled.return_value = False
+# llm_skill is its own access-control resource (see ACCESS_CONTROL_RESOURCES in
+# posthog/rbac/user_access_control.py) - same as TestSkillMarketplaceRBAC in
+# test_marketplace_endpoints.py covers for the git clone endpoint, this covers the JSON skill API.
+class TestSkillAccessControlRBAC(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="member"
+        )
+        # Default is "none" - a member only gets skill access via an explicit grant below.
+        AccessControl.objects.create(team=self.team, resource="llm_skill", resource_id=None, access_level="none")
+        self.skill = LLMSkill.objects.create(
+            team=self.team,
+            name="make-fractals",
+            description="d",
+            body="# x\n",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        self.member = User.objects.create_and_join(self.organization, "rbac-member@posthog.com", "pw")
+        self.client.force_login(self.member)
 
-        response = self.client.get(self._url())
+    def _url(self, path: str = "") -> str:
+        return f"/api/environments/{self.team.id}/llm_skills/{path}"
 
+    def _grant_llm_skill_access(self, access_level: str) -> None:
+        membership = OrganizationMembership.objects.get(user=self.member, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_skill",
+            resource_id=None,
+            access_level=access_level,
+            organization_member=membership,
+        )
+
+    @parameterized.expand(
+        [
+            ("list",),
+            ("get_by_name",),
+        ]
+    )
+    def test_member_without_skill_access_cannot_read(self, action):
+        path = "" if action == "list" else f"name/{self.skill.name}"
+        response = self.client.get(self._url(path))
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand(
+        [
+            ("create",),
+            ("update_by_name",),
+        ]
+    )
+    def test_member_without_skill_access_cannot_write(self, action):
+        if action == "create":
+            response = self.client.post(
+                self._url(), data={"name": "new-skill", "description": "d", "body": "x"}, format="json"
+            )
+        else:
+            response = self.client.patch(
+                self._url(f"name/{self.skill.name}"),
+                data={"description": "d2", "base_version": 1},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_viewer_can_read_but_not_write(self):
+        self._grant_llm_skill_access("viewer")
+
+        assert self.client.get(self._url()).status_code == status.HTTP_200_OK
+        assert self.client.get(self._url(f"name/{self.skill.name}")).status_code == status.HTTP_200_OK
+
+        create_response = self.client.post(
+            self._url(), data={"name": "new-skill", "description": "d", "body": "x"}, format="json"
+        )
+        assert create_response.status_code == status.HTTP_403_FORBIDDEN
+
+        update_response = self.client.patch(
+            self._url(f"name/{self.skill.name}"),
+            data={"description": "d2", "base_version": 1},
+            format="json",
+        )
+        assert update_response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_editor_can_create_and_update(self):
+        self._grant_llm_skill_access("editor")
+
+        create_response = self.client.post(
+            self._url(), data={"name": "new-skill", "description": "d", "body": "x"}, format="json"
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+
+        update_response = self.client.patch(
+            self._url(f"name/{self.skill.name}"),
+            data={"description": "d2", "base_version": 1},
+            format="json",
+        )
+        assert update_response.status_code == status.HTTP_200_OK
+
+    def test_org_admin_has_full_access_without_explicit_grant(self):
+        membership = OrganizationMembership.objects.get(user=self.member, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+
+        response = self.client.post(
+            self._url(), data={"name": "new-skill", "description": "d", "body": "x"}, format="json"
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+
+class TestLLMSkillOwners(APIBaseTest):
+    """The owners primitive: a durable, version-independent set of owner users on a skill.
+
+    The point of the primitive is that ownership can't drift when the body is edited (the misroute
+    that motivated it), so the load-bearing test is `test_owners_survive_version_publish_by_another_user`.
+    """
+
+    def _url(self, path: str = "") -> str:
+        return f"/api/environments/{self.team.id}/llm_skills/{path}"
+
+    def _member(self, email: str) -> User:
+        return User.objects.create_and_join(self.organization, email, None)
+
+    def test_create_seeds_creator_as_owner(self) -> None:
+        response = self.client.post(
+            self._url(),
+            data={"name": "seeded", "description": "d", "body": "# b"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert [o["email"] for o in response.json()["owners"]] == [self.user.email]
+
+    def test_create_with_explicit_owners_does_not_add_creator(self) -> None:
+        member = self._member("owner1@example.com")
+        response = self.client.post(
+            self._url(),
+            data={"name": "explicit", "description": "d", "body": "# b", "owners": [str(member.uuid)]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert [o["email"] for o in response.json()["owners"]] == [member.email]
+
+    def test_create_with_non_member_owner_is_rejected(self) -> None:
+        response = self.client.post(
+            self._url(),
+            data={"name": "bad-owner", "description": "d", "body": "# b", "owners": [str(uuid.uuid4())]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not LLMSkill.objects.filter(name="bad-owner").exists()
+
+    def test_update_replaces_then_clears_owners(self) -> None:
+        member = self._member("owner2@example.com")
+        # Seeded via ORM helper (no owner row) so this exercises setting from empty, then replacing.
+        LLMSkill.objects.create(team=self.team, name="editable", description="d", body="# b", created_by=self.user)
+
+        set_resp = self.client.patch(
+            self._url("name/editable"),
+            data={"owners": [str(member.uuid)], "base_version": 1},
+            format="json",
+        )
+        assert set_resp.status_code == status.HTTP_200_OK, set_resp.json()
+        assert [o["email"] for o in set_resp.json()["owners"]] == [member.email]
+
+        # Owner-only PATCHes don't publish a version, so the skill is still at version 1.
+        clear_resp = self.client.patch(
+            self._url("name/editable"),
+            data={"owners": [], "base_version": 1},
+            format="json",
+        )
+        assert clear_resp.status_code == status.HTTP_200_OK, clear_resp.json()
+        assert clear_resp.json()["owners"] == []
+
+    def test_update_without_owners_leaves_them_untouched(self) -> None:
+        create_skill(self.team, user=self.user, name="untouched", description="d", body="# v1")
+        response = self.client.patch(
+            self._url("name/untouched"),
+            data={"body": "# v2", "base_version": 1},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [o["email"] for o in response.json()["owners"]] == [self.user.email]
+
+    def test_owner_only_update_replaces_owners_without_publishing_a_version(self) -> None:
+        # Owners live on the logical skill, so an owner-only PATCH must not mint an identical version
+        # (rewriting version-history authorship and burning toward the version limit for a no-op body).
+        member = self._member("newowner@example.com")
+        create_skill(self.team, user=self.user, name="ownersonly", description="d", body="# b")
+
+        response = self.client.patch(
+            self._url("name/ownersonly"),
+            data={"owners": [str(member.uuid)], "base_version": 1},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [o["email"] for o in response.json()["owners"]] == [member.email]
+        assert response.json()["version"] == 1
+        assert LLMSkill.objects.filter(team=self.team, name="ownersonly").count() == 1
+
+    def test_owner_only_update_without_base_version_succeeds(self) -> None:
+        # The generated PATCH contract marks every body field optional, so an MCP client can send
+        # `{owners: [...]}` alone — that shape must replace owners (skipping the version check), not
+        # 400 on a runtime-only base_version requirement the schema doesn't advertise.
+        member = self._member("schemaowner@example.com")
+        create_skill(self.team, user=self.user, name="noversion", description="d", body="# b")
+
+        response = self.client.patch(
+            self._url("name/noversion"),
+            data={"owners": [str(member.uuid)]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [o["email"] for o in response.json()["owners"]] == [member.email]
+        assert LLMSkill.objects.filter(team=self.team, name="noversion").count() == 1
+
+    def test_publish_without_base_version_is_rejected(self) -> None:
+        # base_version became an optional field for the owner-only shape; any payload that publishes
+        # a version must still be forced to carry the optimistic-concurrency anchor.
+        create_skill(self.team, user=self.user, name="anchored", description="d", body="# v1")
+        response = self.client.patch(
+            self._url("name/anchored"),
+            data={"body": "# v2"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "base_version" in str(response.json())
+
+    def test_owner_only_update_with_stale_base_version_conflicts(self) -> None:
+        # The optimistic-concurrency contract holds even when no version is published: a stale
+        # base_version 409s and leaves ownership untouched.
+        member = self._member("wouldbe@example.com")
+        create_skill(self.team, user=self.user, name="staleowners", description="d", body="# b")
+
+        response = self.client.patch(
+            self._url("name/staleowners"),
+            data={"owners": [str(member.uuid)], "base_version": 2},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert [o.email for o in resolve_skill_owners(self.team, "staleowners")] == [self.user.email]
+
+    def test_owners_survive_version_publish_by_another_user(self) -> None:
+        # The whole reason the primitive exists: editing a shared skill must not transfer ownership to
+        # the editor. Reconstructing from version-row `created_by` would return the editor here.
+        editor = self._member("editor@example.com")
+        create_skill(self.team, user=self.user, name="durable", description="d", body="# v1")
+        publish_skill_version(self.team, user=editor, skill_name="durable", body="# v2", base_version=1)
+
+        owners = resolve_skill_owners(self.team, "durable")
+        assert [o.email for o in owners] == [self.user.email]
+
+    def test_create_with_empty_owners_creates_with_no_owners(self) -> None:
+        # An explicit empty list must mean "no owners", not fall through to the creator-owns default
+        # (a truthiness check on the list would silently seed the creator, unlike the update path).
+        response = self.client.post(
+            self._url(),
+            data={"name": "ownerless", "description": "d", "body": "# b", "owners": []},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["owners"] == []
+
+    def test_recreated_skill_does_not_inherit_archived_owners(self) -> None:
+        # Owners are keyed on the logical `(team, name)`. Archiving must retire them, or a later skill
+        # reusing the name inherits the archived skill's owners and routes reports to unrelated people.
+        old_owner = self._member("oldowner@example.com")
+        create_skill(self.team, user=old_owner, name="reused", description="d", body="# v1")
+        assert [o.email for o in resolve_skill_owners(self.team, "reused")] == [old_owner.email]
+
+        archive_skill(self.team, "reused")
+        create_skill(self.team, user=self.user, name="reused", description="d", body="# fresh")
+
+        assert [o.email for o in resolve_skill_owners(self.team, "reused")] == [self.user.email]
+
+    def test_skill_get_excludes_owner_who_lost_access(self) -> None:
+        # An owner row survives the member losing access; the read path serializes UserBasic, so a
+        # former member's profile must not keep leaking through skill-get.
+        member = self._member("leaving@example.com")
+        create_skill(self.team, user=self.user, name="leaky", description="d", body="# b")
+        set_skill_owners(self.team, "leaky", [self.user, member])
+
+        member.organization_memberships.filter(organization=self.organization).delete()
+
+        response = self.client.get(self._url("name/leaky"))
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [o["email"] for o in response.json()["owners"]] == [self.user.email]
+
+    def test_owners_are_scoped_to_the_exact_environment(self) -> None:
+        # Skills are environment-scoped (LLMSkill filters team=<env>); owners must match. If owners
+        # canonicalized to the parent project, two sibling environments' same-named skills would share
+        # one owner set — a routing/profile collision. Set distinct owners per env, assert isolation.
+        parent = Team.objects.create(organization=self.organization, name="proj")
+        env_a = Team.objects.create(organization=self.organization, parent_team=parent, name="env-a")
+        env_b = Team.objects.create(organization=self.organization, parent_team=parent, name="env-b")
+        alice = self._member("alice@example.com")
+        bob = self._member("bob@example.com")
+
+        set_skill_owners(env_a, "shared-name", [alice])
+        set_skill_owners(env_b, "shared-name", [bob])
+
+        assert [o.email for o in resolve_skill_owners(env_a, "shared-name")] == [alice.email]
+        assert [o.email for o in resolve_skill_owners(env_b, "shared-name")] == [bob.email]

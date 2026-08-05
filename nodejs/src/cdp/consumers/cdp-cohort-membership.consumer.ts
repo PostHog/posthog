@@ -1,14 +1,14 @@
 import { Message } from 'node-rdkafka'
 import { z } from 'zod'
 
+import { KAFKA_COHORT_MEMBERSHIP_CHANGED } from '~/common/config/kafka-topics'
+import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { PostgresUse } from '~/common/utils/db/postgres'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
 
-import { KAFKA_COHORT_MEMBERSHIP_CHANGED } from '../../config/kafka-topics'
-import { KafkaConsumerInterface, createKafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult } from '../../types'
-import { PostgresUse } from '../../utils/db/postgres'
-import { parseJSON } from '../../utils/json-parse'
-import { logger } from '../../utils/logger'
 import { CdpConsumerBase, CdpConsumerBaseConfig, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
 // Zod schema for validation

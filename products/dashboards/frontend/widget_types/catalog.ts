@@ -1,6 +1,10 @@
+import type { ComponentType } from 'react'
+
+import { IconFlask, IconList, IconLive, IconMessage, IconRewindPlay, IconWarning } from '@posthog/icons'
+
 import { urls } from 'scenes/urls'
 
-import { QuickFilterContext } from '~/queries/schema/schema-general'
+import { ProductKey, QuickFilterContext } from '~/queries/schema/schema-general'
 import { ActivityTab } from '~/types'
 
 import {
@@ -8,7 +12,9 @@ import {
     errorTrackingWidgetConfigSchema,
     experimentResultsWidgetConfigSchema,
     experimentsWidgetConfigSchema,
+    logsWidgetConfigSchema,
     sessionReplayWidgetConfigSchema,
+    surveyResultsWidgetConfigSchema,
 } from '../generated/widget-configs.zod'
 import type { DashboardWidgetProductAccess } from '../types'
 import { ActivityEventsWidgetPreview } from '../widgets/previews/ActivityEventsWidgetPreview'
@@ -17,8 +23,10 @@ import {
     ExperimentResultsWidgetPreview,
     ExperimentsListWidgetPreview,
 } from '../widgets/previews/ExperimentsWidgetPreviews'
+import { LogsWidgetPreview } from '../widgets/previews/LogsWidgetPreview'
 import { SessionReplayWidgetPreview } from '../widgets/previews/SessionReplayWidgetPreview'
-import type { WidgetAvailabilityConfig } from './widgetAvailability'
+import { SurveyResultsWidgetPreview } from '../widgets/previews/SurveysWidgetPreviews'
+import type { WidgetAvailabilityConfig, WidgetAvailabilityRequirementId } from './widgetAvailability'
 
 export const DASHBOARD_WIDGET_HEADER_LAYOUTS = ['simple', 'dashboard_tile'] as const
 
@@ -75,10 +83,66 @@ export const DASHBOARD_WIDGET_GROUP_LABELS = {
     error_tracking: 'Error tracking',
     session_replay: 'Session replay',
     experiments: 'Experiments',
+    surveys: 'Surveys',
+    logs: 'Logs',
 } as const satisfies Record<string, string>
 
 export function getDashboardWidgetGroupLabel(groupId: string): string {
     return DASHBOARD_WIDGET_GROUP_LABELS[groupId as keyof typeof DASHBOARD_WIDGET_GROUP_LABELS] ?? groupId
+}
+
+/** Product icons shown next to group headings in the Add widget picker, keyed by `groupId`. */
+export const DASHBOARD_WIDGET_GROUP_ICONS = {
+    activity: IconLive,
+    error_tracking: IconWarning,
+    session_replay: IconRewindPlay,
+    experiments: IconFlask,
+    surveys: IconMessage,
+    logs: IconList,
+} as const satisfies Record<keyof typeof DASHBOARD_WIDGET_GROUP_LABELS, ComponentType<{ className?: string }>>
+
+export function getDashboardWidgetGroupIcon(groupId: string): ComponentType<{ className?: string }> | undefined {
+    return DASHBOARD_WIDGET_GROUP_ICONS[groupId as keyof typeof DASHBOARD_WIDGET_GROUP_ICONS]
+}
+
+type DashboardWidgetGroupProductIntroConfig = {
+    productKey: ProductKey
+    /** Setup requirement that gates the nudge — shown only while this requirement is unmet. */
+    requirement: WidgetAvailabilityRequirementId
+    /** One-liner pitching why the product is worth a look — shown up front in the picker nudge. */
+    valueProp: string
+    /** Label for the CTA link (e.g. "Explore error tracking"). */
+    ctaLabel: string
+    docsHref: string
+}
+
+/**
+ * Pitch shown next to a group heading when the product's setup requirement (see `availability`) is unmet.
+ * Keyed by catalog `groupId`; only products that gate on a project setting belong here — areas with no
+ * setup requirement (e.g. `experiments`, `activity`) are intentionally omitted.
+ */
+export const DASHBOARD_WIDGET_GROUP_PRODUCT_INTRO = {
+    error_tracking: {
+        productKey: ProductKey.ERROR_TRACKING,
+        requirement: 'exception_autocapture',
+        valueProp: 'Catch and resolve the errors hurting your users.',
+        ctaLabel: 'Explore error tracking',
+        docsHref: 'https://posthog.com/docs/error-tracking',
+    },
+    session_replay: {
+        productKey: ProductKey.SESSION_REPLAY,
+        requirement: 'session_replay_enabled',
+        valueProp: 'Watch real sessions to see exactly where users get stuck.',
+        ctaLabel: 'Explore session replay',
+        docsHref: 'https://posthog.com/docs/session-replay',
+    },
+} as const satisfies Partial<Record<keyof typeof DASHBOARD_WIDGET_GROUP_LABELS, DashboardWidgetGroupProductIntroConfig>>
+
+export type DashboardWidgetGroupProductIntro =
+    (typeof DASHBOARD_WIDGET_GROUP_PRODUCT_INTRO)[keyof typeof DASHBOARD_WIDGET_GROUP_PRODUCT_INTRO]
+
+export function getDashboardWidgetGroupProductIntro(groupId: string): DashboardWidgetGroupProductIntro | undefined {
+    return DASHBOARD_WIDGET_GROUP_PRODUCT_INTRO[groupId as keyof typeof DASHBOARD_WIDGET_GROUP_PRODUCT_INTRO]
 }
 
 export type DashboardWidgetCatalogEntry = {
@@ -86,6 +150,8 @@ export type DashboardWidgetCatalogEntry = {
     groupId: keyof typeof DASHBOARD_WIDGET_GROUP_LABELS | (string & {})
     /** Widget variant label within the group (also used as fallback card title). */
     label: string
+    /** Short promo badge shown next to the label in the Add widget picker (e.g. "Most popular"). */
+    badge?: string
     description: string
     defaultConfig: Record<string, unknown>
     defaultLayout: { w: number; h: number; minW: number; minH?: number }
@@ -112,6 +178,7 @@ export const DASHBOARD_WIDGET_CATALOG = {
     error_tracking_list: {
         groupId: 'error_tracking',
         label: 'Top issues',
+        badge: 'Crowd favorite',
         description: 'Ranked list of the most impactful error tracking issues.',
         headerTitle: 'Top issues',
         defaultConfig: errorTrackingWidgetConfigSchema.parse({
@@ -128,17 +195,11 @@ export const DASHBOARD_WIDGET_CATALOG = {
             quickFilterContext: QuickFilterContext.ErrorTrackingIssueFilters,
             allowedPropertyNames: ERROR_TRACKING_LIST_TILE_FILTER_PROPERTIES,
         },
-        availability: {
-            requirement: 'exception_autocapture',
-            unavailableTitle: "You haven't captured any exceptions",
-            unavailableReason: 'Enable exception autocapture to get started.',
-            setupActionLabel: 'Enable exception autocapture',
-            docsHref: 'https://posthog.com/docs/error-tracking',
-        },
     },
     session_replay_list: {
         groupId: 'session_replay',
         label: 'Recent recordings',
+        badge: 'Crowd favorite',
         description: 'Recent session recordings you can open in the replay player.',
         headerTitle: 'Recent recordings',
         defaultConfig: sessionReplayWidgetConfigSchema.parse({
@@ -195,6 +256,20 @@ export const DASHBOARD_WIDGET_CATALOG = {
             message: 'Log in to PostHog to see experiment results from this dashboard.',
         },
     },
+    survey_results: {
+        groupId: 'surveys',
+        label: 'Survey results',
+        description: 'Performance stats and recent responses for a selected survey.',
+        headerTitle: 'Survey results',
+        defaultConfig: surveyResultsWidgetConfigSchema.parse({}),
+        defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
+        productAccess: 'survey',
+        titleHref: urls.surveys(),
+        sharedPlaceholder: {
+            title: 'Survey results',
+            message: 'Log in to PostHog to see survey results from this dashboard.',
+        },
+    },
     activity_events_list: {
         groupId: 'activity',
         label: 'Recent events',
@@ -210,6 +285,22 @@ export const DASHBOARD_WIDGET_CATALOG = {
             message: 'Log in to PostHog to explore the latest events from this dashboard.',
         },
     },
+    logs_list: {
+        groupId: 'logs',
+        label: 'Recent logs',
+        description: 'Latest log lines, filterable by severity level and service.',
+        headerTitle: 'Recent logs',
+        defaultConfig: logsWidgetConfigSchema.parse({
+            dateRange: { date_from: '-1h' },
+        }),
+        defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
+        productAccess: 'logs',
+        titleHref: urls.logs(),
+        sharedPlaceholder: {
+            title: 'Recent logs',
+            message: 'Log in to PostHog to see the latest logs from this dashboard.',
+        },
+    },
 } as const satisfies Record<string, DashboardWidgetCatalogEntry>
 
 export type DashboardWidgetCatalogKey = keyof typeof DASHBOARD_WIDGET_CATALOG
@@ -221,6 +312,8 @@ export const DASHBOARD_WIDGET_PREVIEWS: Record<DashboardWidgetCatalogKey, () => 
     session_replay_list: SessionReplayWidgetPreview,
     experiments_list: ExperimentsListWidgetPreview,
     experiment_results: ExperimentResultsWidgetPreview,
+    survey_results: SurveyResultsWidgetPreview,
+    logs_list: LogsWidgetPreview,
 }
 
 export type ResolvedDashboardWidgetCatalogEntry = DashboardWidgetCatalogEntry & {
@@ -298,7 +391,13 @@ function getDashboardWidgetCatalogGroups(): DashboardWidgetCatalogGroup[] {
         group.widgets.push({ widgetType: widgetType as DashboardWidgetCatalogKey, entry })
     }
 
-    return [...groupsById.values()].sort((a, b) => a.groupLabel.localeCompare(b.groupLabel))
+    const groupDisplayOrder = ['session_replay', 'error_tracking', 'activity', 'logs', 'experiments', 'surveys']
+
+    return [...groupsById.values()].sort((a, b) => {
+        const aIndex = groupDisplayOrder.indexOf(a.groupId)
+        const bIndex = groupDisplayOrder.indexOf(b.groupId)
+        return (aIndex === -1 ? Infinity : aIndex) - (bIndex === -1 ? Infinity : bIndex)
+    })
 }
 
 export const DASHBOARD_WIDGET_CATALOG_GROUPS = getDashboardWidgetCatalogGroups()

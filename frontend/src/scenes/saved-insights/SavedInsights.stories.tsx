@@ -21,6 +21,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-18',
         pageUrl: urls.insights(),
+        testOptions: { viewport: { width: 1300, height: 2000 } },
     },
     decorators: [
         mswDecorator({

@@ -270,6 +270,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
                 "result": {
                     "bins": [[2220, 2], [42510, 0], [82800, 1]],
                     "average_conversion_time": 29540,
+                    "median_conversion_time": 3600.0,
                 },
             },
         )
@@ -329,6 +330,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
                 "result": {
                     "bins": [[2220.0, 2], [42510.0, 0], [82800.0, 1]],
                     "average_conversion_time": 29540.0,
+                    "median_conversion_time": 3600.0,
                 },
             },
         )
@@ -388,6 +390,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
                 "result": {
                     "bins": [[2220.0, 2], [42510.0, 0], [82800.0, 1]],
                     "average_conversion_time": 29540.0,
+                    "median_conversion_time": 3600.0,
                 },
             },
         )

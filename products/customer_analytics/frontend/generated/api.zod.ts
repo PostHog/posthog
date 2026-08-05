@@ -9,6 +9,82 @@
  */
 import * as zod from 'zod'
 
+export const accountRelationshipDefinitionsCreateBodyNameMax = 400
+
+export const accountRelationshipDefinitionsCreateBodyIsSingleHolderDefault = true
+
+export const AccountRelationshipDefinitionsCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(accountRelationshipDefinitionsCreateBodyNameMax)
+            .describe('Human-readable name of the relationship. Unique within the team.'),
+        description: zod
+            .string()
+            .nullish()
+            .describe(
+                "What this relationship means, e.g. 'The customer success manager responsible for this account'."
+            ),
+        is_single_holder: zod
+            .boolean()
+            .default(accountRelationshipDefinitionsCreateBodyIsSingleHolderDefault)
+            .describe(
+                'Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.'
+            ),
+    })
+    .describe('A team-defined account relationship type (CSM, Onboarding manager, ...).')
+
+export const accountRelationshipDefinitionsUpdateBodyNameMax = 400
+
+export const accountRelationshipDefinitionsUpdateBodyIsSingleHolderDefault = true
+
+export const AccountRelationshipDefinitionsUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(accountRelationshipDefinitionsUpdateBodyNameMax)
+            .describe('Human-readable name of the relationship. Unique within the team.'),
+        description: zod
+            .string()
+            .nullish()
+            .describe(
+                "What this relationship means, e.g. 'The customer success manager responsible for this account'."
+            ),
+        is_single_holder: zod
+            .boolean()
+            .default(accountRelationshipDefinitionsUpdateBodyIsSingleHolderDefault)
+            .describe(
+                'Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.'
+            ),
+    })
+    .describe('A team-defined account relationship type (CSM, Onboarding manager, ...).')
+
+export const accountRelationshipDefinitionsPartialUpdateBodyNameMax = 400
+
+export const accountRelationshipDefinitionsPartialUpdateBodyIsSingleHolderDefault = true
+
+export const AccountRelationshipDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(accountRelationshipDefinitionsPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Human-readable name of the relationship. Unique within the team.'),
+        description: zod
+            .string()
+            .nullish()
+            .describe(
+                "What this relationship means, e.g. 'The customer success manager responsible for this account'."
+            ),
+        is_single_holder: zod
+            .boolean()
+            .default(accountRelationshipDefinitionsPartialUpdateBodyIsSingleHolderDefault)
+            .describe(
+                'Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.'
+            ),
+    })
+    .describe('A team-defined account relationship type (CSM, Onboarding manager, ...).')
+
 export const accountsCreateBodyNameMax = 400
 
 export const accountsCreateBodyExternalIdMax = 400
@@ -25,24 +101,6 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             ),
         properties: zod
             .object({
-                csm: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
-                account_executive: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
-                account_owner: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
                 stripe_customer_id: zod.string().nullish(),
                 hubspot_deal_id: zod.string().nullish(),
                 billing_id: zod.string().nullish(),
@@ -50,17 +108,38 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
                 zendesk_id: zod.string().nullish(),
                 slack_channel_id: zod.string().nullish(),
                 usage_dashboard_link: zod.string().nullish(),
+                metabase_link: zod.string().nullish(),
             })
             .nullish()
             .describe(
-                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.'
+                'Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.'
             ),
         tags: zod
             .array(zod.string())
             .optional()
             .describe('Tag names attached to the account. Pass a list to replace existing tags.'),
+        slack_summary_cadence: zod
+            .union([
+                zod
+                    .enum(['daily', 'weekly', 'monthly'])
+                    .describe('\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.\n\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly"
+            ),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
+
+export const AccountsCustomPropertyValuesCreateBody = /* @__PURE__ */ zod.object({
+    definition: zod.uuid().describe('UUID of the custom property definition whose value to set for this account.'),
+    value: zod
+        .union([zod.string(), zod.number(), zod.boolean()])
+        .describe(
+            "Value to store, matching the definition's type: a number for number\/currency\/percent, a boolean for boolean, an ISO-8601 string for date\/datetime, or text for text properties."
+        ),
+})
 
 export const accountsNotebooksCreateBodyTitleMax = 256
 
@@ -73,6 +152,13 @@ export const AccountsNotebooksCreateBody = /* @__PURE__ */ zod.object({
     content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
 })
+
+export const AccountsRelationshipsCreateBody = /* @__PURE__ */ zod
+    .object({
+        definition: zod.uuid().describe('Id of the relationship definition to assign.'),
+        user: zod.number().describe("PostHog user id of the assignee. Must be a member of the account's organization."),
+    })
+    .describe('Input for assigning a user to an account relationship.')
 
 export const accountsUpdateBodyNameMax = 400
 
@@ -90,24 +176,6 @@ export const AccountsUpdateBody = /* @__PURE__ */ zod
             ),
         properties: zod
             .object({
-                csm: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
-                account_executive: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
-                account_owner: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
                 stripe_customer_id: zod.string().nullish(),
                 hubspot_deal_id: zod.string().nullish(),
                 billing_id: zod.string().nullish(),
@@ -115,15 +183,27 @@ export const AccountsUpdateBody = /* @__PURE__ */ zod
                 zendesk_id: zod.string().nullish(),
                 slack_channel_id: zod.string().nullish(),
                 usage_dashboard_link: zod.string().nullish(),
+                metabase_link: zod.string().nullish(),
             })
             .nullish()
             .describe(
-                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.'
+                'Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.'
             ),
         tags: zod
             .array(zod.string())
             .optional()
             .describe('Tag names attached to the account. Pass a list to replace existing tags.'),
+        slack_summary_cadence: zod
+            .union([
+                zod
+                    .enum(['daily', 'weekly', 'monthly'])
+                    .describe('\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.\n\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly"
+            ),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
@@ -147,24 +227,6 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             ),
         properties: zod
             .object({
-                csm: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
-                account_executive: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
-                account_owner: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
                 stripe_customer_id: zod.string().nullish(),
                 hubspot_deal_id: zod.string().nullish(),
                 billing_id: zod.string().nullish(),
@@ -172,17 +234,411 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
                 zendesk_id: zod.string().nullish(),
                 slack_channel_id: zod.string().nullish(),
                 usage_dashboard_link: zod.string().nullish(),
+                metabase_link: zod.string().nullish(),
             })
             .nullish()
             .describe(
-                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.'
+                'Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.'
             ),
         tags: zod
             .array(zod.string())
             .optional()
             .describe('Tag names attached to the account. Pass a list to replace existing tags.'),
+        slack_summary_cadence: zod
+            .union([
+                zod
+                    .enum(['daily', 'weekly', 'monthly'])
+                    .describe('\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.\n\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly"
+            ),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
+
+export const AnnouncementsCreateBody = /* @__PURE__ */ zod.object({
+    message: zod.string().describe('Message body to send, rendered as Slack mrkdwn.'),
+    channels: zod
+        .array(zod.string())
+        .describe(
+            'Slack channel IDs to send to. Each must be a channel the SupportHog bot is a member of; names are resolved server-side.'
+        ),
+})
+
+export const customPropertyDefinitionsCreateBodyNameMax = 400
+
+export const customPropertyDefinitionsCreateBodyTargetTypeDefault = `account`
+export const customPropertyDefinitionsCreateBodyGroupTypeIndexMin = 0
+export const customPropertyDefinitionsCreateBodyGroupTypeIndexMax = 4
+
+export const customPropertyDefinitionsCreateBodyIsBigNumberDefault = false
+export const customPropertyDefinitionsCreateBodyOptionsItemLabelMax = 400
+
+export const CustomPropertyDefinitionsCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(customPropertyDefinitionsCreateBodyNameMax)
+            .describe('Human-readable name of the custom property. Unique within the team.'),
+        description: zod.string().nullish().describe('Optional description of what the property represents.'),
+        display_type: zod
+            .enum(['text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', 'select'])
+            .describe(
+                '\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select'
+            )
+            .describe(
+                "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
+            ),
+        target_type: zod
+            .enum(['account', 'person', 'group'])
+            .describe('\* `account` - account\n\* `person` - person\n\* `group` - group')
+            .default(customPropertyDefinitionsCreateBodyTargetTypeDefault)
+            .describe(
+                "What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person\/group property (feature flags, cohorts, insights).\n\n\* `account` - account\n\* `person` - person\n\* `group` - group"
+            ),
+        group_type_index: zod
+            .number()
+            .min(customPropertyDefinitionsCreateBodyGroupTypeIndexMin)
+            .max(customPropertyDefinitionsCreateBodyGroupTypeIndexMax)
+            .nullish()
+            .describe(
+                "For 'group' targets only: which group type (0-4) the property attaches to. Required when target_type is 'group'; must be omitted otherwise. Create-only."
+            ),
+        is_big_number: zod
+            .boolean()
+            .default(customPropertyDefinitionsCreateBodyIsBigNumberDefault)
+            .describe('Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.'),
+        options: zod
+            .array(
+                zod
+                    .object({
+                        id: zod
+                            .string()
+                            .nullish()
+                            .describe(
+                                'Server-assigned stable id of the option. Omit for new options; send it back unchanged when editing so renames and removals can be told apart.'
+                            ),
+                        label: zod
+                            .string()
+                            .max(customPropertyDefinitionsCreateBodyOptionsItemLabelMax)
+                            .describe("Display label of the option. Stored as the account's value when picked."),
+                        color: zod
+                            .enum([
+                                'preset-1',
+                                'preset-2',
+                                'preset-3',
+                                'preset-4',
+                                'preset-5',
+                                'preset-6',
+                                'preset-7',
+                                'preset-8',
+                                'preset-9',
+                                'preset-10',
+                            ])
+                            .describe(
+                                '\* `preset-1` - preset-1\n\* `preset-2` - preset-2\n\* `preset-3` - preset-3\n\* `preset-4` - preset-4\n\* `preset-5` - preset-5\n\* `preset-6` - preset-6\n\* `preset-7` - preset-7\n\* `preset-8` - preset-8\n\* `preset-9` - preset-9\n\* `preset-10` - preset-10'
+                            )
+                            .describe(
+                                "Preset color token used to render the option ('preset-1' through 'preset-10').\n\n\* `preset-1` - preset-1\n\* `preset-2` - preset-2\n\* `preset-3` - preset-3\n\* `preset-4` - preset-4\n\* `preset-5` - preset-5\n\* `preset-6` - preset-6\n\* `preset-7` - preset-7\n\* `preset-8` - preset-8\n\* `preset-9` - preset-9\n\* `preset-10` - preset-10"
+                            ),
+                    })
+                    .describe('An allowed value of a select custom property.')
+            )
+            .nullish()
+            .describe(
+                "For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types."
+            ),
+    })
+    .describe(
+        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values."
+    )
+
+export const customPropertyDefinitionsUpdateBodyNameMax = 400
+
+export const customPropertyDefinitionsUpdateBodyTargetTypeDefault = `account`
+export const customPropertyDefinitionsUpdateBodyGroupTypeIndexMin = 0
+export const customPropertyDefinitionsUpdateBodyGroupTypeIndexMax = 4
+
+export const customPropertyDefinitionsUpdateBodyIsBigNumberDefault = false
+export const customPropertyDefinitionsUpdateBodyOptionsItemLabelMax = 400
+
+export const CustomPropertyDefinitionsUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(customPropertyDefinitionsUpdateBodyNameMax)
+            .describe('Human-readable name of the custom property. Unique within the team.'),
+        description: zod.string().nullish().describe('Optional description of what the property represents.'),
+        display_type: zod
+            .enum(['text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', 'select'])
+            .describe(
+                '\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select'
+            )
+            .describe(
+                "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
+            ),
+        target_type: zod
+            .enum(['account', 'person', 'group'])
+            .describe('\* `account` - account\n\* `person` - person\n\* `group` - group')
+            .default(customPropertyDefinitionsUpdateBodyTargetTypeDefault)
+            .describe(
+                "What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person\/group property (feature flags, cohorts, insights).\n\n\* `account` - account\n\* `person` - person\n\* `group` - group"
+            ),
+        group_type_index: zod
+            .number()
+            .min(customPropertyDefinitionsUpdateBodyGroupTypeIndexMin)
+            .max(customPropertyDefinitionsUpdateBodyGroupTypeIndexMax)
+            .nullish()
+            .describe(
+                "For 'group' targets only: which group type (0-4) the property attaches to. Required when target_type is 'group'; must be omitted otherwise. Create-only."
+            ),
+        is_big_number: zod
+            .boolean()
+            .default(customPropertyDefinitionsUpdateBodyIsBigNumberDefault)
+            .describe('Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.'),
+        options: zod
+            .array(
+                zod
+                    .object({
+                        id: zod
+                            .string()
+                            .nullish()
+                            .describe(
+                                'Server-assigned stable id of the option. Omit for new options; send it back unchanged when editing so renames and removals can be told apart.'
+                            ),
+                        label: zod
+                            .string()
+                            .max(customPropertyDefinitionsUpdateBodyOptionsItemLabelMax)
+                            .describe("Display label of the option. Stored as the account's value when picked."),
+                        color: zod
+                            .enum([
+                                'preset-1',
+                                'preset-2',
+                                'preset-3',
+                                'preset-4',
+                                'preset-5',
+                                'preset-6',
+                                'preset-7',
+                                'preset-8',
+                                'preset-9',
+                                'preset-10',
+                            ])
+                            .describe(
+                                '\* `preset-1` - preset-1\n\* `preset-2` - preset-2\n\* `preset-3` - preset-3\n\* `preset-4` - preset-4\n\* `preset-5` - preset-5\n\* `preset-6` - preset-6\n\* `preset-7` - preset-7\n\* `preset-8` - preset-8\n\* `preset-9` - preset-9\n\* `preset-10` - preset-10'
+                            )
+                            .describe(
+                                "Preset color token used to render the option ('preset-1' through 'preset-10').\n\n\* `preset-1` - preset-1\n\* `preset-2` - preset-2\n\* `preset-3` - preset-3\n\* `preset-4` - preset-4\n\* `preset-5` - preset-5\n\* `preset-6` - preset-6\n\* `preset-7` - preset-7\n\* `preset-8` - preset-8\n\* `preset-9` - preset-9\n\* `preset-10` - preset-10"
+                            ),
+                    })
+                    .describe('An allowed value of a select custom property.')
+            )
+            .nullish()
+            .describe(
+                "For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types."
+            ),
+    })
+    .describe(
+        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values."
+    )
+
+export const customPropertyDefinitionsPartialUpdateBodyNameMax = 400
+
+export const customPropertyDefinitionsPartialUpdateBodyTargetTypeDefault = `account`
+export const customPropertyDefinitionsPartialUpdateBodyGroupTypeIndexMin = 0
+export const customPropertyDefinitionsPartialUpdateBodyGroupTypeIndexMax = 4
+
+export const customPropertyDefinitionsPartialUpdateBodyIsBigNumberDefault = false
+export const customPropertyDefinitionsPartialUpdateBodyOptionsItemLabelMax = 400
+
+export const CustomPropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(customPropertyDefinitionsPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Human-readable name of the custom property. Unique within the team.'),
+        description: zod.string().nullish().describe('Optional description of what the property represents.'),
+        display_type: zod
+            .enum(['text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', 'select'])
+            .describe(
+                '\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select'
+            )
+            .optional()
+            .describe(
+                "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
+            ),
+        target_type: zod
+            .enum(['account', 'person', 'group'])
+            .describe('\* `account` - account\n\* `person` - person\n\* `group` - group')
+            .default(customPropertyDefinitionsPartialUpdateBodyTargetTypeDefault)
+            .describe(
+                "What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person\/group property (feature flags, cohorts, insights).\n\n\* `account` - account\n\* `person` - person\n\* `group` - group"
+            ),
+        group_type_index: zod
+            .number()
+            .min(customPropertyDefinitionsPartialUpdateBodyGroupTypeIndexMin)
+            .max(customPropertyDefinitionsPartialUpdateBodyGroupTypeIndexMax)
+            .nullish()
+            .describe(
+                "For 'group' targets only: which group type (0-4) the property attaches to. Required when target_type is 'group'; must be omitted otherwise. Create-only."
+            ),
+        is_big_number: zod
+            .boolean()
+            .default(customPropertyDefinitionsPartialUpdateBodyIsBigNumberDefault)
+            .describe('Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.'),
+        options: zod
+            .array(
+                zod
+                    .object({
+                        id: zod
+                            .string()
+                            .nullish()
+                            .describe(
+                                'Server-assigned stable id of the option. Omit for new options; send it back unchanged when editing so renames and removals can be told apart.'
+                            ),
+                        label: zod
+                            .string()
+                            .max(customPropertyDefinitionsPartialUpdateBodyOptionsItemLabelMax)
+                            .describe("Display label of the option. Stored as the account's value when picked."),
+                        color: zod
+                            .enum([
+                                'preset-1',
+                                'preset-2',
+                                'preset-3',
+                                'preset-4',
+                                'preset-5',
+                                'preset-6',
+                                'preset-7',
+                                'preset-8',
+                                'preset-9',
+                                'preset-10',
+                            ])
+                            .describe(
+                                '\* `preset-1` - preset-1\n\* `preset-2` - preset-2\n\* `preset-3` - preset-3\n\* `preset-4` - preset-4\n\* `preset-5` - preset-5\n\* `preset-6` - preset-6\n\* `preset-7` - preset-7\n\* `preset-8` - preset-8\n\* `preset-9` - preset-9\n\* `preset-10` - preset-10'
+                            )
+                            .describe(
+                                "Preset color token used to render the option ('preset-1' through 'preset-10').\n\n\* `preset-1` - preset-1\n\* `preset-2` - preset-2\n\* `preset-3` - preset-3\n\* `preset-4` - preset-4\n\* `preset-5` - preset-5\n\* `preset-6` - preset-6\n\* `preset-7` - preset-7\n\* `preset-8` - preset-8\n\* `preset-9` - preset-9\n\* `preset-10` - preset-10"
+                            ),
+                    })
+                    .describe('An allowed value of a select custom property.')
+            )
+            .nullish()
+            .describe(
+                "For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types."
+            ),
+    })
+    .describe(
+        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values."
+    )
+
+export const customPropertySourcesCreateBodySourceColumnMax = 400
+
+export const customPropertySourcesCreateBodyKeyColumnMax = 400
+
+export const customPropertySourcesCreateBodyIsEnabledDefault = true
+
+export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
+    .object({
+        definition: zod
+            .uuid()
+            .describe('UUID of the custom property definition this source feeds. One source per definition.'),
+        saved_query: zod
+            .uuid()
+            .nullish()
+            .describe(
+                'Account sources only: UUID of the data-warehouse saved query (materialized view) to read values from. Mutually exclusive with external_data_schema.'
+            ),
+        external_data_schema: zod
+            .uuid()
+            .nullish()
+            .describe(
+                'Person and group sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.'
+            ),
+        source_column: zod
+            .string()
+            .max(customPropertySourcesCreateBodySourceColumnMax)
+            .nullish()
+            .describe('Account sources only: column in the view whose value is written to the property.'),
+        column_property_map: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group.'
+            ),
+        column_descriptions: zod
+            .unknown()
+            .optional()
+            .describe(
+                "Person sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only."
+            ),
+        key_column: zod
+            .string()
+            .max(customPropertySourcesCreateBodyKeyColumnMax)
+            .describe(
+                "Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources."
+            ),
+        is_enabled: zod
+            .boolean()
+            .default(customPropertySourcesCreateBodyIsEnabledDefault)
+            .describe(
+                'Whether the source syncs. Auto-disabled after repeated failures or a missing view; re-enabling resets the failure count.'
+            ),
+    })
+    .describe(
+        'Binds a data-warehouse source to a custom property definition. Account sources read a\nmaterialized view column and sync onto matching accounts; person and group sources read a\nwarehouse schema and sync onto matching persons or groups on each warehouse sync.'
+    )
+
+export const customPropertySourcesUpdateBodySourceColumnMax = 400
+
+export const customPropertySourcesUpdateBodyKeyColumnMax = 400
+
+export const CustomPropertySourcesUpdateBody = /* @__PURE__ */ zod
+    .object({
+        source_column: zod
+            .string()
+            .max(customPropertySourcesUpdateBodySourceColumnMax)
+            .optional()
+            .describe('Column in the view whose value is written to the property.'),
+        key_column: zod
+            .string()
+            .max(customPropertySourcesUpdateBodyKeyColumnMax)
+            .optional()
+            .describe("Column in the view whose value matches an account's external_id."),
+        is_enabled: zod
+            .boolean()
+            .optional()
+            .describe('Whether the source syncs; re-enabling it resets the failure count.'),
+    })
+    .describe(
+        "Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so\nthey are intentionally absent — only these reach the facade's update."
+    )
+
+export const customPropertySourcesPartialUpdateBodySourceColumnMax = 400
+
+export const customPropertySourcesPartialUpdateBodyKeyColumnMax = 400
+
+export const CustomPropertySourcesPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        source_column: zod
+            .string()
+            .max(customPropertySourcesPartialUpdateBodySourceColumnMax)
+            .optional()
+            .describe('Column in the view whose value is written to the property.'),
+        key_column: zod
+            .string()
+            .max(customPropertySourcesPartialUpdateBodyKeyColumnMax)
+            .optional()
+            .describe("Column in the view whose value matches an account's external_id."),
+        is_enabled: zod
+            .boolean()
+            .optional()
+            .describe('Whether the source syncs; re-enabling it resets the failure count.'),
+    })
+    .describe(
+        "Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so\nthey are intentionally absent — only these reach the facade's update."
+    )
 
 export const customerJourneysCreateBodyNameMax = 400
 
@@ -238,6 +694,173 @@ export const CustomerProfileConfigsPartialUpdateBody = /* @__PURE__ */ zod.objec
     content: zod.unknown().optional(),
     sidebar: zod.unknown().optional(),
 })
+
+/**
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
+ */
+export const eventStreamsCreateBodyEnabledDefault = false
+export const eventStreamsCreateBodyEventNamesItemMax = 400
+
+export const eventStreamsCreateBodySlackChannelIdDefault = ``
+export const eventStreamsCreateBodySlackChannelIdMax = 200
+
+export const eventStreamsCreateBodySlackChannelNameDefault = ``
+export const eventStreamsCreateBodySlackChannelNameMax = 200
+
+export const EventStreamsCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod
+            .boolean()
+            .default(eventStreamsCreateBodyEnabledDefault)
+            .describe(
+                'Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel.'
+            ),
+        event_names: zod
+            .array(zod.string().max(eventStreamsCreateBodyEventNamesItemMax))
+            .optional()
+            .describe('Names of the events to stream (matched exactly). Duplicates and blanks are dropped.'),
+        slack_integration: zod
+            .number()
+            .nullish()
+            .describe("ID of the team's Slack workspace integration to deliver through."),
+        slack_channel_id: zod
+            .string()
+            .max(eventStreamsCreateBodySlackChannelIdMax)
+            .default(eventStreamsCreateBodySlackChannelIdDefault)
+            .describe('Slack channel ID to post to (e.g. C0123ABC).'),
+        slack_channel_name: zod
+            .string()
+            .max(eventStreamsCreateBodySlackChannelNameMax)
+            .default(eventStreamsCreateBodySlackChannelNameDefault)
+            .describe('Display name of the Slack channel (e.g. #customer-events). Informational only.'),
+    })
+    .describe(
+        "The caller's event stream — a live feed of selected accounts' events posted to a\nSlack channel of their choice. One stream per user per project."
+    )
+
+/**
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
+ */
+export const eventStreamsUpdateBodyEnabledDefault = false
+export const eventStreamsUpdateBodyEventNamesItemMax = 400
+
+export const eventStreamsUpdateBodySlackChannelIdDefault = ``
+export const eventStreamsUpdateBodySlackChannelIdMax = 200
+
+export const eventStreamsUpdateBodySlackChannelNameDefault = ``
+export const eventStreamsUpdateBodySlackChannelNameMax = 200
+
+export const EventStreamsUpdateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod
+            .boolean()
+            .default(eventStreamsUpdateBodyEnabledDefault)
+            .describe(
+                'Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel.'
+            ),
+        event_names: zod
+            .array(zod.string().max(eventStreamsUpdateBodyEventNamesItemMax))
+            .optional()
+            .describe('Names of the events to stream (matched exactly). Duplicates and blanks are dropped.'),
+        slack_integration: zod
+            .number()
+            .nullish()
+            .describe("ID of the team's Slack workspace integration to deliver through."),
+        slack_channel_id: zod
+            .string()
+            .max(eventStreamsUpdateBodySlackChannelIdMax)
+            .default(eventStreamsUpdateBodySlackChannelIdDefault)
+            .describe('Slack channel ID to post to (e.g. C0123ABC).'),
+        slack_channel_name: zod
+            .string()
+            .max(eventStreamsUpdateBodySlackChannelNameMax)
+            .default(eventStreamsUpdateBodySlackChannelNameDefault)
+            .describe('Display name of the Slack channel (e.g. #customer-events). Informational only.'),
+    })
+    .describe(
+        "The caller's event stream — a live feed of selected accounts' events posted to a\nSlack channel of their choice. One stream per user per project."
+    )
+
+/**
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
+ */
+export const eventStreamsPartialUpdateBodyEnabledDefault = false
+export const eventStreamsPartialUpdateBodyEventNamesItemMax = 400
+
+export const eventStreamsPartialUpdateBodySlackChannelIdDefault = ``
+export const eventStreamsPartialUpdateBodySlackChannelIdMax = 200
+
+export const eventStreamsPartialUpdateBodySlackChannelNameDefault = ``
+export const eventStreamsPartialUpdateBodySlackChannelNameMax = 200
+
+export const EventStreamsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod
+            .boolean()
+            .default(eventStreamsPartialUpdateBodyEnabledDefault)
+            .describe(
+                'Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel.'
+            ),
+        event_names: zod
+            .array(zod.string().max(eventStreamsPartialUpdateBodyEventNamesItemMax))
+            .optional()
+            .describe('Names of the events to stream (matched exactly). Duplicates and blanks are dropped.'),
+        slack_integration: zod
+            .number()
+            .nullish()
+            .describe("ID of the team's Slack workspace integration to deliver through."),
+        slack_channel_id: zod
+            .string()
+            .max(eventStreamsPartialUpdateBodySlackChannelIdMax)
+            .default(eventStreamsPartialUpdateBodySlackChannelIdDefault)
+            .describe('Slack channel ID to post to (e.g. C0123ABC).'),
+        slack_channel_name: zod
+            .string()
+            .max(eventStreamsPartialUpdateBodySlackChannelNameMax)
+            .default(eventStreamsPartialUpdateBodySlackChannelNameDefault)
+            .describe('Display name of the Slack channel (e.g. #customer-events). Informational only.'),
+    })
+    .describe(
+        "The caller's event stream — a live feed of selected accounts' events posted to a\nSlack channel of their choice. One stream per user per project."
+    )
+
+/**
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
+ */
+export const EventStreamsAddAccountCreateBody = /* @__PURE__ */ zod
+    .object({
+        account_id: zod.uuid().describe('UUID of the account to add to or remove from the stream.'),
+    })
+    .describe('Request body for adding or removing an event-stream member account.')
+
+/**
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
+ */
+export const EventStreamsRemoveAccountCreateBody = /* @__PURE__ */ zod
+    .object({
+        account_id: zod.uuid().describe('UUID of the account to add to or remove from the stream.'),
+    })
+    .describe('Request body for adding or removing an event-stream member account.')
 
 export const groupsTypesMetricsCreateBodyNameMax = 255
 

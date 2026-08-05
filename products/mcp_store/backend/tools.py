@@ -17,7 +17,8 @@ from posthog.security.url_validation import is_url_allowed
 
 from .models import MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
-from .proxy import build_upstream_auth_headers
+from .policy import SYNC_DEFAULT_APPROVAL_STATE
+from .proxy import build_upstream_auth_headers, validated_same_origin_redirect_url
 
 logger = structlog.get_logger(__name__)
 
@@ -80,26 +81,42 @@ def fetch_upstream_tools(installation: MCPServerInstallation) -> list[dict[str, 
 
     try:
         with httpx.Client(timeout=HANDSHAKE_TIMEOUT) as client:
-            session_id = _mcp_initialize(client, installation.url, base_headers)
+            session_id, upstream_url = _mcp_initialize(client, installation.url, base_headers)
             session_headers = dict(base_headers)
             if session_id:
                 session_headers["Mcp-Session-Id"] = session_id
 
-            _mcp_send_initialized(client, installation.url, session_headers)
+            _mcp_send_initialized(client, upstream_url, session_headers)
             try:
-                return _mcp_list_tools(client, installation.url, session_headers)
+                return _mcp_list_tools(client, upstream_url, session_headers)
             finally:
                 # Best-effort cleanup so we don't leak sessions upstream. Failures
                 # here are purely janitorial and must not mask real errors above.
                 if session_id:
-                    _mcp_terminate_session(client, installation.url, session_headers)
+                    _mcp_terminate_session(client, upstream_url, session_headers)
     except httpx.ConnectError as exc:
         raise ToolsFetchError("Upstream MCP server unreachable") from exc
     except httpx.TimeoutException as exc:
         raise ToolsFetchError("Upstream MCP server timed out") from exc
 
 
-def _mcp_initialize(client: httpx.Client, url: str, headers: dict[str, str]) -> str | None:
+def _post_with_same_origin_redirect(
+    client: httpx.Client,
+    url: str,
+    *,
+    content: bytes,
+    headers: dict[str, str],
+) -> tuple[httpx.Response, str]:
+    response = client.post(url, content=content, headers=headers)
+    redirect_url = validated_same_origin_redirect_url(url, response)
+    if not redirect_url:
+        return response, url
+
+    response.close()
+    return client.post(redirect_url, content=content, headers=headers), redirect_url
+
+
+def _mcp_initialize(client: httpx.Client, url: str, headers: dict[str, str]) -> tuple[str | None, str]:
     body = json.dumps(
         {
             "jsonrpc": "2.0",
@@ -113,11 +130,11 @@ def _mcp_initialize(client: httpx.Client, url: str, headers: dict[str, str]) -> 
         }
     ).encode()
 
-    response = client.post(url, content=body, headers=headers)
+    response, upstream_url = _post_with_same_origin_redirect(client, url, content=body, headers=headers)
     if response.status_code >= 400:
         logger.warning(
             "initialize request returned error",
-            url=url,
+            url=upstream_url,
             status_code=response.status_code,
             body=response.text[:500],
         )
@@ -131,7 +148,7 @@ def _mcp_initialize(client: httpx.Client, url: str, headers: dict[str, str]) -> 
 
     # Session id is optional per the spec — servers that don't need one still
     # work with tools/list, so treat a missing header as "no session needed".
-    return response.headers.get("mcp-session-id")
+    return response.headers.get("mcp-session-id"), upstream_url
 
 
 def _mcp_send_initialized(client: httpx.Client, url: str, headers: dict[str, str]) -> None:
@@ -143,7 +160,7 @@ def _mcp_send_initialized(client: httpx.Client, url: str, headers: dict[str, str
     """
     body = json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}).encode()
     try:
-        response = client.post(url, content=body, headers=headers)
+        response, _upstream_url = _post_with_same_origin_redirect(client, url, content=body, headers=headers)
     except httpx.HTTPError as exc:
         logger.warning("notifications/initialized transport failed; continuing", url=url, error=str(exc))
         return
@@ -159,11 +176,11 @@ def _mcp_send_initialized(client: httpx.Client, url: str, headers: dict[str, str
 def _mcp_list_tools(client: httpx.Client, url: str, headers: dict[str, str]) -> list[dict[str, Any]]:
     body = json.dumps({"jsonrpc": "2.0", "id": _TOOLS_LIST_ID, "method": "tools/list", "params": {}}).encode()
 
-    response = client.post(url, content=body, headers=headers)
+    response, upstream_url = _post_with_same_origin_redirect(client, url, content=body, headers=headers)
     if response.status_code >= 400:
         logger.warning(
             "tools/list request returned error",
-            url=url,
+            url=upstream_url,
             status_code=response.status_code,
             body=response.text[:500],
         )
@@ -230,7 +247,7 @@ def sync_installation_tools(installation: MCPServerInstallation) -> list[MCPServ
     """Upsert tool rows for an installation against the latest upstream ``tools/list``.
 
     - New tools are inserted with ``approval_state="needs_approval"`` (explicit opt-in).
-    - Existing tools keep their approval state; name/description/schema/last_seen_at are updated.
+    - Existing tools keep their approval state; name/description/schema/annotations/last_seen_at are updated.
     - Tools that disappear upstream get ``removed_at`` set (approval state preserved for later).
     - Tools that reappear get ``removed_at`` cleared.
     """
@@ -246,6 +263,7 @@ def sync_installation_tools(installation: MCPServerInstallation) -> list[MCPServ
         display_name = tool.get("title") or tool.get("displayName") or ""
         description = tool.get("description") or ""
         input_schema = tool.get("inputSchema") or {}
+        annotations = tool.get("annotations") or {}
 
         row = existing_by_name.get(tool_name)
         if row is None:
@@ -255,8 +273,11 @@ def sync_installation_tools(installation: MCPServerInstallation) -> list[MCPServ
                 display_name=display_name,
                 description=description,
                 input_schema=input_schema,
+                annotations=annotations,
                 # New tools default to needs_approval so adoption stays explicit.
-                approval_state="needs_approval",
+                # The policy engine keys off this exact value to tell a synced
+                # default apart from a member's real choice — keep them in step.
+                approval_state=SYNC_DEFAULT_APPROVAL_STATE,
                 last_seen_at=now,
                 removed_at=None,
             )
@@ -264,6 +285,7 @@ def sync_installation_tools(installation: MCPServerInstallation) -> list[MCPServ
             row.display_name = display_name
             row.description = description
             row.input_schema = input_schema
+            row.annotations = annotations
             row.last_seen_at = now
             # A previously-removed tool reappeared; preserve approval_state but clear the flag.
             row.removed_at = None
@@ -272,6 +294,7 @@ def sync_installation_tools(installation: MCPServerInstallation) -> list[MCPServ
                     "display_name",
                     "description",
                     "input_schema",
+                    "annotations",
                     "last_seen_at",
                     "removed_at",
                     "updated_at",

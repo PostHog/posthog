@@ -1,6 +1,7 @@
 import type { DashboardWidgetCatalogKey } from '../../widget_types/catalog'
 import { getDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
 import { activityEventsSampleEvents } from '../../widgets/activity/activityEventsSampleData'
+import { logsWidgetSampleLogLines } from '../../widgets/logs/logsWidgetSampleData'
 
 export type WidgetOverviewDemoState = {
     title?: string
@@ -230,7 +231,112 @@ export const experimentResultsSamplePayload = {
             error: null,
         },
     ],
+    secondaryMetrics: [
+        {
+            uuid: 'secondary-1',
+            name: 'Revenue per user',
+            metric: {
+                kind: 'ExperimentMetric',
+                metric_type: 'mean',
+                uuid: 'secondary-1',
+                name: 'Revenue per user',
+                source: { kind: 'EventsNode', event: 'purchase' },
+            },
+            result: {
+                baseline: {
+                    key: 'control',
+                    number_of_samples: 4321,
+                    sum: 8600,
+                    sum_squares: 21400,
+                },
+                variant_results: [
+                    {
+                        key: 'test',
+                        method: 'bayesian',
+                        number_of_samples: 4287,
+                        sum: 9120,
+                        sum_squares: 23900,
+                        chance_to_win: 0.78,
+                        credible_interval: [-0.004, 0.061],
+                        significant: false,
+                    },
+                ],
+            },
+            error: null,
+        },
+    ],
     totalMetricsCount: 1,
+    totalSecondaryMetricsCount: 1,
+}
+
+export const surveyResultsSamplePayload = {
+    survey: {
+        id: 'survey-101',
+        name: 'Post-purchase feedback',
+        type: 'popover',
+        archived: false,
+        start_date: '2026-05-12T00:00:00.000Z',
+        end_date: null,
+    },
+    stats: {
+        'survey shown': {
+            total_count: 1840,
+            total_count_only_seen: 1180,
+            unique_persons: 1640,
+            unique_persons_only_seen: 1040,
+            first_seen: '2026-05-12T00:00:00.000Z',
+            last_seen: '2026-06-20T00:00:00.000Z',
+        },
+        'survey dismissed': {
+            total_count: 240,
+            total_count_only_seen: 0,
+            unique_persons: 220,
+            unique_persons_only_seen: 0,
+            first_seen: '2026-05-12T00:00:00.000Z',
+            last_seen: '2026-06-20T00:00:00.000Z',
+        },
+        'survey sent': {
+            total_count: 420,
+            total_count_only_seen: 0,
+            unique_persons: 400,
+            unique_persons_only_seen: 0,
+            first_seen: '2026-05-12T00:00:00.000Z',
+            last_seen: '2026-06-20T00:00:00.000Z',
+        },
+    },
+    rates: {
+        response_rate: 22.83,
+        dismissal_rate: 13.04,
+        unique_users_response_rate: 24.39,
+        unique_users_dismissal_rate: 13.41,
+    },
+    responses: [
+        {
+            uuid: 'response-1',
+            distinct_id: 'user_8421',
+            session_id: 'session-1',
+            submitted_at: '2026-06-20T14:31:00.000Z',
+            answers: [
+                { question_id: 'q1', question_text: 'How satisfied are you?', question_type: 'rating', answer: '9' },
+                {
+                    question_id: 'q2',
+                    question_text: 'What can we improve?',
+                    question_type: 'open',
+                    answer: 'Faster checkout would be great.',
+                },
+            ],
+        },
+        {
+            uuid: 'response-2',
+            distinct_id: 'user_5530',
+            session_id: 'session-2',
+            submitted_at: '2026-06-20T11:02:00.000Z',
+            answers: [
+                { question_id: 'q1', question_text: 'How satisfied are you?', question_type: 'rating', answer: '6' },
+            ],
+        },
+    ],
+    hasMore: true,
 }
 
 /** New widget types: add a case here. See products/dashboards/CONTRIBUTING.md. */
@@ -306,6 +412,30 @@ export function getWidgetOverviewDemoState(catalogKey: DashboardWidgetCatalogKey
                 config: { ...defaultConfig, experimentId: 101 },
                 loading: false,
                 result: experimentResultsSamplePayload,
+            }
+        case 'survey_results':
+            return {
+                title: defaultTitle,
+                description: catalogEntry.description,
+                showDescription: true,
+                config: { ...defaultConfig, surveyId: 'survey-101' },
+                loading: false,
+                result: surveyResultsSamplePayload,
+            }
+        case 'logs_list':
+            return {
+                title: defaultTitle,
+                description: catalogEntry.description,
+                showDescription: true,
+                config: { ...defaultConfig },
+                loading: false,
+                result: {
+                    results: logsWidgetSampleLogLines,
+                    hasMore: true,
+                    limit: 10,
+                    totalCount: 25,
+                    totalCountCapped: true,
+                },
             }
         default: {
             const exhaustiveCheck: never = catalogKey

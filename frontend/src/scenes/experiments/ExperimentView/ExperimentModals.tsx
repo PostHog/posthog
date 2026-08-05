@@ -3,7 +3,17 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconCheckCircle, IconGlobe, IconList } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonLabel, LemonModal, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCheckbox,
+    LemonInputSelect,
+    LemonLabel,
+    LemonModal,
+    LemonSelect,
+    LemonTextArea,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -13,8 +23,11 @@ import { groupsModel } from '~/models/groupsModel'
 import { ExperimentConclusion } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
+import { hasFrozenExposureStamps } from '../experimentActions'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
+import { getExperimentVariants } from '../utils'
+import { flagCleanupTargetLogic } from './flagCleanupTargetLogic'
 import { VariantTag } from './VariantTag'
 
 function ConclusionForm(): JSX.Element {
@@ -62,7 +75,7 @@ function ConclusionForm(): JSX.Element {
                 <LemonTextArea
                     className="w-full border rounded p-2"
                     minRows={6}
-                    maxLength={400}
+                    maxLength={4000}
                     placeholder="Optional details about why this conclusion was selected..."
                     value={experiment.conclusion_comment || ''}
                     onChange={(value) =>
@@ -204,34 +217,53 @@ export function FinishExperimentModal(): JSX.Element {
     const { isFinishExperimentModalOpen } = useValues(modalsLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { featureFlags } = useValues(featureFlagLogic)
-    const conclusionFirst = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_END_MODAL_CONCLUSION_FIRST]
 
     const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()
     const [releaseToEveryone, setReleaseToEveryone] = useState<boolean>(false)
+    const [openCleanupPr, setOpenCleanupPr] = useState<boolean>(false)
+    const [cleanupRepository, setCleanupRepository] = useState<string | null>(null)
 
+    // Reset on open, not only on close: a failed end/ship closes the modal through the logic
+    // without this component's close handler, which would leave a stale pick for the next open.
     useEffect(() => {
-        if (experiment.parameters?.feature_flag_variants?.length > 1) {
-            // First test variant selected by default
-            setSelectedVariantKey(experiment.parameters.feature_flag_variants[1].key)
+        if (isFinishExperimentModalOpen) {
+            setOpenCleanupPr(false)
+            setCleanupRepository(null)
         }
-    }, [
-        experiment.id,
-        experiment.parameters?.feature_flag_variants?.length,
-        experiment.parameters?.feature_flag_variants,
-    ])
+    }, [isFinishExperimentModalOpen])
+
+    const { cleanupTarget } = useValues(flagCleanupTargetLogic({ experimentId: experiment.id as number }))
+
+    // The cleanup PR runs as a PostHog Desktop task, so the user needs Code access on top of the rollout flag.
+    const cleanupPrAvailable =
+        !!featureFlags[FEATURE_FLAGS.EXPERIMENT_FLAG_CLEANUP_PR] && !!featureFlags[FEATURE_FLAGS.TASKS]
+    // With several connected repositories and none saved on the experiment, the backend would
+    // skip the cleanup rather than guess — so a pick is required here.
+    const cleanupNeedsRepositoryPick = cleanupTarget?.source === 'ambiguous'
 
     const aggregationTargetName =
         experiment.filters.aggregation_group_type_index != null
             ? aggregationLabel(experiment.filters.aggregation_group_type_index).plural
             : 'users'
 
+    const handleClose = (): void => {
+        setOpenCleanupPr(false)
+        setCleanupRepository(null)
+        restoreUnmodifiedExperiment()
+        closeFinishExperimentModal()
+    }
+
     const handleEndExperiment = (): void => {
+        const withCleanupPr = cleanupPrAvailable && openCleanupPr
+        const repository = withCleanupPr && cleanupNeedsRepositoryPick ? cleanupRepository : null
         if (isSingleVariantShipped || !selectedVariantKey) {
-            endExperimentWithoutShipping()
+            endExperimentWithoutShipping(withCleanupPr, repository)
         } else {
             finishExperiment({
                 selectedVariantKey,
                 releaseToEveryone,
+                openCleanupPr: withCleanupPr,
+                repository,
             })
         }
     }
@@ -257,28 +289,32 @@ export function FinishExperimentModal(): JSX.Element {
         <>
             <LemonModal
                 isOpen={isFinishExperimentModalOpen}
-                onClose={() => {
-                    restoreUnmodifiedExperiment()
-                    closeFinishExperimentModal()
-                }}
+                onClose={handleClose}
                 width={600}
                 title="End experiment"
                 footer={
                     <div className="flex items-center gap-2">
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => {
-                                restoreUnmodifiedExperiment()
-                                closeFinishExperimentModal()
-                            }}
-                        >
+                        <LemonButton type="secondary" onClick={handleClose}>
                             Cancel
                         </LemonButton>
                         <LemonButton
                             onClick={handleEndExperiment}
                             type="primary"
                             loading={endExperimentLoading}
-                            disabledReason={!experiment.conclusion && 'Select a conclusion'}
+                            disabledReason={
+                                (!experiment.conclusion && 'Select a conclusion') ||
+                                // Until the target loads we don't know whether a pick is needed, and
+                                // ending now would silently skip the requested cleanup PR.
+                                (cleanupPrAvailable &&
+                                    openCleanupPr &&
+                                    !cleanupTarget &&
+                                    'Checking which repository the cleanup PR would target') ||
+                                (cleanupPrAvailable &&
+                                    openCleanupPr &&
+                                    cleanupNeedsRepositoryPick &&
+                                    !cleanupRepository &&
+                                    'Select a repository for the cleanup PR')
+                            }
                         >
                             End experiment
                         </LemonButton>
@@ -286,7 +322,6 @@ export function FinishExperimentModal(): JSX.Element {
                 }
             >
                 <div className="space-y-4">
-                    {conclusionFirst && <ConclusionForm />}
                     {isSingleVariantShipped ? (
                         <div>
                             <LemonBanner type="info" className="mb-4">
@@ -299,6 +334,13 @@ export function FinishExperimentModal(): JSX.Element {
                         </div>
                     ) : (
                         <>
+                            {hasFrozenExposureStamps(experiment) && (
+                                <LemonBanner type="info">
+                                    Exposure is frozen for this experiment. If you end it without shipping a variant,
+                                    the feature flag keeps serving variants only to the frozen snapshot of
+                                    already-enrolled users. Shipping a variant removes the freeze.
+                                </LemonBanner>
+                            )}
                             <div>
                                 <LemonLabel showOptional>Variant to keep</LemonLabel>
                                 <div className="text-xs text-muted mb-1">
@@ -314,16 +356,14 @@ export function FinishExperimentModal(): JSX.Element {
                                             setSelectedVariantKey(variantKey)
                                         }}
                                         allowClear={true}
-                                        options={
-                                            experiment.feature_flag?.filters.multivariate?.variants?.map(({ key }) => ({
-                                                value: key,
-                                                label: (
-                                                    <div className="deprecated-space-x-2 inline-flex">
-                                                        <VariantTag variantKey={key} />
-                                                    </div>
-                                                ),
-                                            })) || []
-                                        }
+                                        options={getExperimentVariants(experiment).map(({ key }) => ({
+                                            value: key,
+                                            label: (
+                                                <div className="deprecated-space-x-2 inline-flex">
+                                                    <VariantTag variantKey={key} />
+                                                </div>
+                                            ),
+                                        }))}
                                     />
                                 </div>
                             </div>
@@ -385,7 +425,44 @@ export function FinishExperimentModal(): JSX.Element {
                             )}
                         </>
                     )}
-                    {!conclusionFirst && <ConclusionForm />}
+                    <ConclusionForm />
+                    {cleanupPrAvailable && (
+                        <div className="space-y-2">
+                            <LemonCheckbox
+                                checked={openCleanupPr}
+                                onChange={setOpenCleanupPr}
+                                data-attr="experiment-open-cleanup-pr"
+                                disabledReason={
+                                    cleanupTarget?.source === 'no_integration' &&
+                                    'Connect GitHub in your project settings to open cleanup PRs'
+                                }
+                                label={
+                                    <span>
+                                        Open a draft PR removing <code>{experiment.feature_flag?.key}</code> from your
+                                        code
+                                    </span>
+                                }
+                            />
+                            {openCleanupPr && cleanupTarget?.repository && (
+                                <div className="text-xs text-muted">
+                                    The PR will be opened in <code>{cleanupTarget.repository}</code>.
+                                </div>
+                            )}
+                            {openCleanupPr && cleanupNeedsRepositoryPick && (
+                                <LemonInputSelect
+                                    mode="single"
+                                    value={cleanupRepository ? [cleanupRepository] : []}
+                                    onChange={(repositories) => setCleanupRepository(repositories[0] ?? null)}
+                                    options={(cleanupTarget?.candidates ?? []).map((repository) => ({
+                                        key: repository,
+                                        label: repository,
+                                    }))}
+                                    placeholder="Select a repository"
+                                    data-attr="experiment-cleanup-repository"
+                                />
+                            )}
+                        </div>
+                    )}
                     {!isSingleVariantShipped && (
                         <LemonBanner type="info" className="mb-4">
                             For more precise control over your release, adjust the rollout percentage and release

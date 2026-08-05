@@ -61,8 +61,16 @@
      * Override #1: rebind PostHog vars that already-compiled `bg-*` /
      * `text-*` classes resolve at runtime, so the same class flips meaning
      * inside a quill subtree. Map LHS = PostHog name, RHS = quill name.
+     *
+     * NOTE: we deliberately do NOT rebind `--muted-3000` here. PostHog uses
+     * the single `--muted-3000` token for both `bg-muted` (surface) and
+     * `text-muted` (muted text), whereas quill splits these into `--muted`
+     * (surface) and `--muted-foreground` (text). Pointing `--muted-3000` at
+     * quill's surface token turned every PostHog `text-muted` inside a quill
+     * subtree into a near-invisible surface colour (dark grey on the dark
+     * background). We keep `--muted-3000` theme-aware and instead pin only
+     * the `.bg-muted` class to quill's surface below.
      */
-    --muted-3000: var(--muted);
 
     /*
      * Inside `[data-quill]`, `bg-primary` means quill's BRAND colour, not
@@ -105,6 +113,15 @@
 
 [data-quill] .bg-card {
     background-color: var(--card);
+}
+
+/*
+ * `bg-muted` collides: PostHog's compiled rule reads `--muted-3000`, quill's
+ * reads `--muted`. Pin the class to quill's muted surface inside the subtree
+ * without hijacking `--muted-3000` (which `text-muted` also depends on).
+ */
+[data-quill] .bg-muted {
+    background-color: var(--muted);
 }
 
 [data-quill] .bg-popover {

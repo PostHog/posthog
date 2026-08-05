@@ -13,10 +13,10 @@ import temporalio.exceptions
 from posthog.hogql import ast
 
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
 )
+from posthog.temporal.messaging.clickhouse_concurrency import get_messaging_client
 from posthog.temporal.messaging.hogql_compile import compile_hogql_for_streaming
 
 
@@ -80,9 +80,18 @@ async def get_person_id_ranges_page_activity(inputs: PersonIdRangesPageInputs) -
             )
         )
 
+    # Enumerate person IDs straight off the raw ``person`` table with DISTINCT, not the ``persons``
+    # lazy table. We only need ID range *boundaries* here, not deduplicated / is_deleted-filtered
+    # rows -- the child workflow re-queries each range against ``raw_persons`` via ``argmax_select``
+    # with full argMax dedup and is_deleted filtering, so a deleted/duplicate ID slipping into a
+    # boundary just yields no child rows. Going through the ``persons`` lazy table would instead
+    # rewrite our ``id > cursor`` cursor filter into an unbounded ``id IN (subquery)`` with a full
+    # per-page dedup over the entire ID tail -- O(pages x tail). The direct ``SELECT DISTINCT id ...
+    # ORDER BY id LIMIT N`` reads the ``(team_id, id)`` primary key in order and stops after N IDs.
     ranges_query_ast = ast.SelectQuery(
         select=[ast.Alias(alias="person_id", expr=ast.Field(chain=["id"]))],
-        select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+        distinct=True,
+        select_from=ast.JoinExpr(table=ast.Field(chain=["raw_persons"])),
         where=_combine_where(where_exprs),
         order_by=[ast.OrderExpr(expr=ast.Field(chain=["id"]), order="ASC")],
         limit=ast.Constant(value=query_limit),
@@ -103,7 +112,7 @@ async def get_person_id_ranges_page_activity(inputs: PersonIdRangesPageInputs) -
         product=Product.MESSAGING,
         query_type="person_id_ranges_page",
     ):
-        async with get_client(team_id=inputs.team_id) as client:
+        async with get_messaging_client(team_id=inputs.team_id) as client:
             async for row in client.stream_query_as_jsonl(query, query_parameters=query_params):
                 person_id = str(row["person_id"])
 

@@ -64,7 +64,8 @@ export function SharedMetricModal({
         closeSharedMetricModal()
     }
 
-    const alreadyAddedIdsList = experiment.saved_metrics.map((savedMetric) => savedMetric.saved_metric)
+    const savedMetrics = experiment.saved_metrics ?? []
+    const alreadyAddedIdsList = savedMetrics.map((savedMetric) => savedMetric.saved_metric)
     const alreadyAddedIds = new Set(alreadyAddedIdsList)
 
     // Ids of the currently displayed metrics (after tag filtering) that can still be added.
@@ -107,10 +108,10 @@ export function SharedMetricModal({
             <div className="deprecated-space-y-2">
                 {hasAnyCompatibleSharedMetrics || sharedMetricsResponseLoading ? (
                     <>
-                        {experiment.saved_metrics.length > 0 && (
+                        {savedMetrics.length > 0 && (
                             <LemonBanner type="info">
-                                {`${pluralize(experiment.saved_metrics.length, 'shared metric')} ${
-                                    experiment.saved_metrics.length > 1 ? 'are' : 'is'
+                                {`${pluralize(savedMetrics.length, 'shared metric')} ${
+                                    savedMetrics.length > 1 ? 'are' : 'is'
                                 } already in the experiment.`}
                             </LemonBanner>
                         )}

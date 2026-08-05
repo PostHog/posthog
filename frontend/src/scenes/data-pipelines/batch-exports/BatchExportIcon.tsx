@@ -1,8 +1,8 @@
+import IconHTTP from '@posthog/brand/hoggies/png/coffee-run'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { BatchExportService } from '~/types'
 
-import IconHTTP from 'public/hedgehog/running-hog.png'
 import IconS3 from 'public/services/aws-s3.png'
 import IconAzureBlob from 'public/services/azure-blob-storage.png'
 import IconBigQuery from 'public/services/bigquery.png'

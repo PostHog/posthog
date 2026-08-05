@@ -1,4 +1,6 @@
-import { type ChartTheme } from '@posthog/quill-charts'
+import { useMemo } from 'react'
+
+import { type ChartTheme, useChartTheme } from '@posthog/quill-charts'
 
 import type { LifecycleStatus } from '../types'
 
@@ -43,15 +45,20 @@ export const LIFECYCLE_COLORS: Record<LifecycleStatus, string> = {
 export const lifecycleColor = (status: string | undefined): string =>
     LIFECYCLE_COLORS[(status ?? 'new') as LifecycleStatus] ?? LIFECYCLE_COLORS.new
 
-// Single mid-gray for axis labels — readable on both light and dark hosts. Claude
-// Desktop's iframe doesn't set `prefers-color-scheme`, so we can't detect the host
-// theme and adapt at runtime.
+// Static light fallback. Components should use useMcpChartTheme() so the canvas tracks the host theme.
 export const CHART_THEME: ChartTheme = {
     colors: CHART_COLORS,
     backgroundColor: '#ffffff',
-    axisColor: '#9ca3af',
+    axisColor: '#6b7280',
     gridColor: 'rgba(128, 128, 128, 0.2)',
     crosshairColor: 'rgba(128, 128, 128, 0.5)',
     tooltipBackground: '#ffffff',
     tooltipColor: '#111827',
+}
+
+// Background/axis/grid/tooltip track the host's light/dark CSS vars (bridged to quill's graph
+// tokens in tailwind.css); series colors stay on the curated brand palette.
+export function useMcpChartTheme(): ChartTheme {
+    const base = useChartTheme()
+    return useMemo(() => ({ ...base, colors: CHART_COLORS }), [base])
 }

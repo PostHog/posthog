@@ -25,7 +25,7 @@ impl<'a> From<ProduceRecord<'a>> for OwnedProduceRecord {
         Self {
             topic: r.topic.to_owned(),
             key: r.key.map(str::to_owned),
-            payload: r.payload.to_owned(),
+            payload: String::from_utf8_lossy(r.payload).into_owned(),
         }
     }
 }
@@ -35,7 +35,7 @@ impl<'a> From<&ProduceRecord<'a>> for OwnedProduceRecord {
         Self {
             topic: r.topic.to_owned(),
             key: r.key.map(str::to_owned),
-            payload: r.payload.to_owned(),
+            payload: String::from_utf8_lossy(r.payload).into_owned(),
         }
     }
 }

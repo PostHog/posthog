@@ -182,7 +182,10 @@ class TestLazyJoinManifest(SimpleTestCase):
         """The manifest is the closed contract a serialized Database depends on. Changing this
         list changes what consumers of a serialized schema must implement — update deliberately."""
         assert sorted(RESOLVERS) == [
+            "account_custom_properties",
+            "account_custom_properties_history",
             "account_notebooks",
+            "account_relationships",
             "account_tags",
             "data_warehouse",
             "data_warehouse_experiments",
@@ -204,4 +207,6 @@ class TestLazyJoinManifest(SimpleTestCase):
             "replay_to_sessions_v1",
             "replay_to_sessions_v2",
             "replay_to_sessions_v3",
+            "ticket_assignment",
+            "ticket_tags",
         ]

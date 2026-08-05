@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use tracing::{debug, error, warn};
+use tracing::{debug, warn};
 
 use crate::{
     api_proxy,
@@ -10,7 +10,10 @@ use crate::{
     dsym::DsymSubcommand,
     error::CapturedError,
     experimental::{endpoints::EndpointCommand, query::command::QueryCommand, tasks::TaskCommand},
-    invocation_context::{context, init_context, INVOCATION_CONTEXT},
+    invocation_context::{
+        capture_command_run_without_context, context, init_context, set_telemetry_command_name,
+        set_telemetry_env_id_from_environment, INVOCATION_CONTEXT,
+    },
     proguard::ProguardSubcommand,
     sourcemaps::{hermes::HermesSubcommand, plain::SourcemapCommand},
 };
@@ -38,7 +41,14 @@ pub struct Cli {
     /// Load PostHog credentials from this dotenv-style file when not present in the process
     /// environment. Prefer this over the `--env-file` alias: the npm package runs the binary
     /// through a `node` wrapper, and Node's own built-in `--env-file` flag intercepts that spelling.
-    #[arg(long = "dotenv-file", alias = "env-file", value_name = "PATH")]
+    /// Also settable as `POSTHOG_CLI_DOTENV_FILE`, for callers that control the environment but
+    /// not the command line (e.g. an Xcode build phase invoking the iOS SDK's upload-symbols.sh).
+    #[arg(
+        long = "dotenv-file",
+        alias = "env-file",
+        value_name = "PATH",
+        env = "POSTHOG_CLI_DOTENV_FILE"
+    )]
     env_file: Option<PathBuf>,
 
     /// Skip artifact processing and upload (sourcemap, dSYM, hermes, proguard) without contacting
@@ -67,6 +77,9 @@ fn dry_run_skipped_command(command: &Commands) -> Option<&'static str> {
     match command {
         Commands::Sourcemap { .. } => Some("sourcemap"),
         Commands::Dsym { .. } => Some("dSYM"),
+        Commands::SymbolSets {
+            cmd: SymbolSetsSubcommand::Upload(_),
+        } => Some("native debug symbols"),
         Commands::Hermes { .. } => Some("hermes sourcemap"),
         Commands::Proguard { .. } => Some("proguard"),
         Commands::Exp { cmd } => match cmd {
@@ -77,6 +90,33 @@ fn dry_run_skipped_command(command: &Commands) -> Option<&'static str> {
         },
         _ => None,
     }
+}
+
+// These are the API key env vars recognized by the Node `posthog-cli api` bundle.
+// Rust auth only reads the POSTHOG_CLI_* aliases; this check is deliberately about
+// whether the child process already has a usable key, so we avoid loading and mixing
+// stored credentials.
+const API_KEY_ENV_VARS: &[&str] = &[
+    "POSTHOG_API_KEY",
+    "POSTHOG_CLI_API_KEY",
+    "POSTHOG_CLI_TOKEN",
+];
+
+fn api_command_needs_stored_credentials_with_env(
+    args: &[String],
+    has_env: impl Fn(&str) -> bool,
+) -> bool {
+    let Some(command) = args.first().map(String::as_str) else {
+        return false;
+    };
+
+    command == "call"
+        && !args.iter().skip(1).any(|arg| arg == "--dry-run")
+        && !API_KEY_ENV_VARS.iter().any(|name| has_env(name))
+}
+
+fn api_command_needs_stored_credentials(args: &[String]) -> bool {
+    api_command_needs_stored_credentials_with_env(args, |name| std::env::var_os(name).is_some())
 }
 
 #[derive(Subcommand)]
@@ -115,7 +155,7 @@ pub enum Commands {
         cmd: ProguardSubcommand,
     },
 
-    #[command(about = "Manage uploaded symbol sets")]
+    #[command(about = "Upload, download, and manage symbol sets")]
     SymbolSets {
         #[command(subcommand)]
         cmd: SymbolSetsSubcommand,
@@ -137,9 +177,11 @@ pub enum Commands {
             skill install [--force] <skill-id>                 Install a skill into .agents/skills/\n  \
             agents-md install [--path AGENTS.md]               Install the PostHog steering snippet\n\n\
             Run `posthog-cli api --agent-help` for the full agent-facing usage guide.\n\n\
-            This command group is experimental: pass `--experimental` after `api`, or set \
-            POSTHOG_CLI_EXPERIMENTAL_API=1.\n\
-            Destructive tools require --confirm. Use --dry-run before mutations.",
+            Destructive tools require --confirm. Use --dry-run before mutations.\n\n\
+            Limitation: `login` grants the MCP scope set minus the writes PostHog \
+            withholds from long-lived API keys, so a few tools (desktop file-system \
+            writes, integration deletes, reminder and user-settings writes) are not \
+            available through this command.",
         trailing_var_arg = true
     )]
     Api {
@@ -211,21 +253,102 @@ pub enum SchemaCommand {
     Status,
 }
 
+impl Commands {
+    fn telemetry_command_name(&self) -> &'static str {
+        match self {
+            Commands::Login => "login",
+            Commands::Exp { cmd } => cmd.telemetry_command_name(),
+            Commands::Sourcemap { cmd } => match cmd {
+                SourcemapCommand::Inject(_) => "sourcemap_inject",
+                SourcemapCommand::Upload(_) => "sourcemap_upload",
+                SourcemapCommand::Process(_) => "sourcemap_process",
+            },
+            Commands::Dsym { cmd } => match cmd {
+                DsymSubcommand::Upload(_) => "dsym_upload",
+            },
+            Commands::Hermes { cmd } => match cmd {
+                HermesSubcommand::Inject(_) => "hermes_inject",
+                HermesSubcommand::Upload(_) => "hermes_upload",
+                HermesSubcommand::Clone(_) => "hermes_clone",
+            },
+            Commands::Proguard { cmd } => match cmd {
+                ProguardSubcommand::Upload(_) => "proguard_upload",
+            },
+            Commands::SymbolSets { cmd } => match cmd {
+                SymbolSetsSubcommand::Upload(_) => "symbolset_upload",
+                SymbolSetsSubcommand::Download(_) => "symbolset_download",
+                SymbolSetsSubcommand::Extract(_) => "symbolset_extract",
+            },
+            Commands::Api { .. } => "api",
+        }
+    }
+}
+
+impl ExpCommand {
+    fn telemetry_command_name(&self) -> &'static str {
+        match self {
+            ExpCommand::Task { cmd, .. } => match cmd {
+                TaskCommand::List { .. } => "task_list",
+                TaskCommand::Progress { .. } => "task_progress",
+                TaskCommand::UpdateStage { .. } => "task_update_stage",
+            },
+            ExpCommand::Query { cmd } => match cmd {
+                QueryCommand::Editor { .. } => "query_editor",
+                QueryCommand::Run { .. } => "query_run",
+                QueryCommand::Check { .. } => "query_check",
+            },
+            ExpCommand::Endpoints { cmd } => match cmd {
+                EndpointCommand::List(_) => "endpoints_list",
+                EndpointCommand::Get(_) => "endpoints_get",
+                EndpointCommand::Open(_) => "endpoints_open",
+                EndpointCommand::Run(_) => "endpoints_run",
+                EndpointCommand::Push(_) => "endpoints_push",
+                EndpointCommand::Pull(_) => "endpoints_pull",
+                EndpointCommand::Diff(_) => "endpoints_diff",
+            },
+            ExpCommand::Hermes { cmd } => match cmd {
+                HermesSubcommand::Inject(_) => "hermes_inject",
+                HermesSubcommand::Upload(_) => "hermes_upload",
+                HermesSubcommand::Clone(_) => "hermes_clone",
+            },
+            ExpCommand::Proguard { cmd } => match cmd {
+                ProguardSubcommand::Upload(_) => "proguard_upload",
+            },
+            ExpCommand::Dsym { cmd } => match cmd {
+                DsymSubcommand::Upload(_) => "dsym_upload",
+            },
+            ExpCommand::Schema { cmd } => match cmd {
+                SchemaCommand::Pull { .. } => "schema_pull",
+                SchemaCommand::Status => "schema_status",
+            },
+        }
+    }
+}
+
 impl Cli {
-    pub fn run() -> Result<(), CapturedError> {
+    /// `Ok(Some(code))` means the command completed by delegating to a child
+    /// process that exited non-zero; the caller should exit with that code
+    /// after flushing telemetry.
+    pub fn run() -> Result<Option<i32>, CapturedError> {
         let command = Cli::parse();
         let no_fail = command.no_fail;
+        set_telemetry_command_name(command.command.telemetry_command_name());
 
-        match command.run_impl() {
-            Ok(_) => Ok(()),
+        let result = command.run_impl().map_err(|error| error.capture());
+
+        if INVOCATION_CONTEXT.get().is_some() {
+            context().finish();
+        }
+
+        match result {
+            Ok(exit_code) => Ok(if no_fail { None } else { exit_code }),
             Err(e) => {
-                let msg = match &e.exception_id {
-                    Some(id) => format!("Oops! {} (ID: {})", e.inner, id),
-                    None => format!("Oops! {:?}", e.inner),
-                };
-                error!(msg);
                 if no_fail {
-                    Ok(())
+                    match &e.exception_id {
+                        Some(id) => eprintln!("Oops! {} (ID: {})", e.inner, id),
+                        None => eprintln!("Oops! {:?}", e.inner),
+                    };
+                    Ok(None)
                 } else {
                     Err(e)
                 }
@@ -233,7 +356,7 @@ impl Cli {
         }
     }
 
-    fn run_impl(self) -> Result<(), CapturedError> {
+    fn run_impl(self) -> Result<Option<i32>, CapturedError> {
         if self.dry_run {
             if let Some(kind) = dry_run_skipped_command(&self.command) {
                 warn!(
@@ -241,7 +364,7 @@ impl Cli {
                      Nothing was sent to PostHog and no credentials were used. \
                      Do not use --dry-run for release builds."
                 );
-                return Ok(());
+                return Ok(None);
             }
         }
 
@@ -260,6 +383,8 @@ impl Cli {
                 self.env_file.clone(),
             )?;
         }
+
+        let mut api_exit_code: Option<i32> = None;
 
         match self.command {
             Commands::Login => {
@@ -308,6 +433,9 @@ impl Cli {
                 }
             },
             Commands::SymbolSets { cmd } => match cmd {
+                SymbolSetsSubcommand::Upload(args) => {
+                    crate::debug_symbols::upload::upload(&args)?;
+                }
                 SymbolSetsSubcommand::Download(args) => {
                     crate::download::download(&args)?;
                 }
@@ -316,19 +444,34 @@ impl Cli {
                 }
             },
             Commands::Api { args } => {
-                let api_context = match init_context(
-                    self.host.clone(),
-                    self.skip_ssl_verification,
-                    self.rate_limit,
-                    self.env_file.clone(),
-                ) {
-                    Ok(_) => Some(context()),
-                    Err(error) => {
-                        debug!("API CLI proxy running without invocation context: {error:?}");
-                        None
+                // The proxy often runs without stored credentials (env-var auth,
+                // metadata subcommands), so attach the project id from the
+                // environment for telemetry attribution; init_context overrides
+                // it with the stored value when it runs.
+                set_telemetry_env_id_from_environment();
+                // No InvocationContext on this path, so capture the usage event
+                // directly — without it the `api` command has no telemetry
+                // denominator to compute failure rates against.
+                let usage_capture = capture_command_run_without_context();
+                let api_context = if api_command_needs_stored_credentials(&args) {
+                    match init_context(
+                        self.host.clone(),
+                        self.skip_ssl_verification,
+                        self.rate_limit,
+                        self.env_file.clone(),
+                    ) {
+                        Ok(_) => Some(context()),
+                        Err(error) => {
+                            debug!("API CLI proxy running without invocation context: {error:?}");
+                            None
+                        }
                     }
+                } else {
+                    None
                 };
-                api_proxy::run(args, self.host, api_context)?;
+                let run_result = api_proxy::run(args, self.host, api_context);
+                let _ = usage_capture.join();
+                api_exit_code = run_result?;
             }
             Commands::Exp { cmd } => match cmd {
                 ExpCommand::Task {
@@ -376,11 +519,7 @@ impl Cli {
             },
         }
 
-        if INVOCATION_CONTEXT.get().is_some() {
-            context().finish();
-        }
-
-        Ok(())
+        Ok(api_exit_code)
     }
 }
 
@@ -404,6 +543,19 @@ mod tests {
         assert_eq!(
             arg.get_env(),
             Some(std::ffi::OsStr::new("POSTHOG_CLI_DRY_RUN"))
+        );
+    }
+
+    #[test]
+    fn env_file_flag_is_wired_to_env_var() {
+        let cmd = Cli::command();
+        let arg = cmd
+            .get_arguments()
+            .find(|a| a.get_id().as_str() == "env_file")
+            .expect("env_file arg should exist");
+        assert_eq!(
+            arg.get_env(),
+            Some(std::ffi::OsStr::new("POSTHOG_CLI_DOTENV_FILE"))
         );
     }
 
@@ -474,6 +626,60 @@ mod tests {
                 "wrong dry-run classification for {argv:?}"
             );
         }
+    }
+
+    #[test]
+    fn api_metadata_commands_do_not_need_stored_credentials() {
+        let cases: &[&[&str]] = &[
+            &[],
+            &["--agent-help"],
+            &["tools"],
+            &["search", "feature-flag"],
+            &["info", "feature-flag-get-all"],
+            &["schema", "query-trends", "series"],
+            &["skill", "list"],
+            &["agents-md", "install"],
+        ];
+
+        for argv in cases {
+            let args = argv.iter().map(|arg| arg.to_string()).collect::<Vec<_>>();
+            assert!(
+                !api_command_needs_stored_credentials_with_env(&args, |_| false),
+                "metadata command should not load stored credentials: {argv:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn api_call_uses_stored_credentials_only_when_needed() {
+        let call_args = ["call", "--json", "feature-flag-get-all", "{\"limit\":5}"]
+            .iter()
+            .map(|arg| arg.to_string())
+            .collect::<Vec<_>>();
+
+        assert!(api_command_needs_stored_credentials_with_env(
+            &call_args,
+            |_| false
+        ));
+        assert!(!api_command_needs_stored_credentials_with_env(
+            &call_args,
+            |name| name == "POSTHOG_API_KEY"
+        ));
+
+        let dry_run_args = [
+            "call",
+            "--dry-run",
+            "feature-flags-bulk-delete-create",
+            "{\"ids\":[123]}",
+        ]
+        .iter()
+        .map(|arg| arg.to_string())
+        .collect::<Vec<_>>();
+
+        assert!(!api_command_needs_stored_credentials_with_env(
+            &dry_run_args,
+            |_| false
+        ));
     }
 
     #[test]

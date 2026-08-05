@@ -16,7 +16,8 @@ import { type HarnessRow } from '../mcpDashboardOverviewLogic'
 import { Card } from './Card'
 import { ChartTooltip } from './ChartTooltip'
 import { formatNumber } from './formatters'
-import { HARNESS_LOGOS, HarnessPill, harnessSliceColor } from './harness'
+import { HarnessPill } from './harness'
+import { harnessLogo, harnessSliceColor } from './harnessRegistry'
 
 const HARNESS_DONUT_CONFIG: PieChartConfig = {
     innerRadiusRatio: 0.6,
@@ -41,7 +42,7 @@ function HarnessSliceLabels(): JSX.Element | null {
                 const x = layout.cx + Math.sin(slice.centroidAngle) * midRadius
                 const y = layout.cy - Math.cos(slice.centroidAngle) * midRadius
                 const category = slice.series.label
-                const logo = HARNESS_LOGOS[category]
+                const logo = harnessLogo(category)
                 return (
                     <div
                         key={slice.series.key}

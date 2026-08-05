@@ -4,3 +4,4 @@ dist/
 node_modules/
 coverage/
 .tmp/
+bin/ingestion-boundaries.baseline.json

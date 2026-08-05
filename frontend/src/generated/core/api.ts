@@ -14,12 +14,6 @@ import type {
     CIMDVerificationTokenApi,
     CIMDVerificationTokenWithValueApi,
     CimdVerificationTokensListParams,
-    ContextGenerationApi,
-    ContextGenerationSetApi,
-    DesktopFileSystemInstructionsVersionsListParams,
-    DesktopFileSystemListParams,
-    DesktopFileSystemShortcutListParams,
-    DesktopPersistedFolderListParams,
     DomainsListParams,
     EnterprisePropertyDefinitionApi,
     ExportedAssetApi,
@@ -29,11 +23,11 @@ import type {
     FileSystemShortcutApi,
     FileSystemShortcutListParams,
     FileSystemShortcutReorderApi,
-    FolderInstructionsApi,
-    FolderInstructionsPublishApi,
     GitHubBranchesResponseApi,
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
+    IdentityProviderConfigApi,
+    IdentityProviderConfigsListParams,
     InvitesListParams,
     OauthApplicationsListParams,
     OnboardingSkipRequestApi,
@@ -46,11 +40,10 @@ import type {
     PaginatedExportedAssetListApi,
     PaginatedFileSystemListApi,
     PaginatedFileSystemShortcutListApi,
-    PaginatedFolderInstructionsVersionListApi,
+    PaginatedIdentityProviderConfigListApi,
     PaginatedOrganizationDomainListApi,
     PaginatedOrganizationInviteListApi,
     PaginatedOrganizationOAuthApplicationListApi,
-    PaginatedPersistedFolderListApi,
     PaginatedProjectBackwardCompatBasicListApi,
     PaginatedProjectSecretAPIKeyListApi,
     PaginatedUserGitHubIntegrationListResponseListApi,
@@ -58,30 +51,36 @@ import type {
     PatchedEnterprisePropertyDefinitionApi,
     PatchedFileSystemApi,
     PatchedFileSystemShortcutApi,
-    PatchedFolderInstructionsPublishApi,
+    PatchedIdentityProviderConfigApi,
     PatchedOrganizationDomainApi,
-    PatchedPersistedFolderApi,
     PatchedProjectBackwardCompatApi,
     PatchedProjectSecretAPIKeyApi,
     PatchedUserApi,
-    PersistedFolderApi,
-    PersistedFolderListParams,
+    ProductEnablementApi,
+    ProductEnablementResultApi,
     ProjectBackwardCompatApi,
     ProjectSecretAPIKeyApi,
     ProjectSecretApiKeysListParams,
-    PromotedProductIntentApi,
     PropertyDefinitionsListParams,
+    RevokeOtherSessionsResponseApi,
+    SCIMTokenResponseApi,
     SharingConfigurationApi,
     UserApi,
+    UserAuthSessionApi,
     UserGitHubLinkStartRequestApi,
     UserGitHubLinkStartResponseApi,
+    UserGitHubPrepareCallbackRequestApi,
     UserPushTokenItemApi,
     UserPushTokenRegisterRequestApi,
     UserPushTokenUnregisterRequestApi,
+    UserSlackLinkStartRequestApi,
+    UserSlackLinkStartResponseApi,
+    UserSlackLinkableWorkspaceListResponseApi,
     UsersIntegrationsGithubBranchesRetrieveParams,
     UsersIntegrationsGithubReposRetrieveParams,
     UsersIntegrationsListParams,
     UsersListParams,
+    UsersLoginSessionsListParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -340,27 +339,6 @@ export const domainsScimLogsRetrieve = async (
     })
 }
 
-export const getDomainsScimTokenCreateUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/domains/${id}/scim/token/`
-}
-
-/**
- * Regenerate SCIM bearer token.
- */
-export const domainsScimTokenCreate = async (
-    organizationId: string,
-    id: string,
-    organizationDomainApi: NonReadonly<OrganizationDomainApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDomainsScimTokenCreateUrl(organizationId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(organizationDomainApi),
-    })
-}
-
 export const getDomainsVerifyCreateUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/domains/${id}/verify/`
 }
@@ -376,6 +354,140 @@ export const domainsVerifyCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(organizationDomainApi),
+    })
+}
+
+export const getIdentityProviderConfigsListUrl = (
+    organizationId: string,
+    params?: IdentityProviderConfigsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/identity_provider_configs/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/identity_provider_configs/`
+}
+
+export const identityProviderConfigsList = async (
+    organizationId: string,
+    params?: IdentityProviderConfigsListParams,
+    options?: RequestInit
+): Promise<PaginatedIdentityProviderConfigListApi> => {
+    return apiMutator<PaginatedIdentityProviderConfigListApi>(
+        getIdentityProviderConfigsListUrl(organizationId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getIdentityProviderConfigsCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/identity_provider_configs/`
+}
+
+export const identityProviderConfigsCreate = async (
+    organizationId: string,
+    identityProviderConfigApi?: NonReadonly<IdentityProviderConfigApi>,
+    options?: RequestInit
+): Promise<IdentityProviderConfigApi> => {
+    return apiMutator<IdentityProviderConfigApi>(getIdentityProviderConfigsCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(identityProviderConfigApi),
+    })
+}
+
+export const getIdentityProviderConfigsRetrieveUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/identity_provider_configs/${id}/`
+}
+
+export const identityProviderConfigsRetrieve = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<IdentityProviderConfigApi> => {
+    return apiMutator<IdentityProviderConfigApi>(getIdentityProviderConfigsRetrieveUrl(organizationId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getIdentityProviderConfigsUpdateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/identity_provider_configs/${id}/`
+}
+
+export const identityProviderConfigsUpdate = async (
+    organizationId: string,
+    id: string,
+    identityProviderConfigApi?: NonReadonly<IdentityProviderConfigApi>,
+    options?: RequestInit
+): Promise<IdentityProviderConfigApi> => {
+    return apiMutator<IdentityProviderConfigApi>(getIdentityProviderConfigsUpdateUrl(organizationId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(identityProviderConfigApi),
+    })
+}
+
+export const getIdentityProviderConfigsPartialUpdateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/identity_provider_configs/${id}/`
+}
+
+export const identityProviderConfigsPartialUpdate = async (
+    organizationId: string,
+    id: string,
+    patchedIdentityProviderConfigApi?: NonReadonly<PatchedIdentityProviderConfigApi>,
+    options?: RequestInit
+): Promise<IdentityProviderConfigApi> => {
+    return apiMutator<IdentityProviderConfigApi>(getIdentityProviderConfigsPartialUpdateUrl(organizationId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedIdentityProviderConfigApi),
+    })
+}
+
+export const getIdentityProviderConfigsDestroyUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/identity_provider_configs/${id}/`
+}
+
+export const identityProviderConfigsDestroy = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIdentityProviderConfigsDestroyUrl(organizationId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getIdentityProviderConfigsScimTokenCreateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/identity_provider_configs/${id}/scim/token/`
+}
+
+/**
+ * Regenerate the SCIM bearer token for this IdP config.
+ */
+export const identityProviderConfigsScimTokenCreate = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SCIMTokenResponseApi> => {
+    return apiMutator<SCIMTokenResponseApi>(getIdentityProviderConfigsScimTokenCreateUrl(organizationId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -734,7 +846,8 @@ export const getOrganizationsProjectsDefaultEvaluationContextsRetrieveUrl = (org
 }
 
 /**
- * Manage default evaluation contexts for a project.
+ * Manage default evaluation contexts for a project. Members can read; writing requires
+ * project admin, matching the admin-only settings UI.
  */
 export const organizationsProjectsDefaultEvaluationContextsRetrieve = async (
     organizationId: string,
@@ -755,7 +868,8 @@ export const getOrganizationsProjectsDefaultEvaluationContextsCreateUrl = (organ
 }
 
 /**
- * Manage default evaluation contexts for a project.
+ * Manage default evaluation contexts for a project. Members can read; writing requires
+ * project admin, matching the admin-only settings UI.
  */
 export const organizationsProjectsDefaultEvaluationContextsCreate = async (
     organizationId: string,
@@ -779,7 +893,8 @@ export const getOrganizationsProjectsDefaultEvaluationContextsDestroyUrl = (orga
 }
 
 /**
- * Manage default evaluation contexts for a project.
+ * Manage default evaluation contexts for a project. Members can read; writing requires
+ * project admin, matching the admin-only settings UI.
  */
 export const organizationsProjectsDefaultEvaluationContextsDestroy = async (
     organizationId: string,
@@ -797,7 +912,8 @@ export const getOrganizationsProjectsDefaultReleaseConditionsRetrieveUrl = (orga
 }
 
 /**
- * Manage default release conditions for new feature flags in this project.
+ * Manage default release conditions for new feature flags in this project. Members can read;
+ * writing requires project admin, matching the admin-only settings UI.
  */
 export const organizationsProjectsDefaultReleaseConditionsRetrieve = async (
     organizationId: string,
@@ -818,7 +934,8 @@ export const getOrganizationsProjectsDefaultReleaseConditionsUpdateUrl = (organi
 }
 
 /**
- * Manage default release conditions for new feature flags in this project.
+ * Manage default release conditions for new feature flags in this project. Members can read;
+ * writing requires project admin, matching the admin-only settings UI.
  */
 export const organizationsProjectsDefaultReleaseConditionsUpdate = async (
     organizationId: string,
@@ -981,8 +1098,9 @@ export const getOrganizationsProjectsLogsConfigRetrieveUrl = (organizationId: st
 
 /**
  * Manage logs product configuration for this project's canonical environment.
- * Mirrors the env-router action so /api/projects/:id/logs_config/ resolves
- * alongside the legacy /api/environments/:id/logs_config/ alias.
+ * Members can read; writing requires project admin, matching the admin-only
+ * settings UI. Mirrors the env-router action so /api/projects/:id/logs_config/
+ * resolves alongside the legacy /api/environments/:id/logs_config/ alias.
  */
 export const organizationsProjectsLogsConfigRetrieve = async (
     organizationId: string,
@@ -1001,8 +1119,9 @@ export const getOrganizationsProjectsLogsConfigPartialUpdateUrl = (organizationI
 
 /**
  * Manage logs product configuration for this project's canonical environment.
- * Mirrors the env-router action so /api/projects/:id/logs_config/ resolves
- * alongside the legacy /api/environments/:id/logs_config/ alias.
+ * Members can read; writing requires project admin, matching the admin-only
+ * settings UI. Mirrors the env-router action so /api/projects/:id/logs_config/
+ * resolves alongside the legacy /api/environments/:id/logs_config/ alias.
  */
 export const organizationsProjectsLogsConfigPartialUpdate = async (
     organizationId: string,
@@ -1017,27 +1136,6 @@ export const organizationsProjectsLogsConfigPartialUpdate = async (
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
             body: JSON.stringify(patchedProjectBackwardCompatApi),
-        }
-    )
-}
-
-export const getOrganizationsProjectsPromotedProductIntentRetrieveUrl = (organizationId: string, id: number) => {
-    return `/api/organizations/${organizationId}/projects/${id}/promoted_product_intent/`
-}
-
-/**
- * Return the product key (e.g. `session_replay`, `web_analytics`) this team selected as their primary product during onboarding. Resolved from the team's most recent primary-onboarding `ProductIntent` record (the one carrying the `onboarding product selected - primary` context) — not from the `user showed product intent` event, which also fires for non-onboarding contexts. Returns `null` when no primary onboarding product intent has been captured (e.g. teams created before this signal existed, or where onboarding was skipped).
- */
-export const organizationsProjectsPromotedProductIntentRetrieve = async (
-    organizationId: string,
-    id: number,
-    options?: RequestInit
-): Promise<PromotedProductIntentApi> => {
-    return apiMutator<PromotedProductIntentApi>(
-        getOrganizationsProjectsPromotedProductIntentRetrieveUrl(organizationId, id),
-        {
-            ...options,
-            method: 'GET',
         }
     )
 }
@@ -1181,775 +1279,6 @@ export const dashboardsSharingRefreshCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sharingConfigurationApi),
-    })
-}
-
-export const getDesktopFileSystemListUrl = (projectId: string, params?: DesktopFileSystemListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/desktop_file_system/?${stringifiedParams}`
-        : `/api/projects/${projectId}/desktop_file_system/`
-}
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const desktopFileSystemList = async (
-    projectId: string,
-    params?: DesktopFileSystemListParams,
-    options?: RequestInit
-): Promise<PaginatedFileSystemListApi> => {
-    return apiMutator<PaginatedFileSystemListApi>(getDesktopFileSystemListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDesktopFileSystemCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/desktop_file_system/`
-}
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const desktopFileSystemCreate = async (
-    projectId: string,
-    fileSystemApi: NonReadonly<FileSystemApi>,
-    options?: RequestInit
-): Promise<FileSystemApi> => {
-    return apiMutator<FileSystemApi>(getDesktopFileSystemCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileSystemApi),
-    })
-}
-
-export const getDesktopFileSystemRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/desktop_file_system/${id}/`
-}
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const desktopFileSystemRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<FileSystemApi> => {
-    return apiMutator<FileSystemApi>(getDesktopFileSystemRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDesktopFileSystemUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/desktop_file_system/${id}/`
-}
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const desktopFileSystemUpdate = async (
-    projectId: string,
-    id: string,
-    fileSystemApi: NonReadonly<FileSystemApi>,
-    options?: RequestInit
-): Promise<FileSystemApi> => {
-    return apiMutator<FileSystemApi>(getDesktopFileSystemUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileSystemApi),
-    })
-}
-
-export const getDesktopFileSystemPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/desktop_file_system/${id}/`
-}
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const desktopFileSystemPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedFileSystemApi?: NonReadonly<PatchedFileSystemApi>,
-    options?: RequestInit
-): Promise<FileSystemApi> => {
-    return apiMutator<FileSystemApi>(getDesktopFileSystemPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedFileSystemApi),
-    })
-}
-
-export const getDesktopFileSystemDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/desktop_file_system/${id}/`
-}
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const desktopFileSystemDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getDesktopFileSystemDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getDesktopFileSystemContextGenerationRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/desktop_file_system/${id}/context_generation/`
-}
-
-/**
- * Return the Task currently generating this folder's CONTEXT.md, or null if none.
- */
-export const desktopFileSystemContextGenerationRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<ContextGenerationApi> => {
-    return apiMutator<ContextGenerationApi>(getDesktopFileSystemContextGenerationRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDesktopFileSystemContextGenerationUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/desktop_file_system/${id}/context_generation/`
-}
-
-/**
- * Set or clear the Task associated with this folder's CONTEXT.md generation.
- */
-export const desktopFileSystemContextGenerationUpdate = async (
-    projectId: string,
-    id: string,
-    contextGenerationSetApi: ContextGenerationSetApi,
-    options?: RequestInit
-): Promise<ContextGenerationApi> => {
-    return apiMutator<ContextGenerationApi>(getDesktopFileSystemContextGenerationUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(contextGenerationSetApi),
-    })
-}
-
-export const getDesktopFileSystemCountCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/desktop_file_system/${id}/count/`
-}
-
-/**
- * Get count of all files in a folder.
- */
-export const desktopFileSystemCountCreate = async (
-    projectId: string,
-    id: string,
-    fileSystemApi: NonReadonly<FileSystemApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDesktopFileSystemCountCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileSystemApi),
-    })
-}
-
-export const getDesktopFileSystemInstructionsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/desktop_file_system/${id}/instructions/`
-}
-
-/**
- * Return the latest non-deleted instructions for this folder.
- */
-export const desktopFileSystemInstructionsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<FolderInstructionsApi> => {
-    return apiMutator<FolderInstructionsApi>(getDesktopFileSystemInstructionsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDesktopFileSystemInstructionsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/desktop_file_system/${id}/instructions/`
-}
-
-/**
- * Publish a new version of the folder's instructions.
- */
-export const desktopFileSystemInstructionsUpdate = async (
-    projectId: string,
-    id: string,
-    folderInstructionsPublishApi: FolderInstructionsPublishApi,
-    options?: RequestInit
-): Promise<FolderInstructionsApi> => {
-    return apiMutator<FolderInstructionsApi>(getDesktopFileSystemInstructionsUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(folderInstructionsPublishApi),
-    })
-}
-
-export const getDesktopFileSystemInstructionsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/desktop_file_system/${id}/instructions/`
-}
-
-/**
- * Publish a new version of the folder's instructions.
- */
-export const desktopFileSystemInstructionsPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedFolderInstructionsPublishApi?: PatchedFolderInstructionsPublishApi,
-    options?: RequestInit
-): Promise<FolderInstructionsApi> => {
-    return apiMutator<FolderInstructionsApi>(getDesktopFileSystemInstructionsPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedFolderInstructionsPublishApi),
-    })
-}
-
-export const getDesktopFileSystemInstructionsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/desktop_file_system/${id}/instructions/`
-}
-
-/**
- * Soft-delete every version of this folder's instructions.
- */
-export const desktopFileSystemInstructionsDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDesktopFileSystemInstructionsDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getDesktopFileSystemInstructionsVersionsListUrl = (
-    projectId: string,
-    id: string,
-    params?: DesktopFileSystemInstructionsVersionsListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/desktop_file_system/${id}/instructions/versions/?${stringifiedParams}`
-        : `/api/projects/${projectId}/desktop_file_system/${id}/instructions/versions/`
-}
-
-/**
- * List the version history for this folder's instructions, newest first.
- */
-export const desktopFileSystemInstructionsVersionsList = async (
-    projectId: string,
-    id: string,
-    params?: DesktopFileSystemInstructionsVersionsListParams,
-    options?: RequestInit
-): Promise<PaginatedFolderInstructionsVersionListApi> => {
-    return apiMutator<PaginatedFolderInstructionsVersionListApi>(
-        getDesktopFileSystemInstructionsVersionsListUrl(projectId, id, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export const getDesktopFileSystemLinkCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/desktop_file_system/${id}/link/`
-}
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const desktopFileSystemLinkCreate = async (
-    projectId: string,
-    id: string,
-    fileSystemApi: NonReadonly<FileSystemApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDesktopFileSystemLinkCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileSystemApi),
-    })
-}
-
-export const getDesktopFileSystemMoveCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/desktop_file_system/${id}/move/`
-}
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const desktopFileSystemMoveCreate = async (
-    projectId: string,
-    id: string,
-    fileSystemApi: NonReadonly<FileSystemApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDesktopFileSystemMoveCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileSystemApi),
-    })
-}
-
-export const getDesktopFileSystemCountByPathCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/desktop_file_system/count_by_path/`
-}
-
-/**
- * Get count of all files in a folder.
- */
-export const desktopFileSystemCountByPathCreate = async (
-    projectId: string,
-    fileSystemApi: NonReadonly<FileSystemApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDesktopFileSystemCountByPathCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileSystemApi),
-    })
-}
-
-export const getDesktopFileSystemLogViewRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/desktop_file_system/log_view/`
-}
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const desktopFileSystemLogViewRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getDesktopFileSystemLogViewRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDesktopFileSystemLogViewCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/desktop_file_system/log_view/`
-}
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const desktopFileSystemLogViewCreate = async (
-    projectId: string,
-    fileSystemApi: NonReadonly<FileSystemApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDesktopFileSystemLogViewCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileSystemApi),
-    })
-}
-
-export const getDesktopFileSystemUndoDeleteCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/desktop_file_system/undo_delete/`
-}
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const desktopFileSystemUndoDeleteCreate = async (
-    projectId: string,
-    fileSystemApi: NonReadonly<FileSystemApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDesktopFileSystemUndoDeleteCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileSystemApi),
-    })
-}
-
-export const getDesktopFileSystemUnfiledRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/desktop_file_system/unfiled/`
-}
-
-/**
- * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
- * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
- *
- * Adds per-folder, versioned markdown instructions describing the contents of a folder.
- */
-export const desktopFileSystemUnfiledRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getDesktopFileSystemUnfiledRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDesktopFileSystemShortcutListUrl = (
-    projectId: string,
-    params?: DesktopFileSystemShortcutListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/desktop_file_system_shortcut/?${stringifiedParams}`
-        : `/api/projects/${projectId}/desktop_file_system_shortcut/`
-}
-
-/**
- * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
- * behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
- * the default "web" surface.
- */
-export const desktopFileSystemShortcutList = async (
-    projectId: string,
-    params?: DesktopFileSystemShortcutListParams,
-    options?: RequestInit
-): Promise<PaginatedFileSystemShortcutListApi> => {
-    return apiMutator<PaginatedFileSystemShortcutListApi>(getDesktopFileSystemShortcutListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDesktopFileSystemShortcutCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/desktop_file_system_shortcut/`
-}
-
-/**
- * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
- * behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
- * the default "web" surface.
- */
-export const desktopFileSystemShortcutCreate = async (
-    projectId: string,
-    fileSystemShortcutApi: NonReadonly<FileSystemShortcutApi>,
-    options?: RequestInit
-): Promise<FileSystemShortcutApi> => {
-    return apiMutator<FileSystemShortcutApi>(getDesktopFileSystemShortcutCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileSystemShortcutApi),
-    })
-}
-
-export const getDesktopFileSystemShortcutRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/desktop_file_system_shortcut/${id}/`
-}
-
-/**
- * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
- * behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
- * the default "web" surface.
- */
-export const desktopFileSystemShortcutRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<FileSystemShortcutApi> => {
-    return apiMutator<FileSystemShortcutApi>(getDesktopFileSystemShortcutRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDesktopFileSystemShortcutUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/desktop_file_system_shortcut/${id}/`
-}
-
-/**
- * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
- * behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
- * the default "web" surface.
- */
-export const desktopFileSystemShortcutUpdate = async (
-    projectId: string,
-    id: string,
-    fileSystemShortcutApi: NonReadonly<FileSystemShortcutApi>,
-    options?: RequestInit
-): Promise<FileSystemShortcutApi> => {
-    return apiMutator<FileSystemShortcutApi>(getDesktopFileSystemShortcutUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileSystemShortcutApi),
-    })
-}
-
-export const getDesktopFileSystemShortcutPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/desktop_file_system_shortcut/${id}/`
-}
-
-/**
- * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
- * behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
- * the default "web" surface.
- */
-export const desktopFileSystemShortcutPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedFileSystemShortcutApi?: NonReadonly<PatchedFileSystemShortcutApi>,
-    options?: RequestInit
-): Promise<FileSystemShortcutApi> => {
-    return apiMutator<FileSystemShortcutApi>(getDesktopFileSystemShortcutPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedFileSystemShortcutApi),
-    })
-}
-
-export const getDesktopFileSystemShortcutDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/desktop_file_system_shortcut/${id}/`
-}
-
-/**
- * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
- * behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
- * the default "web" surface.
- */
-export const desktopFileSystemShortcutDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDesktopFileSystemShortcutDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getDesktopFileSystemShortcutReorderCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/desktop_file_system_shortcut/reorder/`
-}
-
-/**
- * Set the display order of the current user's shortcuts. `ordered_ids` becomes the new top-to-bottom order; any unknown IDs are rejected.
- */
-export const desktopFileSystemShortcutReorderCreate = async (
-    projectId: string,
-    fileSystemShortcutReorderApi: FileSystemShortcutReorderApi,
-    options?: RequestInit
-): Promise<PaginatedFileSystemShortcutListApi> => {
-    return apiMutator<PaginatedFileSystemShortcutListApi>(getDesktopFileSystemShortcutReorderCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileSystemShortcutReorderApi),
-    })
-}
-
-export const getDesktopPersistedFolderListUrl = (projectId: string, params?: DesktopPersistedFolderListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/desktop_persisted_folder/?${stringifiedParams}`
-        : `/api/projects/${projectId}/desktop_persisted_folder/`
-}
-
-/**
- * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
- * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
- * "web" surface.
- */
-export const desktopPersistedFolderList = async (
-    projectId: string,
-    params?: DesktopPersistedFolderListParams,
-    options?: RequestInit
-): Promise<PaginatedPersistedFolderListApi> => {
-    return apiMutator<PaginatedPersistedFolderListApi>(getDesktopPersistedFolderListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDesktopPersistedFolderCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/desktop_persisted_folder/`
-}
-
-/**
- * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
- * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
- * "web" surface.
- */
-export const desktopPersistedFolderCreate = async (
-    projectId: string,
-    persistedFolderApi: NonReadonly<PersistedFolderApi>,
-    options?: RequestInit
-): Promise<PersistedFolderApi> => {
-    return apiMutator<PersistedFolderApi>(getDesktopPersistedFolderCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(persistedFolderApi),
-    })
-}
-
-export const getDesktopPersistedFolderRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/desktop_persisted_folder/${id}/`
-}
-
-/**
- * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
- * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
- * "web" surface.
- */
-export const desktopPersistedFolderRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<PersistedFolderApi> => {
-    return apiMutator<PersistedFolderApi>(getDesktopPersistedFolderRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDesktopPersistedFolderUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/desktop_persisted_folder/${id}/`
-}
-
-/**
- * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
- * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
- * "web" surface.
- */
-export const desktopPersistedFolderUpdate = async (
-    projectId: string,
-    id: string,
-    persistedFolderApi: NonReadonly<PersistedFolderApi>,
-    options?: RequestInit
-): Promise<PersistedFolderApi> => {
-    return apiMutator<PersistedFolderApi>(getDesktopPersistedFolderUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(persistedFolderApi),
-    })
-}
-
-export const getDesktopPersistedFolderPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/desktop_persisted_folder/${id}/`
-}
-
-/**
- * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
- * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
- * "web" surface.
- */
-export const desktopPersistedFolderPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedPersistedFolderApi?: NonReadonly<PatchedPersistedFolderApi>,
-    options?: RequestInit
-): Promise<PersistedFolderApi> => {
-    return apiMutator<PersistedFolderApi>(getDesktopPersistedFolderPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedPersistedFolderApi),
-    })
-}
-
-export const getDesktopPersistedFolderDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/desktop_persisted_folder/${id}/`
-}
-
-/**
- * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
- * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
- * "web" surface.
- */
-export const desktopPersistedFolderDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDesktopPersistedFolderDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
     })
 }
 
@@ -2538,109 +1867,20 @@ export const notebooksSharingRefreshCreate = async (
     })
 }
 
-export const getPersistedFolderListUrl = (projectId: string, params?: PersistedFolderListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/persisted_folder/?${stringifiedParams}`
-        : `/api/projects/${projectId}/persisted_folder/`
+export const getProductEnablementCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/product_enablement/`
 }
 
-export const persistedFolderList = async (
+export const productEnablementCreate = async (
     projectId: string,
-    params?: PersistedFolderListParams,
+    productEnablementApi: ProductEnablementApi,
     options?: RequestInit
-): Promise<PaginatedPersistedFolderListApi> => {
-    return apiMutator<PaginatedPersistedFolderListApi>(getPersistedFolderListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getPersistedFolderCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/persisted_folder/`
-}
-
-export const persistedFolderCreate = async (
-    projectId: string,
-    persistedFolderApi: NonReadonly<PersistedFolderApi>,
-    options?: RequestInit
-): Promise<PersistedFolderApi> => {
-    return apiMutator<PersistedFolderApi>(getPersistedFolderCreateUrl(projectId), {
+): Promise<ProductEnablementResultApi> => {
+    return apiMutator<ProductEnablementResultApi>(getProductEnablementCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(persistedFolderApi),
-    })
-}
-
-export const getPersistedFolderRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/persisted_folder/${id}/`
-}
-
-export const persistedFolderRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<PersistedFolderApi> => {
-    return apiMutator<PersistedFolderApi>(getPersistedFolderRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getPersistedFolderUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/persisted_folder/${id}/`
-}
-
-export const persistedFolderUpdate = async (
-    projectId: string,
-    id: string,
-    persistedFolderApi: NonReadonly<PersistedFolderApi>,
-    options?: RequestInit
-): Promise<PersistedFolderApi> => {
-    return apiMutator<PersistedFolderApi>(getPersistedFolderUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(persistedFolderApi),
-    })
-}
-
-export const getPersistedFolderPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/persisted_folder/${id}/`
-}
-
-export const persistedFolderPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedPersistedFolderApi?: NonReadonly<PatchedPersistedFolderApi>,
-    options?: RequestInit
-): Promise<PersistedFolderApi> => {
-    return apiMutator<PersistedFolderApi>(getPersistedFolderPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedPersistedFolderApi),
-    })
-}
-
-export const getPersistedFolderDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/persisted_folder/${id}/`
-}
-
-export const persistedFolderDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getPersistedFolderDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
+        body: JSON.stringify(productEnablementApi),
     })
 }
 
@@ -3152,8 +2392,21 @@ export const getUsersIntegrationsListUrl = (uuid: string, params?: UsersIntegrat
 }
 
 /**
- * `/api/users/@me/integrations/` — manage the user's personal GitHub integrations.
- * @summary List personal GitHub integrations
+ * Return the authenticated user's personal integrations of a given
+ * ``kind`` (``github`` or ``slack``).
+ *
+ * The response shape varies per kind because the underlying ``UserIntegration``
+ * rows carry different identity fields — GitHub rows expose
+ * ``installation_id`` / ``account`` / ``uses_shared_installation``; Slack
+ * rows expose ``slack_user_id`` / ``slack_team_id`` / ``slack_team_name``.
+ * Kind-specific destroy and start actions remain split so their distinct
+ * semantics (e.g. Slack's lack of "uninstall on last reference") stay
+ * explicit at the URL layer.
+ *
+ * Default of ``kind=github`` is load-bearing: mobile (``apps/mobile/...``)
+ * and the Code SDK (``packages/api-client/...``) both call this endpoint
+ * without a query param today and rely on receiving GitHub rows.
+ * @summary List the user's personal integrations of a given kind
  */
 export const usersIntegrationsList = async (
     uuid: string,
@@ -3285,6 +2538,26 @@ export const usersIntegrationsGithubReposRefreshCreate = async (
     )
 }
 
+export const getUsersIntegrationsGithubPrepareCallbackCreateUrl = (uuid: string) => {
+    return `/api/users/${uuid}/integrations/github/prepare_callback/`
+}
+
+/**
+ * Seed personal GitHub manage callback state before opening installation settings on GitHub.
+ */
+export const usersIntegrationsGithubPrepareCallbackCreate = async (
+    uuid: string,
+    userGitHubPrepareCallbackRequestApi: UserGitHubPrepareCallbackRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getUsersIntegrationsGithubPrepareCallbackCreateUrl(uuid), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(userGitHubPrepareCallbackRequestApi),
+    })
+}
+
 export const getUsersIntegrationsGithubStartCreateUrl = (uuid: string) => {
     return `/api/users/${uuid}/integrations/github/start/`
 }
@@ -3321,6 +2594,155 @@ export const usersIntegrationsGithubStartCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(userGitHubLinkStartRequestApi),
+    })
+}
+
+export const getUsersIntegrationsSlackDestroyUrl = (uuid: string, slackUserId: string) => {
+    return `/api/users/${uuid}/integrations/slack/${slackUserId}/`
+}
+
+/**
+ * Remove a Slack identity link by Slack user id. Idempotent and
+ * flag-agnostic — users must always be able to unlink even after the
+ * feature flag is turned off.
+ * @summary Unlink a Slack identity
+ */
+export const usersIntegrationsSlackDestroy = async (
+    uuid: string,
+    slackUserId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getUsersIntegrationsSlackDestroyUrl(uuid, slackUserId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getUsersIntegrationsSlackLinkableWorkspacesRetrieveUrl = (uuid: string) => {
+    return `/api/users/${uuid}/integrations/slack/linkable_workspaces/`
+}
+
+/**
+ * Return Slack workspaces in the user's organizations that they have
+ * not yet linked. The settings UI uses this list to decide whether to
+ * show a "Link my Slack account" button (non-empty list) and what to
+ * offer in the picker when several are connectable.
+ * @summary List Slack workspaces this user could link to
+ */
+export const usersIntegrationsSlackLinkableWorkspacesRetrieve = async (
+    uuid: string,
+    options?: RequestInit
+): Promise<UserSlackLinkableWorkspaceListResponseApi> => {
+    return apiMutator<UserSlackLinkableWorkspaceListResponseApi>(
+        getUsersIntegrationsSlackLinkableWorkspacesRetrieveUrl(uuid),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getUsersIntegrationsSlackStartCreateUrl = (uuid: string) => {
+    return `/api/users/${uuid}/integrations/slack/start/`
+}
+
+/**
+ * Mint a Sign-in-with-Slack invite URL initiated from settings, without
+ * Slack-DM context. The returned URL takes the user through PostHog login
+ * (already satisfied here), then to Slack OAuth, then back to our callback
+ * which writes the ``UserIntegration`` row.
+ *
+ * Without body params, falls back to the user's ``current_team`` and that
+ * team's first Slack ``Integration`` — works when there's exactly one
+ * linkable workspace. With ``team_id`` + ``slack_team_id``, links against
+ * the exact pair (what the frontend uses when a picker is shown).
+ *
+ * Refuses if the target team has no matching Slack workspace, if the
+ * feature flag is off for the workspace, or if the user is already linked
+ * to it.
+ * @summary Start Slack identity link from settings
+ */
+export const usersIntegrationsSlackStartCreate = async (
+    uuid: string,
+    userSlackLinkStartRequestApi?: UserSlackLinkStartRequestApi,
+    options?: RequestInit
+): Promise<UserSlackLinkStartResponseApi> => {
+    return apiMutator<UserSlackLinkStartResponseApi>(getUsersIntegrationsSlackStartCreateUrl(uuid), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(userSlackLinkStartRequestApi),
+    })
+}
+
+export const getUsersLoginSessionsListUrl = (uuid: string, params?: UsersLoginSessionsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/users/${uuid}/login_sessions/?${stringifiedParams}`
+        : `/api/users/${uuid}/login_sessions/`
+}
+
+/**
+ * List the cookie-auth login sessions for the current user. Self-only — never another user.
+ */
+export const usersLoginSessionsList = async (
+    uuid: string,
+    params?: UsersLoginSessionsListParams,
+    options?: RequestInit
+): Promise<UserAuthSessionApi[]> => {
+    return apiMutator<UserAuthSessionApi[]>(getUsersLoginSessionsListUrl(uuid, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUsersLoginSessionsDestroyUrl = (uuid: string, sessionId: string) => {
+    return `/api/users/${uuid}/login_sessions/${sessionId}/`
+}
+
+/**
+ * Revoke a single login session belonging to the current user. Self-only.
+ *
+ * Requires recent auth (TimeSensitiveActionPermission) so a stolen cookie can't weaponize
+ * revocation, and is blocked while impersonating via ImpersonationBlockedPathsMiddleware.
+ */
+export const usersLoginSessionsDestroy = async (
+    uuid: string,
+    sessionId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getUsersLoginSessionsDestroyUrl(uuid, sessionId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getUsersLoginSessionsRevokeOthersCreateUrl = (uuid: string) => {
+    return `/api/users/${uuid}/login_sessions/revoke_others/`
+}
+
+/**
+ * Revoke every login session for the current user except the one making this request. Self-only.
+ *
+ * Requires recent auth (TimeSensitiveActionPermission) so a stolen cookie can't weaponize the
+ * "log out everywhere else" lock-out, and is blocked while impersonating.
+ */
+export const usersLoginSessionsRevokeOthersCreate = async (
+    uuid: string,
+    options?: RequestInit
+): Promise<RevokeOtherSessionsResponseApi> => {
+    return apiMutator<RevokeOtherSessionsResponseApi>(getUsersLoginSessionsRevokeOthersCreateUrl(uuid), {
+        ...options,
+        method: 'POST',
     })
 }
 

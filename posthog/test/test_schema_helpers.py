@@ -145,6 +145,10 @@ class TestSchemaHelpers(TestCase):
             },
         )
 
+        # metric (groups to ActionsLineGraph, the default, so display is removed)
+        query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "Metric"}})
+        self.assertEqual(to_dict(query), {"kind": "TrendsQuery", "series": []})
+
     def _assert_filter(self, key: str, num_keys: int, q1: BaseModel, q2: BaseModel):
         self.assertEqual(to_dict(q1), to_dict(q2))
         if num_keys == 0:

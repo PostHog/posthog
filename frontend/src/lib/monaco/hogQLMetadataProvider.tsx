@@ -1,7 +1,7 @@
 import { BuiltLogic } from 'kea'
 import { languages } from 'monaco-editor'
 
-import type { codeEditorLogicType } from './codeEditorLogicType'
+import type { codeEditorLogicType } from './codeEditorLogic'
 
 export const hogQLMetadataProvider: () => languages.CodeActionProvider = () => ({
     provideCodeActions: (model, _range, context) => {

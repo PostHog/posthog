@@ -7,7 +7,7 @@ from django.test import TestCase
 
 from parameterized import parameterized
 
-from products.data_warehouse.backend.data_load.saved_query_service import get_saved_query_schedule
+from products.data_warehouse.backend.logic.data_load.saved_query_service import get_saved_query_schedule
 
 
 class TestGetSavedQuerySchedule(TestCase):

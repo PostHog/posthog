@@ -50,6 +50,10 @@ export const alertsSimulateCreateBodyDetectorConfigOneOneoneTypeDefault = `lof`
 export const alertsSimulateCreateBodyDetectorConfigOneOnetwoTypeDefault = `ocsvm`
 export const alertsSimulateCreateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
 export const alertsSimulateCreateBodySeriesIndexDefault = 0
+export const alertsSimulateCreateBodyConfigOneOneTypeDefault = `TrendsAlertConfig`
+export const alertsSimulateCreateBodyConfigOneTwoTypeDefault = `HogQLAlertConfig`
+export const alertsSimulateCreateBodyConfigOneThreeTypeDefault = `FunnelsAlertConfig`
+export const alertsSimulateCreateBodyConfigOneFourTypeDefault = `MetricsAlertConfig`
 
 export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
     insight: zod.number().describe('Insight ID to simulate the detector on.'),
@@ -93,7 +97,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                         'Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)'
                                     ),
                                 type: zod
-                                    .literal('zscore')
+                                    .enum(['zscore'])
                                     .default(alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemOneTypeDefault),
                                 window: zod
                                     .union([zod.number(), zod.null()])
@@ -134,7 +138,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                         'Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)'
                                     ),
                                 type: zod
-                                    .literal('mad')
+                                    .enum(['mad'])
                                     .default(alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemTwoTypeDefault),
                                 window: zod
                                     .union([zod.number(), zod.null()])
@@ -175,7 +179,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                     .optional()
                                     .describe('Preprocessing transforms applied before detection'),
                                 type: zod
-                                    .literal('iqr')
+                                    .enum(['iqr'])
                                     .default(alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemThreeTypeDefault),
                                 window: zod
                                     .union([zod.number(), zod.null()])
@@ -214,7 +218,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                     .optional()
                                     .describe('Preprocessing transforms applied before detection'),
                                 type: zod
-                                    .literal('threshold')
+                                    .enum(['threshold'])
                                     .default(alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemFourTypeDefault),
                                 upper_bound: zod
                                     .union([zod.number(), zod.null()])
@@ -253,7 +257,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                     .optional()
                                     .describe('Anomaly probability threshold (default: 0.9)'),
                                 type: zod
-                                    .literal('ecod')
+                                    .enum(['ecod'])
                                     .default(alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemFiveTypeDefault),
                                 window: zod
                                     .union([zod.number(), zod.null()])
@@ -294,7 +298,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                     .optional()
                                     .describe('Anomaly probability threshold (default: 0.9)'),
                                 type: zod
-                                    .literal('copod')
+                                    .enum(['copod'])
                                     .default(alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemSixTypeDefault),
                                 window: zod
                                     .union([zod.number(), zod.null()])
@@ -339,7 +343,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                     .optional()
                                     .describe('Anomaly probability threshold (default: 0.9)'),
                                 type: zod
-                                    .literal('isolation_forest')
+                                    .enum(['isolation_forest'])
                                     .default(alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemSevenTypeDefault),
                                 window: zod
                                     .union([zod.number(), zod.null()])
@@ -388,7 +392,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                     .optional()
                                     .describe('Anomaly probability threshold (default: 0.9)'),
                                 type: zod
-                                    .literal('knn')
+                                    .enum(['knn'])
                                     .default(alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemEightTypeDefault),
                                 window: zod
                                     .union([zod.number(), zod.null()])
@@ -433,7 +437,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                     .optional()
                                     .describe('Anomaly probability threshold (default: 0.9)'),
                                 type: zod
-                                    .literal('hbos')
+                                    .enum(['hbos'])
                                     .default(alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemNineTypeDefault),
                                 window: zod
                                     .union([zod.number(), zod.null()])
@@ -478,7 +482,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                     .optional()
                                     .describe('Anomaly probability threshold (default: 0.9)'),
                                 type: zod
-                                    .literal('lof')
+                                    .enum(['lof'])
                                     .default(
                                         alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemOnezeroTypeDefault
                                     ),
@@ -529,7 +533,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                     .optional()
                                     .describe('Anomaly probability threshold (default: 0.9)'),
                                 type: zod
-                                    .literal('ocsvm')
+                                    .enum(['ocsvm'])
                                     .default(
                                         alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemOneoneTypeDefault
                                     ),
@@ -572,7 +576,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                     .optional()
                                     .describe('Anomaly probability threshold (default: 0.9)'),
                                 type: zod
-                                    .literal('pca')
+                                    .enum(['pca'])
                                     .default(
                                         alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemOnetwoTypeDefault
                                     ),
@@ -587,7 +591,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     )
                     .describe('Sub-detector configurations (minimum 2)'),
                 operator: zod.enum(['and', 'or']).describe('How to combine sub-detector results'),
-                type: zod.literal('ensemble').default(alertsSimulateCreateBodyDetectorConfigOneOneTypeDefault),
+                type: zod.enum(['ensemble']).default(alertsSimulateCreateBodyDetectorConfigOneOneTypeDefault),
             }),
             zod.object({
                 preprocessing: zod
@@ -620,7 +624,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     .describe(
                         'Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)'
                     ),
-                type: zod.literal('zscore').default(alertsSimulateCreateBodyDetectorConfigOneTwoTypeDefault),
+                type: zod.enum(['zscore']).default(alertsSimulateCreateBodyDetectorConfigOneTwoTypeDefault),
                 window: zod
                     .union([zod.number(), zod.null()])
                     .optional()
@@ -657,7 +661,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     .describe(
                         'Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)'
                     ),
-                type: zod.literal('mad').default(alertsSimulateCreateBodyDetectorConfigOneThreeTypeDefault),
+                type: zod.enum(['mad']).default(alertsSimulateCreateBodyDetectorConfigOneThreeTypeDefault),
                 window: zod
                     .union([zod.number(), zod.null()])
                     .optional()
@@ -692,7 +696,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     ])
                     .optional()
                     .describe('Preprocessing transforms applied before detection'),
-                type: zod.literal('iqr').default(alertsSimulateCreateBodyDetectorConfigOneFourTypeDefault),
+                type: zod.enum(['iqr']).default(alertsSimulateCreateBodyDetectorConfigOneFourTypeDefault),
                 window: zod
                     .union([zod.number(), zod.null()])
                     .optional()
@@ -727,7 +731,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     ])
                     .optional()
                     .describe('Preprocessing transforms applied before detection'),
-                type: zod.literal('threshold').default(alertsSimulateCreateBodyDetectorConfigOneFiveTypeDefault),
+                type: zod.enum(['threshold']).default(alertsSimulateCreateBodyDetectorConfigOneFiveTypeDefault),
                 upper_bound: zod
                     .union([zod.number(), zod.null()])
                     .optional()
@@ -762,7 +766,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     .union([zod.number(), zod.null()])
                     .optional()
                     .describe('Anomaly probability threshold (default: 0.9)'),
-                type: zod.literal('ecod').default(alertsSimulateCreateBodyDetectorConfigOneSixTypeDefault),
+                type: zod.enum(['ecod']).default(alertsSimulateCreateBodyDetectorConfigOneSixTypeDefault),
                 window: zod
                     .union([zod.number(), zod.null()])
                     .optional()
@@ -799,7 +803,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     .union([zod.number(), zod.null()])
                     .optional()
                     .describe('Anomaly probability threshold (default: 0.9)'),
-                type: zod.literal('copod').default(alertsSimulateCreateBodyDetectorConfigOneSevenTypeDefault),
+                type: zod.enum(['copod']).default(alertsSimulateCreateBodyDetectorConfigOneSevenTypeDefault),
                 window: zod
                     .union([zod.number(), zod.null()])
                     .optional()
@@ -840,9 +844,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     .union([zod.number(), zod.null()])
                     .optional()
                     .describe('Anomaly probability threshold (default: 0.9)'),
-                type: zod
-                    .literal('isolation_forest')
-                    .default(alertsSimulateCreateBodyDetectorConfigOneEightTypeDefault),
+                type: zod.enum(['isolation_forest']).default(alertsSimulateCreateBodyDetectorConfigOneEightTypeDefault),
                 window: zod
                     .union([zod.number(), zod.null()])
                     .optional()
@@ -887,7 +889,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     .union([zod.number(), zod.null()])
                     .optional()
                     .describe('Anomaly probability threshold (default: 0.9)'),
-                type: zod.literal('knn').default(alertsSimulateCreateBodyDetectorConfigOneNineTypeDefault),
+                type: zod.enum(['knn']).default(alertsSimulateCreateBodyDetectorConfigOneNineTypeDefault),
                 window: zod
                     .union([zod.number(), zod.null()])
                     .optional()
@@ -928,7 +930,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     .union([zod.number(), zod.null()])
                     .optional()
                     .describe('Anomaly probability threshold (default: 0.9)'),
-                type: zod.literal('hbos').default(alertsSimulateCreateBodyDetectorConfigOneOnezeroTypeDefault),
+                type: zod.enum(['hbos']).default(alertsSimulateCreateBodyDetectorConfigOneOnezeroTypeDefault),
                 window: zod
                     .union([zod.number(), zod.null()])
                     .optional()
@@ -969,7 +971,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     .union([zod.number(), zod.null()])
                     .optional()
                     .describe('Anomaly probability threshold (default: 0.9)'),
-                type: zod.literal('lof').default(alertsSimulateCreateBodyDetectorConfigOneOneoneTypeDefault),
+                type: zod.enum(['lof']).default(alertsSimulateCreateBodyDetectorConfigOneOneoneTypeDefault),
                 window: zod
                     .union([zod.number(), zod.null()])
                     .optional()
@@ -1011,7 +1013,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     .union([zod.number(), zod.null()])
                     .optional()
                     .describe('Anomaly probability threshold (default: 0.9)'),
-                type: zod.literal('ocsvm').default(alertsSimulateCreateBodyDetectorConfigOneOnetwoTypeDefault),
+                type: zod.enum(['ocsvm']).default(alertsSimulateCreateBodyDetectorConfigOneOnetwoTypeDefault),
                 window: zod
                     .union([zod.number(), zod.null()])
                     .optional()
@@ -1048,7 +1050,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     .union([zod.number(), zod.null()])
                     .optional()
                     .describe('Anomaly probability threshold (default: 0.9)'),
-                type: zod.literal('pca').default(alertsSimulateCreateBodyDetectorConfigOneOnethreeTypeDefault),
+                type: zod.enum(['pca']).default(alertsSimulateCreateBodyDetectorConfigOneOnethreeTypeDefault),
                 window: zod
                     .union([zod.number(), zod.null()])
                     .optional()
@@ -1062,11 +1064,82 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
     series_index: zod
         .number()
         .default(alertsSimulateCreateBodySeriesIndexDefault)
-        .describe('Zero-based index of the series to analyze.'),
+        .describe('Zero-based index of the series to analyze (trends insights only).'),
     date_from: zod
         .string()
         .nullish()
         .describe(
-            "Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the detector's minimum required samples."
+            "Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the detector's minimum required samples. Trends insights only — a SQL query's own rows are the series."
+        ),
+    config: zod
+        .union([
+            zod
+                .union([
+                    zod.object({
+                        check_ongoing_interval: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'When true, evaluate the current (still incomplete) time interval in addition to completed ones.'
+                            ),
+                        series_index: zod
+                            .number()
+                            .describe("Zero-based index of the series in the insight's query to monitor."),
+                        type: zod.enum(['TrendsAlertConfig']).default(alertsSimulateCreateBodyConfigOneOneTypeDefault),
+                    }),
+                    zod.object({
+                        column: zod
+                            .union([zod.string(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column).'
+                            ),
+                        evaluation: zod
+                            .enum(['last_row', 'first_row', 'any_row'])
+                            .describe('How to read the result rows — an explicit choice, no implicit default.'),
+                        label_column: zod
+                            .union([zod.string(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Column whose value labels the evaluated row(s) in breach messages: every row in `any_row` mode, or the single evaluated row in `last_row`\/`first_row`. When unset, the first non-evaluated column is used, falling back to the row number (any_row) or the value column name (last_row\/first_row).'
+                            ),
+                        type: zod.enum(['HogQLAlertConfig']).default(alertsSimulateCreateBodyConfigOneTwoTypeDefault),
+                    }),
+                    zod.object({
+                        check_ongoing_interval: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'When true, evaluate the current (still in-progress) period; by default only completed periods are used.'
+                            ),
+                        funnel_step: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Zero-based step index to evaluate. Null = the last step (overall conversion).'),
+                        metric: zod.enum(['conversion_from_start', 'conversion_from_previous']),
+                        type: zod
+                            .enum(['FunnelsAlertConfig'])
+                            .default(alertsSimulateCreateBodyConfigOneThreeTypeDefault),
+                    }),
+                    zod.object({
+                        check_ongoing_interval: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one.'
+                            ),
+                        type: zod
+                            .enum(['MetricsAlertConfig'])
+                            .default(alertsSimulateCreateBodyConfigOneFourTypeDefault),
+                    }),
+                ])
+                .describe(
+                    'Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the\ngenerated frontend types and MCP tool schemas) in sync with every kind alerts support.'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Per-insight-kind alert config. For SQL insights, selects the evaluated column and read direction (last_row\/first_row) so the preview matches the alert; ignored for trends.'
         ),
 })

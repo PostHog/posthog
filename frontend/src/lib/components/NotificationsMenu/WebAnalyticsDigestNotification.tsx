@@ -1,6 +1,3 @@
-import { IconArrowRight, IconSparkles } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-
 import { WebAnalyticsDigestMetadata, WebAnalyticsDigestMetric, WebAnalyticsDigestMetricChange } from '~/types'
 
 function TrendPill({ change }: { change: WebAnalyticsDigestMetricChange | null }): JSX.Element | null {
@@ -16,15 +13,7 @@ function TrendPill({ change }: { change: WebAnalyticsDigestMetricChange | null }
     )
 }
 
-export function WebAnalyticsDigestNotification({
-    metadata,
-    onOpen,
-    onAskMax,
-}: {
-    metadata: WebAnalyticsDigestMetadata
-    onOpen: (e: React.MouseEvent) => void
-    onAskMax: (e: React.MouseEvent) => void
-}): JSX.Element {
+export function WebAnalyticsDigestNotification({ metadata }: { metadata: WebAnalyticsDigestMetadata }): JSX.Element {
     const byKey = (key: string): WebAnalyticsDigestMetric | undefined => metadata.metrics.find((m) => m.key === key)
     const hero = byKey('visitors')
     const pageviews = byKey('pageviews')
@@ -35,30 +24,18 @@ export function WebAnalyticsDigestNotification({
         .join(' · ')
 
     return (
-        <div className="mt-1 flex flex-col gap-2.5">
+        <div className="mt-2 flex flex-col gap-1.5">
             {hero && (
-                <div className="flex items-baseline gap-2">
-                    <span className="text-3xl font-bold leading-none tabular-nums">{hero.value}</span>
-                    <span className="text-sm text-secondary">{hero.label.toLowerCase()}</span>
-                    <TrendPill change={hero.change} />
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                    <span className="text-lg font-bold leading-none tabular-nums">{hero.value}</span>
+                    {/* Keep label + trend together so the pill wraps below the number instead of clipping the panel edge */}
+                    <span className="inline-flex items-baseline gap-2 whitespace-nowrap">
+                        <span className="text-sm text-secondary">{hero.label.toLowerCase()}</span>
+                        <TrendPill change={hero.change} />
+                    </span>
                 </div>
             )}
-            {subline && <div className="text-xs text-muted">{subline}</div>}
-            <div className="flex flex-col gap-1.5">
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    fullWidth
-                    center
-                    sideIcon={<IconArrowRight />}
-                    onClick={onOpen}
-                >
-                    View web analytics
-                </LemonButton>
-                <LemonButton type="secondary" size="small" fullWidth center icon={<IconSparkles />} onClick={onAskMax}>
-                    Ask PostHog AI
-                </LemonButton>
-            </div>
+            {subline && <div className="text-xs text-secondary">{subline}</div>}
         </div>
     )
 }

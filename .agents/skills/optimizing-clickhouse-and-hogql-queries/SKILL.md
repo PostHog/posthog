@@ -57,7 +57,7 @@ Table schemas, skim for `ORDER BY` / `PARTITION BY` / `INDEX` / materialized col
 - Events: [`posthog/models/event/sql.py`](../../../posthog/models/event/sql.py)
 - Sessions v3: [`sessions_v3.py`](../../../posthog/models/raw_sessions/sessions_v3.py) (v2: [`sessions_v2.py`](../../../posthog/models/raw_sessions/sessions_v2.py))
 - Persons: [`posthog/models/person/sql.py`](../../../posthog/models/person/sql.py); overrides: [`person_overrides/sql.py`](../../../posthog/models/person_overrides/sql.py)
-- Cohorts (`cohortpeople` membership): [`posthog/models/cohort/sql.py`](../../../posthog/models/cohort/sql.py). The Postgres `Cohort` definition ([`cohort.py`](../../../posthog/models/cohort/cohort.py)) is a Postgres concern (Step 0).
+- Cohorts (`cohortpeople` membership): [`products/cohorts/backend/models/sql.py`](../../../products/cohorts/backend/models/sql.py). The Postgres `Cohort` definition ([`cohort.py`](../../../products/cohorts/backend/models/cohort.py)) is a Postgres concern (Step 0).
 - Other tables (`app_metrics2`, `session_replay_events`, `log_entries`, `heatmaps`, product tables): find under [`posthog/models/*/sql.py`](../../../posthog/models/) or the [migration](../../../posthog/clickhouse/migrations/) that created them.
 
 HogQL side: query entry [`query.py`](../../../posthog/hogql/query.py); printers [`clickhouse.py`](../../../posthog/hogql/printer/clickhouse.py) / [`base.py`](../../../posthog/hogql/printer/base.py); helpers [`utils.py`](../../../posthog/hogql/printer/utils.py); functions [`posthog/hogql/functions/`](../../../posthog/hogql/functions/) (aggregations in [`aggregations.py`](../../../posthog/hogql/functions/aggregations.py)); schema [`posthog/hogql/database/schema/`](../../../posthog/hogql/database/schema/).

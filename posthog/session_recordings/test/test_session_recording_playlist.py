@@ -903,7 +903,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         )
 
     @patch(
-        "posthog.hogql.database.database.posthoganalytics.feature_enabled",
+        "posthog.hogql.database.database.feature_enabled_or_false",
         new=MagicMock(return_value=False),
     )
     @snapshot_postgres_queries

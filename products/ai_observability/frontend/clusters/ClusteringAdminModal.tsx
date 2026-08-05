@@ -2,18 +2,17 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonModal, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { DEFAULT_CLUSTERING_PARAMS, clustersAdminLogic } from './clustersAdminLogic'
 
 export function ClusteringAdminModal(): JSX.Element {
     const { isModalOpen, params, isRunning } = useValues(clustersAdminLogic)
     const { closeModal, setParams, triggerClusteringRun, resetParams } = useActions(clustersAdminLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const evaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CLUSTERING]
 
     return (
         <LemonModal
@@ -40,14 +39,19 @@ export function ClusteringAdminModal(): JSX.Element {
                     >
                         Cancel
                     </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={triggerClusteringRun}
-                        loading={isRunning}
-                        data-attr="clusters-admin-run"
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.AiObservabilityClusters}
+                        minAccessLevel={AccessControlLevel.Editor}
                     >
-                        Run clustering
-                    </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            onClick={triggerClusteringRun}
+                            loading={isRunning}
+                            data-attr="clusters-admin-run"
+                        >
+                            Run clustering
+                        </LemonButton>
+                    </AccessControlAction>
                 </>
             }
         >
@@ -61,21 +65,16 @@ export function ClusteringAdminModal(): JSX.Element {
                         options={[
                             { value: 'trace', label: 'Traces' },
                             { value: 'generation', label: 'Generations' },
-                            ...(evaluationsEnabled ? [{ value: 'evaluation' as const, label: 'Evaluations' }] : []),
+                            { value: 'evaluation' as const, label: 'Evaluations' },
                         ]}
                         fullWidth
                         data-attr="clusters-admin-level"
                     />
                     <div className="text-xs text-muted mt-2">
                         <strong>Traces:</strong> Cluster entire conversation traces. <strong>Generations:</strong>{' '}
-                        Cluster individual LLM generations for finer-grained analysis.
-                        {evaluationsEnabled && (
-                            <>
-                                {' '}
-                                <strong>Evaluations:</strong> Cluster $ai_evaluation events by their verdict and
-                                reasoning to see patterns in what evaluators flag.
-                            </>
-                        )}
+                        Cluster individual LLM generations for finer-grained analysis. <strong>Evaluations:</strong>{' '}
+                        Cluster $ai_evaluation events by their verdict and reasoning to see patterns in what evaluators
+                        flag.
                     </div>
                 </div>
 

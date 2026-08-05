@@ -5,7 +5,7 @@
 const { TextEncoder, TextDecoder } = require('node:util')
 const { ReadableStream, WritableStream, TransformStream } = require('node:stream/web')
 const { Blob, File } = require('node:buffer')
-const { BroadcastChannel } = require('node:worker_threads')
+const { BroadcastChannel, MessageChannel, MessagePort } = require('node:worker_threads')
 
 // configurable so @mswjs/interceptors can wrap Request/Response when the server starts.
 const define = (props) =>
@@ -26,6 +26,8 @@ define({
     Blob,
     File,
     BroadcastChannel,
+    MessageChannel,
+    MessagePort,
 })
 
 // jsdom's setTimeout returns a number, but undici's internal fast-timer calls `.refresh()`/`.unref()`

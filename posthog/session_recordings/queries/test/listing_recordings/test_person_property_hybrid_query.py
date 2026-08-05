@@ -11,7 +11,6 @@ from posthog.schema import PersonPropertyFilter, PropertyOperator, RecordingsQue
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
-from posthog.models import Person
 from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
 from posthog.session_recordings.queries.test.listing_recordings.test_utils import (
     assert_query_matches_session_ids,
@@ -19,6 +18,7 @@ from posthog.session_recordings.queries.test.listing_recordings.test_utils impor
 )
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
+from posthog.test.persons import create_person
 
 
 @freeze_time("2021-01-01T13:46:23")
@@ -46,7 +46,7 @@ class TestPersonPropertyHybridQuery(ClickhouseTestMixin, APIBaseTest):
             identified_id = "identified_user_123"
             session_id_after = "session_after_identification"
 
-            Person.objects.create(
+            create_person(
                 team=self.team,
                 distinct_ids=[anonymous_id, identified_id],
                 properties={"email": "user@example.com"},
@@ -102,7 +102,7 @@ class TestPersonPropertyHybridQuery(ClickhouseTestMixin, APIBaseTest):
                 properties={"$session_id": session_id_before},
             )
 
-            Person.objects.create(
+            create_person(
                 team=self.team,
                 distinct_ids=[anonymous_id, identified_id],
                 properties={"email": "user@example.com"},
@@ -146,7 +146,7 @@ class TestPersonPropertyHybridQuery(ClickhouseTestMixin, APIBaseTest):
             session_id_2 = "session_2"
             session_id_3 = "session_3"
 
-            Person.objects.create(
+            create_person(
                 team=self.team,
                 distinct_ids=[distinct_id_1, distinct_id_2, distinct_id_3],
                 properties={"email": "multi@example.com"},

@@ -8,11 +8,15 @@ from uuid import UUID, uuid4
 
 from posthog.test.base import _create_event, flush_persons_and_events
 
+from django.conf import settings
 from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Group, Person, PersonDistinctId, Team
-from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models import Person, Team
+from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
+from posthog.models.event.util import _json_dumps_for_clickhouse
+from posthog.models.group.util import get_group_by_key
+from posthog.models.person.util import get_person_by_distinct_id
 
 
 def journeys_for(
@@ -41,40 +45,45 @@ def journeys_for(
     Writing tests in this way reduces duplication in test setup
     And clarifies the preconditions of the test
     """
+    from posthog.test.persons import create_people_bulk  # noqa: PLC0415
+
     flush_persons_and_events()
     people = {}
-    events_to_create = []
-    for distinct_id, events in events_by_person.items():
+    to_create_bulk: list[dict[str, Any]] = []
+    for distinct_id in events_by_person:
         if create_people:
             # Create the person UUID from the distinct ID and test path, so that SQL snapshots are deterministic
             derived_uuid = UUID(
                 bytes=md5((os.getenv("PYTEST_CURRENT_TEST", "some_test") + distinct_id).encode("utf-8")).digest()
             )
-            people[distinct_id] = update_or_create_person(
-                distinct_ids=[distinct_id], team_id=team.pk, uuid=derived_uuid
-            )
+            existing_person = get_person_by_distinct_id(team.pk, distinct_id)
+            if existing_person is not None:
+                people[distinct_id] = update_or_create_person(
+                    distinct_ids=[distinct_id], team_id=team.pk, uuid=derived_uuid
+                )
+            else:
+                to_create_bulk.append({"team_id": team.pk, "distinct_ids": [distinct_id], "uuid": derived_uuid})
         else:
-            people[distinct_id] = Person.objects.get(
-                persondistinctid__distinct_id=distinct_id,
-                persondistinctid__team_id=team.pk,
-            )
+            existing_person = get_person_by_distinct_id(team.pk, distinct_id)
+            assert existing_person is not None
+            people[distinct_id] = existing_person
 
+    # One bulk ClickHouse insert per table instead of two inserts per person.
+    for spec, person in zip(to_create_bulk, create_people_bulk(to_create_bulk)):
+        people[spec["distinct_ids"][0]] = person
+
+    events_to_create = []
+    for distinct_id, events in events_by_person.items():
         for event in events:
             # Populate group properties as well
             group_mapping = {}
             for property_key, value in (event.get("properties") or {}).items():
                 if property_key.startswith("$group_"):
                     group_type_index = property_key[-1]
-                    try:
-                        group = Group.objects.get(
-                            team_id=team.pk,
-                            group_type_index=group_type_index,
-                            group_key=value,
-                        )
-                        group_mapping[f"group{group_type_index}"] = group
-
-                    except Group.DoesNotExist:
+                    group = get_group_by_key(team.pk, int(group_type_index), value)
+                    if group is None:
                         continue
+                    group_mapping[f"group{group_type_index}"] = group
 
             if "timestamp" not in event:
                 event["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
@@ -119,7 +128,8 @@ def journeys_for(
 
 
 def _create_all_events_raw(all_events: list[dict]):
-    parsed = ""
+    legacy_rows = ""
+    json_rows = ""
     for event in all_events:
         timestamp = timezone.now()
         data: dict[str, Any] = {
@@ -153,14 +163,70 @@ def _create_all_events_raw(all_events: list[dict]):
             if not data[key]:
                 data[key] = timestamp
         in_memory_event = InMemoryEvent(**data)
-        parsed += f"""
-        ('{in_memory_event.event_uuid}', '{in_memory_event.event}', '{json.dumps(in_memory_event.properties)}', '{in_memory_event.timestamp}', {in_memory_event.team.pk}, '{in_memory_event.distinct_id}', '', '{in_memory_event.person_id}', '{json.dumps(in_memory_event.person_properties)}', '{in_memory_event.person_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{json.dumps(in_memory_event.group0_properties)}', '{json.dumps(in_memory_event.group1_properties)}', '{json.dumps(in_memory_event.group2_properties)}', '{json.dumps(in_memory_event.group3_properties)}', '{json.dumps(in_memory_event.group4_properties)}', '{in_memory_event.group0_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group1_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group2_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group3_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group4_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f")}', now(), 0)
-        """
+        created_at = timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f")
+        legacy_rows += _event_row_values(
+            in_memory_event,
+            properties=json.dumps(in_memory_event.properties),
+            person_properties=json.dumps(in_memory_event.person_properties),
+            created_at=created_at,
+        )
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            json_rows += _event_row_values(
+                in_memory_event,
+                properties=_json_dumps_for_clickhouse(in_memory_event.properties),
+                person_properties=_json_dumps_for_clickhouse(in_memory_event.person_properties),
+                created_at=created_at,
+            )
 
+    _insert_event_rows_raw(EVENTS_DATA_TABLE(), legacy_rows)
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        _insert_event_rows_raw(EVENTS_JSON_DATA_TABLE, json_rows)
+
+
+def _event_row_values(
+    in_memory_event: "InMemoryEvent",
+    *,
+    properties: str,
+    person_properties: str,
+    created_at: str,
+) -> str:
+    values = [
+        f"'{in_memory_event.event_uuid}'",
+        f"'{in_memory_event.event}'",
+        f"'{properties}'",
+        f"'{in_memory_event.timestamp}'",
+        str(in_memory_event.team.pk),
+        f"'{in_memory_event.distinct_id}'",
+        "''",
+        f"'{in_memory_event.person_id}'",
+        f"'{person_properties}'",
+        f"'{_format_clickhouse_timestamp(in_memory_event.person_created_at)}'",
+        f"'{json.dumps(in_memory_event.group0_properties)}'",
+        f"'{json.dumps(in_memory_event.group1_properties)}'",
+        f"'{json.dumps(in_memory_event.group2_properties)}'",
+        f"'{json.dumps(in_memory_event.group3_properties)}'",
+        f"'{json.dumps(in_memory_event.group4_properties)}'",
+        f"'{_format_clickhouse_timestamp(in_memory_event.group0_created_at)}'",
+        f"'{_format_clickhouse_timestamp(in_memory_event.group1_created_at)}'",
+        f"'{_format_clickhouse_timestamp(in_memory_event.group2_created_at)}'",
+        f"'{_format_clickhouse_timestamp(in_memory_event.group3_created_at)}'",
+        f"'{_format_clickhouse_timestamp(in_memory_event.group4_created_at)}'",
+        f"'{created_at}'",
+        "now()",
+        "0",
+    ]
+    return f"\n        ({', '.join(values)})\n        "
+
+
+def _format_clickhouse_timestamp(value: datetime) -> str:
+    return value.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+
+def _insert_event_rows_raw(table_name: str, rows: str) -> None:
     sync_execute(
         f"""
-    INSERT INTO {EVENTS_DATA_TABLE()} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, person_id, person_properties, person_created_at, group0_properties, group1_properties, group2_properties, group3_properties, group4_properties, group0_created_at, group1_created_at, group2_created_at, group3_created_at, group4_created_at, created_at, _timestamp, _offset) VALUES
-    {parsed}
+    INSERT INTO {table_name} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, person_id, person_properties, person_created_at, group0_properties, group1_properties, group2_properties, group3_properties, group4_properties, group0_created_at, group1_created_at, group2_created_at, group3_created_at, group4_created_at, created_at, _timestamp, _offset) VALUES
+    {rows}
     """
     )
 
@@ -195,19 +261,18 @@ class InMemoryEvent:
 
 
 def update_or_create_person(distinct_ids: list[str], team_id: int, **kwargs):
-    (person, _) = Person.objects.update_or_create(
-        persondistinctid__distinct_id__in=distinct_ids,
-        persondistinctid__team_id=team_id,
-        defaults={**kwargs, "team_id": team_id},
-    )
+    from posthog.test.persons import create_person, update_person  # noqa: PLC0415
+
+    existing = None
     for distinct_id in distinct_ids:
-        PersonDistinctId.objects.update_or_create(
-            distinct_id=distinct_id,
-            team_id=person.team_id,
-            defaults={
-                "person_id": person.id,
-                "team_id": team_id,
-                "distinct_id": distinct_id,
-            },
-        )
-    return person
+        existing = get_person_by_distinct_id(team_id, distinct_id)
+        if existing is not None:
+            break
+
+    if existing is None:
+        return create_person(team_id=team_id, distinct_ids=distinct_ids, **kwargs)
+
+    for key, value in kwargs.items():
+        setattr(existing, key, value)
+    update_person(existing)
+    return existing

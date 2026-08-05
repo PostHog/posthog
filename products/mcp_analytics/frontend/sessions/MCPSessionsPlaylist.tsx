@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { memo, useRef } from 'react'
 
 import { IconBolt, IconClock, IconRefresh, IconSearch, IconSparkles } from '@posthog/icons'
 import {
@@ -25,6 +25,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
+import { McpDateFilter } from '../components/McpDateFilter'
 import type { MCPSessionApi } from '../generated/api.schemas'
 import { MCPSessionDetail } from './MCPSessionDetail'
 import { type MCPSessionOrderBy, type MCPSessionSorting, mcpSessionsLogic, orderByParam } from './mcpSessionsLogic'
@@ -133,33 +134,57 @@ function SessionDetailPanel({ className }: { className?: string }): JSX.Element 
 }
 
 function SessionsListPanel(): JSX.Element {
-    const { setFilters, loadSessions, loadMoreSessions, setSorting } = useActions(mcpSessionsLogic)
-    const { sessions, sessionsLoading, filters, sorting, hasNext } = useValues(mcpSessionsLogic)
+    const { setFilters, setDateFilter, loadSessions, loadMoreSessions, setSorting, selectSession } =
+        useActions(mcpSessionsLogic)
+    const { sessions, sessionsLoading, filters, dateFilter, sorting, hasNext, selectedSessionId } =
+        useValues(mcpSessionsLogic)
 
     return (
         <div className="flex flex-col h-full min-h-0 overflow-hidden rounded border border-primary bg-surface-primary">
             <div className="shrink-0 flex flex-col gap-2 border-b border-primary p-2">
                 <div className="flex flex-col gap-2" data-quill>
-                    <InputGroup className="w-full">
-                        <InputGroupAddon align="inline-start">
-                            <InputGroupText>
-                                <IconSearch />
-                            </InputGroupText>
-                        </InputGroupAddon>
-                        <InputGroupInput
-                            type="search"
-                            placeholder="Search by session id, client, or tool"
-                            onChange={(e) => setFilters({ search: e.target.value })}
-                            value={filters.search}
+                    <div className="flex items-center gap-2">
+                        <InputGroup className="flex-1">
+                            <InputGroupAddon align="inline-start">
+                                <InputGroupText>
+                                    <IconSearch />
+                                </InputGroupText>
+                            </InputGroupAddon>
+                            <InputGroupInput
+                                type="search"
+                                placeholder="Search by session id, client, or tool"
+                                onChange={(e) => setFilters({ search: e.target.value })}
+                                value={filters.search}
+                            />
+                        </InputGroup>
+                        <Button
+                            variant="outline"
+                            size="icon"
+                            className="size-8"
+                            onClick={() => loadSessions()}
+                            disabled={sessionsLoading}
+                            title="Reload sessions"
+                        >
+                            {sessionsLoading ? <Spinner /> : <IconRefresh />}
+                        </Button>
+                    </div>
+                    <div className="flex items-center justify-between gap-1">
+                        <McpDateFilter
+                            dateFrom={dateFilter.dateFrom}
+                            dateTo={dateFilter.dateTo}
+                            onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
+                            dataAttr="mcp-sessions-date-filter"
                         />
-                    </InputGroup>
-                    <div className="flex items-center justify-between gap-2">
                         <Select
                             value={sortingToValue(sorting)}
                             onValueChange={(value) => setSorting(valueToSorting(value as MCPSessionOrderBy))}
                         >
-                            <SelectTrigger size="sm" data-attr="mcp-sessions-sort">
-                                <SelectValue />
+                            <SelectTrigger data-attr="mcp-sessions-sort">
+                                <SelectValue>
+                                    {(value: MCPSessionOrderBy) =>
+                                        SORT_OPTIONS.find((o) => o.value === value)?.label ?? value
+                                    }
+                                </SelectValue>
                             </SelectTrigger>
                             <SelectContent>
                                 {SORT_OPTIONS.map((option) => (
@@ -169,15 +194,6 @@ function SessionsListPanel(): JSX.Element {
                                 ))}
                             </SelectContent>
                         </Select>
-                        <Button
-                            variant="outline"
-                            size="icon-sm"
-                            onClick={() => loadSessions()}
-                            disabled={sessionsLoading}
-                            title="Reload sessions"
-                        >
-                            {sessionsLoading ? <Spinner /> : <IconRefresh />}
-                        </Button>
                     </div>
                 </div>
             </div>
@@ -195,7 +211,11 @@ function SessionsListPanel(): JSX.Element {
                         <ul className="flex flex-col list-none pl-0 m-0 divide-y divide-primary">
                             {sessions.map((session) => (
                                 <li key={session.session_id}>
-                                    <MCPSessionPreview session={session} />
+                                    <MCPSessionPreview
+                                        session={session}
+                                        isActive={session.session_id === selectedSessionId}
+                                        onSelect={selectSession}
+                                    />
                                 </li>
                             ))}
                         </ul>
@@ -219,11 +239,18 @@ function SessionsListPanel(): JSX.Element {
     )
 }
 
-function MCPSessionPreview({ session }: { session: MCPSessionApi }): JSX.Element {
-    const { selectSession } = useActions(mcpSessionsLogic)
-    const { selectedSessionId } = useValues(mcpSessionsLogic)
-    const isActive = session.session_id === selectedSessionId
-
+// memo relies on stable identities: kea replaces the sessions array wholesale on load
+// (so unchanged rows keep their reference) and selectSession is a stable bound action.
+// A selector that maps or clones sessions would silently defeat this.
+const MCPSessionPreview = memo(function MCPSessionPreview({
+    session,
+    isActive,
+    onSelect,
+}: {
+    session: MCPSessionApi
+    isActive: boolean
+    onSelect: (sessionId: string) => void
+}): JSX.Element {
     const personLabel = session.person_name || session.person_email
     const durationMs = sessionDurationMs(session.session_start, session.session_end)
 
@@ -232,7 +259,7 @@ function MCPSessionPreview({ session }: { session: MCPSessionApi }): JSX.Element
             type="button"
             data-attr="mcp-session-preview"
             aria-pressed={isActive}
-            onClick={() => selectSession(session.session_id)}
+            onClick={() => onSelect(session.session_id)}
             className={cn(
                 'w-full text-left cursor-pointer border-l-2 px-2 py-1.5 text-xs flex flex-col gap-1',
                 isActive
@@ -270,4 +297,4 @@ function MCPSessionPreview({ session }: { session: MCPSessionApi }): JSX.Element
             </div>
         </button>
     )
-}
+})

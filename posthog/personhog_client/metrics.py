@@ -17,7 +17,7 @@ PERSONHOG_ROUTING_TOTAL = Counter(
 
 PERSONHOG_ROUTING_ERRORS_TOTAL = Counter(
     "personhog_routing_errors_total",
-    "Errors encountered during personhog routing (triggers fallback to ORM)",
+    "Errors encountered during personhog routing",
     labelnames=["operation", "source", "error_type", "client_name"],
 )
 

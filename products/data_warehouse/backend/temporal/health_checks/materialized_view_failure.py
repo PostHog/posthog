@@ -13,7 +13,7 @@ from posthog.temporal.health_checks.framework import (
 )
 from posthog.temporal.health_checks.models import HealthCheckResult
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
 
 class MaterializedViewFailureCheck(HealthCheck):

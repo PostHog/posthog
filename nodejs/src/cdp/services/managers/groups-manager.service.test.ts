@@ -1,5 +1,5 @@
-import { TeamManager } from '~/utils/team-manager'
-import { GroupReadRepository } from '~/worker/ingestion/groups/repositories/group-repository.interface'
+import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
+import { TeamManager } from '~/common/utils/team-manager'
 
 import { createHogExecutionGlobals } from '../../_tests/fixtures'
 import { GroupsManagerService } from './groups-manager.service'
@@ -321,6 +321,23 @@ describe('Groups Manager', () => {
         expect(mockFetchGroupTypesByTeamIds).toHaveBeenCalledWith([99], 'cdp/hogflow-group-type-resolution')
         expect(mockFetchGroupsByKeys).not.toHaveBeenCalled()
     })
+
+    it.each([['project'], ['event']] as const)(
+        'does not throw when globals.%s is missing (poison-pill invocation)',
+        async (field) => {
+            // A malformed invocation whose state.globals is present but missing project/event
+            // must not crash the worker — otherwise it becomes a poison pill that crash-loops
+            // the cyclotron-hog consumer and stalls the partition it owns.
+            const globals = createHogExecutionGlobals({
+                groups: undefined,
+                event: { properties: { $groups: { GroupA: 'id-1' } } } as any,
+            })
+            delete (globals as any)[field]
+
+            await expect(groupsManager.addGroupsToGlobals(globals)).resolves.toBeUndefined()
+            expect(globals.groups).toEqual({})
+        }
+    )
 
     it('respects clear() to reset all caches', async () => {
         const globals1 = createHogExecutionGlobals({

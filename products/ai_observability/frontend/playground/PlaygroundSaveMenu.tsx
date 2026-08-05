@@ -6,10 +6,8 @@ import React from 'react'
 import { IconLlmPromptManagement } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
@@ -25,13 +23,9 @@ export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.El
     const { linkedSource, saving } = useValues(llmPlaygroundPromptsLogic)
     const { clearLinkedSource, saveToLinkedPrompt, saveToLinkedEvaluation, saveAsNewPrompt, saveAsNewEvaluation } =
         useActions(llmPlaygroundPromptsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
 
     const selectedModel = effectiveModelOptions.find((model) => model.id === prompt.model)
-    const isEarlyAdopter = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-    const isPromptManagementEnabled = !!featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] || isEarlyAdopter
-    const isEvaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
 
     const { promptName: linkedPromptName, evaluationId: linkedEvaluationId } = linkedSource
     const hasLinkedSource = !!linkedPromptName || !!linkedEvaluationId
@@ -104,8 +98,8 @@ export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.El
     const loadActions: JSX.Element[] = []
 
     const isLinkedSourceEnabled =
-        (linkedSource.type === 'prompt' && linkedPromptName && isPromptManagementEnabled) ||
-        (linkedSource.type === 'evaluation' && linkedEvaluationId && isEvaluationsEnabled && modelConfig)
+        (linkedSource.type === 'prompt' && linkedPromptName) ||
+        (linkedSource.type === 'evaluation' && linkedEvaluationId && modelConfig)
 
     if (linkedLabel && isLinkedSourceEnabled) {
         linkedActions.push(
@@ -132,26 +126,18 @@ export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.El
         )
     }
 
-    if (isPromptManagementEnabled) {
-        saveAsNewActions.push(
-            <LemonButton
-                key="save-new-prompt"
-                type="tertiary"
-                size="small"
-                fullWidth
-                onClick={openSaveAsNewPromptDialog}
-            >
-                Save as new prompt
-            </LemonButton>
-        )
-        loadActions.push(
-            <LemonButton key="load-prompt" type="tertiary" size="small" fullWidth to={urls.aiObservabilityPrompts()}>
-                Load prompt
-            </LemonButton>
-        )
-    }
+    saveAsNewActions.push(
+        <LemonButton key="save-new-prompt" type="tertiary" size="small" fullWidth onClick={openSaveAsNewPromptDialog}>
+            Save as new prompt
+        </LemonButton>
+    )
+    loadActions.push(
+        <LemonButton key="load-prompt" type="tertiary" size="small" fullWidth to={urls.aiObservabilityPrompts()}>
+            Load prompt
+        </LemonButton>
+    )
 
-    if (isEvaluationsEnabled && modelConfig) {
+    if (modelConfig) {
         saveAsNewActions.push(
             <LemonButton
                 key="save-new-evaluation"

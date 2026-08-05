@@ -42,6 +42,29 @@ class TestTranslateSpanFilter(SimpleTestCase):
 
     @parameterized.expand(
         [
+            # Duration is given in seconds and converted to nanoseconds. The result must be an
+            # integer string — a `.0`-suffixed value can't be cast to the UInt64 `duration_nano`
+            # column and makes ClickHouse throw. Floats (e.g. the slider max) are the regression.
+            ("duration_int", 2, "2000000"),
+            ("duration_float", 2000000000.0, "2000000000000000"),
+            ("duration_float_string", "2000000000.0", "2000000000000000"),
+            ("duration_int_string", "2", "2000000"),
+        ]
+    )
+    def test_duration_converts_to_integer_nanoseconds(self, _name, value, expected):
+        span_filter = _span_filter("duration", value)
+        translate_span_filter(span_filter)
+        self.assertEqual(span_filter.key, "duration_nano")
+        self.assertEqual(span_filter.value, expected)
+
+    def test_duration_list_converts_to_integer_nanoseconds(self):
+        span_filter = _span_filter("duration", [1.0, 2000000000.0])
+        translate_span_filter(span_filter)
+        self.assertEqual(span_filter.key, "duration_nano")
+        self.assertEqual(span_filter.value, ["1000000", "2000000000000000"])
+
+    @parameterized.expand(
+        [
             ("status_code", "status_code", 2, ["2"]),
             ("kind", "kind", "3", ["3"]),
         ]

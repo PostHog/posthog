@@ -1,7 +1,8 @@
-import { BackgroundRefresher } from '../../../utils/background-refresher'
-import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
-import { logger } from '../../../utils/logger'
-import { Component } from '../scopes'
+import { BackgroundRefresher } from '~/common/utils/background-refresher'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { logger } from '~/common/utils/logger'
+import { Component } from '~/ingestion/common/scopes'
+
 import { treeHasConditions } from './evaluate'
 import { EventFilterRowSchema, EventFilterRule } from './schema'
 

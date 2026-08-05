@@ -3,12 +3,13 @@ import { Counter, Histogram } from 'prom-client'
 
 import { ExecResult } from '@posthog/hogvm'
 
-import { HogFlow } from '../../schema/hogflow'
+import { HogFlow } from '~/cdp/schema/hogflow'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
+import { createTrackedRE2 } from '~/common/utils/tracked-re2'
+import { UUIDT, clickHouseTimestampToISO } from '~/common/utils/utils'
+
 import { RawClickHouseEvent } from '../../types'
-import { parseJSON } from '../../utils/json-parse'
-import { logger } from '../../utils/logger'
-import { createTrackedRE2 } from '../../utils/tracked-re2'
-import { UUIDT, clickHouseTimestampToISO } from '../../utils/utils'
 import {
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
@@ -225,7 +226,11 @@ export function convertClickhouseRawEventToFilterGlobals(event: RawClickHouseEve
 export function convertToHogFunctionFilterGlobal(
     globals: Pick<HogFunctionInvocationGlobals, 'event' | 'person' | 'groups' | 'variables'>
 ): HogFunctionFilterGlobals {
-    const elementsChain = globals.event.elements_chain ?? globals.event.properties['$elements_chain']
+    // Rehydrated invocation events (e.g. a rerun of a janitor-recorded poison pill,
+    // whose stored globals are trimmed) can arrive without `properties` — default it
+    // rather than dereferencing undefined.
+    const properties = globals.event.properties ?? {}
+    const elementsChain = globals.event.elements_chain ?? properties['$elements_chain']
 
     const response: HogFunctionFilterGlobals = {
         event: globals.event.event,
@@ -236,7 +241,7 @@ export function convertToHogFunctionFilterGlobal(
         elements_chain_ids: [] as string[],
         elements_chain_elements: [] as string[],
         timestamp: globals.event.timestamp,
-        properties: globals.event.properties,
+        properties,
         person: globals.person ? { id: globals.person.id, properties: globals.person.properties } : null,
         pdi: globals.person
             ? {

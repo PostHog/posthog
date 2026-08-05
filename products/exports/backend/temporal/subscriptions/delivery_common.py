@@ -1,9 +1,11 @@
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 from slack_sdk.errors import SlackApiError
 from structlog import get_logger
 from temporalio.exceptions import ApplicationError
 
+from posthog.email import EmailDeliveryError
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 from posthog.sync import database_sync_to_async
@@ -25,6 +27,31 @@ from ee.tasks.subscriptions.auto_disable import (
 from ee.tasks.subscriptions.slack_subscriptions import SlackDeliveryResult, get_slack_integration_for_team
 
 LOGGER = get_logger(__name__)
+
+# Cap recipient_results echoed into an ApplicationError's details — Temporal serializes error
+# details into history events capped at the gRPC payload limit, and an oversized non-retryable
+# error can't be recorded, leaving the workflow unable to complete its failing task.
+_MAX_ERROR_DETAIL_RESULTS = 50
+
+
+def strip_null_bytes(value: Any) -> Any:
+    """Recursively remove NUL (\\x00) from strings — Postgres text/jsonb columns cannot store it.
+
+    Anything written to ``SubscriptionDelivery.content_snapshot`` that originates outside a Postgres
+    text column (ClickHouse query results, LLM output, user-supplied prompts) must pass through this
+    first, or the NUL surfaces as a unicode escape that fails the whole delivery write with a DataError.
+    """
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, list):
+        return [strip_null_bytes(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(strip_null_bytes(v) for v in value)
+    if isinstance(value, dict):
+        # Strip keys too: a Map(String, …) column can produce data-derived keys carrying NUL,
+        # and Postgres rejects it in a jsonb key just as it does in a value.
+        return {strip_null_bytes(k): strip_null_bytes(v) for k, v in value.items()}
+    return value
 
 
 async def auto_disable_and_return(
@@ -57,8 +84,16 @@ async def deliver_email(
     """Send to each recipient via `send_one`. Partial success is kept; only an all-failed run
     raises, so a Temporal retry won't re-send to recipients who already succeeded."""
     emails = list(dict.fromkeys(e.strip() for e in subscription.target_value.split(",") if e.strip()))
-    if inputs.is_new_subscription_target and inputs.previous_value is not None:
-        previous = {e.strip() for e in inputs.previous_value.split(",") if e.strip()}
+    previous_target_value = inputs.previous_target_value
+    if previous_target_value is None:
+        previous_target_value = inputs.previous_value
+    send_only_to_new_recipients = (
+        inputs.is_new_subscription_target
+        if inputs.is_new_subscription_target is not None
+        else previous_target_value is not None and previous_target_value != subscription.target_value
+    )
+    if send_only_to_new_recipients:
+        previous = {e.strip() for e in (previous_target_value or "").split(",") if e.strip()}
         emails = [e for e in emails if e not in previous]
 
     await LOGGER.ainfo(
@@ -66,7 +101,7 @@ async def deliver_email(
     )
 
     success_count = 0
-    last_error: Exception | None = None
+    failures: list[tuple[str, Exception]] = []
     for email in emails:
         try:
             await send_one(email)
@@ -88,7 +123,7 @@ async def deliver_email(
                     recipient=email, status="failed", error={"message": str(exc), "type": type(exc).__name__}
                 )
             )
-            last_error = exc
+            failures.append((email, exc))
 
     await LOGGER.ainfo(
         "deliver_subscription.email_complete",
@@ -97,8 +132,33 @@ async def deliver_email(
         total_count=len(emails),
     )
 
-    if last_error is not None and success_count == 0:
-        raise last_error
+    if failures and success_count == 0:
+        # Whole batch failed. Retryability is decided per recipient, not by which error
+        # happened to be last: any transient failure means a retry must run so those
+        # recipients get another attempt (dedupe skips the already-delivered ones). Only
+        # when every recipient hit a permanent rejection (EmailDeliveryError) is the batch
+        # non-retryable — retrying then could never succeed.
+        # Bound the error details: a huge recipient list with a domain-wide bounce would
+        # otherwise exceed Temporal's gRPC payload cap and wedge the workflow mid-failure.
+        details: list[dict[str, Any]] = [
+            {
+                "recipient": result.recipient,
+                "status": result.status,
+                **({"error": result.error} if result.error else {}),
+            }
+            for result in recipient_results[:_MAX_ERROR_DETAIL_RESULTS]
+        ]
+        if len(recipient_results) > _MAX_ERROR_DETAIL_RESULTS:
+            details.append({"truncated_count": len(recipient_results) - _MAX_ERROR_DETAIL_RESULTS})
+        permanent = [err for _, err in failures if isinstance(err, EmailDeliveryError)]
+        if permanent and len(permanent) == len(failures):
+            raise ApplicationError(
+                f"all {len(failures)} recipients permanently rejected delivery",
+                {"recipient_results": details},
+                non_retryable=True,
+            ) from permanent[0]
+        # Mixed or all-transient: re-raise a retryable error so Temporal retries the batch.
+        raise next(err for _, err in failures if not isinstance(err, EmailDeliveryError))
     return DeliverSubscriptionResult(recipient_results=recipient_results)
 
 

@@ -3,12 +3,6 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
-    DesktopFileSystemCreateBody,
-    DesktopFileSystemInstructionsPartialUpdateBody,
-    DesktopFileSystemInstructionsPartialUpdateParams,
-    DesktopFileSystemInstructionsRetrieveParams,
-    DesktopFileSystemListQueryParams,
-    DesktopFileSystemRetrieveParams,
     OrganizationsProjectsPartialUpdateBody,
     OrganizationsProjectsPartialUpdateParams,
     OrganizationsProjectsRetrieveParams,
@@ -17,152 +11,18 @@ import {
     UsersRetrieveParams,
 } from '@/generated/core/api'
 import { castStringToInt } from '@/tools/cast-helpers'
-import { omitResponseFields } from '@/tools/tool-utils'
+import { omitResponseFields, pickResponseFields } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const DesktopFileSystemCreateSchema = DesktopFileSystemCreateBody.extend({
-    path: DesktopFileSystemCreateBody.shape['path'].describe(
-        'Slash-delimited location of the channel, e.g. "Marketing/Q1 Campaigns". Intermediate folders are created automatically.'
-    ),
-    type: DesktopFileSystemCreateBody.shape['type'].describe('Use "folder" to create a channel.'),
-})
-
-const desktopFileSystemCreate = (): ToolBase<typeof DesktopFileSystemCreateSchema, Schemas.FileSystem> => ({
-    name: 'desktop-file-system-create',
-    schema: DesktopFileSystemCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.path !== undefined) {
-            body['path'] = params.path
-        }
-        if (params.type !== undefined) {
-            body['type'] = params.type
-        }
-        if (params.ref !== undefined) {
-            body['ref'] = params.ref
-        }
-        if (params.href !== undefined) {
-            body['href'] = params.href
-        }
-        if (params.meta !== undefined) {
-            body['meta'] = params.meta
-        }
-        if (params.shortcut !== undefined) {
-            body['shortcut'] = params.shortcut
-        }
-        const result = await context.api.request<Schemas.FileSystem>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/`,
-            body,
-        })
-        return result
-    },
-})
-
-const DesktopFileSystemInstructionsPartialUpdateSchema = DesktopFileSystemInstructionsPartialUpdateParams.omit({
-    project_id: true,
-})
-    .extend(DesktopFileSystemInstructionsPartialUpdateBody.shape)
-    .extend({
-        id: DesktopFileSystemInstructionsPartialUpdateParams.shape['id'].describe(
-            'ID of the channel (desktop folder) whose instructions to update.'
-        ),
-        content: DesktopFileSystemInstructionsPartialUpdateBody.shape['content'].describe(
-            "Full markdown instructions to publish. Pass an empty string to erase the channel's instructions while keeping the instruction set."
-        ),
-    })
-
-const desktopFileSystemInstructionsPartialUpdate = (): ToolBase<
-    typeof DesktopFileSystemInstructionsPartialUpdateSchema,
-    Schemas.FolderInstructions
-> => ({
-    name: 'desktop-file-system-instructions-partial-update',
-    schema: DesktopFileSystemInstructionsPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemInstructionsPartialUpdateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.content !== undefined) {
-            body['content'] = params.content
-        }
-        if (params.base_version !== undefined) {
-            body['base_version'] = params.base_version
-        }
-        const result = await context.api.request<Schemas.FolderInstructions>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/instructions/`,
-            body,
-        })
-        return result
-    },
-})
-
-const DesktopFileSystemInstructionsRetrieveSchema = DesktopFileSystemInstructionsRetrieveParams.omit({
-    project_id: true,
-}).extend({
-    id: DesktopFileSystemInstructionsRetrieveParams.shape['id'].describe(
-        'ID of the channel (desktop folder) whose instructions to fetch.'
-    ),
-})
-
-const desktopFileSystemInstructionsRetrieve = (): ToolBase<
-    typeof DesktopFileSystemInstructionsRetrieveSchema,
-    Schemas.FolderInstructions
-> => ({
-    name: 'desktop-file-system-instructions-retrieve',
-    schema: DesktopFileSystemInstructionsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemInstructionsRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.FolderInstructions>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/instructions/`,
-        })
-        return result
-    },
-})
-
-const DesktopFileSystemListSchema = DesktopFileSystemListQueryParams
-
-const desktopFileSystemList = (): ToolBase<typeof DesktopFileSystemListSchema, Schemas.PaginatedFileSystemList> => ({
-    name: 'desktop-file-system-list',
-    schema: DesktopFileSystemListSchema,
-    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedFileSystemList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-                search: params.search,
-            },
-        })
-        return result
-    },
-})
-
-const DesktopFileSystemRetrieveSchema = DesktopFileSystemRetrieveParams.omit({ project_id: true })
-
-const desktopFileSystemRetrieve = (): ToolBase<typeof DesktopFileSystemRetrieveSchema, Schemas.FileSystem> => ({
-    name: 'desktop-file-system-retrieve',
-    schema: DesktopFileSystemRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.FileSystem>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
-    },
-})
-
 const ProjectGetSchema = OrganizationsProjectsRetrieveParams.omit({ organization_id: true }).extend({
-    id: z.preprocess(
-        castStringToInt,
-        OrganizationsProjectsRetrieveParams.shape['id'].describe(
-            "Project ID, or `@current` to fetch the caller's active project."
+    id: z
+        .preprocess(
+            castStringToInt,
+            OrganizationsProjectsRetrieveParams.shape['id']
+                .describe("Project ID. If omitted, returns the caller's active project.")
+                .optional()
         )
-    ),
+        .optional(),
 })
 
 const projectGet = (): ToolBase<typeof ProjectGetSchema, Schemas.ProjectBackwardCompat> => ({
@@ -170,9 +30,13 @@ const projectGet = (): ToolBase<typeof ProjectGetSchema, Schemas.ProjectBackward
     schema: ProjectGetSchema,
     handler: async (context: Context, params: z.infer<typeof ProjectGetSchema>) => {
         const orgId = await context.stateManager.getOrgID()
+        const id = params.id ?? (await context.stateManager.getProjectId())
+        if (!id) {
+            throw new Error('id is required. Provide it explicitly or set an active project first.')
+        }
         const result = await context.api.request<Schemas.ProjectBackwardCompat>({
             method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/`,
         })
         const filtered = omitResponseFields(result, [
             'secret_api_token',
@@ -425,11 +289,41 @@ const userGet = (): ToolBase<typeof UserGetSchema, Schemas.User> => ({
             method: 'GET',
             path: `/api/users/${encodeURIComponent(String(params.uuid))}/`,
         })
-        const filtered = omitResponseFields(result, [
-            'is_impersonated',
-            'is_impersonated_until',
-            'is_impersonated_read_only',
-            'sensitive_session_expires_at',
+        const filtered = pickResponseFields(result, [
+            'id',
+            'uuid',
+            'distinct_id',
+            'email',
+            'pending_email',
+            'is_email_verified',
+            'first_name',
+            'last_name',
+            'date_joined',
+            'is_staff',
+            'has_password',
+            'is_2fa_enabled',
+            'has_social_auth',
+            'has_sso_enforcement',
+            'passkeys_enabled_for_2fa',
+            'allow_impersonation',
+            'notification_settings',
+            'anonymize_data',
+            'toolbar_mode',
+            'events_column_config',
+            'theme_mode',
+            'hedgehog_config',
+            'allow_sidebar_suggestions',
+            'shortcut_position',
+            'role_at_organization',
+            'hide_mcp_hints',
+            'scene_personalisation',
+            'pending_invites',
+            'organization.id',
+            'organization.name',
+            'team.id',
+            'team.name',
+            'organizations.*.id',
+            'organizations.*.name',
         ]) as typeof result
         return filtered
     },
@@ -504,6 +398,9 @@ const userSettingsUpdate = (): ToolBase<typeof UserSettingsUpdateSchema, Schemas
         if (params.hide_mcp_hints !== undefined) {
             body['hide_mcp_hints'] = params.hide_mcp_hints
         }
+        if (params.ui_configuration !== undefined) {
+            body['ui_configuration'] = params.ui_configuration
+        }
         const result = await context.api.request<Schemas.User>({
             method: 'PATCH',
             path: `/api/users/${encodeURIComponent(String(params.uuid))}/`,
@@ -514,11 +411,6 @@ const userSettingsUpdate = (): ToolBase<typeof UserSettingsUpdateSchema, Schemas
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'desktop-file-system-create': desktopFileSystemCreate,
-    'desktop-file-system-instructions-partial-update': desktopFileSystemInstructionsPartialUpdate,
-    'desktop-file-system-instructions-retrieve': desktopFileSystemInstructionsRetrieve,
-    'desktop-file-system-list': desktopFileSystemList,
-    'desktop-file-system-retrieve': desktopFileSystemRetrieve,
     'project-get': projectGet,
     'project-settings-update': projectSettingsUpdate,
     'user-get': userGet,

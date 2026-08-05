@@ -42,6 +42,7 @@ describe('VariantsPanelLinkFeatureFlag', () => {
         created_by: null,
         is_remote_configuration: false,
         deleted: false,
+        archived: false,
         active: true,
         experiment_set: null,
         experiment_set_metadata: null,
@@ -92,7 +93,7 @@ describe('VariantsPanelLinkFeatureFlag', () => {
                 />
             )
 
-            const selectButton = screen.getByRole('button', { name: 'Select Feature Flag' })
+            const selectButton = screen.getByText('Select Feature Flag')
             expect(selectButton).toBeInTheDocument()
         })
 
@@ -104,7 +105,7 @@ describe('VariantsPanelLinkFeatureFlag', () => {
                 />
             )
 
-            const selectButton = screen.getByRole('button', { name: 'Select Feature Flag' })
+            const selectButton = screen.getByText('Select Feature Flag')
             await userEvent.click(selectButton)
 
             expect(mockSetShowFeatureFlagSelector).toHaveBeenCalledTimes(1)
@@ -132,7 +133,7 @@ describe('VariantsPanelLinkFeatureFlag', () => {
                 />
             )
 
-            const link = screen.getByRole('link', { name: /view feature flag/i })
+            const link = screen.getByTitle('View feature flag')
             expect(link).toHaveAttribute('href', `/project/${MOCK_DEFAULT_PROJECT.id}/feature_flags/1`)
             expect(link).toHaveAttribute('target', '_blank')
         })
@@ -145,7 +146,7 @@ describe('VariantsPanelLinkFeatureFlag', () => {
                 />
             )
 
-            const changeButton = screen.getByRole('button', { name: 'Change' })
+            const changeButton = screen.getByText('Change')
             expect(changeButton).toBeInTheDocument()
         })
 
@@ -157,7 +158,7 @@ describe('VariantsPanelLinkFeatureFlag', () => {
                 />
             )
 
-            const changeButton = screen.getByRole('button', { name: 'Change' })
+            const changeButton = screen.getByText('Change')
             await userEvent.click(changeButton)
 
             expect(mockSetShowFeatureFlagSelector).toHaveBeenCalledTimes(1)

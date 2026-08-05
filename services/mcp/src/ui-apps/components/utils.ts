@@ -4,10 +4,6 @@ export function getDisplayType(query: TrendsQuery | undefined): ChartDisplayType
     return query?.trendsFilter?.display || 'ActionsLineGraph'
 }
 
-export function isBarChart(displayType: ChartDisplayType): boolean {
-    return displayType === 'ActionsBar' || displayType === 'ActionsBarValue'
-}
-
 export function formatNumber(value: number): string {
     if (value >= 1_000_000) {
         return `${(value / 1_000_000).toFixed(1)}M`
@@ -51,6 +47,17 @@ export function formatDate(dateStr: string): string {
         return dateStr
     }
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+export function formatTooltipDate(dateStr: string): string {
+    if (!ISO_DATE_PREFIX.test(dateStr)) {
+        return dateStr
+    }
+    const date = new Date(dateStr)
+    if (Number.isNaN(date.getTime())) {
+        return dateStr
+    }
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 export function getSeriesLabel(item: { label?: string; action?: { name?: string } }, index: number): string {

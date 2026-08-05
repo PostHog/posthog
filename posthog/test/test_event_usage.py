@@ -12,6 +12,7 @@ from posthog.event_usage import (
     EventSource,
     get_event_source,
     get_mcp_properties,
+    is_wizard_self_driving_program,
     report_user_action,
     sanitize_header_value,
 )
@@ -256,6 +257,7 @@ class TestGetEventSource(BaseTest):
     @parameterized.expand(
         [
             ("terraform", "posthog/terraform-provider 1.0", EventSource.TERRAFORM),
+            ("cli_exact", "posthog-cli", EventSource.CLI),
             ("wizard", "posthog/wizard 1.0", EventSource.WIZARD),
             ("posthog_code", "posthog/code 1.2.3", EventSource.POSTHOG_CODE),
             ("hog_dev_subdomain", "posthog/desktop.hog.dev 0.1.0", EventSource.POSTHOG_CODE),
@@ -291,6 +293,21 @@ class TestGetEventSource(BaseTest):
         factory = APIRequestFactory()
         request = factory.get("/fake", HTTP_X_POSTHOG_CLIENT="mcp")
         assert get_event_source(request) == EventSource.MCP
+
+    @parameterized.expand(
+        [
+            ("posthog_cli_consumer_is_cli", "posthog-cli", EventSource.CLI),
+            ("other_consumer_stays_mcp", "slack", EventSource.MCP),
+        ]
+    )
+    def test_mcp_consumer_header_source(self, _name, consumer, expected):
+        factory = APIRequestFactory()
+        request = factory.get(
+            "/fake",
+            HTTP_USER_AGENT="posthog/mcp-server; version: 1.0.0",
+            HTTP_X_POSTHOG_MCP_CONSUMER=consumer,
+        )
+        assert get_event_source(request) == expected
 
     @parameterized.expand(
         [
@@ -334,6 +351,48 @@ class TestGetEventSource(BaseTest):
             kwargs["HTTP_X_POSTHOG_CLIENT"] = x_posthog_client
         request = factory.get("/fake", **kwargs)
         assert get_event_source(request) == expected
+
+
+class TestIsWizardSelfDrivingProgram(BaseTest):
+    @parameterized.expand(
+        [
+            # Direct wizard → Django: the marker rides on the User-Agent itself.
+            ("direct_with_marker", "posthog/wizard; version: 2.44.0; program: self-driving-setup", None, True),
+            ("direct_without_marker", "posthog/wizard; version: 2.44.0", None, False),
+            ("direct_other_program", "posthog/wizard; version: 2.44.0; program: revenue-analytics", None, False),
+            # Proxied via the MCP server: it overwrites User-Agent with its own token and forwards
+            # the wizard's real UA (marker included) in X-Posthog-Mcp-User-Agent. The marker must
+            # still be found there — this is the case that previously went undetected.
+            (
+                "proxied_with_marker",
+                "posthog/mcp-server; version: 1.0.0; for posthog/wizard",
+                "posthog/wizard; version: 2.45.0; program: self-driving-setup",
+                True,
+            ),
+            (
+                "proxied_without_marker",
+                "posthog/mcp-server; version: 1.0.0; for posthog/wizard",
+                "posthog/wizard; version: 2.45.0",
+                False,
+            ),
+            (
+                "proxied_other_program",
+                "posthog/mcp-server; version: 1.0.0; for posthog/wizard",
+                "posthog/wizard; version: 2.45.0; program: web-analytics-doctor",
+                False,
+            ),
+            # A stray marker with no wizard token anywhere must not qualify.
+            ("marker_without_wizard", "some-agent/1.0; program: self-driving", None, False),
+            ("no_signals", "some-random-agent/1.0", None, False),
+        ]
+    )
+    def test_is_wizard_self_driving_program(self, _name, user_agent, mcp_user_agent, expected):
+        factory = APIRequestFactory()
+        kwargs = {"HTTP_USER_AGENT": user_agent}
+        if mcp_user_agent is not None:
+            kwargs["HTTP_X_POSTHOG_MCP_USER_AGENT"] = mcp_user_agent
+        request = factory.get("/fake", **kwargs)
+        assert is_wizard_self_driving_program(request) is expected
 
 
 class TestGetMcpProperties(BaseTest):

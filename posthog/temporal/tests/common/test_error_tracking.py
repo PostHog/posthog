@@ -11,10 +11,14 @@ from unittest.mock import patch
 from temporalio import activity, workflow
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, CancelledError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
+from posthog.exceptions_capture import bind_exception_context
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
 
 @dataclass
@@ -77,6 +81,109 @@ class OptionallyFailingWorkflowWithPropertiesToLog:
 async def failing_activity_with_properties_to_log(inputs: OptionallyFailingInputsWithPropertiesToLog) -> None:
     if inputs.fail:
         raise ValueError("Activity failed!")
+
+
+@activity.defn
+async def failing_activity_with_ambient_context(inputs: OptionallyFailingInputs) -> None:
+    if inputs.fail:
+        # Fire-and-forget binding, mirroring how e.g. warehouse-sources' JobContext attaches
+        # sync context: no `with` block, so it stays bound for the rest of this activity
+        # attempt (including an exception that escapes uncaught to the interceptor below).
+        bind_exception_context(warehouse_sources_source_type="Stripe")
+        raise ValueError("Activity failed!")
+
+
+@workflow.defn
+class FailingWorkflowWithAmbientContext:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        await workflow.execute_activity(
+            failing_activity_with_ambient_context,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(
+                initial_interval=dt.timedelta(seconds=1),
+                maximum_interval=dt.timedelta(seconds=1),
+                maximum_attempts=1,
+            ),
+        )
+
+
+@activity.defn
+async def cancelled_activity(inputs: OptionallyFailingInputs) -> None:
+    raise CancelledError()
+
+
+@workflow.defn
+class CancelledActivityWorkflow:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        await workflow.execute_activity(
+            cancelled_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+
+@activity.defn
+async def egress_backpressure_activity(inputs: OptionallyFailingInputs) -> None:
+    raise GitHubEgressBudgetExhausted("GitHub egress budget exhausted for installation 123; deferring")
+
+
+@workflow.defn
+class EgressBackpressureActivityWorkflow:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        await workflow.execute_activity(
+            egress_backpressure_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+
+@activity.defn
+async def worker_shutting_down_activity(inputs: OptionallyFailingInputs) -> None:
+    raise WorkerShuttingDownError.from_activity_context()
+
+
+@workflow.defn
+class WorkerShuttingDownActivityWorkflow:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        await workflow.execute_activity(
+            worker_shutting_down_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+
+class _MarkedNonReportableError(NonReportableError):
+    pass
+
+
+@activity.defn
+async def non_reportable_activity(inputs: OptionallyFailingInputs) -> None:
+    raise _MarkedNonReportableError("expected upstream condition; job fails but no error-tracking capture")
+
+
+@workflow.defn
+class NonReportableActivityWorkflow:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        await workflow.execute_activity(
+            non_reportable_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
 
 
 @workflow.defn
@@ -158,6 +265,154 @@ async def test_exception_capture(fail: bool, capture_additional_properties: bool
 
         else:
             mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_ambient_exception_context_reaches_top_level_capture(temporal_client: Client):
+    """An exception that escapes an activity uncaught (nothing inside called capture_exception)
+    must still carry ambient exception context bound earlier in the same activity attempt — e.g.
+    warehouse-sources' JobContext, which attaches sync/job identity via bind_exception_context so a
+    generic pipeline failure can be attributed to the source that produced it."""
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[FailingWorkflowWithAmbientContext],
+            activities=[failing_activity_with_ambient_context],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "FailingWorkflowWithAmbientContext",
+                    OptionallyFailingInputs(fail=True),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        assert mock_ph_capture.call_count == 1
+        activity_call = mock_ph_capture.call_args_list[0]
+        assert activity_call[1]["properties"]["warehouse_sources_source_type"] == "Stripe"
+        assert activity_call[1]["properties"]["temporal.execution_type"] == "activity"
+
+
+@pytest.mark.asyncio
+async def test_cancellation_is_not_captured(temporal_client: Client):
+    """A cancelled activity (worker drain, timeout, cancel) is expected control flow, not a defect,
+    so the interceptor must re-raise without reporting it to error tracking."""
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[CancelledActivityWorkflow],
+            activities=[cancelled_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "CancelledActivityWorkflow",
+                    OptionallyFailingInputs(fail=True),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_egress_backpressure_is_not_captured(temporal_client: Client):
+    """An egress-budget backpressure error (our own limiter shedding a deferrable call so Temporal
+    retries later) is expected control flow, not a defect, so the interceptor must re-raise it
+    without reporting it to error tracking."""
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[EgressBackpressureActivityWorkflow],
+            activities=[egress_backpressure_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "EgressBackpressureActivityWorkflow",
+                    OptionallyFailingInputs(fail=True),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_worker_shutting_down_is_not_captured(temporal_client: Client):
+    """A cooperative worker shutdown raised mid-activity (during a deploy) is expected control flow
+    that is always retried on a fresh worker, so the interceptor must re-raise it without reporting
+    it to error tracking."""
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[WorkerShuttingDownActivityWorkflow],
+            activities=[worker_shutting_down_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "WorkerShuttingDownActivityWorkflow",
+                    OptionallyFailingInputs(fail=True),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_non_reportable_error_is_not_captured(temporal_client: Client):
+    """A NonReportableError (an expected customer/upstream condition, e.g. a REST source served a
+    login page instead of JSON) still fails the activity, but the interceptor must re-raise it
+    without reporting it to error tracking."""
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[NonReportableActivityWorkflow],
+            activities=[non_reportable_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "NonReportableActivityWorkflow",
+                    OptionallyFailingInputs(fail=True),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        mock_ph_capture.assert_not_called()
 
 
 @pytest.mark.asyncio

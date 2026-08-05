@@ -75,12 +75,6 @@ const destinationDefinitions: DestinationConfig[] = [
         category: ['Advertising'],
     },
     {
-        name: 'Bing Ads',
-        id: 'coming-soon-bing-ads',
-        icon_url: '/static/coming-soon-destinations/Bing_Ads.svg',
-        category: ['Advertising'],
-    },
-    {
         name: 'Criteo',
         id: 'coming-soon-criteo',
         icon_url: '/static/coming-soon-destinations/Criteo.svg',
@@ -1042,12 +1036,6 @@ const destinationDefinitions: DestinationConfig[] = [
     },
 
     // User Engagement Platforms
-    {
-        name: 'Appcues',
-        id: 'coming-soon-appcues',
-        icon_url: '/static/coming-soon-destinations/Appcues.svg',
-        category: ['User Engagement Platforms'],
-    },
     {
         name: 'Leanplum',
         id: 'coming-soon-leanplum',

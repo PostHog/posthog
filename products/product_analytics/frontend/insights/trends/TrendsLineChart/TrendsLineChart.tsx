@@ -1,12 +1,14 @@
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { useCallback, useMemo } from 'react'
 
 import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from '@posthog/quill-charts'
-import type { PointClickData, TooltipConfig, TooltipContext } from '@posthog/quill-charts'
+import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartTheme, useChartConfig, useDateRangeZoom } from 'lib/charts/hooks'
 import { ciRanges } from 'lib/statistics'
 import { percentage } from 'lib/utils/numbers'
+import { isMultiSeriesFormula } from 'lib/utils/strings'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -15,34 +17,44 @@ import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'scenes/trends/types'
+import { urls } from 'scenes/urls'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
+import { chartStyleCurve } from '../../shared/chartStyleAdapter'
+import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
+import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
+import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
 import { handleTrendsChartClick } from '../shared/handleTrendsChartClick'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { buildTrendsSeriesMeta, resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
-import { TrendsTooltip } from '../shared/TrendsTooltip'
+import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from './trendsChartTransforms'
 
 interface TrendsLineChartProps {
     context?: QueryContext<InsightVizNode>
     inSharedMode?: boolean
+    embedded?: boolean
 }
-
-const TOOLTIP_CONFIG: TooltipConfig = { pinnable: true, placement: 'top' }
 
 const handleChartError = makeChartErrorHandler('trends-line-chart')
 
-export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineChartProps): JSX.Element | null {
-    const { isDarkModeOn } = useValues(themeLogic)
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+export function TrendsLineChart({
+    context,
+    inSharedMode = false,
+    embedded = false,
+}: TrendsLineChartProps): JSX.Element | null {
+    const theme = useChartTheme()
     const { insightProps, insight } = useValues(insightLogic)
+
+    const legendConfig = useInsightsLegendConfig({ insightProps, inSharedMode })
 
     const {
         indexedResults,
@@ -74,6 +86,18 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
+    const { allCohorts } = useValues(cohortsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+
+    const getLabel = useCallback(
+        (r: IndexedTrendResult): string =>
+            getTrendsSeriesDisplayLabel(r, {
+                breakdownFilter,
+                cohorts: allCohorts?.results,
+                formatPropertyValueForDisplay,
+            }),
+        [breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
+    )
 
     const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
     const resolvedGroupTypeLabel = context?.groupTypeLabel ?? resolveGroupTypeLabel(labelGroupType, aggregationLabel)
@@ -112,6 +136,26 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     )
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
+    // The persons modal is intentionally unavailable for multi-series formulas (there's no
+    // single series of actors behind a computed ratio), so surface that instead of leaving
+    // the chart looking interactive with no explanation. On dashboard/card tiles a click
+    // instead opens the underlying insight, since there's nowhere else for the click to go.
+    const isFormulaDrillDownDisabled = !canHandleClick && isMultiSeriesFormula(formula)
+    const canNavigateToInsight = embedded && !inSharedMode && isFormulaDrillDownDisabled && !!insight.short_id
+    const canHandlePointInteraction = canHandleClick || canNavigateToInsight
+
+    const navigateToInsight = useCallback(() => {
+        if (!insight.short_id) {
+            return
+        }
+        router.actions.push(urls.insightView(insight.short_id, insightProps.dashboardId))
+    }, [insight.short_id, insightProps.dashboardId])
+
+    const noDrillDownFooter = isFormulaDrillDownDisabled
+        ? canNavigateToInsight
+            ? "Drill-down isn't available for formula insights. Click to view the insight."
+            : "Drill-down isn't available for formula insights"
+        : undefined
 
     const clickDeps = useMemo(
         () => ({
@@ -139,36 +183,46 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
 
     const onPointClick = useCallback(
         (clickData: PointClickData) => {
-            handleTrendsChartClick(clickData.series.key, clickData.dataIndex, clickDeps)
+            if (canHandleClick) {
+                handleTrendsChartClick(clickData.series.key, clickData.dataIndex, clickDeps)
+            } else if (canNavigateToInsight) {
+                navigateToInsight()
+            }
         },
-        [clickDeps]
+        [canHandleClick, canNavigateToInsight, clickDeps, navigateToInsight]
     )
+
+    const onDateRangeZoom = useDateRangeZoom(currentPeriodResult?.days, context?.onDateRangeZoom)
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => {
-            const onRowClick = canHandleClick
+            const onRowClick = canHandlePointInteraction
                 ? (datum: SeriesDatum) => {
-                      const seriesKey = ctx.seriesData[datum.datasetIndex].series.key
-                      handleTrendsChartClick(seriesKey, datum.dataIndex, clickDeps)
+                      if (canHandleClick) {
+                          const seriesKey = ctx.seriesData[datum.datasetIndex].series.key
+                          handleTrendsChartClick(seriesKey, datum.dataIndex, clickDeps)
+                      } else {
+                          navigateToInsight()
+                      }
                   }
                 : undefined
-            return (
-                <TrendsTooltip
-                    context={ctx}
-                    timezone={timezone}
-                    interval={interval ?? undefined}
-                    breakdownFilter={breakdownFilter ?? undefined}
-                    dateRange={insightData?.resolved_date_range ?? undefined}
-                    trendsFilter={trendsFilter}
-                    formula={formula}
-                    showPercentView={isStickiness}
-                    isPercentStackView={isPercentStackView}
-                    baseCurrency={baseCurrency}
-                    groupTypeLabel={resolvedGroupTypeLabel}
-                    formatCompareLabel={context?.formatCompareLabel}
-                    onRowClick={onRowClick}
-                />
-            )
+            const tooltipProps = {
+                context: ctx,
+                timezone,
+                interval: interval ?? undefined,
+                breakdownFilter: breakdownFilter ?? undefined,
+                dateRange: insightData?.resolved_date_range ?? undefined,
+                trendsFilter,
+                formula,
+                showPercentView: isStickiness,
+                isPercentStackView,
+                baseCurrency,
+                groupTypeLabel: resolvedGroupTypeLabel,
+                formatCompareLabel: context?.formatCompareLabel,
+                onRowClick,
+                footerOverride: noDrillDownFooter,
+            }
+            return <InsightSeriesTooltip {...tooltipProps} />
         },
         [
             timezone,
@@ -182,7 +236,10 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             baseCurrency,
             resolvedGroupTypeLabel,
             context?.formatCompareLabel,
+            canHandlePointInteraction,
             canHandleClick,
+            navigateToInsight,
+            noDrillDownFooter,
             clickDeps,
         ]
     )
@@ -195,7 +252,10 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 incompletenessOffsetFromEnd,
                 isStickiness,
                 getColor: getTrendsColor,
-                getHidden: getTrendsHidden,
+                // Hidden series are listed (dimmed) and excluded via config.legend.hiddenKeys instead
+                // of being dropped here, so the legend can restore them.
+                getHidden: undefined,
+                getLabel,
                 buildMeta: buildTrendsSeriesMeta,
             }),
         [
@@ -205,11 +265,11 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             incompletenessOffsetFromEnd,
             isStickiness,
             getTrendsColor,
-            getTrendsHidden,
+            getLabel,
         ]
     )
 
-    const config = useMemo(
+    const config = useChartConfig(
         () =>
             buildTrendsLineTimeSeriesConfig<IndexedTrendResult>({
                 results: indexedResults ?? [],
@@ -226,6 +286,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 goalLines,
                 incompletenessOffsetFromEnd,
                 getHidden: getTrendsHidden,
+                getLabel,
                 showConfidenceIntervals: showConfidenceIntervals ?? undefined,
                 confidenceLevel: confidenceLevel ?? undefined,
                 ciRanges,
@@ -233,8 +294,10 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 movingAverageIntervals: movingAverageIntervals ?? undefined,
                 showTrendLines: showTrendLines ?? undefined,
                 valueLabels: showValuesOnSeries && valueLabelFormatter ? { formatter: valueLabelFormatter } : false,
+                curve: chartStyleCurve(trendsFilter?.chartStyle),
                 showCrosshair: true,
-                tooltip: TOOLTIP_CONFIG,
+                tooltip: INSIGHT_TOOLTIP_CONFIG,
+                legend: legendConfig,
             }),
         [
             indexedResults,
@@ -249,6 +312,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             goalLines,
             incompletenessOffsetFromEnd,
             getTrendsHidden,
+            getLabel,
             showConfidenceIntervals,
             confidenceLevel,
             showMovingAverage,
@@ -256,11 +320,18 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             showTrendLines,
             showValuesOnSeries,
             valueLabelFormatter,
+            legendConfig,
         ]
     )
 
     if (!hasData) {
-        return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+        return (
+            <InsightEmptyState
+                heading={context?.emptyStateHeading}
+                detail={context?.emptyStateDetail}
+                sampleDataVariant="line"
+            />
+        )
     }
 
     const showAnnotations = !inSharedMode && trendsFilter?.showAnnotations !== false
@@ -273,7 +344,8 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             theme={theme}
             config={config}
             tooltip={renderTooltip}
-            onPointClick={canHandleClick ? onPointClick : undefined}
+            onPointClick={canHandlePointInteraction ? onPointClick : undefined}
+            onDateRangeZoom={onDateRangeZoom}
             className="LineGraph"
             dataAttr="trend-line-graph"
             onError={handleChartError}

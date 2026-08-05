@@ -28,10 +28,17 @@ class EvalReportAgentState(TypedDict):
     evaluation_description: str
     evaluation_prompt: str
     evaluation_type: str
+    evaluation_target: str
+    output_type: str
     period_start: str
     period_end: str
     previous_period_start: str
     report_prompt_guidance: str
 
-    # Working state — the agent builds this up via tool calls
+    # Working state — the agent builds this up via tool calls.
+    # The allowlists gate the detail tools: an ID only becomes inspectable once a query
+    # returned it. Session reports fill both — sessions from evaluation results, traces
+    # from the sessions the agent maps.
     report: EvalReportContent
+    trace_id_allowlist: list[str]
+    session_id_allowlist: list[str]

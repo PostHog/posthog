@@ -2,7 +2,7 @@ import dagster
 
 from posthog.dags import events_backfill_to_duckling
 
-from products.data_warehouse.dags import managed_viewset_sync
+from products.data_warehouse.backend.facade.dags import managed_viewset_sync
 
 from . import loggers, resources
 

@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconGear } from '@posthog/icons'
+import { LemonTag } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -23,6 +24,7 @@ interface NavLinkProps {
     'data-attr'?: string
     onClick?: (e: React.MouseEvent) => void
     sideAction?: NavLinkSideAction
+    tag?: 'alpha' | 'beta' | 'new'
 }
 
 export function NavLink({
@@ -33,24 +35,33 @@ export function NavLink({
     'data-attr': dataAttr,
     onClick,
     sideAction,
+    tag,
 }: NavLinkProps): JSX.Element {
     const { pathname } = useValues(panelLayoutLogic)
 
     const isHomePage = to === urls.projectRoot()
     const currentPath = removeProjectIdIfPresent(pathname)
-    const isActive = currentPath === to || (isHomePage && currentPath === urls.projectHomepage())
+    const isInbox = to === urls.inbox()
+    const isActive =
+        currentPath === to ||
+        (isHomePage && currentPath === urls.projectHomepage()) ||
+        (isInbox && currentPath.startsWith(`${to}/`))
     const hasSideActionRight = !!sideAction && !isCollapsed
 
     return (
         <ButtonGroupPrimitive
             fullWidth
-            className="group/wrapper flex justify-center [&>span]:w-full [&>span]:flex [&>span]:justify-center"
+            className="group/nav-link flex justify-center [&>span]:w-full [&>span]:flex [&>span]:justify-center"
         >
             <Link
                 buttonProps={{
                     menuItem: !isCollapsed,
                     iconOnly: isCollapsed,
-                    className: 'group -outline-offset-2',
+                    // Hovering the side action has to light up the whole row too, like tree items do
+                    className: cn(
+                        'group -outline-offset-2',
+                        hasSideActionRight && 'group-hover/nav-link:bg-fill-button-tertiary-hover'
+                    ),
                     active: isActive,
                     hasSideActionRight,
                 }}
@@ -78,10 +89,19 @@ export function NavLink({
                         {label}
                     </span>
                 )}
+                {!isCollapsed && tag && (
+                    <LemonTag
+                        type={tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'}
+                        size="small"
+                        className="relative top-[-1px]"
+                    >
+                        {tag.toUpperCase()}
+                    </LemonTag>
+                )}
             </Link>
             {hasSideActionRight && sideAction && (
                 <ButtonPrimitive
-                    className="group -outline-offset-2"
+                    className="-outline-offset-2"
                     iconOnly
                     isSideActionRight
                     onClick={(e) => {
@@ -92,7 +112,7 @@ export function NavLink({
                     tooltipPlacement="right"
                     data-attr={sideAction['data-attr']}
                 >
-                    <IconGear className="size-3 text-tertiary opacity-70 group-hover:text-primary group-hover:opacity-100" />
+                    <IconGear className="size-3 text-tertiary opacity-70 group-hover/nav-link:text-primary group-hover/nav-link:opacity-100" />
                 </ButtonPrimitive>
             )}
         </ButtonGroupPrimitive>

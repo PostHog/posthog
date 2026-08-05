@@ -12,6 +12,7 @@ import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
+import { EntityFilterInfo, getSeriesRename } from 'lib/components/EntityFilterInfo'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { AUTOCAPTURE_INTERACTIONS } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
@@ -41,7 +42,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
-import { EventDefinition, PropertyDefinition } from '~/types'
+import { EntityFilter, EventDefinition, PropertyDefinition } from '~/types'
 
 import { NO_ITEM_SELECTED, infiniteListLogic } from './infiniteListLogic'
 
@@ -139,10 +140,10 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
                             <>
                                 the event{eventNames.length > 1 ? 's' : ''}{' '}
                                 {eventNames.map((e, index) => (
-                                    <>
+                                    <span key={e}>
                                         {index === 0 ? '' : index === eventNames.length - 1 ? ' and ' : ', '}
                                         <strong>"{e}"</strong>
-                                    </>
+                                    </span>
                                 ))}
                             </>
                         ) : (
@@ -158,18 +159,54 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
     )
 }
 
+/**
+ * A renamed series doesn't reveal the thing it queries, so when a row is the committed
+ * selection of a renamed series, its label is the series' display name (with the
+ * underlying entity as secondary text + tooltip) — connecting the row to the series
+ * the user clicked.
+ */
+const getSelectedItemRenameMeta = (
+    selectedItemMeta: EntityFilter | null | undefined,
+    itemValue: string | number | null | undefined
+): EntityFilter | null => {
+    if (
+        !selectedItemMeta ||
+        selectedItemMeta.id == null ||
+        itemValue == null ||
+        String(selectedItemMeta.id) !== String(itemValue)
+    ) {
+        return null
+    }
+    return getSeriesRename(selectedItemMeta) ? selectedItemMeta : null
+}
+
+const rowContentsIcon = (
+    item: TaxonomicDefinitionTypes,
+    itemGroup: TaxonomicFilterGroup,
+    isActive: boolean
+): JSX.Element | null =>
+    isActive ? (
+        <div className="taxonomic-list-row-contents-icon">
+            <IconCheck />
+        </div>
+    ) : itemGroup.getIcon ? (
+        <div className="taxonomic-list-row-contents-icon">{itemGroup.getIcon(item)}</div>
+    ) : null
+
 const renderItemContents = ({
     item,
     listGroupType,
     itemGroup,
     eventNames,
     isActive,
+    selectedRenameMeta,
 }: {
     item: TaxonomicDefinitionTypes
     listGroupType: TaxonomicFilterGroupType
     itemGroup: TaxonomicFilterGroup
     eventNames: string[]
     isActive: boolean
+    selectedRenameMeta?: EntityFilter | null
 }): JSX.Element | string => {
     if (isQuickFilterItem(item)) {
         const icon = itemGroup.getIcon ? (
@@ -187,14 +224,16 @@ const renderItemContents = ({
             </div>
         )
     }
-    if (hasLocalListContext(item)) {
-        const icon = isActive ? (
-            <div className="taxonomic-list-row-contents-icon">
-                <IconCheck />
+    if (selectedRenameMeta) {
+        return (
+            <div className="taxonomic-list-row-contents min-w-0">
+                {rowContentsIcon(item, itemGroup, isActive)}
+                <EntityFilterInfo filter={selectedRenameMeta} />
             </div>
-        ) : itemGroup.getIcon ? (
-            <div className="taxonomic-list-row-contents-icon">{itemGroup.getIcon(item)}</div>
-        ) : null
+        )
+    }
+    if (hasLocalListContext(item)) {
+        const icon = rowContentsIcon(item, itemGroup, isActive)
 
         if (hasRecentContext(item) && item._recentContext.propertyFilter) {
             const label = formatPropertyLabel(item._recentContext.propertyFilter, {})
@@ -230,13 +269,7 @@ const renderItemContents = ({
         (item as PropertyDefinition).is_seen_on_filtered_events !== null &&
         !(item as PropertyDefinition).is_seen_on_filtered_events
 
-    const icon = isActive ? (
-        <div className="taxonomic-list-row-contents-icon">
-            <IconCheck />
-        </div>
-    ) : itemGroup.getIcon ? (
-        <div className="taxonomic-list-row-contents-icon">{itemGroup.getIcon(item)}</div>
-    ) : null
+    const icon = rowContentsIcon(item, itemGroup, isActive)
 
     return listGroupType === TaxonomicFilterGroupType.EventProperties ||
         listGroupType === TaxonomicFilterGroupType.EventFeatureFlags ||
@@ -248,6 +281,7 @@ const renderItemContents = ({
         listGroupType === TaxonomicFilterGroupType.SessionProperties ||
         listGroupType === TaxonomicFilterGroupType.MaxAIContext ||
         listGroupType === TaxonomicFilterGroupType.ErrorTrackingProperties ||
+        listGroupType === TaxonomicFilterGroupType.MCPProperties ||
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <>
             <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted')}>
@@ -331,11 +365,12 @@ const canSelectItem = (
 interface InfiniteListRowProps {
     results: (TaxonomicDefinitionTypes | SkeletonItem)[]
     taxonomicGroups: TaxonomicFilterGroup[]
-    group: TaxonomicFilterGroup
+    group: TaxonomicFilterGroup | undefined
     listGroupType: TaxonomicFilterGroupType
     groupType: TaxonomicFilterGroupType | undefined
     value: string | number | null | undefined
     selectedProperties: TaxonomicFilterGroupValueMap
+    selectedItemMeta: EntityFilter | null | undefined
     eventNames: string[]
     highlightedIndex: number
     isActiveTab: boolean
@@ -402,6 +437,7 @@ export const InfiniteListRow = ({
     groupType,
     value,
     selectedProperties,
+    selectedItemMeta,
     eventNames,
     highlightedIndex,
     isActiveTab,
@@ -464,7 +500,10 @@ export const InfiniteListRow = ({
 
     const normalizedValue = typeof itemValue === 'number' && typeof value === 'string' ? Number(value) : value
 
-    const isSelected = listGroupType === groupType && itemValue === normalizedValue
+    // On the aggregated Suggested filters tab, a row's own group (via `itemGroup`) is the
+    // source group it was promoted from, not `listGroupType` — compare against that so a
+    // cross-group promoted row still gets the selected treatment.
+    const isSelected = (itemGroup?.type ?? listGroupType) === groupType && itemValue === normalizedValue
 
     const isHighlighted = rowIndex === highlightedIndex && isActiveTab
 
@@ -472,6 +511,9 @@ export const InfiniteListRow = ({
 
     if (showNonCapturedEventOption && rowIndex === 0) {
         const selectNonCapturedEvent = (): void => {
+            if (!itemGroup) {
+                return
+            }
             selectItem(
                 itemGroup,
                 trimmedSearchQuery,
@@ -544,7 +586,7 @@ export const InfiniteListRow = ({
     if (item && itemGroup) {
         const isDisabledItem = itemGroup?.getIsDisabled?.(item) ?? false
         const isPinnable = !canSelectItem(listGroupType, dataWarehousePopoverFields) && !isDisabledItem
-        const isCrossGroupItem = !!group.isLocalOnly && itemGroup.type !== listGroupType
+        const isCrossGroupItem = !!group?.isLocalOnly && itemGroup.type !== listGroupType
         const localListLabel = getLocalListLabel(item)
         const localListGroup = hasLocalListContext(item)
             ? taxonomicGroups.find((g) => g.type === listGroupType)
@@ -562,7 +604,7 @@ export const InfiniteListRow = ({
             listGroupType,
             isCrossGroupItem,
             localListGroup,
-            fallbackGroup: group,
+            fallbackGroup: group ?? itemGroup,
         })
 
         return (
@@ -593,6 +635,7 @@ export const InfiniteListRow = ({
                     itemGroup: resolvedItemGroup,
                     eventNames,
                     isActive,
+                    selectedRenameMeta: isSelected ? getSelectedItemRenameMeta(selectedItemMeta, itemValue) : null,
                 })}
                 {isCrossGroupItem && (
                     <LemonTag size="small" type="highlight">
@@ -623,7 +666,7 @@ export const InfiniteListRow = ({
                 aria-label="Show more items"
                 onClick={expand}
             >
-                {group.expandLabel?.({ count: totalResultCount, expandedCount }) ??
+                {group?.expandLabel?.({ count: totalResultCount, expandedCount }) ??
                     `See ${expandedCount - totalResultCount} more ${pluralize(
                         expandedCount - totalResultCount,
                         'row',
@@ -650,9 +693,21 @@ export const InfiniteListRow = ({
     )
 }
 
+// Cap on the number of "found in X" jump buttons rendered in the empty state, to keep it tidy
+// when a search matches across many categories.
+const MAX_OTHER_GROUP_SWITCHES = 3
+
 function InfiniteListEmptyState(): JSX.Element {
-    const { searchQuery, taxonomicGroupTypes, includeStaleEvents, infiniteListCounts, eventNames } =
-        useValues(taxonomicFilterLogic)
+    const {
+        searchQuery,
+        taxonomicGroups,
+        taxonomicGroupTypes,
+        metaGroupTypes,
+        includeStaleEvents,
+        infiniteListCounts,
+        infiniteListResultCounts,
+        eventNames,
+    } = useValues(taxonomicFilterLogic)
     const { setIncludeStaleEvents, setActiveTab } = useActions(taxonomicFilterLogic)
     const { reportTaxonomicFilterCategorySelected } = useActions(eventUsageLogic)
 
@@ -674,6 +729,21 @@ function InfiniteListEmptyState(): JSX.Element {
         !isSuggestedFilters &&
         taxonomicGroupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters) &&
         allSectionHasResults
+
+    // Without the aggregated "all" tab (e.g. the control variant, which doesn't inject SuggestedFilters),
+    // there's no single place to jump to — so surface the specific categories that do have matches.
+    // Keyed off result counts (not `infiniteListCounts`/`totalListCount`) so render-backed groups like
+    // the SQL expression editor, whose affordance row makes `totalListCount` non-zero for any query,
+    // don't produce a misleading "See results in …" jump.
+    const otherGroupTypesWithResults =
+        !emptySearchQuery && !isSuggestedFilters && !canOfferAllSwitch
+            ? taxonomicGroupTypes.filter(
+                  (groupType) =>
+                      groupType !== listGroupType &&
+                      !metaGroupTypes.has(groupType) &&
+                      (infiniteListResultCounts[groupType] ?? 0) > 0
+              )
+            : []
     return (
         <div className="no-infinite-results flex flex-col gap-y-1 items-center">
             {suggestedFiltersBeforeSearching ? (
@@ -731,6 +801,23 @@ function InfiniteListEmptyState(): JSX.Element {
                             See results from other categories
                         </LemonButton>
                     )}
+                    {otherGroupTypesWithResults.slice(0, MAX_OTHER_GROUP_SWITCHES).map((groupType) => {
+                        const groupName = taxonomicGroups.find((g) => g.type === groupType)?.name ?? groupType
+                        return (
+                            <LemonButton
+                                key={groupType}
+                                type="secondary"
+                                size="xsmall"
+                                data-attr={`taxonomic-switch-to-${groupType}`}
+                                onClick={() => {
+                                    reportTaxonomicFilterCategorySelected(groupType, eventNames?.[0])
+                                    setActiveTab(groupType)
+                                }}
+                            >
+                                See results in {groupName}
+                            </LemonButton>
+                        )
+                    })}
                 </>
             )}
         </div>
@@ -821,6 +908,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                                     groupType,
                                     value,
                                     selectedProperties,
+                                    selectedItemMeta,
                                     eventNames,
                                     highlightedIndex: index,
                                     isActiveTab,
@@ -857,6 +945,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                 />
             )}
             {isActiveTab &&
+            selectedItemGroup &&
             selectedItemHasPopover(selectedItem, selectedItemGroup, taxonomicGroups) &&
             showPopover &&
             selectedItem ? (
@@ -992,8 +1081,8 @@ function resolveItemRendering({
 export function getItemGroup(
     item: TaxonomicDefinitionTypes | undefined,
     groups: TaxonomicFilterGroup[],
-    defaultGroup: TaxonomicFilterGroup
-): TaxonomicFilterGroup {
+    defaultGroup: TaxonomicFilterGroup | undefined
+): TaxonomicFilterGroup | undefined {
     let group = defaultGroup
 
     const sourceType = item ? getSourceGroupType(item) : undefined

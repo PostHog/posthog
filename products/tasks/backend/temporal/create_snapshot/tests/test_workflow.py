@@ -14,8 +14,8 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxStatus
 from products.tasks.backend.models import SandboxSnapshot
-from products.tasks.backend.services.sandbox import Sandbox, SandboxStatus
 from products.tasks.backend.temporal.create_snapshot.activities import (
     cleanup_sandbox,
     clone_repository,

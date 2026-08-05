@@ -6,8 +6,10 @@ from pydantic import BaseModel
 class IngestionAcceptanceTestInput(BaseModel):
     """Input for the ingestion acceptance test workflow.
 
-    Currently empty as no configuration is needed, but follows the standard
-    pattern for Temporal workflows to allow future extensibility.
+    The lane selects which ingestion routing the run targets (e.g. "main",
+    "turbo"). Each lane resolves its own api_host, team_id and project_api_key
+    from the worker environment. When lane is None the run falls back to the
+    flat INGESTION_ACCEPTANCE_TEST_* env vars (the pre-lane behavior).
     """
 
-    pass
+    lane: str | None = None

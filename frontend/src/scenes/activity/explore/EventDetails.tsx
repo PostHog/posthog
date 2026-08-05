@@ -11,6 +11,8 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
+import { ReplayCaptureDiagnosticsModalButton } from 'scenes/session-recordings/components/ReplayCaptureDiagnosticsModalButton'
+import { hasReplayDiagnosticSignals } from 'scenes/session-recordings/utils/replayCaptureDiagnostics'
 import { urls } from 'scenes/urls'
 
 import { KNOWN_PROMOTED_PROPERTY_PARENTS } from '~/taxonomy/taxonomy'
@@ -82,6 +84,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                 <ConversationDisplay
                                     eventProperties={properties}
                                     eventId={getEventId(event)}
+                                    eventName={event.event}
                                     eventTimestamp={event.timestamp}
                                 />
                             </div>
@@ -101,7 +104,11 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                     case 'error_display':
                         return (
                             <div className="mx-3">
-                                <ErrorDisplay eventProperties={properties} eventId={idFrom(event as ErrorEventType)} />
+                                <ErrorDisplay
+                                    eventProperties={properties}
+                                    eventId={idFrom(event as ErrorEventType)}
+                                    eventTimestamp={event.timestamp}
+                                />
                             </div>
                         )
                     case 'survey_response':
@@ -130,6 +137,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                     properties={properties}
                                     sortProperties
                                     tableProps={tableProps}
+                                    collapsible
                                 />
                             </div>
                         )
@@ -149,6 +157,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                     useDetectedPropertyType={true}
                                     tableProps={tableProps}
                                     searchable
+                                    collapsible
                                 />
                             </div>
                         )
@@ -168,6 +177,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                     useDetectedPropertyType={true}
                                     tableProps={tableProps}
                                     searchable
+                                    collapsible
                                 />
                             </div>
                         )
@@ -186,6 +196,11 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                     default:
                         return (
                             <div className="mx-3">
+                                {tabKey === 'debug_properties' && hasReplayDiagnosticSignals(properties) && (
+                                    <div className="mb-2">
+                                        <ReplayCaptureDiagnosticsModalButton eventProperties={properties} />
+                                    </div>
+                                )}
                                 <PropertiesTable
                                     type={PropertyDefinitionType.Event}
                                     properties={properties}
@@ -200,6 +215,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                             ? (event.event as KNOWN_PROMOTED_PROPERTY_PARENTS)
                                             : undefined
                                     }
+                                    collapsible
                                 />
                             </div>
                         )

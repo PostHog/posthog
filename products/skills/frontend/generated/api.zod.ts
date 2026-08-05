@@ -17,6 +17,8 @@ export const llmSkillsCreateBodyLicenseMax = 255
 
 export const llmSkillsCreateBodyCompatibilityMax = 500
 
+export const llmSkillsCreateBodyOwnersMax = 25
+
 export const llmSkillsCreateBodyFilesItemPathMax = 500
 
 export const llmSkillsCreateBodyFilesItemContentTypeDefault = `text/plain`
@@ -43,8 +45,18 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
             .max(llmSkillsCreateBodyCompatibilityMax)
             .optional()
             .describe('Environment requirements (intended product, system packages, network access, etc.).'),
-        allowed_tools: zod.array(zod.string()).optional().describe('List of pre-approved tools the skill may use.'),
+        allowed_tools: zod
+            .array(zod.string())
+            .optional()
+            .describe('List of pre-approved tools the skill may use. Tool names cannot contain whitespace.'),
         metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Arbitrary key-value metadata.'),
+        owners: zod
+            .array(zod.uuid())
+            .max(llmSkillsCreateBodyOwnersMax)
+            .optional()
+            .describe(
+                "User UUIDs to set as the skill's owners. Each must be a member of this project. Defaults to the creating user when omitted; pass an empty list to create with no owners."
+            ),
         files: zod
             .array(
                 zod.object({
@@ -65,7 +77,31 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe('Bundled files to include with the initial version (scripts, references, assets).'),
     })
-    .describe('Create serializer — accepts bundled files as write-only input on POST.')
+    .describe('Create serializer — accepts bundled files and owners as write-only input on POST.')
+
+export const LlmSkillsImportCreateBody = /* @__PURE__ */ zod.object({
+    file: zod
+        .url()
+        .describe(
+            'A spec-compliant skill .zip (a SKILL.md plus optional bundled files under scripts\/, references\/, assets\/).'
+        ),
+})
+
+/**
+ * Mint the user's read-only marketplace credential (or rotate it) and return the install command.
+ *
+ * Per-user: rotating only ever invalidates this user's own credential, never a teammate's.
+ */
+export const llmSkillsMarketplaceInstallCommandCreateBodyRotateDefault = false
+
+export const LlmSkillsMarketplaceInstallCommandCreateBody = /* @__PURE__ */ zod.object({
+    rotate: zod
+        .boolean()
+        .default(llmSkillsMarketplaceInstallCommandCreateBodyRotateDefault)
+        .describe(
+            "Roll the existing marketplace credential to issue a fresh token, replacing the old one (this invalidates any setup using the previous token). Ignored when no credential exists yet — the first call always mints one. Only affects this user's own credential."
+        ),
+})
 
 export const llmSkillsNamePartialUpdateBodyDescriptionMax = 4096
 
@@ -79,6 +115,8 @@ export const llmSkillsNamePartialUpdateBodyFilesItemContentTypeDefault = `text/p
 export const llmSkillsNamePartialUpdateBodyFilesItemContentTypeMax = 100
 
 export const llmSkillsNamePartialUpdateBodyFileEditsItemPathMax = 500
+
+export const llmSkillsNamePartialUpdateBodyOwnersMax = 25
 
 export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
     body: zod
@@ -113,7 +151,10 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(llmSkillsNamePartialUpdateBodyCompatibilityMax)
         .optional()
         .describe('Environment requirements.'),
-    allowed_tools: zod.array(zod.string()).optional().describe('List of pre-approved tools the skill may use.'),
+    allowed_tools: zod
+        .array(zod.string())
+        .optional()
+        .describe('List of pre-approved tools the skill may use. Tool names cannot contain whitespace.'),
     metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Arbitrary key-value metadata.'),
     files: zod
         .array(
@@ -157,11 +198,20 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Per-file find\/replace updates. Each entry targets one existing file by path and applies sequential edits to its content. Non-targeted files carry forward unchanged. Cannot add, remove, or rename files — use 'files' for that. Mutually exclusive with files."
         ),
+    owners: zod
+        .array(zod.uuid())
+        .max(llmSkillsNamePartialUpdateBodyOwnersMax)
+        .optional()
+        .describe(
+            "Replace the skill's owners with these user UUIDs (each a member of this project). Omit to leave owners unchanged; pass an empty list to clear them. Owners are keyed on the logical skill, so setting them is independent of the version being published — a body edit alone never changes ownership."
+        ),
     base_version: zod
         .number()
         .min(1)
         .optional()
-        .describe('Latest version you are editing from. Used for optimistic concurrency checks.'),
+        .describe(
+            'Latest version you are editing from. Used for optimistic concurrency checks. Required when publishing content changes; optional for an owner-only update (when omitted, owners are replaced without a concurrency check).'
+        ),
 })
 
 export const llmSkillsNameDuplicateCreateBodyNewNameMax = 64

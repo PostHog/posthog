@@ -20,7 +20,10 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.vercel.types import VercelUserClaims
-from ee.vercel.integration import VercelIntegration
+from ee.vercel.integration import VercelIntegration, _safe_vercel_sync
+
+# Hardcoded independently of ee.vercel.integration.CLIENT_ENV_PREFIXES so a dropped prefix fails these tests.
+EXPECTED_PREFIXES = ["NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_"]
 
 
 class TestVercelIntegration(TestCase):
@@ -599,15 +602,29 @@ class TestVercelIntegration(TestCase):
 
         assert "name" in str(context.exception.detail)
 
-    def test_build_secrets(self):
+    def test_build_secrets_leads_with_the_next_public_names(self):
         team = Team.objects.create(organization=self.organization, name="Test Team", api_token="test_api_token")
         secrets = VercelIntegration._build_secrets(team)
 
-        assert len(secrets) == 2
         assert secrets[0]["name"] == "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN"
         assert secrets[0]["value"] == "test_api_token"
         assert secrets[1]["name"] == "NEXT_PUBLIC_POSTHOG_HOST"
         assert secrets[1]["value"].startswith(("https://", "http://"))
+
+    @parameterized.expand([(prefix,) for prefix in EXPECTED_PREFIXES])
+    def test_build_secrets_injects_framework_prefixed_aliases(self, prefix: str):
+        team = Team.objects.create(organization=self.organization, name="Test Team", api_token="test_api_token")
+        secrets = {secret["name"]: secret["value"] for secret in VercelIntegration._build_secrets(team)}
+
+        assert secrets[f"{prefix}POSTHOG_PROJECT_TOKEN"] == "test_api_token"
+        assert secrets[f"{prefix}POSTHOG_HOST"].startswith(("https://", "http://"))
+
+    def test_build_secrets_covers_every_prefix_exactly_once(self):
+        team = Team.objects.create(organization=self.organization, name="Test Team", api_token="test_api_token")
+        secrets = VercelIntegration._build_secrets(team)
+
+        names = [secret["name"] for secret in secrets]
+        assert len(names) == len(set(names)) == 2 * len(EXPECTED_PREFIXES)
 
     @parameterized.expand(
         [
@@ -869,6 +886,38 @@ class TestVercelIntegration(TestCase):
         experiment.save()
 
         mock_sync.assert_called_once_with(experiment, False)
+
+    @parameterized.expand(
+        [
+            ("delete_skips_autocreate", True, False, 0),
+            ("sync_autocreates", False, True, 1),
+        ]
+    )
+    def test_safe_vercel_sync_only_autocreates_resource_on_sync(
+        self, _name, is_delete, should_create, expected_sync_calls
+    ):
+        team = Team.objects.create(organization=self.organization, name="No Resource Team")
+        sync_func = Mock()
+
+        _safe_vercel_sync("op", "item_1", team, sync_func, is_delete=is_delete)
+
+        created = Integration.objects.filter(team=team, kind=Integration.IntegrationKind.VERCEL).exists()
+        assert created is should_create
+        assert sync_func.call_count == expected_sync_calls
+
+    @patch("ee.vercel.integration.VercelAPIClient")
+    def test_feature_flag_post_delete_does_not_recreate_vercel_resource(self, _mock_client):
+        # Regression: project deletion looped forever. During the team-deletion cascade the team's Vercel
+        # resource is deleted before its feature flags, so each flag's post_delete auto-created a connectable
+        # Integration row for the team being deleted in the same atomic transaction — orphaning it and failing
+        # COMMIT with an IntegrityError on the team FK. The delete path must never auto-create a resource.
+        team = Team.objects.create(organization=self.organization, name="Doomed Team")
+        flag = FeatureFlag.objects.create(team=team, key="doomed-flag")
+        Integration.objects.filter(team=team, kind=Integration.IntegrationKind.VERCEL).delete()
+
+        flag.delete()
+
+        assert not Integration.objects.filter(team=team, kind=Integration.IntegrationKind.VERCEL).exists()
 
 
 class TestVercelInstallationRegressions(TestCase):
@@ -1236,9 +1285,10 @@ class TestPushSecretsToVercel(TestCase):
         assert call_args[1]["resource_id"] == str(self.resource.pk)
 
         secrets = call_args[1]["secrets"]
-        assert len(secrets) == 2
-        assert any(s["name"] == "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN" for s in secrets)
-        assert any(s["name"] == "NEXT_PUBLIC_POSTHOG_HOST" for s in secrets)
+        assert len(secrets) == 2 * len(EXPECTED_PREFIXES)
+        for prefix in EXPECTED_PREFIXES:
+            assert any(s["name"] == f"{prefix}POSTHOG_PROJECT_TOKEN" for s in secrets)
+            assert any(s["name"] == f"{prefix}POSTHOG_HOST" for s in secrets)
 
     @patch("ee.vercel.integration.VercelAPIClient")
     def test_push_secrets_sends_current_api_token(self, mock_client_class):

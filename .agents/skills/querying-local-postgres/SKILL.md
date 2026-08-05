@@ -95,7 +95,7 @@ Equivalent: `postgresql://posthog:posthog@localhost:5432/posthog`
 
 **Configuration source of truth (app):** `posthog/settings/data_stores.py` (Django `DATABASES`, optional replica `POSTHOG_POSTGRES_READ_HOST`, direct `POSTHOG_POSTGRES_DIRECT_HOST`, `PERSONS_DB_WRITER_URL`, product DB routing from `products/db_routing.yaml`).
 
-**When not using the hardcoded URL:** Connecting **from the host** with the same credentials is documented in [Developing locally](docs/published/handbook/engineering/developing-locally.md) (`fe_sendauth` troubleshooting). Ensure containers are running.
+**When not using the hardcoded URL:** Connecting **from the host** with the same credentials is documented in [Developing locally](../../../docs/published/handbook/engineering/developing-locally.md) (`fe_sendauth` troubleshooting). Ensure containers are running.
 
 **Default env when `DEBUG` is on:** Django builds a default `DATABASE_URL` from `PGHOST` (default **`db`**), `PGUSER` / `PGPASSWORD`, `PGPORT`, `PGDATABASE` — matching **in-container** hostnames. From the **host**, use `localhost` and the same user/password/database name unless your shell already exports `DATABASE_URL`.
 

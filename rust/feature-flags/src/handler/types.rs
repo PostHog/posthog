@@ -1,5 +1,6 @@
 use axum::{extract::State, http::HeaderMap};
 use bytes::Bytes;
+use chrono_tz::Tz;
 use serde::Serialize;
 use serde_json::Value;
 use std::{
@@ -12,7 +13,10 @@ use uuid::Uuid;
 
 use crate::{
     api::types::FlagsQueryParams,
-    cohorts::{cohort_cache_manager::CohortCacheManager, membership::CohortMembershipProvider},
+    cohorts::{
+        cohort_cache_manager::CohortCacheManager, cohort_models::MembershipStampPolicy,
+        membership::CohortMembershipProvider,
+    },
     flags::{flag_group_type_mapping::GroupTypeCacheManager, flag_models::FeatureFlagList},
     rayon_dispatcher::RayonDispatcher,
     router,
@@ -62,6 +66,9 @@ pub struct RequestPropertyOverrides {
 /// Represents all context required for evaluating a set of feature flags.
 pub struct FeatureFlagEvaluationContext {
     pub team_id: i32,
+    /// Team timezone, used to interpret naive datetime filter values consistently
+    /// with HogQL/ClickHouse cohort evaluation.
+    pub team_timezone: Tz,
     pub distinct_id: String,
     pub device_id: Option<String>,
     pub feature_flags: FeatureFlagList,
@@ -90,6 +97,7 @@ pub struct FeatureFlagEvaluationContext {
     pub cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
     /// Whether to enable realtime cohort evaluation.
     pub enable_realtime_cohort_evaluation: bool,
+    pub membership_stamp_policy: MembershipStampPolicy,
     /// Whether to include detailed condition analysis in flag evaluation results.
     pub detailed_analysis: bool,
     /// Whether to only use person properties from request payload, ignoring database properties.
@@ -245,7 +253,12 @@ impl Library {
     ///
     /// Uses `as_str()` as the source of truth to ensure consistency between
     /// parsing and serialization.
-    fn from_sdk_name(sdk_name: &str) -> Self {
+    pub(crate) fn from_sdk_name(sdk_name: &str) -> Self {
+        // posthog-js reports its library as "web" in request body properties.
+        if sdk_name == "web" {
+            return Library::PosthogJs;
+        }
+
         // Check all known variants using as_str() as the source of truth
         for lib in Self::ALL_KNOWN {
             if lib.as_str() == sdk_name {
@@ -407,6 +420,11 @@ mod tests {
                 "from_sdk_name({sdk_name}) should return {lib:?}"
             );
         }
+    }
+
+    #[test]
+    fn test_from_sdk_name_maps_web_to_posthog_js() {
+        assert_eq!(Library::from_sdk_name("web"), Library::PosthogJs);
     }
 
     #[test]

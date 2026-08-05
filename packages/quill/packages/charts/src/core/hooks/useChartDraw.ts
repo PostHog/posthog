@@ -56,25 +56,28 @@ export function useChartDraw({
             cancelAnimationFrame(staticRafRef.current)
             staticRafRef.current = null
         }
-        if (!ctx || !dimensions || !scales) {
+        if (!ctx || !dimensions || !scales || theme.skipDraw) {
             return
         }
         staticRafRef.current = requestAnimationFrame(() => {
             staticRafRef.current = null
             clearAndPrepare(ctx, dimensions)
-            drawStatic({
-                ctx,
-                dimensions,
-                scales,
-                series,
-                labels,
-                hoverIndex: -1,
-                hoverPosition: null,
-                theme,
-                hoverProgress: 1,
-                resetHoverFade: () => 1,
-            })
-            ctx.restore()
+            try {
+                drawStatic({
+                    ctx,
+                    dimensions,
+                    scales,
+                    series,
+                    labels,
+                    hoverIndex: -1,
+                    hoverPosition: null,
+                    theme,
+                    hoverProgress: 1,
+                    resetHoverFade: () => 1,
+                })
+            } finally {
+                ctx.restore()
+            }
         })
         return () => {
             if (staticRafRef.current != null) {

@@ -1,6 +1,5 @@
 import { combineUrl } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -28,6 +27,10 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/skills': ['Skills', 'skills'],
+        // Category tabs (e.g. /skills/scouts) must precede the `/skills/:name` wildcard so they
+        // aren't captured as a skill named after the tab. Route order = match precedence.
+        '/skills/scouts': ['Skills', 'skillsScouts'],
+        '/skills/review-hog': ['Skills', 'skillsReviewHog'],
         '/skills/:name': ['Skill', 'skill'],
     },
     redirects: {
@@ -42,6 +45,8 @@ export const manifest: ProductManifest = {
     },
     urls: {
         skills: (): string => '/skills',
+        // A category tab under /skills (e.g. /skills/scouts). The tab key is the URL segment.
+        skillsCategoryTab: (categoryTab: string): string => `/skills/${categoryTab}`,
         skill: (name: string, params?: { file?: string; version?: number }): string =>
             combineUrl(`/skills/${name}`, params).url,
     },
@@ -54,9 +59,8 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.TOOLS,
             type: 'llm_skills',
             iconType: 'llm_prompts' as FileSystemIconType,
-            iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
+            iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
             href: urls.skills(),
-            flag: FEATURE_FLAGS.LLM_ANALYTICS_SKILLS,
             sceneKey: 'Skills',
         },
     ],

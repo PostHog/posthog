@@ -26,6 +26,7 @@ export interface KeyedRateLimiterConfig {
     ttlSeconds?: number
     /** When false, throw if the Redis pipeline returns null instead of fail-open allowing all. Default: true (fail open). */
     failOpen?: boolean
+    scriptVersion?: 'v2' | 'v3'
 }
 
 export interface KeyedRateLimitRequest {
@@ -105,11 +106,17 @@ export class KeyedRateLimiterService implements KeyedRateLimiter {
             return bucketSize
         })
 
+        const useV3 = this.config.scriptVersion === 'v3'
         const res = await this.redis.usePipeline(
             { name: `keyed-rate-limiter:${this.config.name}`, failOpen: true },
             (pipeline) => {
                 requests.forEach((req) => {
-                    pipeline.checkRateLimitV2(...this.rateLimitArgs(req))
+                    const args = this.rateLimitArgs(req)
+                    if (useV3) {
+                        pipeline.checkRateLimitV3(...args)
+                    } else {
+                        pipeline.checkRateLimitV2(...args)
+                    }
                 })
             }
         )

@@ -33,6 +33,7 @@ interface LogsViewerSparklineProps {
     onBreakdownByChange: (breakdownBy: LogsSparklineBreakdownBy) => void
     collapsed?: boolean
     onToggleCollapse?: () => void
+    incompleteBarIndices?: number[]
 }
 
 const BREAKDOWN_OPTIONS: { value: LogsSparklineBreakdownBy; label: string }[] = [
@@ -49,6 +50,7 @@ export function LogsSparkline({
     onBreakdownByChange,
     collapsed = false,
     onToggleCollapse,
+    incompleteBarIndices,
 }: LogsViewerSparklineProps): JSX.Element | null {
     const showServiceBreakdown = useFeatureFlag('LOGS_SPARKLINE_SERVICE_BREAKDOWN')
 
@@ -111,36 +113,19 @@ export function LogsSparkline({
 
     const { visibleRowDateRange } = useValues(logsViewerLogic)
 
-    // Map the visible-row date range onto bucket indices in `dates`. Buckets are
-    // anchored at their start time; the date_to range edge belongs to the bucket
-    // whose start is the last one <= date_to.
     const highlightedRange = useMemo(() => {
         if (!visibleRowDateRange || sparklineData.dates.length === 0) {
             return null
         }
-        const fromMs = dayjs(visibleRowDateRange.date_from).valueOf()
-        const toMs = dayjs(visibleRowDateRange.date_to).valueOf()
-        let startIndex = -1
-        let endIndex = -1
-        for (let i = 0; i < sparklineData.dates.length; i++) {
-            const bucketMs = dayjs(sparklineData.dates[i]).valueOf()
-            if (bucketMs <= fromMs) {
-                startIndex = i
-            }
-            if (bucketMs <= toMs) {
-                endIndex = i
-            } else {
-                break
-            }
-        }
-        // Fall back to the first bucket when the range starts before any bucket.
-        if (startIndex === -1) {
-            startIndex = 0
-        }
-        if (endIndex === -1 || endIndex < startIndex) {
+        const firstMs = dayjs(sparklineData.dates[0]).valueOf()
+        const lastMs = dayjs(sparklineData.dates[sparklineData.dates.length - 1]).valueOf()
+        const clamp = (ms: number): number => Math.min(Math.max(ms, firstMs), lastMs)
+        const xMin = clamp(dayjs(visibleRowDateRange.date_from).valueOf())
+        const xMax = clamp(dayjs(visibleRowDateRange.date_to).valueOf())
+        if (xMax <= xMin) {
             return null
         }
-        return { startIndex, endIndex }
+        return { xMin, xMax }
     }, [visibleRowDateRange, sparklineData.dates])
 
     const onSelectionChange = useCallback(
@@ -197,6 +182,7 @@ export function LogsSparkline({
                             hideZerosInTooltip
                             sortTooltipByCount
                             highlightedRange={highlightedRange}
+                            incompleteBars={incompleteBarIndices?.length ? { indices: incompleteBarIndices } : null}
                         />
                     ) : !sparklineLoading ? (
                         <div className="h-full text-muted flex items-center justify-center">

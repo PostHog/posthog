@@ -2,8 +2,8 @@ import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { CommonConfig } from '~/common/config'
-import { logger } from '~/utils/logger'
-import { FetchResponse, internalFetch } from '~/utils/request'
+import { logger } from '~/common/utils/logger'
+import { FetchResponse, internalFetch } from '~/common/utils/request'
 
 const internalCaptureCounter = new Counter({
     name: 'internal_capture_events',

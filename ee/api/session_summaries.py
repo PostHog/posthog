@@ -4,6 +4,7 @@ import json
 import uuid
 import asyncio
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
 
@@ -11,13 +12,12 @@ from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Func, IntegerField, QuerySet, Subquery
 from django.db.models.fields.json import KeyTransform
-from django.http import StreamingHttpResponse
+from django.http.response import HttpResponseBase
 
 import structlog
 from asgiref.sync import async_to_sync
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
-from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -28,9 +28,11 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.streaming import sse_streaming_response
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.event_usage import EventSource, get_event_source
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -180,6 +182,14 @@ class SessionSummariesConfigSerializer(serializers.ModelSerializer):
         return cleaned
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class ValidatedSummaryInput:
+    session_ids: list[str]
+    min_timestamp: datetime
+    max_timestamp: datetime
+    extra_summary_context: ExtraSummaryContext | None
+
+
 class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "session_recording"  # Keeping recording, as Replay is the main source of info for summary, for now
     permission_classes = [IsAuthenticated]
@@ -202,11 +212,16 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise exceptions.ValidationError("Session summaries are only supported in PostHog Cloud")
         return user
 
-    def _validate_input(self, request: Request) -> tuple[list[str], datetime, datetime, ExtraSummaryContext | None]:
+    def _validate_input(self, request: Request) -> ValidatedSummaryInput:
         """Strict input validation for the group flow — needs all sessions to exist to compute timestamps."""
         session_ids, extra_summary_context = self._parse_input(request)
-        min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self.team)
-        return session_ids, min_timestamp, max_timestamp, extra_summary_context
+        timestamps = find_sessions_timestamps(session_ids=session_ids, team=self.team)
+        return ValidatedSummaryInput(
+            session_ids=session_ids,
+            min_timestamp=timestamps.min_timestamp,
+            max_timestamp=timestamps.max_timestamp,
+            extra_summary_context=extra_summary_context,
+        )
 
     def _parse_input(self, request: Request) -> tuple[list[str], ExtraSummaryContext | None]:
         """Parse and validate request body without checking session existence.
@@ -223,12 +238,10 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
     @staticmethod
     async def _get_summary_from_progress_stream(
-        session_ids: list[str],
+        *,
+        validated: ValidatedSummaryInput,
         user: User,
         team: Team,
-        min_timestamp: datetime,
-        max_timestamp: datetime,
-        extra_summary_context: ExtraSummaryContext | None = None,
     ) -> tuple[EnrichedSessionGroupSummaryPatternsList, list[FailedSessionInfo]]:
         """Consume the workflow stream and return (patterns, failed_sessions) for the response."""
         results: list[
@@ -238,32 +251,32 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             ]
         ] = []
         async for update_type, data in execute_summarize_session_group(
-            session_ids=session_ids,
+            session_ids=validated.session_ids,
             user=user,
             team=team,
-            min_timestamp=min_timestamp,
-            max_timestamp=max_timestamp,
+            min_timestamp=validated.min_timestamp,
+            max_timestamp=validated.max_timestamp,
             summary_title="Group summary",  # Generic name, as no user input is provided (vs the chat)
-            extra_summary_context=extra_summary_context,
+            extra_summary_context=validated.extra_summary_context,
         ):
             if update_type == SessionSummaryStreamUpdate.SESSION_PROGRESS:
                 continue  # The old consumers of this API don't expect this update type, as it's a PostHog AI chat feature
             assert not isinstance(data, dict)
             results.append((update_type, data))
         if not results:
-            error_message = f"No summaries were generated for the provided sessions (session ids: {logging_session_ids(session_ids)})"
+            error_message = f"No summaries were generated for the provided sessions (session ids: {logging_session_ids(validated.session_ids)})"
             logger.exception(error_message)
             raise exceptions.APIException(error_message)
         # The last item in the result should be the summary, if not - raise an exception
         last_result = results[-1]
         summary_iteration = last_result[-1]
         if not isinstance(summary_iteration, tuple) or len(summary_iteration) != 3:
-            error_message = f"Unexpected result type ({type(summary_iteration)}) when generating summaries (session ids: {logging_session_ids(session_ids)}): {results}"
+            error_message = f"Unexpected result type ({type(summary_iteration)}) when generating summaries (session ids: {logging_session_ids(validated.session_ids)}): {results}"
             logger.exception(error_message)
             raise exceptions.APIException(error_message)
         summary, _, failed_sessions = summary_iteration
         if not summary or not isinstance(summary, EnrichedSessionGroupSummaryPatternsList):
-            error_message = f"Unexpected result type ({type(summary)}) when generating summaries (session ids: {logging_session_ids(session_ids)}): {results}"
+            error_message = f"Unexpected result type ({type(summary)}) when generating summaries (session ids: {logging_session_ids(validated.session_ids)}): {results}"
             logger.exception(error_message)
             raise exceptions.APIException(error_message)
         return summary, failed_sessions
@@ -276,7 +289,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     @action(methods=["POST"], detail=False, required_scopes=["session_recording:read"])
     def create_session_summaries(self, request: Request, **kwargs) -> Response:
         user = self._validate_user(request)
-        session_ids, min_timestamp, max_timestamp, extra_summary_context = self._validate_input(request)
+        validated = self._validate_input(request)
         summary_source = self._resolve_summary_source(request)
         tracking_id = (
             generate_tracking_id()
@@ -287,17 +300,14 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             tracking_id=tracking_id,
             summary_source=summary_source,
             summary_type="group",
-            session_ids=session_ids,
+            session_ids=validated.session_ids,
         )
         # Summarize provided sessions
         try:
             summary, failed_sessions = async_to_sync(self._get_summary_from_progress_stream)(
-                session_ids=session_ids,
+                validated=validated,
                 user=user,
                 team=self.team,
-                min_timestamp=min_timestamp,
-                max_timestamp=max_timestamp,
-                extra_summary_context=extra_summary_context,
             )
             capture_session_summary_generated(
                 user=user,
@@ -305,7 +315,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 tracking_id=tracking_id,
                 summary_source=summary_source,
                 summary_type="group",
-                session_ids=session_ids,
+                session_ids=validated.session_ids,
                 success=True,
                 failed_session_count=len(failed_sessions),
             )
@@ -317,7 +327,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             return Response(response_body, status=status.HTTP_200_OK)
         except Exception as err:
             logger.exception(
-                f"Failed to generate session group summary for sessions {logging_session_ids(session_ids)} from team {self.team.id} by user {user.id}: {err}",
+                f"Failed to generate session group summary for sessions {logging_session_ids(validated.session_ids)} from team {self.team.id} by user {user.id}: {err}",
                 team_id=self.team.id,
                 user_id=user.id,
                 error=str(err),
@@ -328,13 +338,13 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 tracking_id=tracking_id,
                 summary_source=summary_source,
                 summary_type="group",
-                session_ids=session_ids,
+                session_ids=validated.session_ids,
                 success=False,
                 error_type=type(err).__name__,
                 error_message=str(err),
             )
             raise exceptions.APIException(
-                f"Failed to generate session summaries for sessions {logging_session_ids(session_ids)}. Please try again later."
+                f"Failed to generate session summaries for sessions {logging_session_ids(validated.session_ids)}. Please try again later."
             )
 
     @staticmethod
@@ -430,9 +440,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         # Don't fail the whole batch if some sessions have no recording — partition them out and surface
         # each missing session as a per-session error in the response (matches the partial-success contract
         # this endpoint already had for downstream summary failures).
-        found_session_ids, missing_session_ids = partition_sessions_by_recording_existence(
-            session_ids=session_ids, team=self.team
-        )
+        partition = partition_sessions_by_recording_existence(session_ids=session_ids, team=self.team)
         tracking_id = generate_tracking_id()
         capture_session_summary_started(
             user=user,
@@ -445,16 +453,16 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         # Summarize provided sessions individually
         try:
             summaries: dict[str, dict[str, Any]] = {}
-            if found_session_ids:
+            if partition.found_session_ids:
                 summaries.update(
                     async_to_sync(self._get_individual_summaries)(
-                        session_ids=found_session_ids,
+                        session_ids=partition.found_session_ids,
                         user=user,
                         team=self.team,
                         extra_summary_context=extra_summary_context,
                     )
                 )
-            for missing_id in missing_session_ids:
+            for missing_id in partition.missing_session_ids:
                 summaries[missing_id] = {
                     "error": "recording_not_found",
                     "error_message": (
@@ -502,7 +510,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         required_scopes=["session_recording:read"],
         renderer_classes=[ServerSentEventRenderer],
     )
-    def stream_batch_session_summaries(self, request: Request, **kwargs) -> StreamingHttpResponse:
+    def stream_batch_session_summaries(self, request: Request, **kwargs) -> HttpResponseBase:
         user = self._validate_user(request)
         # Use _parse_input (not _validate_input) — the individual flow must surface bad
         # session IDs as per-session error events, not fail the whole batch up front.
@@ -599,13 +607,9 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             done_data = json.dumps({"completed": completed_ids, "failed": failed_ids})
             yield f"event: done\ndata: {done_data}\n\n".encode()
 
-        return StreamingHttpResponse(
-            (async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_generator_to_sync(async_stream)),
-            content_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-            },
+        return sse_streaming_response(
+            async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_generator_to_sync(async_stream),
+            endpoint="session_summaries",
         )
 
     @extend_schema(
@@ -758,7 +762,7 @@ class SessionGroupSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             organization_id=self.request.user.current_organization_id,
             team_id=self.team_id,
             user=self.request.user,
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated(self.request),
         )
         super().perform_destroy(instance)
 

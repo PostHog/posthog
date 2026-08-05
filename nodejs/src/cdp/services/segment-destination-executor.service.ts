@@ -1,15 +1,16 @@
 import { Histogram } from 'prom-client'
 import { ReadableStream } from 'stream/web'
 
-import { parseJSON } from '../../utils/json-parse'
-import { FetchOptions, FetchResponse, Response } from '../../utils/request'
+import { parseJSON } from '~/common/utils/json-parse'
+import { FetchOptions, FetchResponse, Response } from '~/common/utils/request'
+
 import { LegacyPluginLogger } from '../legacy-plugins/types'
 import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { destinationE2eLagMsSummary } from '../utils'
 import { CDP_TEST_ID, createAddLogFunction, isSegmentPluginHogFunction } from '../utils'
+import { CdpFetchConfig, cdpTrackedFetch, getNextRetryTime, isFetchResponseRetriable } from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
-import { CdpFetchConfig, cdpTrackedFetch, getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
 
 const pluginExecutionDuration = new Histogram({
     name: 'cdp_segment_execution_duration_ms',
@@ -250,6 +251,8 @@ export class SegmentDestinationExecutorService {
                         url,
                         fetchParams: fetchOptions,
                         templateId: invocation.hogFunction.template_id ?? '',
+                        teamId: invocation.teamId,
+                        hogFunctionId: invocation.hogFunction.id,
                     })
 
                     const fetchResponseText = (await fetchResponse?.text()) ?? 'unknown'

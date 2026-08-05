@@ -283,6 +283,7 @@ Temporal SDK metrics (Prometheus on the worker metrics port):
 | `surfacing_scoring_total_fetched`                          | counter   | end of each tick (`total_fetched > 0`) |
 | `surfacing_scoring_total_scored`                           | counter   | end of each tick (`total_scored > 0`)  |
 | `surfacing_scoring_chunks_failed`                          | counter   | end of each tick (`chunks_failed > 0`) |
+| `surfacing_scoring_estimated_backlog`                      | gauge     | start of each tick (`list_chunks`)     |
 | `surfacing_scoring_score_chunk_activity_execution_latency` | histogram | each `score_chunk_activity` run        |
 
 `total_fetched` is rows the feature SELECT returned from ClickHouse;

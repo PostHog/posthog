@@ -12,70 +12,12 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow import (
     BackfillPrecalculatedPersonPropertiesCoordinatorInputs,
 )
-from posthog.temporal.messaging.filter_storage import store_filters
+from posthog.temporal.messaging.filter_storage import extract_person_property_filters, store_filters
 from posthog.temporal.messaging.types import PersonPropertyFilter
 
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 
 logger = structlog.get_logger(__name__)
-
-
-def extract_person_property_filters(cohort: Cohort) -> list[PersonPropertyFilter]:
-    """
-    Extract person property filters from a realtime cohort.
-
-    Recursively traverses the filter tree to find all person property filters
-    with conditionHash and bytecode.
-
-    Returns a list of PersonPropertyFilter objects suitable for passing to the workflow.
-    """
-    filters: list[PersonPropertyFilter] = []
-
-    if not cohort.filters:
-        return filters
-
-    properties = cohort.filters.get("properties")
-    if not properties:
-        return filters
-
-    def traverse_filter_tree(node):
-        """Recursively traverse the filter tree to find person property filters."""
-        if not isinstance(node, dict):
-            return
-
-        # Check if this is a group node (AND/OR)
-        node_type = node.get("type")
-        if node_type in ("AND", "OR"):
-            # Recursively process children
-            for child in node.get("values", []):
-                traverse_filter_tree(child)
-            return
-
-        # This is a leaf node - check if it's a person property filter
-        if node_type != "person":
-            return
-
-        condition_hash = node.get("conditionHash")
-        bytecode = node.get("bytecode")
-        property_key = node.get("key")
-
-        # Skip if missing required fields or if they're empty
-        if not condition_hash or not bytecode or not property_key:
-            return
-
-        filters.append(
-            PersonPropertyFilter(
-                condition_hash=condition_hash,
-                bytecode=bytecode,
-                cohort_ids=[],  # Will be populated during deduplication
-                property_key=property_key,
-            )
-        )
-
-    # Start traversal from the root properties node
-    traverse_filter_tree(properties)
-
-    return filters
 
 
 class Command(BaseCommand):

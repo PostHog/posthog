@@ -95,18 +95,70 @@ describe('settingsSceneLogic', () => {
         expect(router.values.hashParams).not.toHaveProperty('llm-analytics-byok')
     })
 
+    it('redirects internal-user-filtering deep links to its new section', async () => {
+        // The setting moved from the product analytics section to Customization; links in docs,
+        // CDP filter warnings, and bookmarks still point at the old section.
+        router.actions.push('/settings/project-product-analytics', {}, { 'internal-user-filtering': true })
+
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'project',
+            selectedSectionId: 'project-customization',
+        })
+
+        expect(router.values.location.pathname).toContain('/settings/project-customization')
+        expect(router.values.hashParams).toHaveProperty('internal-user-filtering')
+
+        // Level-only URLs (as emitted by CDP filter warnings) redirect too.
+        router.actions.push('/settings/project', {}, { 'internal-user-filtering': true })
+
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'project',
+            selectedSectionId: 'project-customization',
+        })
+
+        expect(router.values.location.pathname).toContain('/settings/project-customization')
+        expect(router.values.hashParams).toHaveProperty('internal-user-filtering')
+    })
+
+    it('redirects the removed toolbar section to web analytics', async () => {
+        router.actions.push('/settings/project-toolbar')
+
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'project',
+            selectedSectionId: 'project-web-analytics',
+        })
+        expect(router.values.location.pathname).toContain('/settings/project-web-analytics')
+
+        router.actions.push('/settings/environment-toolbar')
+
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'project',
+            selectedSectionId: 'project-web-analytics',
+        })
+        expect(router.values.location.pathname).toContain('/settings/project-web-analytics')
+    })
+
+    it('rewrites the legacy toolbar authorized-urls deep link to the web analytics setting', async () => {
+        router.actions.push('/settings/project-toolbar', {}, { 'authorized-urls': null })
+
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'project',
+            selectedSectionId: 'project-web-analytics',
+        })
+        expect(router.values.location.pathname).toContain('/settings/project-web-analytics')
+        expect(router.values.location.hash).toBe('#web-analytics-authorized-urls')
+        expect(router.values.hashParams).toHaveProperty('web-analytics-authorized-urls')
+        expect(router.values.hashParams).not.toHaveProperty('authorized-urls')
+    })
+
     it('redirects level-only URLs to first section', async () => {
+        // Each push switches to a different level, so no section at the target level is
+        // selected yet and the redirect to the first section runs.
         router.actions.push('/settings/environment')
         await expectLogic(logic).toMatchValues({
             selectedLevel: 'project',
         })
         // Should redirect to first section (project-details)
-        expect(router.values.location.pathname).toContain('/settings/project-details')
-
-        router.actions.push('/settings/project')
-        await expectLogic(logic).toMatchValues({
-            selectedLevel: 'project',
-        })
         expect(router.values.location.pathname).toContain('/settings/project-details')
 
         router.actions.push('/settings/organization')
@@ -120,5 +172,31 @@ describe('settingsSceneLogic', () => {
             selectedLevel: 'user',
         })
         expect(router.values.location.pathname).toContain('/settings/user-profile')
+
+        // The redirect keeps hash params, so `/settings/project#variables`-style links
+        // still scroll to their setting.
+        router.actions.push('/settings/project', {}, { variables: true })
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'project',
+        })
+        expect(router.values.location.pathname).toContain('/settings/project-details')
+        expect(router.values.hashParams).toHaveProperty('variables')
+    })
+
+    it('does not bounce a level-only URL when already on a section at that level', async () => {
+        router.actions.push('/settings/project-autocapture')
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'project',
+            selectedSectionId: 'project-autocapture',
+        })
+
+        // Clicking the "Settings" nav link routes to the bare level URL; while already viewing a
+        // project settings page it must be a no-op, not a redirect back to the first section.
+        router.actions.push('/settings/project')
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'project',
+            selectedSectionId: 'project-autocapture',
+        })
+        expect(router.values.location.pathname).toMatch(/\/settings\/project$/)
     })
 })

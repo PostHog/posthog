@@ -1,7 +1,26 @@
 import clsx from 'clsx'
 import { ReactNode, type CSSProperties, useEffect, useRef } from 'react'
 
-import { IconCode, IconDatabase, IconGraph, IconList, IconPencil, IconSparkles } from '@posthog/icons'
+import {
+    IconCode,
+    IconCursor,
+    IconDatabase,
+    IconFunnels,
+    IconLifecycle,
+    IconList,
+    IconPencil,
+    IconPeople,
+    IconRetention,
+    IconRewindPlay,
+    IconSparkles,
+    IconStickiness,
+    IconTrends,
+    IconUserPaths,
+} from '@posthog/icons'
+
+import { Scene } from 'scenes/sceneTypes'
+
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import {
     INSERT_MENU_GAP,
@@ -23,7 +42,28 @@ import {
     NotebookComponentRegistry,
 } from './types'
 
+/** DOM id of a command's option element, referenced by the editor's `aria-activedescendant`. */
+export function getInsertMenuOptionDomId(menuId: string, commandKey: string): string {
+    return `${menuId}-option-${commandKey}`
+}
+
+/** Exported so a caller whose registry supersedes the built-in SQL command can hide it by key
+ * without hard-coding the string, which would silently stop matching if the key were renamed. */
+export const QUERY_SQL_INSERT_COMMAND_KEY = 'query-sql'
+
+/** The menu's top group. Exported so a registry component can place its insert command here
+ * without hard-coding the label, which would split into a second group if this were renamed. */
+export const COMMON_INSERT_COMMAND_CATEGORY = 'Common'
+
+export function omitInsertCommands(commands: InsertCommand[], hiddenKeys: string[] | undefined): InsertCommand[] {
+    if (!hiddenKeys?.length) {
+        return commands
+    }
+    return commands.filter((command) => !hiddenKeys.includes(command.key))
+}
+
 export function InsertMenu({
+    id,
     query,
     commands,
     targetNodeId,
@@ -31,6 +71,7 @@ export function InsertMenu({
     selectedIndex,
     onClose,
 }: {
+    id?: string
     query: string
     commands: InsertCommand[]
     targetNodeId: string
@@ -41,8 +82,9 @@ export function InsertMenu({
     const selectedItemRef = useRef<HTMLButtonElement | null>(null)
     const filteredCommands = getFilteredInsertCommands(commands, query)
     const commandsByCategory = groupInsertCommandsByCategory(filteredCommands)
-    const selectedCommandKey =
-        filteredCommands[getClampedInsertMenuSelectedIndex(selectedIndex, filteredCommands.length)]?.key
+    const selectedCommandIndex = getClampedInsertMenuSelectedIndex(selectedIndex, filteredCommands.length)
+    const selectedCommand = filteredCommands[selectedCommandIndex]
+    const selectedCommandKey = selectedCommand?.key
     const menuStyle = position
         ? ({
               '--markdown-notebook-insert-menu-left': `${position.left}px`,
@@ -65,10 +107,20 @@ export function InsertMenu({
             )}
             contentEditable={false}
             style={menuStyle}
+            id={id}
+            role="listbox"
+            aria-label="Insert block"
         >
+            {/* Focus stays in the editor while the menu is open, so screen readers may miss the
+                aria-activedescendant change — announce the selection explicitly. */}
+            <div className="sr-only" aria-live="polite">
+                {selectedCommand
+                    ? `${selectedCommand.label}, ${selectedCommandIndex + 1} of ${filteredCommands.length}`
+                    : 'No components found'}
+            </div>
             {Object.entries(commandsByCategory).map(([category, categoryCommands]) => (
-                <div className="MarkdownNotebook__insert-category" key={category}>
-                    <h5>{category}</h5>
+                <div className="MarkdownNotebook__insert-category" key={category} role="group" aria-label={category}>
+                    <h5 aria-hidden="true">{category}</h5>
                     <div className="MarkdownNotebook__insert-grid">
                         {categoryCommands.map((command) => (
                             <button
@@ -78,9 +130,15 @@ export function InsertMenu({
                                     command.key === selectedCommandKey && 'MarkdownNotebook__insert-item--selected'
                                 )}
                                 key={command.key}
+                                id={id ? getInsertMenuOptionDomId(id, command.key) : undefined}
+                                role="option"
                                 aria-selected={command.key === selectedCommandKey}
+                                disabled={command.disabled}
                                 type="button"
                                 onClick={() => {
+                                    if (command.disabled) {
+                                        return
+                                    }
                                     command.run(targetNodeId)
                                     if (command.closeOnRun !== false) {
                                         onClose()
@@ -167,9 +225,11 @@ export function buildInsertCommands(
     focusInsertedText: (nodeId: string) => void,
     focusInsertedTable: (nodeId: string) => void,
     focusInsertedCode: (nodeId: string) => void,
-    openAIPrompt?: (nodeId: string) => void
+    openAIPrompt?: (nodeId: string) => void,
+    isAskAIDisabled?: boolean,
+    extraCommands: InsertCommand[] = []
 ): InsertCommand[] {
-    const commonCategory = 'Common'
+    const commonCategory = COMMON_INSERT_COMMAND_CATEGORY
 
     const insertComponent = (targetNodeId: string, tagName: string, props: NotebookComponentProps): void => {
         const node: NotebookComponentBlockNode = {
@@ -226,12 +286,13 @@ export function buildInsertCommands(
         ? [
               {
                   key: 'ai-ask',
-                  label: 'Ask PostHog AI',
+                  label: 'Ask AI',
                   category: commonCategory,
-                  description: 'Ask PostHog AI to write or edit this notebook',
+                  description: 'Ask AI to write or edit this notebook',
                   aliases: ['ai', 'ask', 'posthog ai'],
                   icon: <IconSparkles />,
                   closeOnRun: false,
+                  disabled: isAskAIDisabled,
                   run: openAIPrompt,
               },
           ]
@@ -242,12 +303,15 @@ export function buildInsertCommands(
             key: 'query-trend',
             label: 'Trend',
             category: 'Insight',
-            icon: <IconGraph />,
+            icon: <IconTrends />,
             run: (targetNodeId) =>
                 insertComponent(targetNodeId, 'Query', {
                     query: {
                         kind: 'InsightVizNode',
-                        source: { kind: 'TrendsQuery', series: [{ event: '$pageview', kind: 'EventsNode' }] },
+                        source: {
+                            kind: 'TrendsQuery',
+                            series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview', math: 'total' }],
+                        },
                     },
                 }),
         },
@@ -255,7 +319,7 @@ export function buildInsertCommands(
             key: 'query-funnel',
             label: 'Funnel',
             category: 'Insight',
-            icon: <IconGraph />,
+            icon: <IconFunnels />,
             run: (targetNodeId) =>
                 insertComponent(targetNodeId, 'Query', {
                     query: {
@@ -263,23 +327,78 @@ export function buildInsertCommands(
                         source: {
                             kind: 'FunnelsQuery',
                             series: [
-                                { event: '$pageview', kind: 'EventsNode' },
-                                { event: '$pageleave', kind: 'EventsNode' },
+                                { kind: 'EventsNode', name: '$pageview', event: '$pageview' },
+                                { kind: 'EventsNode', name: '$pageleave', event: '$pageleave' },
                             ],
                         },
                     },
                 }),
         },
         {
-            key: 'query-saved-insight',
-            label: 'Saved insight',
+            key: 'query-retention',
+            label: 'Retention',
             category: 'Insight',
-            icon: <IconGraph />,
+            icon: <IconRetention />,
             run: (targetNodeId) =>
                 insertComponent(targetNodeId, 'Query', {
                     query: {
-                        kind: 'SavedInsightNode',
-                        shortId: '',
+                        kind: 'InsightVizNode',
+                        source: {
+                            kind: 'RetentionQuery',
+                            retentionFilter: {
+                                period: 'Day',
+                                totalIntervals: 11,
+                                targetEntity: { id: '$pageview', name: '$pageview', type: 'events' },
+                                returningEntity: { id: '$pageview', name: '$pageview', type: 'events' },
+                            },
+                        },
+                    },
+                }),
+        },
+        {
+            key: 'query-paths',
+            label: 'Paths',
+            category: 'Insight',
+            aliases: ['user paths'],
+            icon: <IconUserPaths />,
+            run: (targetNodeId) =>
+                insertComponent(targetNodeId, 'Query', {
+                    query: {
+                        kind: 'InsightVizNode',
+                        source: { kind: 'PathsQuery', pathsFilter: { includeEventTypes: ['$pageview'] } },
+                    },
+                }),
+        },
+        {
+            key: 'query-stickiness',
+            label: 'Stickiness',
+            category: 'Insight',
+            icon: <IconStickiness />,
+            run: (targetNodeId) =>
+                insertComponent(targetNodeId, 'Query', {
+                    query: {
+                        kind: 'InsightVizNode',
+                        source: {
+                            kind: 'StickinessQuery',
+                            series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview', math: 'total' }],
+                            stickinessFilter: {},
+                        },
+                    },
+                }),
+        },
+        {
+            key: 'query-lifecycle',
+            label: 'Lifecycle',
+            category: 'Insight',
+            icon: <IconLifecycle />,
+            run: (targetNodeId) =>
+                insertComponent(targetNodeId, 'Query', {
+                    query: {
+                        kind: 'InsightVizNode',
+                        source: {
+                            kind: 'LifecycleQuery',
+                            series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview', math: 'total' }],
+                        },
                     },
                 }),
         },
@@ -287,7 +406,7 @@ export function buildInsertCommands(
 
     const sqlCommands: InsertCommand[] = [
         {
-            key: 'query-sql',
+            key: QUERY_SQL_INSERT_COMMAND_KEY,
             label: 'SQL',
             category: commonCategory,
             icon: <IconDatabase />,
@@ -295,7 +414,10 @@ export function buildInsertCommands(
                 insertComponent(targetNodeId, 'Query', {
                     query: {
                         kind: 'DataTableNode',
-                        source: { kind: 'HogQLQuery', query: 'select event, count() from events group by event' },
+                        source: {
+                            kind: 'HogQLQuery',
+                            query: 'select event, count() from events where timestamp >= now() - interval 7 day group by event',
+                        },
                     },
                 }),
         },
@@ -306,7 +428,7 @@ export function buildInsertCommands(
             key: 'query-events',
             label: 'Events',
             category: 'Data',
-            icon: <IconList />,
+            icon: <IconCursor />,
             run: (targetNodeId) =>
                 insertComponent(targetNodeId, 'Query', {
                     query: {
@@ -319,25 +441,33 @@ export function buildInsertCommands(
             key: 'data-people',
             label: 'People',
             category: 'Data',
-            icon: <IconList />,
-            run: (targetNodeId) => insertRegisteredComponent(targetNodeId, 'Person'),
-        },
-        {
-            key: 'data-session-recordings',
-            label: 'Session recordings',
-            category: 'Data',
-            icon: <IconList />,
-            run: (targetNodeId) => insertRegisteredComponent(targetNodeId, 'RecordingPlaylist'),
+            icon: <IconPeople />,
+            run: (targetNodeId) =>
+                insertComponent(targetNodeId, 'Query', {
+                    query: {
+                        kind: 'DataTableNode',
+                        source: {
+                            kind: 'ActorsQuery',
+                            select: ['person_display_name -- Person', 'id', 'created_at'],
+                            // ActorsQuery hits ClickHouse, which requires a product query tag.
+                            // Match the notebook query tagging convention (see NotebookSQLEditor).
+                            tags: { productKey: ProductKey.NOTEBOOKS, scene: Scene.Notebook },
+                        },
+                    },
+                }),
         },
     ]
 
-    const experimentCommands: InsertCommand[] = [
+    // Appended after every other built-in category so "Products" renders as the last group
+    // (grouping preserves first-occurrence order); scene-supplied product commands merge in.
+    const productCommands: InsertCommand[] = [
         {
-            key: 'experiment',
-            label: 'Experiment',
-            category: 'Experiment',
-            icon: <IconGraph />,
-            run: (targetNodeId) => insertRegisteredComponent(targetNodeId, 'Experiment'),
+            key: 'data-session-recordings',
+            label: 'Session recordings',
+            category: 'Products',
+            aliases: ['replay', 'playlist'],
+            icon: <IconRewindPlay />,
+            run: (targetNodeId) => insertRegisteredComponent(targetNodeId, 'RecordingPlaylist'),
         },
     ]
 
@@ -486,10 +616,11 @@ export function buildInsertCommands(
         ...sqlCommands,
         ...queryCommands,
         ...dataCommands,
-        ...experimentCommands,
         ...mediaCommands,
         ...componentCommands,
         ...textStyleCommands,
+        ...productCommands,
+        ...extraCommands,
     ]
 }
 

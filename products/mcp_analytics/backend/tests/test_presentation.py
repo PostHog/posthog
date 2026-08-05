@@ -1,14 +1,76 @@
-from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from datetime import UTC, datetime, timedelta
+
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Organization, Team
+from posthog.models.utils import uuid7
+from posthog.temporal.mcp_analytics.intent_clustering.constants import (
+    CHILD_WORKFLOW_ID_PREFIX,
+    WORKFLOW_EXECUTION_TIMEOUT,
+    WORKFLOW_NAME,
+)
 
 from products.mcp_analytics.backend import intent_generation
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
+from products.mcp_analytics.backend.presentation.serializers import (
+    MCP_SESSION_LIST_DEFAULT_LIMIT,
+    MCP_SESSION_LIST_MAX_LIMIT,
+    MCP_TOOL_CALLS_DEFAULT_LIMIT,
+    MCP_TOOL_CALLS_MAX_LIMIT,
+    MCPSessionListQuerySerializer,
+    MCPSessionToolCallsQuerySerializer,
+)
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
+
+
+def _cluster_blob(cluster_id: int, label: str, switches: list[dict[str, str]] | None = None) -> dict:
+    return {
+        "id": cluster_id,
+        "label": label,
+        "intent_count": 1,
+        "call_count": 10,
+        "error_count": 0,
+        "error_rate_pct": 0.0,
+        "routing_entropy": 0.1,
+        "tool_distribution": [{"tool": "flag_get", "count": 10, "pct": 100.0, "errors": 0, "error_rate_pct": 0.0}],
+        "sample_intents": [label],
+        "switches": [{**switch, "count": 2} for switch in switches or []],
+        "self_retries": [],
+    }
+
+
+def _tool_blob(tool: str, cluster_ids: list[int]) -> dict:
+    return {
+        "tool": tool,
+        "call_count": 10,
+        "error_count": 0,
+        "session_count": 2,
+        "contested_score": 0.1,
+        "n_clusters_served": len(cluster_ids),
+        "advertised_sessions": 0,
+        "called_when_advertised": 0,
+        "discovery_rate_pct": None,
+        "description": None,
+        "clusters": [
+            {
+                "cluster_id": cluster_id,
+                "calls": 10,
+                "capture_pct": 100.0,
+                "rank": 1,
+                "description_fit": None,
+                "top_competitor": None,
+            }
+            for cluster_id in cluster_ids
+        ],
+    }
 
 
 class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
@@ -185,13 +247,182 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert len(data["clusters"]) == 1
         assert data["clusters"][0]["label"] == "check feature flag rollout"
         assert data["computed_with"]["n_clusters"] == 1
+        # A pre-v2 blob (no version, no tool sections) must keep rendering:
+        # the pivot comes back empty and the coverage meta null, never a 500.
+        assert data["tools"] == []
+        assert data["tool_overlaps"] == []
+        assert data["computed_with"]["sampled_sessions"] is None
+        assert data["clusters"][0]["switches"] == []
 
-    def test_intent_clusters_recompute_enqueues_task_and_returns_computing(self) -> None:
-        # Mock only the Celery dispatch so the synchronous COMPUTING write
-        # still runs. The 202 body should reflect the new state, not the
-        # stale pre-trigger state.
+    def test_intent_clusters_returns_v2_tool_sections(self) -> None:
+        MCPIntentClusterSnapshot.objects.create(
+            team=self.team,
+            status=MCPIntentClusterSnapshot.Status.IDLE,
+            clusters={
+                "version": 2,
+                "clusters": [],
+                "tools": [
+                    {
+                        "tool": "feature_flag_get",
+                        "call_count": 12,
+                        "error_count": 1,
+                        "session_count": 4,
+                        "contested_score": 0.31,
+                        "advertised_sessions": 3,
+                        "called_when_advertised": 2,
+                        "discovery_rate_pct": None,
+                        "description": None,
+                        "n_clusters_served": 3,
+                        "clusters": [
+                            {
+                                "cluster_id": 0,
+                                "calls": 12,
+                                "capture_pct": 85.7,
+                                "rank": 1,
+                                "description_fit": None,
+                                "top_competitor": {"tool": "query_run", "pct": 14.3},
+                            }
+                        ],
+                    }
+                ],
+                "tool_overlaps": [
+                    {
+                        "tool_a": "feature_flag_get",
+                        "tool_b": "query_run",
+                        "contested_calls": 2,
+                        "sessions_with_both": 1,
+                        "sessions_with_either": 4,
+                        "top_cluster_id": 0,
+                    }
+                ],
+                "computed_with": {
+                    "distance_threshold": 0.2,
+                    "embedding_model": "text-embedding-3-small-1536",
+                    "n_intents": 2,
+                    "n_clusters": 1,
+                    "corpus": "per_call",
+                    "sampled_sessions": 5,
+                    "window_sessions": 100,
+                    "session_coverage_pct": 5.0,
+                    "intent_coverage_pct": 91.4,
+                },
+            },
+        )
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        tool = data["tools"][0]
+        assert tool["tool"] == "feature_flag_get"
+        assert tool["contested_score"] == 0.31
+        # Nulls must survive the DTO + serializer round trip as null, not 0 or "".
+        assert tool["discovery_rate_pct"] is None
+        assert tool["description"] is None
+        assert tool["clusters"][0]["top_competitor"] == {"tool": "query_run", "pct": 14.3}
+        assert data["tool_overlaps"][0]["contested_calls"] == 2
+        assert data["computed_with"]["sampled_sessions"] == 5
+        assert data["computed_with"]["intent_coverage_pct"] == 91.4
+        # Coverage fields the blob omitted come back null rather than erroring.
+        assert data["computed_with"]["description_coverage_pct"] is None
+        # The entry list is capped, so the honest "how many intents does this serve"
+        # answer has to come off the pivot, not len(clusters).
+        assert tool["n_clusters_served"] == 3
+        assert len(tool["clusters"]) == 1
+
+    def test_intent_clusters_can_be_scoped_to_one_tool(self) -> None:
+        # The tool detail page renders a single tool's section. Unscoped, it pulls the
+        # whole snapshot — every cluster and every other tool's pivot — to do it.
+        MCPIntentClusterSnapshot.objects.create(
+            team=self.team,
+            status=MCPIntentClusterSnapshot.Status.IDLE,
+            clusters={
+                "version": 2,
+                "clusters": [
+                    _cluster_blob(0, "check feature flag rollout"),
+                    _cluster_blob(1, "run a query", switches=[{"from_tool": "query_run", "to_tool": "flag_get"}]),
+                    _cluster_blob(2, "unrelated intent"),
+                ],
+                "tools": [
+                    _tool_blob("flag_get", cluster_ids=[0]),
+                    _tool_blob("query_run", cluster_ids=[1, 2]),
+                ],
+                "tool_overlaps": [
+                    {
+                        "tool_a": "flag_get",
+                        "tool_b": "query_run",
+                        "contested_calls": 2,
+                        "sessions_with_both": 1,
+                        "sessions_with_either": 4,
+                        "top_cluster_id": 0,
+                    },
+                    {
+                        "tool_a": "docs_search",
+                        "tool_b": "query_run",
+                        "contested_calls": 1,
+                        "sessions_with_both": 0,
+                        "sessions_with_either": 2,
+                        "top_cluster_id": 2,
+                    },
+                ],
+                "computed_with": {
+                    "distance_threshold": 0.2,
+                    "embedding_model": "text-embedding-3-small-1536",
+                    "n_intents": 3,
+                    "n_clusters": 3,
+                },
+            },
+        )
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/?tool=flag_get")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert [tool["tool"] for tool in data["tools"]] == ["flag_get"]
+        # Cluster 0 because the pivot references it, cluster 1 because its switch
+        # names the tool — the detail panel renders both. Cluster 2 is neither.
+        assert sorted(cluster["id"] for cluster in data["clusters"]) == [0, 1]
+        assert [(o["tool_a"], o["tool_b"]) for o in data["tool_overlaps"]] == [("flag_get", "query_run")]
+        # Coverage meta stays whole-snapshot: it describes the run, not the tool.
+        assert data["computed_with"]["n_clusters"] == 3
+
+    def test_intent_clusters_scoped_to_an_unknown_tool_is_empty_not_an_error(self) -> None:
+        MCPIntentClusterSnapshot.objects.create(
+            team=self.team,
+            status=MCPIntentClusterSnapshot.Status.IDLE,
+            clusters={
+                "version": 2,
+                "clusters": [_cluster_blob(0, "check feature flag rollout")],
+                "tools": [_tool_blob("flag_get", cluster_ids=[0])],
+                "tool_overlaps": [],
+                "computed_with": {
+                    "distance_threshold": 0.2,
+                    "embedding_model": "text-embedding-3-small-1536",
+                    "n_intents": 1,
+                    "n_clusters": 1,
+                },
+            },
+        )
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/?tool=nope")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["tools"] == []
+        assert data["clusters"] == []
+
+    def test_intent_clusters_recompute_starts_workflow_and_returns_computing(self) -> None:
+        # Mock async_connect to return a client whose start_workflow is an
+        # AsyncMock — the facade awaits both inside asyncio.run. The
+        # synchronous COMPUTING write still runs against the real DB so
+        # the 202 body reflects the new state, not the stale pre-trigger one.
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock(return_value=MagicMock())
         with (
-            patch("products.mcp_analytics.backend.tasks.tasks.compute_intent_clusters.delay") as mock_delay,
+            patch("posthog.temporal.common.client.async_connect", new=AsyncMock(return_value=mock_client)),
             patch("posthoganalytics.feature_enabled", return_value=True),
         ):
             response = self.client.post(
@@ -200,10 +431,88 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
 
         assert response.status_code == status.HTTP_202_ACCEPTED
         assert response.json()["status"] == "computing"
-        mock_delay.assert_called_once_with(self.team.id, self.user.id)
         snapshot = MCPIntentClusterSnapshot.objects.get(team=self.team)
         assert snapshot.status == MCPIntentClusterSnapshot.Status.COMPUTING
         assert snapshot.last_computed_by_id == self.user.id
+        mock_client.start_workflow.assert_awaited_once()
+        call_args = mock_client.start_workflow.call_args
+        assert call_args.args[0] == WORKFLOW_NAME
+        assert call_args.args[1].team_id == self.team.id
+        assert call_args.args[1].user_id == self.user.id
+        # Deterministic per team so Temporal itself dedupes concurrent runs.
+        assert call_args.kwargs["id"] == f"{CHILD_WORKFLOW_ID_PREFIX}-{self.team.id}-adhoc"
+        # Without a bound, a dispatch onto a queue with no live worker sits
+        # pending forever and repeat clicks stack workflows behind it.
+        assert call_args.kwargs["execution_timeout"] == WORKFLOW_EXECUTION_TIMEOUT
+
+    def test_intent_clusters_recompute_already_running_workflow_is_not_an_error(self) -> None:
+        # A snapshot stale-swept past STALE_COMPUTING_THRESHOLD can belong to a
+        # workflow that is still live (the execution timeout is longer) —
+        # Temporal refuses the duplicate id. That is "already running", not a
+        # dispatch failure: the generic revert below it must not mark ERROR.
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock(
+            side_effect=WorkflowAlreadyStartedError(f"{CHILD_WORKFLOW_ID_PREFIX}-1-adhoc", WORKFLOW_NAME)
+        )
+        with patch("posthog.temporal.common.client.async_connect", new=AsyncMock(return_value=mock_client)):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/recompute/", {}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.json()["status"] == "computing"
+        snapshot = MCPIntentClusterSnapshot.objects.get(team=self.team)
+        assert snapshot.status == MCPIntentClusterSnapshot.Status.COMPUTING
+        assert snapshot.error_message == ""
+
+    @parameterized.expand(
+        [
+            # A fresh COMPUTING run owns the snapshot: don't stack a duplicate workflow.
+            ("fresh_computing_skips_dispatch", timedelta(minutes=1), 0),
+            # A run stuck past the stale threshold is presumed dead: allow the retry through.
+            ("stale_computing_dispatches_again", timedelta(minutes=11), 1),
+        ]
+    )
+    def test_intent_clusters_recompute_throttles_while_computing(
+        self, _name: str, computing_age: timedelta, expected_dispatches: int
+    ) -> None:
+        MCPIntentClusterSnapshot.objects.update_or_create(
+            team=self.team,
+            defaults={"status": MCPIntentClusterSnapshot.Status.COMPUTING},
+        )
+        # updated_at is auto_now — backdate it directly to position the run's age.
+        MCPIntentClusterSnapshot.objects.filter(team=self.team).update(updated_at=datetime.now(tz=UTC) - computing_age)
+
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock(return_value=MagicMock())
+        with patch("posthog.temporal.common.client.async_connect", new=AsyncMock(return_value=mock_client)):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/recompute/", {}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.json()["status"] == "computing"
+        assert mock_client.start_workflow.await_count == expected_dispatches
+
+    def test_intent_clusters_recompute_dispatch_failure_reverts_to_error(self) -> None:
+        # If the workflow never starts, no activity will flip the status —
+        # the endpoint must revert its own COMPUTING write, not leave the
+        # snapshot stuck until the stale-COMPUTING sweep.
+        with (
+            patch(
+                "posthog.temporal.common.client.async_connect",
+                new=AsyncMock(side_effect=RuntimeError("temporal unreachable")),
+            ),
+            patch("posthoganalytics.feature_enabled", return_value=True),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/recompute/", {}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        snapshot = MCPIntentClusterSnapshot.objects.get(team=self.team)
+        assert snapshot.status == MCPIntentClusterSnapshot.Status.ERROR
+        assert snapshot.error_message == "Failed to start the intent clustering workflow"
 
     def test_feedback_list_is_team_scoped(self) -> None:
         MCPAnalyticsSubmission.objects.create(
@@ -331,6 +640,110 @@ class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         # Nothing persisted when generation fails.
         assert not MCPSession.objects.filter(team=self.team, session_id=session_id).exists()
+
+
+class TestMCPSessionToolCallsEndpoint(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    """The detail event list is bounded by the session's aggregated session_start. Listing *all*
+    events hinges on that bound surviving the serialize -> query-param -> parse round-trip without
+    dropping the first event (the one at exactly session_start)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    def test_tool_calls_bounded_by_session_start_returns_every_event(self) -> None:
+        session_id = str(uuid7())
+        now = datetime.now(tz=UTC)
+        events = [(now - timedelta(hours=2), "first_tool"), (now - timedelta(minutes=5), "last_tool")]
+        for timestamp, tool in events:
+            _create_event(
+                team=self.team,
+                event="$mcp_tool_call",
+                distinct_id="seed",
+                timestamp=timestamp,
+                properties={"$session_id": session_id, "$mcp_tool_name": tool},
+            )
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            listed = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/sessions/", {"date_from": "-7d"})
+            assert listed.status_code == status.HTTP_200_OK
+            session = next(s for s in listed.json()["results"] if s["session_id"] == session_id)
+            # Hand the serialized session_start straight back, exactly as the UI does.
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/mcp_analytics/sessions/{session_id}/tool_calls/",
+                {"date_from": session["session_start"]},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        # The first event sits at exactly session_start; a `timestamp >= session_start` bound must
+        # still include it after the round-trip — otherwise we'd get just ["last_tool"].
+        assert [c["tool_name"] for c in response.json()["results"]] == ["first_tool", "last_tool"]
+
+
+class TestMCPSessionListQuerySerializer(SimpleTestCase):
+    def test_defaults_when_pagination_params_omitted(self) -> None:
+        serializer = MCPSessionListQuerySerializer(data={})
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["limit"] == MCP_SESSION_LIST_DEFAULT_LIMIT
+        assert serializer.validated_data["offset"] == 0
+
+    @parameterized.expand(
+        [
+            ("limit_at_cap", {"limit": MCP_SESSION_LIST_MAX_LIMIT}, True, None),
+            ("limit_over_cap", {"limit": MCP_SESSION_LIST_MAX_LIMIT + 1}, False, "limit"),
+            ("limit_below_min", {"limit": 0}, False, "limit"),
+            ("offset_at_min", {"offset": 0}, True, None),
+            ("offset_negative", {"offset": -1}, False, "offset"),
+        ]
+    )
+    def test_pagination_bounds(
+        self, _name: str, data: dict[str, int], expected_valid: bool, error_field: str | None
+    ) -> None:
+        serializer = MCPSessionListQuerySerializer(data=data)
+        assert serializer.is_valid() is expected_valid, serializer.errors
+        if error_field is not None:
+            assert error_field in serializer.errors
+
+
+class TestMCPSessionToolCallsQuerySerializer(SimpleTestCase):
+    def test_defaults_when_pagination_params_omitted(self) -> None:
+        serializer = MCPSessionToolCallsQuerySerializer(data={})
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["limit"] == MCP_TOOL_CALLS_DEFAULT_LIMIT
+        assert serializer.validated_data["offset"] == 0
+
+    @parameterized.expand(
+        [
+            ("limit_at_cap", {"limit": MCP_TOOL_CALLS_MAX_LIMIT}, True, None),
+            ("limit_over_cap", {"limit": MCP_TOOL_CALLS_MAX_LIMIT + 1}, False, "limit"),
+            ("limit_below_min", {"limit": 0}, False, "limit"),
+            ("offset_at_min", {"offset": 0}, True, None),
+            ("offset_negative", {"offset": -1}, False, "offset"),
+        ]
+    )
+    def test_pagination_bounds(
+        self, _name: str, data: dict[str, int], expected_valid: bool, error_field: str | None
+    ) -> None:
+        serializer = MCPSessionToolCallsQuerySerializer(data=data)
+        assert serializer.is_valid() is expected_valid, serializer.errors
+        if error_field is not None:
+            assert error_field in serializer.errors
+
+    @parameterized.expand(
+        [
+            ("valid_iso", "2026-01-02T03:04:05Z", True),
+            ("unparseable", "not-a-date", None),
+        ]
+    )
+    def test_date_from_is_lenient(self, _name: str, raw: str, expect_datetime: bool | None) -> None:
+        # date_from is a scan-pruning hint: a bad value must fall back to None, not 400 the request.
+        serializer = MCPSessionToolCallsQuerySerializer(data={"date_from": raw})
+        assert serializer.is_valid(), serializer.errors
+        resolved = serializer.validated_data["date_from"]
+        if expect_datetime:
+            assert isinstance(resolved, datetime)
+        else:
+            assert resolved is None
 
 
 class TestMCPAnalyticsCrossTeamIsolation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):

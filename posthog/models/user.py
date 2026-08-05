@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, Any, NoReturn, Optional, TypedDict, cast
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.core.management.base import CommandError
 from django.db import models, transaction
+from django.db.models.signals import pre_save
+from django.dispatch import receiver
 from django.utils.translation import gettext_lazy as _
 
 from django_deprecate_fields import deprecate_field
@@ -83,6 +85,7 @@ ROLE_CHOICES = (
     ("leadership", "Leadership"),
     ("marketing", "Marketing"),
     ("sales", "Sales / Success"),
+    ("student", "Student"),
     ("other", "Other"),
 )
 
@@ -109,6 +112,7 @@ class UserManager(BaseUserManager):
             raise ValueError("Email must be provided!")
         email = EmailNormalizer.normalize(email)
         extra_fields.setdefault("distinct_id", generate_random_token())
+        extra_fields.setdefault("ui_configuration", default_ui_configuration_for_new_users())
         user = cast("User", self.model(email=email, first_name=first_name, **extra_fields))
         if password is not None:
             # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validation happens at serializer/view layer before reaching this method)
@@ -184,6 +188,22 @@ def events_column_config_default() -> dict[str, Any]:
     return {"active": "DEFAULT"}
 
 
+# New users start with a slimmer sidebar. Existing users keep ui_configuration NULL, which the
+# frontend resolves as "everything shown" (their pre-customization experience). Absent keys also
+# mean "shown", so this only lists the elements hidden by default for new accounts. The shape must
+# stay valid against the UserUIConfiguration schema (see frontend/src/queries/schema/schema-general.ts).
+def default_ui_configuration_for_new_users() -> dict[str, Any]:
+    return {
+        "version": 1,
+        "sidebar": {
+            "items": {
+                "files": {"visible": False},
+                "starred": {"visible": False},
+            },
+        },
+    }
+
+
 class ThemeMode(models.TextChoices):
     LIGHT = "light", "Light"
     DARK = "dark", "Dark"
@@ -200,6 +220,7 @@ class OnboardingSkippedReason(models.TextChoices):
     DELEGATED = "delegated", "Delegated to teammate"
     LATER = "later", "Skipped for later"
     OTHER = "other", "Other"
+    PROVISIONED = "provisioned", "Account provisioned by a partner"
 
 
 class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore[django-manager-missing]
@@ -257,6 +278,14 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         null=False,
         blank=False,
         help_text="When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.",
+    )
+    # No field default on purpose: existing rows must stay NULL so long-time users keep seeing
+    # everything. New accounts get default_ui_configuration_for_new_users() via UserManager.create_user.
+    ui_configuration = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Per-user UI customization (currently sidebar element visibility), shaped like the "
+        "UserUIConfiguration schema. NULL means the user has no customization and every element shows.",
     )
 
     # Onboarding exit tracking. Set when the user explicitly leaves the onboarding flow (skip or delegate).
@@ -533,6 +562,14 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
                     },
                 )
 
+        # After role assignment, so role-granted project access is included. Covers joins
+        # that don't go through an invite (e.g. domain/SSO auto-join).
+        from posthog.models.file_system.user_product_list import (  # noqa: PLC0415 - avoids a circular import
+            add_default_products_for_accessible_teams,
+        )
+
+        add_default_products_for_accessible_teams(self, organization)
+
         return membership
 
     @property
@@ -613,3 +650,44 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         }
 
     __repr__ = sane_repr("email", "first_name", "distinct_id")
+
+
+@receiver(pre_save, sender=User)
+def _revoke_sessions_on_user_deactivation(sender: type[User], instance: User, **kwargs: object) -> None:
+    """Revoke all of a user's login sessions when they are deactivated (is_active True→False).
+
+    A pre_save signal catches every deactivation path (Django admin, SCIM, ORM). The is_active
+    short-circuit keeps the extra query off the hot path — it only runs when saving an
+    already-inactive instance, never for active users.
+    """
+    if instance._state.adding or instance.is_active:
+        return
+    was_active = sender.objects.filter(pk=instance.pk).values_list("is_active", flat=True).first()
+    if was_active:
+        from posthog.session.activity import revoke_other_sessions  # noqa: PLC0415 — avoids a circular import
+
+        revoke_other_sessions(instance, keep_session_key=None)
+
+
+@receiver(pre_save, sender=User)
+def _pause_loops_on_user_deactivation(sender: type[User], instance: User, **kwargs: object) -> None:
+    """Pause every loop owned by a user when they are deactivated (is_active True->False).
+
+    Loops execute as their owner for GitHub authorship and MCP identity (see
+    products/tasks/docs/LOOPS.md "Lifecycle and reconciliation"); deactivation is often the
+    security response and must not leave a loop still scheduled, or a sandbox still running,
+    under that owner's identity. Deferred to `transaction.on_commit` since pausing a loop's
+    Temporal schedule is an irreversible external side effect.
+    """
+    if instance._state.adding or instance.is_active:
+        return
+    was_active = sender.objects.filter(pk=instance.pk).values_list("is_active", flat=True).first()
+    if not was_active:
+        return
+
+    from products.tasks.backend.facade.loops import (  # noqa: PLC0415 (keeps loops/Temporal deps off the User model import path)
+        pause_loops_for_deactivated_user,
+    )
+
+    user_id = instance.pk
+    transaction.on_commit(lambda: pause_loops_for_deactivated_user(user_id))

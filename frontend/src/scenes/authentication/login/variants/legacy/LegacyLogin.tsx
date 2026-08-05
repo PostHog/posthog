@@ -8,15 +8,18 @@ import { useEffect, useRef } from 'react'
 import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
 import { getCookie } from 'lib/api'
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { SSOEnforcedLoginButton, SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { usePrevious } from 'lib/hooks/usePrevious'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { Skeleton } from 'lib/ui/quill'
+import { isWebKitBrowser } from 'lib/utils/dom'
 import { isEmail } from 'lib/utils/url'
-import { AuthShell } from 'scenes/authentication/shared/AuthShell'
+import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
 import { RedirectIfLoggedInOtherInstance } from 'scenes/authentication/shared/RedirectToLoggedInInstance'
 import RegionSelect from 'scenes/authentication/shared/RegionSelect'
@@ -27,48 +30,13 @@ import { urls } from 'scenes/urls'
 import { LoginMethod } from '~/types'
 
 import { loginLogic } from '../../loginLogic'
-
-export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
-    no_new_organizations:
-        'Your email address is not associated with an account. Please ask your administrator for an invite.',
-    invalid_sso_provider: (
-        <>
-            The SSO provider you specified is invalid. Visit{' '}
-            <Link to="https://posthog.com/sso" target="_blank">
-                https://posthog.com/sso
-            </Link>{' '}
-            for details.
-        </>
-    ),
-    improperly_configured_sso: (
-        <>
-            Cannot login with SSO provider because the provider is not configured, or your instance does not have the
-            required license. Please visit{' '}
-            <Link to="https://posthog.com/sso" target="_blank">
-                https://posthog.com/sso
-            </Link>{' '}
-            for details.
-        </>
-    ),
-    jit_not_enabled:
-        'We could not find an account with your email address and your organization does not support automatic enrollment. Please contact your administrator for an invite.',
-    saml_sso_enforced:
-        'Your organization requires SAML SSO authentication. Please enter your email address to access your account.',
-    google_sso_enforced: 'Your organization does not allow this authentication method. Please log in with Google.',
-    github_sso_enforced: 'Your organization does not allow this authentication method. Please log in with GitHub.',
-    gitlab_sso_enforced: 'Your organization does not allow this authentication method. Please log in with GitLab.',
-    // our catch-all case, so the message is generic
-    sso_enforced: "Please log in with your organization's required SSO method.",
-    oauth_cancelled: "Sign in was cancelled. Please try again when you're ready.",
-    invalid_invite:
-        'This invite link is no longer valid. It may have expired or been revoked. Please ask your administrator for a new invite.',
-    social_login_failure: 'Login failed. Please try again or contact your administrator.',
-}
+import { SessionRiskBanner } from '../../SessionRiskBanner'
 
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
 
-export function LegacyLogin(): JSX.Element {
-    const { precheck, resendEmailMFA, clearGeneralError, resetLogin, devLogin, loadDevUsers } = useActions(loginLogic)
+function Login(): JSX.Element {
+    const { precheck, resendCodeBasedVerification, exitCodeVerification, resetLogin, devLogin, loadDevUsers } =
+        useActions(loginLogic)
     const { openSupportForm } = useActions(supportLogic)
     const {
         precheckResponse,
@@ -78,9 +46,15 @@ export function LegacyLogin(): JSX.Element {
         generalError,
         signupUrl,
         resendResponseLoading,
+        codeVerificationRequired,
+        isCodeVerificationSubmitting,
         devUsers,
         devUsersLoading,
         devLoginTimeSavedLabel,
+        isPasswordLoginUnavailable,
+        hasNoConfiguredLoginMethod,
+        restrictToProviders,
+        autoRedirectingToProvider,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
     const allowDevLogin = !!preflight?.allow_dev_login
@@ -93,9 +67,10 @@ export function LegacyLogin(): JSX.Element {
 
     const passwordInputRef = useRef<HTMLInputElement>(null)
     const preventPasswordError = useRef(false)
-    const isPasswordHidden = precheckResponse.status === 'pending' || precheckResponse.sso_enforcement
-    const isEmailVerificationSent = generalError?.code === 'email_verification_sent'
-    const loginTitle = isEmailVerificationSent ? 'Check your email' : 'Log in'
+    const isPasswordHidden =
+        precheckResponse.status === 'pending' || !!precheckResponse.sso_enforcement || isPasswordLoginUnavailable
+    const isCodeSent = codeVerificationRequired
+    const loginTitle = isCodeSent ? 'Enter your login code' : 'Log in'
     const wasPasswordHiddenRef = useRef(isPasswordHidden)
 
     const lastLoginMethod = getCookie(LAST_LOGIN_METHOD_COOKIE) as LoginMethod
@@ -108,9 +83,11 @@ export function LegacyLogin(): JSX.Element {
         if (!isPasswordHidden) {
             passwordInputRef.current?.focus()
         } else if (!wasPasswordHidden) {
-            // clear form when transitioning from visible to hidden
-            resetLogin()
+            // Drop any typed password when the field goes away, but keep the email — the SSO and
+            // social buttons we show instead need it.
+            resetLogin({ email: login.email, password: '' })
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isPasswordHidden, resetLogin])
 
     // Trigger precheck for password manager autofill/paste (detected by large character delta)
@@ -124,22 +101,13 @@ export function LegacyLogin(): JSX.Element {
     }, [login.email, prevEmail, precheckResponse.status, precheck])
 
     return (
-        <AuthShell
-            view="login"
-            showHedgehog
-            message={
-                <>
-                    Welcome to
-                    <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
-                </>
-            }
-            footer={<SupportModalButton />}
-        >
+        <BridgePage view="login" footer={<SupportModalButton />}>
             {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
             <div className="deprecated-space-y-4">
                 <h2>{loginTitle}</h2>
+                <SessionRiskBanner />
                 {generalError && (
-                    <LemonBanner type={generalError.code === 'email_verification_sent' ? 'warning' : 'error'}>
+                    <LemonBanner type={generalError.code === 'code_based_verification_sent' ? 'warning' : 'error'}>
                         <>
                             {generalError.detail || ERROR_MESSAGES[generalError.code] || (
                                 <>
@@ -170,24 +138,51 @@ export function LegacyLogin(): JSX.Element {
                     </LemonBanner>
                 )}
                 {generalError?.code === 'invalid_credentials' && <OtherRegionHint />}
-                {isEmailVerificationSent ? (
-                    <div className="deprecated-space-y-4">
+                {isCodeSent ? (
+                    <Form
+                        logic={loginLogic}
+                        formKey="codeVerification"
+                        enableFormOnSubmit
+                        className="deprecated-space-y-4"
+                    >
+                        <LemonField name="code" label="Verification code">
+                            <LemonInput
+                                className="ph-ignore-input"
+                                autoFocus
+                                data-attr="code-verification"
+                                placeholder="123456"
+                                inputMode="numeric"
+                                autoComplete="one-time-code"
+                            />
+                        </LemonField>
+                        <LemonButton
+                            type="primary"
+                            status="alt"
+                            htmlType="submit"
+                            data-attr="code-verification-submit"
+                            fullWidth
+                            center
+                            size="large"
+                            loading={isCodeVerificationSubmitting}
+                        >
+                            Verify and log in
+                        </LemonButton>
                         <div className="flex justify-center">
                             <LemonButton
                                 type="tertiary"
                                 size="small"
                                 loading={resendResponseLoading}
-                                onClick={() => resendEmailMFA(null)}
+                                onClick={() => resendCodeBasedVerification(null)}
                             >
-                                Resend verification email
+                                Resend code
                             </LemonButton>
                         </div>
                         <div className="text-center">
-                            <Link onClick={() => clearGeneralError()} className="text-muted">
+                            <Link onClick={() => exitCodeVerification()} className="text-muted">
                                 Back to login
                             </Link>
                         </div>
-                    </div>
+                    </Form>
                 ) : (
                     <Form
                         logic={loginLogic}
@@ -210,10 +205,17 @@ export function LegacyLogin(): JSX.Element {
                                 data-attr="login-email"
                                 placeholder="email@yourcompany.com"
                                 type="email"
-                                onBlur={() => precheck({ email: login.email })}
+                                // The `webauthn` token enables passkey autofill (conditional UI), which
+                                // we only offer on WebKit; elsewhere the auto-modal handles passkeys.
+                                autoComplete={isWebKitBrowser() ? 'username webauthn' : undefined}
+                                // `autoAttempt` is only ever set here and on Enter — an explicit
+                                // gesture — so autofill or a mistyped address can't bounce the user
+                                // out to an identity provider.
+                                onBlur={() => precheck({ email: login.email, autoAttempt: true })}
                                 onPressEnter={(e) => {
                                     if (isPasswordHidden) {
                                         e.preventDefault() // Don't trigger submission if password field is still hidden
+                                        precheck({ email: login.email, autoAttempt: true })
                                         passwordInputRef.current?.focus()
                                     }
                                 }}
@@ -247,8 +249,26 @@ export function LegacyLogin(): JSX.Element {
                             </LemonField>
                         </div>
 
-                        {/* Show regular login button if SSO is not enforced */}
-                        {!precheckResponse.sso_enforcement && (
+                        {hasNoConfiguredLoginMethod && (
+                            <LemonBanner type="warning">
+                                No sign-in method is set up for this account. Use{' '}
+                                <Link to={[urls.passwordReset(), { email: login.email }]} data-attr="forgot-password">
+                                    Forgot your password?
+                                </Link>{' '}
+                                to set a password by email.
+                            </LemonBanner>
+                        )}
+
+                        {autoRedirectingToProvider && (
+                            <p className="text-secondary text-center mb-0">
+                                Redirecting to {SSO_PROVIDER_NAMES[autoRedirectingToProvider]}…
+                            </p>
+                        )}
+
+                        {/* Show regular login button unless SSO is enforced or we know the account has
+                            no password to submit — otherwise it's a button that does nothing. It stays
+                            while precheck is pending, where it doubles as a "continue" affordance. */}
+                        {!precheckResponse.sso_enforcement && !isPasswordLoginUnavailable && (
                             <LemonButton
                                 type="primary"
                                 status="alt"
@@ -288,7 +308,7 @@ export function LegacyLogin(): JSX.Element {
                         )}
                     </Form>
                 )}
-                {!isEmailVerificationSent && preflight?.cloud && (
+                {!isCodeSent && preflight?.cloud && (
                     <div className="text-center mt-4">
                         Don't have an account?{' '}
                         <Link to={[signupUrl, { email: login.email }]} data-attr="signup" className="font-bold">
@@ -296,14 +316,21 @@ export function LegacyLogin(): JSX.Element {
                         </Link>
                     </div>
                 )}
-                {!isEmailVerificationSent && !precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
-                    <SocialLoginButtons
-                        caption="Or log in with"
-                        topDivider
-                        lastUsedProvider={lastLoginMethod}
-                        showPasskey
-                    />
-                )}
+                {/* Normally SAML replaces this row, but when the account has no password we need to
+                    show whatever it does have. */}
+                {!isCodeSent &&
+                    !precheckResponse.sso_enforcement &&
+                    (!precheckResponse.saml_available || isPasswordLoginUnavailable) && (
+                        <SocialLoginButtons
+                            caption={isPasswordLoginUnavailable ? 'Log in with' : 'Or log in with'}
+                            topDivider
+                            lastUsedProvider={lastLoginMethod}
+                            restrictToProviders={restrictToProviders}
+                            // Once we know the account's methods, only offer a passkey if it actually has
+                            // one — otherwise this is the same dead button we're removing.
+                            showPasskey={!isPasswordLoginUnavailable || !!precheckResponse.webauthn_credentials?.length}
+                        />
+                    )}
                 {allowDevLogin && (
                     <div className="deprecated-space-y-2 border-t border-dashed pt-4 mt-4">
                         <div className="flex items-center justify-between">
@@ -344,6 +371,8 @@ export function LegacyLogin(): JSX.Element {
                     </div>
                 )}
             </div>
-        </AuthShell>
+        </BridgePage>
     )
 }
+
+export { Login as LegacyLogin }

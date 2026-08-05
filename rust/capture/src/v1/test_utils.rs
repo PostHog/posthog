@@ -8,26 +8,36 @@ use serde_json::value::RawValue;
 use uuid::Uuid;
 
 use crate::v1::analytics::constants::CAPTURE_V1_PATH;
+use crate::v1::analytics::context::Context as AnalyticsContext;
 use crate::v1::analytics::query::Query;
-use crate::v1::analytics::types::{Event, EventResult, Options, WrappedEvent};
-use crate::v1::context::Context;
+use crate::v1::analytics::types::{Event, EventResult, Options, RawOptions, WrappedEvent};
+use crate::v1::context::RequestContext;
+use crate::v1::sinks::event::Event as SinkEvent;
+use crate::v1::sinks::types::PreparedEvent;
 use crate::v1::sinks::Destination;
+
+/// Serialize publishable events into `PreparedEvent`s for driving sinks in tests.
+/// Accepts `&[&dyn Event]` (integration) or `&[&ConcreteType]` (unit) via `?Sized`.
+pub fn prepared<E: SinkEvent + ?Sized>(events: &[&E], ctx: &RequestContext) -> Vec<PreparedEvent> {
+    events
+        .iter()
+        .filter(|e| e.should_publish())
+        .map(|e| PreparedEvent {
+            uuid: e.uuid(),
+            destination: e.destination().clone(),
+            payload: e.serialize(ctx).expect("test payload must serialize"),
+            headers: e.headers(ctx),
+            partition_key: e.partition_key(ctx),
+        })
+        .collect()
+}
 
 pub fn raw_obj(s: &str) -> Box<RawValue> {
     RawValue::from_string(s.to_owned()).unwrap()
 }
 
-pub fn default_options() -> Options {
-    Options {
-        cookieless_mode: None,
-        disable_skew_correction: None,
-        product_tour_id: None,
-        process_person_profile: None,
-    }
-}
-
-pub fn test_context() -> Context {
-    Context {
+pub fn test_context() -> RequestContext {
+    RequestContext {
         api_token: "phc_test_token".to_string(),
         user_agent: "test-agent/1.0".to_string(),
         content_type: "application/json".to_string(),
@@ -37,13 +47,23 @@ pub fn test_context() -> Context {
         request_id: Uuid::new_v4(),
         client_timestamp: Utc::now(),
         client_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
-        query: Query::default(),
+        raw_query: None,
         method: Method::POST,
         path: CAPTURE_V1_PATH,
         server_received_at: Utc::now(),
         created_at: Some("2026-03-19T14:30:00.000Z".to_string()),
         capture_internal: false,
         historical_migration: false,
+        gateway_signature: None,
+    }
+}
+
+/// Analytics-mode context wrapping [`test_context`] for tests that drive
+/// `process_batch` (which takes `&mut analytics::Context`).
+pub fn test_analytics_context() -> AnalyticsContext {
+    AnalyticsContext {
+        req: test_context(),
+        query: Query::default(),
     }
 }
 
@@ -55,7 +75,7 @@ pub fn valid_event() -> Event {
         timestamp: "2026-03-19T14:29:58.123Z".to_string(),
         session_id: None,
         window_id: None,
-        options: default_options(),
+        options: RawOptions::default(),
         properties: raw_obj("{}"),
     }
 }
@@ -70,10 +90,11 @@ pub fn wrapped_event(event_name: &str, distinct_id: &str) -> WrappedEvent {
             timestamp: "2026-03-19T14:29:58.123Z".to_string(),
             session_id: None,
             window_id: None,
-            options: default_options(),
+            options: RawOptions::default(),
             properties: raw_obj("{}"),
         },
         uuid,
+        options: Options::default(),
         adjusted_timestamp: Some(
             DateTime::parse_from_rfc3339("2026-03-19T14:29:58.123Z")
                 .unwrap()
@@ -83,6 +104,7 @@ pub fn wrapped_event(event_name: &str, distinct_id: &str) -> WrappedEvent {
         details: None,
         destination: Destination::default(),
         force_disable_person_processing: false,
+        is_gateway_verified: false,
     }
 }
 
@@ -96,15 +118,17 @@ pub fn wrapped_event_at(timestamp: DateTime<Utc>) -> WrappedEvent {
             timestamp: timestamp.to_rfc3339(),
             session_id: None,
             window_id: None,
-            options: default_options(),
+            options: RawOptions::default(),
             properties: raw_obj("{}"),
         },
         uuid,
+        options: Options::default(),
         adjusted_timestamp: Some(timestamp),
         result: EventResult::Ok,
         details: None,
         destination: Destination::default(),
         force_disable_person_processing: false,
+        is_gateway_verified: false,
     }
 }
 
@@ -118,15 +142,17 @@ pub fn malformed_wrapped_event() -> WrappedEvent {
             timestamp: "bad".to_string(),
             session_id: None,
             window_id: None,
-            options: default_options(),
+            options: RawOptions::default(),
             properties: raw_obj("{}"),
         },
         uuid,
+        options: Options::default(),
         adjusted_timestamp: None,
         result: EventResult::Drop,
         details: Some("missing_event_name"),
         destination: Destination::default(),
         force_disable_person_processing: false,
+        is_gateway_verified: false,
     }
 }
 
@@ -151,7 +177,14 @@ pub fn test_kafka_config() -> crate::v1::sinks::kafka::config::Config {
     .into_iter()
     .map(|(k, v)| (k.to_string(), v.to_string()))
     .collect();
-    envconfig::Envconfig::init_from_hashmap(&env).unwrap()
+    let mut cfg: crate::v1::sinks::kafka::config::Config =
+        envconfig::Envconfig::init_from_hashmap(&env).unwrap();
+    // Mirrors production, where setup injects the deployment-level
+    // CAPTURE_ANALYTICS_AI_EVENTS_TOPIC and CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC into every sink config
+    // after env loading.
+    cfg.topic_ai = Some("ai_events".to_string());
+    cfg.topic_ai_overflow = Some("ai_events_overflow".to_string());
+    cfg
 }
 
 // ---------------------------------------------------------------------------
@@ -169,17 +202,21 @@ pub fn realistic_pageview(distinct_id: &str) -> WrappedEvent {
             timestamp: "2026-03-19T14:29:58.123Z".to_string(),
             session_id: Some("01jq9abc-def0-1234-5678-9abcdef01234".to_string()),
             window_id: Some("01jq9xyz-0000-4321-8765-fedcba987654".to_string()),
-            options: Options {
-                cookieless_mode: Some(false),
-                disable_skew_correction: None,
-                product_tour_id: None,
-                process_person_profile: Some(true),
-            },
+            options: RawOptions(serde_json::json!({
+                "cookieless_mode": false,
+                "process_person_profile": true
+            })),
             properties: raw_obj(
                 r#"{"$current_url":"https://app.example.com/dashboard","$referrer":"https://google.com","$browser":"Chrome","$browser_version":"120.0","$os":"Mac OS X","$lib":"posthog-js","$lib_version":"1.150.0","custom_prop":42}"#,
             ),
         },
         uuid,
+        options: Options {
+            cookieless_mode: Some(false),
+            disable_skew_correction: None,
+            product_tour_id: None,
+            process_person_profile: Some(true),
+        },
         adjusted_timestamp: Some(
             DateTime::parse_from_rfc3339("2026-03-19T14:29:53.123Z")
                 .unwrap()
@@ -189,6 +226,7 @@ pub fn realistic_pageview(distinct_id: &str) -> WrappedEvent {
         details: None,
         destination: Destination::AnalyticsMain,
         force_disable_person_processing: false,
+        is_gateway_verified: false,
     }
 }
 
@@ -203,17 +241,20 @@ pub fn realistic_identify(distinct_id: &str) -> WrappedEvent {
             timestamp: "2026-03-19T14:30:01.000Z".to_string(),
             session_id: Some("01jq9abc-def0-1234-5678-9abcdef01234".to_string()),
             window_id: None,
-            options: Options {
-                cookieless_mode: None,
-                disable_skew_correction: None,
-                product_tour_id: None,
-                process_person_profile: Some(true),
-            },
+            options: RawOptions(serde_json::json!({
+                "process_person_profile": true
+            })),
             properties: raw_obj(
                 r#"{"$set":{"email":"user@example.com","name":"Test User"},"$set_once":{"created_at":"2026-01-01"},"$browser":"Safari","$os":"iOS"}"#,
             ),
         },
         uuid,
+        options: Options {
+            cookieless_mode: None,
+            disable_skew_correction: None,
+            product_tour_id: None,
+            process_person_profile: Some(true),
+        },
         adjusted_timestamp: Some(
             DateTime::parse_from_rfc3339("2026-03-19T14:29:56.000Z")
                 .unwrap()
@@ -223,6 +264,7 @@ pub fn realistic_identify(distinct_id: &str) -> WrappedEvent {
         details: None,
         destination: Destination::AnalyticsMain,
         force_disable_person_processing: false,
+        is_gateway_verified: false,
     }
 }
 
@@ -237,17 +279,20 @@ pub fn realistic_custom(distinct_id: &str, event_name: &str) -> WrappedEvent {
             timestamp: "2026-03-19T14:30:05.500Z".to_string(),
             session_id: Some("01jq9abc-def0-1234-5678-9abcdef01234".to_string()),
             window_id: Some("01jq9xyz-0000-4321-8765-fedcba987654".to_string()),
-            options: Options {
-                cookieless_mode: None,
-                disable_skew_correction: None,
-                product_tour_id: None,
-                process_person_profile: Some(true),
-            },
+            options: RawOptions(serde_json::json!({
+                "process_person_profile": true
+            })),
             properties: raw_obj(
                 r#"{"button_id":"cta-signup","$current_url":"https://app.example.com/pricing"}"#,
             ),
         },
         uuid,
+        options: Options {
+            cookieless_mode: None,
+            disable_skew_correction: None,
+            product_tour_id: None,
+            process_person_profile: Some(true),
+        },
         adjusted_timestamp: Some(
             DateTime::parse_from_rfc3339("2026-03-19T14:30:00.500Z")
                 .unwrap()
@@ -257,6 +302,7 @@ pub fn realistic_custom(distinct_id: &str, event_name: &str) -> WrappedEvent {
         details: None,
         destination: Destination::AnalyticsMain,
         force_disable_person_processing: false,
+        is_gateway_verified: false,
     }
 }
 
@@ -314,12 +360,10 @@ pub fn realistic_dup_uuid_pair() -> (Event, Event) {
         timestamp: "2026-03-19T14:29:58.123Z".to_string(),
         session_id: Some("01jq9abc-def0-1234-5678-9abcdef01234".to_string()),
         window_id: Some("01jq9xyz-0000-4321-8765-fedcba987654".to_string()),
-        options: Options {
-            cookieless_mode: Some(false),
-            disable_skew_correction: None,
-            product_tour_id: None,
-            process_person_profile: Some(true),
-        },
+        options: RawOptions(serde_json::json!({
+            "cookieless_mode": false,
+            "process_person_profile": true
+        })),
         properties: raw_obj(r#"{"$current_url":"https://app.example.com/dashboard"}"#),
     };
     let second = Event {
@@ -329,7 +373,7 @@ pub fn realistic_dup_uuid_pair() -> (Event, Event) {
         timestamp: "2026-03-19T14:30:01.000Z".to_string(),
         session_id: Some("01jq9abc-def0-1234-5678-9abcdef01234".to_string()),
         window_id: None,
-        options: default_options(),
+        options: RawOptions::default(),
         properties: raw_obj(r#"{"$set":{"email":"user@example.com"}}"#),
     };
     (first, second)
@@ -386,13 +430,13 @@ impl WrappedEventMut for WrappedEvent {
 /// and its inner data field round-trips through RawEvent.
 pub fn assert_round_trip(
     wrapped: &WrappedEvent,
-    ctx: &Context,
+    ctx: &RequestContext,
 ) -> (common_types::CapturedEvent, common_types::RawEvent) {
     use crate::v1::sinks::event::Event as SinkEvent;
 
     let buf = wrapped.serialize(ctx).expect("serialize failed");
     let captured: common_types::CapturedEvent =
-        serde_json::from_str(&buf).expect("v1 output must deserialize as CapturedEvent");
+        serde_json::from_slice(&buf).expect("v1 output must deserialize as CapturedEvent");
     let data: common_types::RawEvent =
         serde_json::from_str(&captured.data).expect("data field must deserialize as RawEvent");
 
@@ -482,12 +526,12 @@ pub fn event_with_all_options() -> Event {
         timestamp: "2026-03-19T14:29:58.123Z".to_string(),
         session_id: Some("sess-all".to_string()),
         window_id: Some("win-all".to_string()),
-        options: Options {
-            cookieless_mode: Some(true),
-            disable_skew_correction: Some(true),
-            product_tour_id: Some("tour-v2".to_string()),
-            process_person_profile: Some(false),
-        },
+        options: RawOptions(serde_json::json!({
+            "cookieless_mode": true,
+            "disable_skew_correction": true,
+            "product_tour_id": "tour-v2",
+            "process_person_profile": false
+        })),
         properties: raw_obj(r#"{"existing":"prop"}"#),
     }
 }
@@ -501,7 +545,7 @@ pub fn event_with_empty_options() -> Event {
         timestamp: "2026-03-19T14:29:58.123Z".to_string(),
         session_id: None,
         window_id: None,
-        options: default_options(),
+        options: RawOptions::default(),
         properties: raw_obj("{}"),
     }
 }
@@ -634,10 +678,15 @@ pub struct TestState {
 pub struct TestStateBuilder {
     quota_limited: bool,
     overflow_limiter: Option<(NonZeroU32, NonZeroU32)>,
+    ai_events_overflow_limiter: Option<(NonZeroU32, NonZeroU32)>,
     historical_threshold_days: Option<i64>,
     restriction_service: Option<EventRestrictionService>,
     global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     mock_producer: Option<Arc<MockProducer>>,
+    ai_gateway_signing_secret: Option<String>,
+    ai_routing: crate::config::AiRouting,
+    ingestion_warning_emitter: Option<Arc<dyn common_ingestion_warnings::WarningEmitter>>,
+    capture_mode: CaptureMode,
 }
 
 impl Default for TestStateBuilder {
@@ -651,11 +700,22 @@ impl TestStateBuilder {
         Self {
             quota_limited: false,
             overflow_limiter: None,
+            ai_events_overflow_limiter: None,
             historical_threshold_days: None,
             restriction_service: None,
             global_rate_limiter: None,
             mock_producer: None,
+            ai_gateway_signing_secret: None,
+            ai_routing: crate::config::AiRouting::Primary,
+            ingestion_warning_emitter: None,
+            capture_mode: CaptureMode::Events,
         }
+    }
+
+    /// Set the `$ai_*` topic routing policy (defaults to `Primary`: no diversion).
+    pub fn with_ai_routing(mut self, routing: crate::config::AiRouting) -> Self {
+        self.ai_routing = routing;
+        self
     }
 
     /// Configure quota limiter to reject all events for any token.
@@ -664,9 +724,26 @@ impl TestStateBuilder {
         self
     }
 
+    /// Set the AI-gateway HMAC signing secret used by provenance verification.
+    pub fn with_ai_gateway_signing_secret(mut self, secret: impl Into<String>) -> Self {
+        self.ai_gateway_signing_secret = Some(secret.into());
+        self
+    }
+
     /// Add an in-process overflow limiter with the given rate and burst.
     pub fn with_overflow_limiter(mut self, per_second: u32, burst: u32) -> Self {
         self.overflow_limiter = Some((
+            NonZeroU32::new(per_second).expect("per_second must be > 0"),
+            NonZeroU32::new(burst).expect("burst must be > 0"),
+        ));
+        self
+    }
+
+    /// Arm the AI overflow valve: a dedicated AI-lane limiter with the given
+    /// rate and burst. Also sets `ai_events_overflow_enabled`, mirroring
+    /// production where both derive from the same overflow-topic config.
+    pub fn with_ai_events_overflow_limiter(mut self, per_second: u32, burst: u32) -> Self {
+        self.ai_events_overflow_limiter = Some((
             NonZeroU32::new(per_second).expect("per_second must be > 0"),
             NonZeroU32::new(burst).expect("burst must be > 0"),
         ));
@@ -694,6 +771,21 @@ impl TestStateBuilder {
     /// Supply a pre-configured MockProducer (e.g. for error injection).
     pub fn with_mock_producer(mut self, producer: Arc<MockProducer>) -> Self {
         self.mock_producer = Some(producer);
+        self
+    }
+
+    /// Supply an ingestion warnings emitter (e.g. a `CollectingEmitter`).
+    pub fn with_ingestion_warning_emitter(
+        mut self,
+        emitter: Arc<dyn common_ingestion_warnings::WarningEmitter>,
+    ) -> Self {
+        self.ingestion_warning_emitter = Some(emitter);
+        self
+    }
+
+    /// Set the deployment capture mode (defaults to `Events`).
+    pub fn with_capture_mode(mut self, mode: CaptureMode) -> Self {
+        self.capture_mode = mode;
         self
     }
 
@@ -748,6 +840,11 @@ impl TestStateBuilder {
             .overflow_limiter
             .map(|(per_sec, burst)| Arc::new(OverflowLimiter::new(per_sec, burst, None, false)));
 
+        let ai_events_overflow_limiter = self
+            .ai_events_overflow_limiter
+            .map(|(per_sec, burst)| Arc::new(OverflowLimiter::new(per_sec, burst, None, false)));
+        let ai_events_overflow_enabled = ai_events_overflow_limiter.is_some();
+
         // Build the v1 sink router with a MockProducer-backed KafkaSink
         let mock_producer = self
             .mock_producer
@@ -797,8 +894,15 @@ impl TestStateBuilder {
             capture_v1_max_compressed_body_bytes: 2 * 1024 * 1024,
             capture_v1_max_decompressed_body_bytes: 20 * 1024 * 1024,
             overflow_limiter,
+            ai_events_overflow_limiter,
             replay_overflow_limiter: None,
             v1_sink_router: Some(Arc::new(v1_router)),
+            capture_v1_scatter_gather_min_batch: 8,
+            ai_gateway_signing_secret: self.ai_gateway_signing_secret,
+            ai_routing: self.ai_routing,
+            ai_events_overflow_enabled,
+            ingestion_warning_emitter: self.ingestion_warning_emitter,
+            capture_mode: self.capture_mode,
         };
 
         TestState {

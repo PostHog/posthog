@@ -105,7 +105,7 @@ class MemoryInitializerContextMixin(AssistantContextMixin):
     ) -> CacheMissResponse | QueryStatusResponse | CachedEventTaxonomyQueryResponse:
         def run_query() -> CacheMissResponse | QueryStatusResponse | CachedEventTaxonomyQueryResponse:
             runner = EventTaxonomyQueryRunner(
-                team=self._team, query=EventTaxonomyQuery(event=event, properties=[property])
+                team=self._team, query=EventTaxonomyQuery(event=event, properties=[property]), user=self._user
             )
             return runner.run(
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,

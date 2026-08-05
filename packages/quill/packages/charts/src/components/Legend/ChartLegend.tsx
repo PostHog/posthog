@@ -13,6 +13,8 @@ export interface ChartLegendProps {
     onItemClick?: (key: string) => void
     hiddenKeys?: string[]
     className?: string
+    /** Wrap each legend row — forwarded to {@link Legend}'s `renderItem`. */
+    renderItem?: (defaultNode: React.ReactNode, item: LegendItem) => React.ReactNode
     /** data-attr on the inner `<Legend>`. The outer layout wrapper has no data-attr. */
     legendDataAttr?: string
     children: React.ReactNode
@@ -27,6 +29,7 @@ export function ChartLegend({
     onItemClick,
     hiddenKeys,
     className,
+    renderItem,
     legendDataAttr,
     children,
 }: ChartLegendProps): React.ReactElement {
@@ -45,6 +48,7 @@ export function ChartLegend({
                     align={align}
                     onItemClick={onItemClick}
                     hiddenKeys={hiddenKeys}
+                    renderItem={renderItem}
                     dataAttr={legendDataAttr}
                 />
             }

@@ -7,8 +7,6 @@ interface CliToolOptions {
     aiConsentGiven?: boolean | undefined
 }
 
-const warnedSkippedTools = new Set<string>()
-
 function materializeTool(
     name: string,
     factory: () => ToolBase<ZodObjectAny>,
@@ -23,21 +21,8 @@ function materializeTool(
     }
 }
 
-function warnSkippedTool(name: string, reason: unknown): void {
-    const detail = reason instanceof Error ? reason.message : String(reason)
-    const warningKey = `${name}:${detail}`
-    if (warnedSkippedTools.has(warningKey)) {
-        return
-    }
-    warnedSkippedTools.add(warningKey)
-    process.stderr.write(`Warning: Skipping PostHog API tool "${name}": ${detail}\n`)
-}
-
 export function getCliTools(options: CliToolOptions = {}): Tool<ZodObjectAny>[] {
-    const factories: Record<string, () => ToolBase<ZodObjectAny>> = {
-        ...TOOL_MAP,
-        ...GENERATED_TOOL_MAP,
-    }
+    const factories: Record<string, () => ToolBase<ZodObjectAny>> = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
     const names = getToolsForFeatures({
         aiConsentGiven: options.aiConsentGiven,
     })
@@ -46,15 +31,13 @@ export function getCliTools(options: CliToolOptions = {}): Tool<ZodObjectAny>[] 
     for (const name of names) {
         const factory = factories[name]
         if (!factory) {
-            warnSkippedTool(name, 'no implementation factory was registered')
             continue
         }
 
         try {
             const definition = getToolDefinition(name)
             tools.push(materializeTool(name, () => factory(), definition))
-        } catch (error) {
-            warnSkippedTool(name, error)
+        } catch {
             continue
         }
     }

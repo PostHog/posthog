@@ -5,15 +5,18 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
-import { BuilderHog2, WarningHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
+import { WarningHog } from 'lib/components/hedgehogs'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { Link } from 'lib/lemon-ui/Link'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { PlayerFrameCommentOverlay } from 'scenes/session-recordings/player/commenting/PlayerFrameCommentOverlay'
 import { RecordingDeleted } from 'scenes/session-recordings/player/RecordingDeleted'
@@ -35,6 +38,8 @@ import {
     sessionRecordingPlayerLogic,
 } from './sessionRecordingPlayerLogic'
 import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecordingPlayerExplorer'
+
+const HedgehogConstruction2 = pngHoggie(construction2Png)
 
 export interface PurePlayerProps {
     noMeta?: boolean
@@ -88,6 +93,8 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         showingClipParams,
         isMuted,
         endReached,
+        hasLateFullSnapshot,
+        leadingUnplayableMs,
     } = useValues(sessionRecordingPlayerLogic)
 
     const {
@@ -146,6 +153,20 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [isOldAndInvalid]
+    )
+
+    useEffect(
+        () => {
+            if (hasLateFullSnapshot) {
+                posthog.capture('session loaded with late full snapshot', {
+                    viewedSessionRecording: sessionRecordingId,
+                    recordingStartTime: sessionPlayerData?.start,
+                    leadingUnplayableMs,
+                })
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [hasLateFullSnapshot]
     )
 
     // Track if the recording has ended to be able to reliably get it from the BE and stop the recording
@@ -293,35 +314,60 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                     <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />
                 ) : (
                     <div className="SessionRecordingPlayer__main flex flex-col h-full w-full">
-                        {isRecentAndInvalid ? (
-                            <div className="flex flex-1 flex-col items-center justify-center">
-                                <BuilderHog2 height={200} />
-                                <h1>We're still working on it</h1>
-                                <p>
-                                    This recording hasn't been fully ingested yet. It should be ready to watch in a few
-                                    minutes.
-                                </p>
-                                <LemonButton type="secondary" onClick={loadSnapshots}>
-                                    Reload
-                                </LemonButton>
-                            </div>
-                        ) : isOldAndInvalid ? (
-                            <div className="flex flex-1 flex-col items-center justify-center p-4 text-center">
-                                <WarningHog height={200} width={200} />
-                                <h1>This recording can't be played</h1>
-                                <p className="max-w-120">
-                                    The snapshot of the screen taken when this recording started never reached PostHog,
-                                    so there is nothing to play back. This usually happens when the browser is closed or
-                                    goes offline before the recording finishes uploading.{' '}
-                                    <Link to="https://posthog.com/docs/session-replay/troubleshooting">Learn more</Link>
-                                </p>
-                                <LemonButton type="secondary" onClick={loadSnapshots}>
-                                    Reload
-                                </LemonButton>
+                        {isRecentAndInvalid || isOldAndInvalid ? (
+                            <div className="flex flex-col flex-1 w-full relative">
+                                {/* Keep the meta bar so the activity/inspector panel stays reachable */}
+                                <div className="relative">{showMeta ? <PlayerMetaBar /> : null}</div>
+                                <div className="flex flex-1 flex-col items-center justify-center p-4 text-center">
+                                    {isOldAndInvalid && !isRecentAndInvalid ? (
+                                        <>
+                                            <WarningHog height={200} width={200} />
+                                            <h1>This recording can't be played</h1>
+                                            <p className="max-w-120">
+                                                The snapshot of the screen taken when this recording started never
+                                                reached PostHog, so there is nothing to play back. This usually happens
+                                                when the browser is closed or goes offline before the recording finishes
+                                                uploading.{' '}
+                                                <Link to="https://posthog.com/docs/session-replay/troubleshooting">
+                                                    Learn more
+                                                </Link>
+                                            </p>
+                                            <LemonButton type="secondary" onClick={loadSnapshots}>
+                                                Reload
+                                            </LemonButton>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <HedgehogConstruction2 className="h-50" />
+                                            <h1>We're still working on it</h1>
+                                            <p className="max-w-120">
+                                                This recording hasn't been fully ingested yet. It should be ready to
+                                                watch in a few minutes.
+                                            </p>
+                                            <LemonButton type="secondary" onClick={loadSnapshots}>
+                                                Reload
+                                            </LemonButton>
+                                        </>
+                                    )}
+                                </div>
                             </div>
                         ) : (
                             <div className="flex w-full h-full">
                                 <div className="flex flex-col flex-1 w-full relative">
+                                    {hasLateFullSnapshot && !hidePlayerElements ? (
+                                        <LemonBanner
+                                            type="warning"
+                                            dismissKey={`late-full-snapshot-${sessionRecordingId}`}
+                                        >
+                                            The first{' '}
+                                            {humanFriendlyDuration(leadingUnplayableMs / 1000, { maxUnits: 2 })} of this
+                                            recording can't be shown — the initial snapshot of the screen arrived late,
+                                            so playback starts from the first frame we can render.{' '}
+                                            <Link to="https://posthog.com/docs/session-replay/troubleshooting">
+                                                Learn more
+                                            </Link>
+                                        </LemonBanner>
+                                    ) : null}
                                     <div className="relative">{showMeta ? <PlayerMetaBar /> : null}</div>
                                     <div
                                         className="SessionRecordingPlayer__body"

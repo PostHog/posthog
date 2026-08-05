@@ -4,6 +4,7 @@
 .cache
 .planning
 .pr-review-diff.patch
+.qa-frontend/
 __emails__
 __pycache__/
 .coverage
@@ -136,6 +137,9 @@ frontend/public/Matter*.woff*
 frontend/tmp
 frontend/types/
 
+# CI log downloads (gh-logs-grab / gh run download)
+/logs/
+
 # Watchman cache
 .watchman-cookie-*
 
@@ -155,6 +159,7 @@ posthog/management/commands/clear_demo_data.py
 .claude/settings.local.json
 .claude/worktrees/
 .claude/scheduled_tasks.lock
+.claude/plans/
 
 # Ignore local mprocs configs
 bin/mprocs*.local.yaml
@@ -214,3 +219,13 @@ products/signals/backend/github_issues/
 # posthog/hogql/scripts/log_corpus_diagnostic.py — contains
 # redacted production queries; not for git).
 posthog/hogql/scripts/.local/
+
+# RocksDB state store created at runtime by cohort-stream-processor
+rust/cohort-store/
+rust/cohort-stream-processor/cohort-store/
+
+# Local TLS certs (e.g. mkcert) — never commit private keys
+*.pem
+
+# Redis persistence snapshot dropped by a locally running redis-server
+dump.rdb

@@ -1,4 +1,4 @@
-import type { Series, TooltipConfig } from '@posthog/quill-charts'
+import type { Series, TooltipConfig, YAxisConfig } from '@posthog/quill-charts'
 
 import type { RetentionTrendPayload } from 'scenes/retention/types'
 
@@ -78,6 +78,25 @@ describe('retentionChartTransforms', () => {
 
             expect(series[0].key).toBe('retention-0')
             expect(series[0].meta?.rowIndex).toBe(0)
+        })
+
+        it('colors series through getColor by array position, and leaves color unset without it', () => {
+            // Payload indices deliberately differ from array positions: colors must follow the
+            // array position, matching the chart's own colors[i % len] fallback, or explicit and
+            // fallback-colored series could collide.
+            const entries = [
+                makeEntry({ index: 7, rawBreakdownValue: 'Chrome' }),
+                makeEntry({ index: 3, rawBreakdownValue: null }),
+            ]
+
+            const series = buildRetentionSeries(entries, {
+                isIntervalView: false,
+                getColor: (entry, index) => (entry.rawBreakdownValue === 'Chrome' ? '#ff0000' : `position-${index}`),
+            })
+            expect(series.map((s) => s.color)).toEqual(['#ff0000', 'position-1'])
+
+            const uncolored = buildRetentionSeries(entries, { isIntervalView: false })
+            expect(uncolored.map((s) => s.color)).toEqual([undefined, undefined])
         })
 
         it.each<[string, Partial<RetentionTrendSeriesEntry>, string]>([
@@ -330,9 +349,10 @@ describe('retentionChartTransforms', () => {
                 getColor: colorAt,
                 maxCohorts: 6,
             })
-            expect(model.lineConfig.yAxis?.label).toBe(expectedLabel)
+            const lineYAxis = model.lineConfig.yAxis as YAxisConfig
+            expect(lineYAxis?.label).toBe(expectedLabel)
             expect(model.barConfig.yAxis?.label).toBe(expectedLabel)
-            expect(model.lineConfig.yAxis?.format).toBe(expectedFormat)
+            expect(lineYAxis?.format).toBe(expectedFormat)
         })
     })
 

@@ -1,33 +1,32 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
-import {
-    IconBolt,
-    IconCheckCircle,
-    IconChevronRight,
-    IconCompass,
-    IconGithub,
-    IconPullRequest,
-    IconServer,
-} from '@posthog/icons'
+import { IconBolt, IconCheckCircle, IconChevronRight, IconCompass, IconGithub, IconServer } from '@posthog/icons'
 import { LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
-import { mcpStoreLogic } from '@posthog/products-mcp-store/frontend/mcpStoreLogic'
 import { ServerIcon } from '@posthog/products-mcp-store/frontend/scene/icons'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { IconSlack } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
-import { urls } from 'scenes/urls'
+import { GithubIntegration } from 'scenes/integrations/components/GithubIntegration'
 
 import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
+import { scoutMcpServersLogic } from '../../logics/scoutMcpServersLogic'
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
-import { AutoStartThresholdSection } from '../config/AutoStartThresholdSection'
+import { McpServersSection } from '../config/McpServersSection'
 import { ScoutsFleetSection } from '../config/scouts/ScoutsFleetSection'
+import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SignalSourcesPanel } from '../config/SignalSourcesPanel'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
 import { AgentSetupModalKey, agentSetupModalLogic } from './agentSetupModalLogic'
+import { InboxUsageWidget } from './InboxUsageWidget'
+import { InstallationSetupSection } from './InstallationSetupSection'
+import { SetupSection } from './SetupSection'
 
 type WidgetTone = 'todo' | 'done' | 'neutral'
 /** Visual weight reflecting how important / frequently edited a part of the setup is. */
@@ -43,14 +42,24 @@ interface SetupWidgetCardProps {
     loading?: boolean
     /** One-line context, shown on `lg` cards only. */
     description?: string
-    /** Modal-backed widgets pass `onClick`; link-out widgets (Code access, MCP) pass `to`. */
     onClick?: () => void
     to?: string
     /** Extra content under the status (e.g. MCP brand icons). */
     children?: React.ReactNode
 }
 
-function TrailingAffordance({ tone, to }: { tone: WidgetTone; to?: string }): JSX.Element | null {
+function TrailingAffordance({
+    tone,
+    to,
+    loading,
+}: {
+    tone: WidgetTone
+    to?: string
+    loading?: boolean
+}): JSX.Element | null {
+    if (loading) {
+        return <LemonSkeleton className="h-4 w-12 rounded" />
+    }
     if (tone === 'todo') {
         return (
             <LemonTag type="warning" size="small">
@@ -113,7 +122,7 @@ function SetupWidgetCard(props: SetupWidgetCardProps): JSX.Element {
                     ) : (
                         <span className="text-xs text-secondary">{status}</span>
                     )}
-                    <TrailingAffordance tone={tone} to={to} />
+                    <TrailingAffordance tone={tone} to={to} loading={loading} />
                 </div>
             </>
         ) : (
@@ -129,7 +138,7 @@ function SetupWidgetCard(props: SetupWidgetCardProps): JSX.Element {
                 <div className="flex flex-col gap-0.5 min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-1.5">
                         <span className={cn('text-default truncate', TITLE_CLASS[size])}>{title}</span>
-                        <TrailingAffordance tone={tone} to={to} />
+                        <TrailingAffordance tone={tone} to={to} loading={loading} />
                     </div>
                     {loading ? (
                         <LemonSkeleton className="h-3 w-20" />
@@ -189,7 +198,7 @@ function ScoutTroopWidget(): JSX.Element {
             tone={hasAny ? 'done' : 'todo'}
             loading={scoutConfigs === null}
             status={hasAny ? `${enabledCount} on patrol` : 'No scouts running'}
-            description="Scheduled agents that sweep this project on a cadence and report findings."
+            description="Scheduled agents that sweep this project on a cadence and report signals."
             onClick={() => openSetupModal('scout-troop')}
         />
     )
@@ -197,6 +206,7 @@ function ScoutTroopWidget(): JSX.Element {
 
 function CodeAccessWidget(): JSX.Element {
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
+    const { openSetupModal } = useActions(agentSetupModalLogic)
     const hasGithub = getIntegrationsByKind(['github']).length > 0
     return (
         <SetupWidgetCard
@@ -205,32 +215,51 @@ function CodeAccessWidget(): JSX.Element {
             size="md"
             tone={hasGithub ? 'done' : 'todo'}
             loading={integrationsLoading && !hasGithub}
-            status={hasGithub ? 'GitHub connected' : 'Foundational – connect to start'}
-            to={urls.settings('environment-integrations', 'integration-github')}
+            status={hasGithub ? 'GitHub connected' : 'Foundational. Connect to start.'}
+            onClick={() => openSetupModal('github')}
         />
     )
 }
 
 function McpServersWidget(): JSX.Element {
-    useMountedLogic(mcpStoreLogic)
-    const { installations, installationsLoading } = useValues(mcpStoreLogic)
-    const count = installations.length
+    useMountedLogic(scoutMcpServersLogic)
+    const { availableScoutServers, scoutAccount, scoutServers, scoutServersLoading, scoutServersNeedingSetup } =
+        useValues(scoutMcpServersLogic)
+    const { openSetupModal } = useActions(agentSetupModalLogic)
+    const availableCount = availableScoutServers.length
+    const needsSetupCount = scoutServersNeedingSetup.length
+    let status = 'Share external tools'
+    let tone: WidgetTone = 'neutral'
+    if (scoutAccount?.status === 'paused') {
+        status = 'MCP access paused'
+    } else if (availableCount > 0 && needsSetupCount > 0) {
+        status = `${availableCount} available · ${needsSetupCount} need setup`
+        tone = 'done'
+    } else if (availableCount > 0) {
+        status = `${availableCount} available to Scout`
+        tone = 'done'
+    } else if (needsSetupCount > 0) {
+        status = `${needsSetupCount} need setup`
+        tone = 'todo'
+    }
     return (
         <SetupWidgetCard
             icon={<IconServer />}
             title="MCP servers"
             size="md"
-            tone={count > 0 ? 'done' : 'neutral'}
-            loading={installationsLoading && count === 0}
-            status={count > 0 ? `${count} connected` : 'Connect external tools'}
-            to={urls.settings('mcp-servers')}
+            tone={tone}
+            loading={scoutServersLoading && scoutServers.length === 0}
+            status={status}
+            onClick={() => openSetupModal('mcp-servers')}
         >
-            {count > 0 && (
+            {scoutServers.length > 0 && (
                 <div className="flex items-center gap-1 pt-1">
-                    {installations.slice(0, 6).map((installation) => (
-                        <ServerIcon key={installation.id} iconKey={installation.icon_key} size={16} />
+                    {scoutServers.slice(0, 6).map((server) => (
+                        <ServerIcon key={server.id} iconDomain={server.icon_domain} size={16} />
                     ))}
-                    {count > 6 && <span className="text-[11px] text-muted">+{count - 6}</span>}
+                    {scoutServers.length > 6 && (
+                        <span className="text-[11px] text-muted">+{scoutServers.length - 6}</span>
+                    )}
                 </div>
             )}
         </SetupWidgetCard>
@@ -241,10 +270,18 @@ function NotificationsWidget(): JSX.Element {
     useMountedLogic(userAutonomyLogic)
     const { slackIntegrations, integrationsLoading } = useValues(integrationsLogic)
     const { autonomyConfig } = useValues(userAutonomyLogic)
+    const { teamConfig } = useValues(signalTeamConfigLogic)
     const { openSetupModal } = useActions(agentSetupModalLogic)
 
-    const channel = autonomyConfig?.slack_notification_channel ?? null
-    const notifying = (slackIntegrations?.length ?? 0) > 0 && !!channel
+    // Either target counts as set up: the team-wide channel catches every actionable report,
+    // the personal channel pings the suggested reviewer. The status names each configured one.
+    const teamChannel = teamConfig?.default_slack_notification_channel ?? null
+    const userChannel = autonomyConfig?.slack_notification_channel ?? null
+    const channelLabels = [
+        teamChannel ? `Team ${slackChannelDisplayName(teamChannel)}` : null,
+        userChannel ? `You ${slackChannelDisplayName(userChannel)}` : null,
+    ].filter(Boolean)
+    const notifying = (slackIntegrations?.length ?? 0) > 0 && channelLabels.length > 0
     return (
         <SetupWidgetCard
             icon={<IconSlack className="grayscale" />}
@@ -252,40 +289,20 @@ function NotificationsWidget(): JSX.Element {
             size="md"
             tone={notifying ? 'done' : 'todo'}
             loading={integrationsLoading && slackIntegrations === undefined}
-            status={notifying && channel ? `Slack ${slackChannelDisplayName(channel)}` : 'Not connected'}
+            status={notifying ? channelLabels.join(' · ') : 'Not connected'}
             onClick={() => openSetupModal('slack')}
         />
     )
 }
 
-function AutoStartWidget(): JSX.Element {
-    useMountedLogic(signalTeamConfigLogic)
-    const { autonomyConfig, autonomyConfigLoading } = useValues(userAutonomyLogic)
-    const { openSetupModal } = useActions(agentSetupModalLogic)
-
-    const userPriority = autonomyConfig?.autostart_priority ?? null
-    return (
-        <SetupWidgetCard
-            icon={<IconPullRequest />}
-            title="Auto-create PR"
-            size="sm"
-            tone="neutral"
-            loading={autonomyConfigLoading && autonomyConfig === null}
-            status={userPriority ? `${userPriority}+` : 'Off for you'}
-            onClick={() => openSetupModal('auto-start')}
-        />
-    )
-}
-
-/** Section heading styled like a LemonTabs label (same 14px scale, tertiary color) so the
- * rail reads as a sibling of the tab bar rather than a louder header. */
-function SetupSection({ title, children }: { title: string; children: React.ReactNode }): JSX.Element {
-    return (
-        <div className="flex flex-col">
-            <h4 className="text-sm font-medium text-tertiary mt-0 mb-3.5">{title}</h4>
-            <div className="flex flex-col gap-1.5">{children}</div>
-        </div>
-    )
+/**
+ * The GitHub OAuth round trip returns to `next`, and this modal opens from the rail beside any of the
+ * list tabs – so `next` has to be wherever the user actually started, not a fixed tab. `setup=github`
+ * comes back with them so the modal reopens showing the result.
+ */
+function GithubSetupBody(): JSX.Element {
+    const { location, searchParams } = useValues(router)
+    return <GithubIntegration next={combineUrl(location.pathname, { ...searchParams, setup: 'github' }).url} />
 }
 
 const SETUP_MODALS: Record<
@@ -300,22 +317,27 @@ const SETUP_MODALS: Record<
     },
     'scout-troop': {
         title: 'Scout troop',
-        description: 'Scheduled agents that sweep this project on a cadence and emit findings to your inbox.',
+        description: 'Scheduled agents that sweep this project on a cadence and emit signals to your inbox.',
         width: 760,
         body: <ScoutsFleetSection />,
     },
     slack: {
         title: 'Notifications',
-        description: 'Get pinged in Slack when you’re a suggested reviewer on a new inbox item.',
+        description: 'Get pinged in Slack when you’re a suggested reviewer on a new report.',
         width: 560,
         body: <SlackNotificationsSection />,
     },
-    'auto-start': {
-        title: 'Auto-create PR',
-        description:
-            'Automatically open a pull request for an actionable report at or above a priority threshold – set the team default and your personal override.',
+    github: {
+        title: 'GitHub',
+        description: 'Connect GitHub so agents can read repositories and open pull requests.',
+        width: 760,
+        body: <GithubSetupBody />,
+    },
+    'mcp-servers': {
+        title: 'MCP servers',
+        description: 'Shared external tools available to scheduled Scouts.',
         width: 560,
-        body: <AutoStartThresholdSection />,
+        body: <McpServersSection />,
     },
 }
 
@@ -337,10 +359,9 @@ function SetupModal(): JSX.Element {
 }
 
 /**
- * The agent-setup widgets, grouped into Agents / Connections / Preferences. Each widget shows
+ * The agent-setup widgets, grouped into Agents / Connections. Each widget shows
  * status and nudges the user to finish that part of the setup. Signal sources and Scout troop
- * (most edited) are largest; connections medium; Auto-create PR compact. Code access and MCP link
- * out to settings; the rest open a management modal.
+ * (most edited) are largest; connections medium and open management modals.
  *
  * Rendered two ways: `rail` (a column to the right of the tabs on wide viewports) and
  * `stacked` (the Configuration tab body on narrow viewports).
@@ -348,6 +369,7 @@ function SetupModal(): JSX.Element {
 export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JSX.Element {
     useMountedLogic(integrationsLogic)
     useMountedLogic(signalSourcesLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div
@@ -356,17 +378,19 @@ export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JS
                 layout === 'stacked' ? 'mx-auto w-full max-w-2xl px-6 py-6' : 'px-4 py-3'
             )}
         >
+            <InstallationSetupSection />
             <SetupSection title="Agents">
                 <SignalSourcesWidget />
                 <ScoutTroopWidget />
+                <SelfDrivingSection />
             </SetupSection>
             <SetupSection title="Connections">
                 <CodeAccessWidget />
                 <NotificationsWidget />
-                <McpServersWidget />
+                {featureFlags[FEATURE_FLAGS.MCP_SERVERS] && <McpServersWidget />}
             </SetupSection>
-            <SetupSection title="Preferences">
-                <AutoStartWidget />
+            <SetupSection title="Usage">
+                <InboxUsageWidget />
             </SetupSection>
             <SetupModal />
         </div>

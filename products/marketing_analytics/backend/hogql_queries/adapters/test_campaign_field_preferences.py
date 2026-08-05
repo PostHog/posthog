@@ -16,7 +16,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.linkedin_ads im
 from products.marketing_analytics.backend.hogql_queries.adapters.meta_ads import MetaAdsAdapter, MetaAdsConfig
 from products.marketing_analytics.backend.hogql_queries.adapters.reddit_ads import RedditAdsAdapter, RedditAdsConfig
 from products.marketing_analytics.backend.hogql_queries.adapters.tiktok_ads import TikTokAdsAdapter, TikTokAdsConfig
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 class TestCampaignFieldPreferences(BaseTest):

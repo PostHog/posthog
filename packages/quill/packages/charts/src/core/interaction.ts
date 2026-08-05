@@ -64,19 +64,29 @@ export function isInPlotArea(mouseX: number, mouseY: number, dimensions: ChartDi
     )
 }
 
-// Returns null when fewer than 2 distinct labels are spanned.
+// Horizontal extent (px) a same-label drag must span to count as a deliberate single-bucket
+// zoom. On sparse charts both drag edges snap to one label, so without this a vertical-ish
+// gesture (whose x drift is a few px) would zoom into the hovered bucket.
+const SINGLE_LABEL_MIN_DRAG_PX = 8
+
+/** Maps a drag selection to the spanned label range. A drag whose edges both snap to the same
+ *  label selects that single bucket, provided it spans enough horizontal distance to read as
+ *  intentional. Returns null when no labels are positioned or the drag is too narrow. */
 export function dragRectToLabelRange(
     rect: DragRect,
     labelPositions: LabelPosition[]
 ): { startIndex: number; endIndex: number } | null {
-    if (labelPositions.length < 2) {
+    if (labelPositions.length === 0) {
         return null
     }
     const lo = Math.min(rect.x0, rect.x1)
     const hi = Math.max(rect.x0, rect.x1)
     const startIndex = findNearestIndexFromPositions(lo, labelPositions)
     const endIndex = findNearestIndexFromPositions(hi, labelPositions)
-    if (startIndex < 0 || endIndex < 0 || startIndex === endIndex) {
+    if (startIndex < 0 || endIndex < 0) {
+        return null
+    }
+    if (startIndex === endIndex && hi - lo < SINGLE_LABEL_MIN_DRAG_PX) {
         return null
     }
     const [s, e] = startIndex < endIndex ? [startIndex, endIndex] : [endIndex, startIndex]
@@ -99,6 +109,10 @@ export function buildTooltipContext<Meta = unknown>(
      *  Stacked charts pass the stacked-top resolver here so the anchor lands at the visual top
      *  of each segment while each tooltip row still shows its own value via `resolveValue`. */
     resolvePositionValue: ResolveValueFn = resolveValue,
+    /** Resolves the stacked *bottom* value for each series. When provided, yPixelBottom is
+     *  stored alongside yPixel so findClosestSeriesKey can use range containment rather than
+     *  distance — cursor inside [yPixel, yPixelBottom] wins exactly at the segment boundary. */
+    resolveBottomValue?: ResolveValueFn,
     /** Optional horizontal data-extent centered on the categorical axis position — bar charts
      *  pass band width so the tooltip can anchor at the band edge instead of its center. */
     positionExtent?: number,
@@ -127,17 +141,34 @@ export function buildTooltipContext<Meta = unknown>(
         // A gap (`data[i]` non-finite) draws no point/bar, so don't fabricate a `0` row for it —
         // skip it the same way the renderer does.
         const rawValue = s.data[dataIndex]
+        const seriesValueScale = yAxes?.[s.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? yScale
+        const px = seriesValueScale(resolvePositionValue(s, dataIndex))
+        if (isFinite(px)) {
+            valuePixels.push(px)
+        }
         if (s.visibility?.tooltip !== false && rawValue != null && isFinite(rawValue)) {
             // A per-bar series carries each bar's identity in `bars[i]` — surface it so the tooltip
             // reads the right color/meta/label rather than the shared series-level ones.
             const bar = s.bars?.[dataIndex]
             const entrySeries = bar ? { ...s, meta: bar.meta ?? s.meta, label: bar.label ?? s.label } : s
-            seriesData.push({ series: entrySeries, value: resolveValue(s, dataIndex), color: barColorAt(s, dataIndex) })
-        }
-        const seriesValueScale = yAxes?.[s.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? yScale
-        const px = seriesValueScale(resolvePositionValue(s, dataIndex))
-        if (isFinite(px)) {
-            valuePixels.push(px)
+            const segmentValue = resolveValue(s, dataIndex)
+            // Expose the segment bottom pixel so findClosestSeriesKey can do range containment
+            // testing (is cursor between top and bottom?) instead of distance-to-midpoint, which
+            // breaks when adjacent segments differ greatly in size.
+            const yPixelBottom =
+                resolveBottomValue && isFinite(px)
+                    ? (() => {
+                          const b = seriesValueScale(resolveBottomValue(s, dataIndex))
+                          return isFinite(b) ? b : undefined
+                      })()
+                    : undefined
+            seriesData.push({
+                series: entrySeries,
+                value: segmentValue,
+                color: barColorAt(s, dataIndex),
+                yPixel: isFinite(px) ? px : undefined,
+                yPixelBottom,
+            })
         }
     }
 

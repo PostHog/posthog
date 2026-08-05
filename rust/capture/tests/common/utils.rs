@@ -54,6 +54,8 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     global_rate_limit_redis_reader_url: None,
     global_rate_limit_redis_response_timeout_ms: None,
     global_rate_limit_redis_connection_timeout_ms: None,
+    global_rate_limit_custom_threshold_key: None,
+    global_rate_limit_custom_threshold_refresh_secs: 60,
     event_restrictions_enabled: false,
     event_restrictions_redis_url: None,
     event_restrictions_refresh_interval_secs: 30,
@@ -85,6 +87,8 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
         kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
         kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
+        capture_analytics_ai_events_topic: None,
+        capture_analytics_ai_events_overflow_topic: None,
         kafka_traces_topic: "ingestion_traces".to_string(),
         kafka_metrics_topic: "ingestion_metrics".to_string(),
         kafka_tls: false,
@@ -149,6 +153,16 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     ai_s3_region: "us-east-1".to_string(),
     ai_s3_access_key_id: None,
     ai_s3_secret_access_key: None,
+    ai_gateway_signing_secret: None,
+    ai_sink_mode: capture::config::AiSinkMode::Primary,
+    ai_secondary_allowlist_tokens: None,
+    ai_secondary_kafka_hosts: None,
+    ai_secondary_kafka_topic: None,
+    ai_secondary_kafka_tls: false,
+    ai_secondary_kafka_client_id: String::new(),
+    capture_analytics_ai_events_mode: capture::config::AiSinkMode::Primary,
+    capture_analytics_ai_events_allowlist_tokens: None,
+    capture_analytics_ai_events_percentage: None,
     http1_header_read_timeout_ms: Some(5000), // 5 seconds default
     body_chunk_read_timeout_ms: None,         // disabled by default in tests
     body_read_chunk_size_kb: 256,             // 256KB default
@@ -161,6 +175,13 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     capture_v1_sinks: String::new(),
     capture_v1_max_compressed_body_bytes: 10 * 1024 * 1024,
     capture_v1_max_decompressed_body_bytes: 50 * 1024 * 1024,
+    capture_v1_scatter_gather_min_batch: 8,
+    capture_ingestion_warnings_enabled: false,
+    capture_ingestion_warnings_kafka_queue_mib: 16,
+    capture_ingestion_warnings_kafka_message_max_bytes: 1048576,
+    capture_ingestion_warnings_kafka_topic: String::new(),
+    capture_ingestion_warnings_kafka_hosts: String::new(),
+    capture_ingestion_warnings_kafka_tls: false,
 });
 
 /// Build the per-sink env snapshot the v1 sink loader expects, with every
@@ -207,10 +228,47 @@ impl ServerHandle {
         config.kafka.kafka_historical_topic = historical.topic_name().to_string();
         Self::for_config(config).await
     }
+    /// Like `for_topics`, with the synthetic ingestion warnings emitter enabled
+    /// and pointed at its own topic via the emitter's dedicated config, so
+    /// legacy-path warning envelopes are readable independently of the events
+    /// that triggered them.
+    pub async fn for_topics_with_warnings(
+        main: &EphemeralTopic,
+        historical: &EphemeralTopic,
+        warnings_topic: &EphemeralTopic,
+    ) -> Self {
+        let mut config = DEFAULT_CONFIG.clone();
+        config.kafka.kafka_topic = main.topic_name().to_string();
+        config.kafka.kafka_historical_topic = historical.topic_name().to_string();
+        config.capture_ingestion_warnings_enabled = true;
+        config.capture_ingestion_warnings_kafka_hosts = config.kafka.kafka_hosts.clone();
+        config.capture_ingestion_warnings_kafka_tls = config.kafka.kafka_tls;
+        config.capture_ingestion_warnings_kafka_topic = warnings_topic.topic_name().to_string();
+        Self::for_config(config).await
+    }
+
     pub async fn for_recordings(main: &EphemeralTopic) -> Self {
         let mut config = DEFAULT_CONFIG.clone();
         config.kafka.kafka_topic = main.topic_name().to_string();
         config.capture_mode = CaptureMode::Recordings;
+        Self::for_config(config).await
+    }
+
+    /// Like `for_recordings`, with the synthetic ingestion warnings emitter
+    /// enabled and pointed at its own topic via the emitter's dedicated config,
+    /// so replay warning envelopes are readable independently of the events that
+    /// triggered them.
+    pub async fn for_recordings_with_warnings(
+        main: &EphemeralTopic,
+        warnings_topic: &EphemeralTopic,
+    ) -> Self {
+        let mut config = DEFAULT_CONFIG.clone();
+        config.kafka.kafka_topic = main.topic_name().to_string();
+        config.capture_mode = CaptureMode::Recordings;
+        config.capture_ingestion_warnings_enabled = true;
+        config.capture_ingestion_warnings_kafka_hosts = config.kafka.kafka_hosts.clone();
+        config.capture_ingestion_warnings_kafka_tls = config.kafka.kafka_tls;
+        config.capture_ingestion_warnings_kafka_topic = warnings_topic.topic_name().to_string();
         Self::for_config(config).await
     }
 
@@ -222,6 +280,36 @@ impl ServerHandle {
     pub async fn for_v1_topic(topic: &EphemeralTopic) -> Self {
         let mut config = DEFAULT_CONFIG.clone();
         config.capture_v1_sinks = "msk".to_string();
+        let sink_env = v1_sink_env_for_topic("msk", topic.topic_name());
+        Self::for_config_with_sink_env(config, sink_env).await
+    }
+
+    /// Like `for_v1_topic`, with the synthetic ingestion warnings emitter
+    /// enabled and pointed at its own topic via the emitter's dedicated config,
+    /// so warning envelopes are readable independently of the events that
+    /// triggered them.
+    pub async fn for_v1_topic_with_warnings(
+        topic: &EphemeralTopic,
+        warnings_topic: &EphemeralTopic,
+    ) -> Self {
+        let mut config = DEFAULT_CONFIG.clone();
+        config.capture_v1_sinks = "msk".to_string();
+        config.capture_ingestion_warnings_enabled = true;
+        // The emitter reads only its own dedicated config now (no v0 KAFKA_*
+        // fallback), so point it at the same ephemeral broker as the main sink.
+        config.capture_ingestion_warnings_kafka_hosts = config.kafka.kafka_hosts.clone();
+        config.capture_ingestion_warnings_kafka_tls = config.kafka.kafka_tls;
+        config.capture_ingestion_warnings_kafka_topic = warnings_topic.topic_name().to_string();
+        let sink_env = v1_sink_env_for_topic("msk", topic.topic_name());
+        Self::for_config_with_sink_env(config, sink_env).await
+    }
+
+    /// Like `for_v1_topic`, with the AI-gateway signing secret configured so the
+    /// provenance check runs.
+    pub async fn for_v1_topic_with_signing_secret(topic: &EphemeralTopic, secret: &str) -> Self {
+        let mut config = DEFAULT_CONFIG.clone();
+        config.capture_v1_sinks = "msk".to_string();
+        config.ai_gateway_signing_secret = Some(secret.to_string());
         let sink_env = v1_sink_env_for_topic("msk", topic.topic_name());
         Self::for_config_with_sink_env(config, sink_env).await
     }
@@ -297,6 +385,34 @@ impl ServerHandle {
             .header("PostHog-Request-Timestamp", "2026-03-19T14:30:00.000Z")
             .header("content-type", "application/json")
             .header("user-agent", "test-client/1.0")
+            .body(body)
+            .send()
+            .await
+            .expect("failed to send request")
+    }
+
+    /// Like `capture_v1`, plus the AI-gateway provenance headers.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn capture_v1_with_gateway_headers<T: Into<reqwest::Body>>(
+        &self,
+        token: &str,
+        body: T,
+        signature: &str,
+        signed_at: &str,
+        request_id: &str,
+    ) -> reqwest::Response {
+        self.client
+            .post(format!("http://{:?}/i/v1/analytics/events", self.addr))
+            .header("authorization", format!("Bearer {token}"))
+            .header("PostHog-Sdk-Info", "posthog-rs/1.0.0")
+            .header("PostHog-Attempt", "1")
+            .header("PostHog-Request-Id", uuid::Uuid::new_v4().to_string())
+            .header("PostHog-Request-Timestamp", "2026-03-19T14:30:00.000Z")
+            .header("content-type", "application/json")
+            .header("user-agent", "test-client/1.0")
+            .header("PostHog-Ai-Gateway-Signature", signature)
+            .header("PostHog-Ai-Gateway-Signed-At", signed_at)
+            .header("PostHog-Ai-Gateway-Request-Id", request_id)
             .body(body)
             .send()
             .await

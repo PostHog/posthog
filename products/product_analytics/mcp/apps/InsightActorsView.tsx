@@ -23,6 +23,9 @@ export function InsightActorsView({ data, openLink }: InsightActorsViewProps): R
 
 function EventCountActorsView({ data, openLink }: InsightActorsViewProps): ReactElement {
     const rows = useMemo(() => toActorRows(data), [data])
+    // Membership-based sources (stickiness, lifecycle) project only the actor — no event count and
+    // no recordings — so drive both columns off the actual result columns rather than assume them.
+    const hasEventCount = data.results.columns.includes('event_count')
     const hasRecordings = data.results.columns.includes('recordings')
 
     const columns = useMemo((): DataTableColumn<ActorRow>[] => {
@@ -42,14 +45,17 @@ function EventCountActorsView({ data, openLink }: InsightActorsViewProps): React
                     )
                 },
             },
-            {
+        ]
+
+        if (hasEventCount) {
+            cols.push({
                 key: 'event_count',
                 header: 'Event count',
                 sortable: true,
                 align: 'right',
                 render: (row): ReactNode => <Badge>{row.event_count?.toLocaleString() ?? '—'}</Badge>,
-            },
-        ]
+            })
+        }
 
         if (hasRecordings) {
             cols.push({
@@ -88,7 +94,7 @@ function EventCountActorsView({ data, openLink }: InsightActorsViewProps): React
         }
 
         return cols
-    }, [hasRecordings, openLink])
+    }, [hasEventCount, hasRecordings, openLink])
 
     return (
         <div className="p-4">
@@ -102,7 +108,8 @@ function EventCountActorsView({ data, openLink }: InsightActorsViewProps): React
                 <DataTable<ActorRow>
                     columns={columns}
                     data={rows}
-                    defaultSort={{ key: 'event_count', direction: 'desc' }}
+                    // Without an event count there's nothing to rank by — keep the query's actor order.
+                    defaultSort={hasEventCount ? { key: 'event_count', direction: 'desc' } : undefined}
                     emptyMessage="No actors found for this data point"
                 />
             </div>

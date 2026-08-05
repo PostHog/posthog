@@ -43,13 +43,13 @@ posthog:apm-trace-get
 }
 ```
 
-The response is `{ results: [span, span, …] }` — a flat list of every span in the trace.
+The response is `{ results: [span, span, …], _posthogUrl: "…" }` — a flat list of every span in the trace.
 The list can be very large for fan-out request flows; when it exceeds the inline limit, Claude Code auto-persists it to a file.
 
 From the result you get:
 
 - Every span with `name`, `service_name`, `kind`, `status_code`, `parent_span_id`, `duration_nano`, `is_root_span`
-- The `_posthogUrl` — **always include this in your response** so the user can click through to the UI
+- The `_posthogUrl` — a deep link to this trace in the tracing UI; **always include this in your response** so the user can click through
 
 ### Step 2 — Parse large results with scripts
 
@@ -148,9 +148,11 @@ Each span carries an `attributes` map (span-level OTel attributes like `http.met
 
 ## Constructing UI links
 
-`apm-trace-get` and `query-apm-spans` return `_posthogUrl` — **always surface this to the user** so they can verify in the PostHog UI.
+`apm-trace-get` returns a `_posthogUrl` deep link that opens the trace in the tracing UI — **always surface this to the user** so they can verify in the PostHog UI.
 
-When presenting findings, include the relevant PostHog URL.
+`query-apm-spans` does not return `_posthogUrl`.
+To link a trace found via the query tool, feed its `trace_id` to `apm-trace-get` and surface the `_posthogUrl` from that response.
+Never hand-construct PostHog URLs.
 
 ## Finding traces
 
@@ -237,7 +239,7 @@ results (array of span dicts)
 ## Tips
 
 - Always set `dateRange` on `query-apm-spans` — queries without a time range are slow. Default is `-1h`; widen only when needed.
-- Always include the `_posthogUrl` in your response so the user can click through.
+- Always include the `_posthogUrl` from `apm-trace-get` in your response so the user can click through to the trace.
 - Span-level attributes **are** in the `apm-trace-get` / `query-apm-spans` payload (each span's `attributes` map). Resource attributes are not — use `apm-attributes-list` (type `resource`) and `apm-attribute-values-list` for those.
 - `is_root_span` is the cheap way to find the trace entry — don't string-match `00000000…`.
 - For aggregates (p95 by operation, slowest children of a span), use `apm-spans-aggregate` for a flat view or `apm-spans-tree` for parent→child edges — don't reach for SQL.

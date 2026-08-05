@@ -2,7 +2,7 @@ import './TaxonomicPropertyFilter.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useId } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonDropdown, Link } from '@posthog/lemon-ui'
@@ -49,8 +49,10 @@ import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joins
 import { OperandTag } from './OperandTag'
 import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
 
-let uniqueMemoizedIndex = 0
 export const DEFAULT_TAXONOMIC_GROUP_TYPES = [
+    // Only materializes when the picker is scoped to $mcp_* events (see taxonomicGroups),
+    // leading with the known MCP schema there; a no-op everywhere else.
+    TaxonomicFilterGroupType.MCPProperties,
     TaxonomicFilterGroupType.EventProperties,
     TaxonomicFilterGroupType.PersonProperties,
     TaxonomicFilterGroupType.EventFeatureFlags,
@@ -90,7 +92,8 @@ export function TaxonomicPropertyFilter({
     hogQLGlobals,
     triggerVariant = 'button',
 }: PropertyFilterInternalProps): JSX.Element {
-    const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
+    const generatedKey = useId()
+    const pageKey = pageKeyInput || `filter-${generatedKey}`
     const baseGroupTypes = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
     const groupTypes = [TaxonomicFilterGroupType.SuggestedFilters, ...baseGroupTypes]
     const taxonomicOnChange: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void = (
@@ -250,7 +253,9 @@ export function TaxonomicPropertyFilter({
             ? cohortName || `Cohort #${filter?.value}`
             : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_')
               ? filter.label || `Group ${filter?.value}`
-              : filter?.type === PropertyFilterType.Flag && filter?.label
+              : (filter?.type === PropertyFilterType.Flag ||
+                      filter?.type === PropertyFilterType.AccountCustomProperty) &&
+                  filter?.label
                 ? filter.label
                 : filter?.key && (
                       <PropertyKeyInfo

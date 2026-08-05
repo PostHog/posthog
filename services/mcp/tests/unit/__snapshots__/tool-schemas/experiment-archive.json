@@ -1,6 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "disable_feature_flag": {
+            "default": false,
+            "description": "When the linked feature flag is still enabled, also disable and archive it along with the experiment. Has no effect if the flag is already disabled (it is archived either way).",
+            "type": "boolean"
+        },
         "id": {
             "description": "A unique integer value identifying this experiment.",
             "type": "number"

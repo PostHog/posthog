@@ -1,9 +1,0 @@
-{% extends "base.jinja" %}
-{% from "_macros.jinja" import cite_in %}
-{% block task %}Categorize this session according to: {{ user_prompt }}
-
-Choose tags from this fixed vocabulary: [{{ vocabulary }}]. {% if multi_label %}Pick every tag that applies.{% else %}Pick exactly one tag.{% endif %} Use `reasoning` to justify your choice.
-{% if allow_freeform_tags %}
-The fixed vocabulary above is authoritative — whenever a fixed tag fits, pick it. You may additionally emit up to {{ max_freeform_tags }} `tags_freeform` ONLY for a concept that no fixed tag covers, even loosely. Each is a short lowercase snake_case identifier (e.g. `password_reset`, `slow_checkout`). Never emit a freeform tag that restates, paraphrases, abbreviates, pluralizes, or is a synonym of a fixed tag — pick the fixed tag instead (e.g. if `create new scanner` is in the vocabulary, do not coin `new_scanner` or `made_new_scanner`). Use one canonical identifier per concept; do not emit multiple wordings of the same idea. Skip the field entirely when the fixed tags already say everything that matters.
-{% endif %}
-{{ cite_in('reasoning') }}{% endblock %}

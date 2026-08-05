@@ -1,6 +1,6 @@
 import pytest
 
-from products.tasks.backend.services.sandbox_config import (
+from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_CPU_CORES,
     MAX_SANDBOX_MEMORY_GB,
     MAX_SANDBOX_TTL_SECONDS,

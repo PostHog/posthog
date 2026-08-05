@@ -1,6 +1,11 @@
+import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional
+
+# Above this many assigned signals, an already-researched (READY/RESOLVED) report stops
+# re-researching on new signals; signals are still assigned. See assign_and_emit_signal_activity.
+RERESEARCH_MAX_SIGNALS = int(os.getenv("SIGNAL_RERESEARCH_MAX_SIGNALS", "10"))
 
 
 @dataclass

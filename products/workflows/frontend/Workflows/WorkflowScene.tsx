@@ -21,8 +21,9 @@ import { ActivityScope } from '~/types'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { Workflow } from './Workflow'
+import { WorkflowAssets } from './WorkflowAssets'
+import { WorkflowInvocations } from './WorkflowInvocations'
 import { workflowLogic } from './workflowLogic'
-import { WorkflowLogs } from './WorkflowLogs'
 import { WorkflowMetrics } from './WorkflowMetrics'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
@@ -76,9 +77,11 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         },
 
         {
+            // Runtime view backed by hog_invocation_results, matching the hog function scene.
+            // Old /logs deep links (and batchWorkflowJobsLogic) redirect here via workflowSceneLogic.
             label: 'Invocations',
-            key: 'logs',
-            content: <WorkflowLogs id={workflowSceneProps.id!} />,
+            key: 'invocations',
+            content: <WorkflowInvocations id={workflowSceneProps.id!} />,
         },
         {
             label: 'Metrics',
@@ -88,6 +91,15 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
              * defined and not "new" (see return statement below)
              */
             content: <WorkflowMetrics id={workflowSceneProps.id!} />,
+        },
+        {
+            label: 'Assets',
+            key: 'assets',
+            /**
+             * If we're rendering tabs, props.id is guaranteed to be
+             * defined and not "new" (see return statement below)
+             */
+            content: <WorkflowAssets id={workflowSceneProps.id!} />,
         },
         {
             label: 'History',

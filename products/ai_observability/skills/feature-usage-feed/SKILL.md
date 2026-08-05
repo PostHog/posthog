@@ -215,16 +215,20 @@ posthog:llma-evaluation-create
     "model": "<model>"
   },
   "enabled": false,
-  "conditions": {
-    "filters": [
-      // Pattern A — feature-native trace_id prefix:
-      { "key": "$ai_trace_id", "operator": "icontains", "value": "<your-prefix>" }
+  "conditions": [
+    {
+      "id": "default",
+      "rollout_percentage": 100,
+      "properties": [
+        // Pattern A — feature-native trace_id prefix:
+        { "key": "$ai_trace_id", "type": "event", "operator": "icontains", "value": "<your-prefix>" }
 
-      // Pattern B — PostHog AI agent mode (use these INSTEAD of the trace_id filter):
-      // { "key": "ai_product", "operator": "exact", "value": "posthog_ai" },
-      // { "key": "agent_mode", "operator": "exact", "value": "<mode>" }
-    ]
-  }
+        // Pattern B — PostHog AI agent mode (use these INSTEAD of the trace_id filter):
+        // { "key": "ai_product", "type": "event", "operator": "exact", "value": "posthog_ai" },
+        // { "key": "agent_mode", "type": "event", "operator": "exact", "value": "<mode>" }
+      ]
+    }
+  ]
 }
 ```
 
@@ -435,7 +439,7 @@ LIMIT 25
 
 - The reasoning field IS the Slack message — design the prompt for that, not for "chain of thought before classification." Models can produce structured Slack-ready text in one pass.
 - LLM judges are non-deterministic across reruns. Expect 1-5% noise even with a fixed prompt and model. If you need reproducibility, pin a deterministic provider/seed in `model_configuration`.
-- Keep the eval scoped tightly via `conditions.filters` on `$ai_trace_id` prefix. Otherwise it fans out to every `$ai_generation` event in the project and burns LLM cost.
+- Keep the eval scoped tightly via the `conditions` property filters on `$ai_trace_id` prefix. Otherwise it fans out to every `$ai_generation` event in the project and burns LLM cost.
 - For high-volume features (>10k traces/week), consider sampling — set the eval to run on a percentage of matching events rather than all of them. Slack flooding is a real failure mode.
 - The "View Trigger Session" button is the highest-value link in the alert. Without it, the feed is just text — you can't watch what the user was actually doing. Verify it works in step 7 before considering the feed shipped.
 - Once the feed is live, periodically re-run the eval summary tool with `filter: "pass"` to surface the dominant use case clusters. That's how you turn the feed into actual product insights instead of just a notification stream.

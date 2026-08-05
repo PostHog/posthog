@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 from posthog.schema import (
     CachedTraceSpansQueryResponse,
     DateRange,
-    HogQLFilters,
     PropertyGroupFilter,
     TraceSpansQuery,
     TraceSpansQueryResponse,
@@ -52,11 +51,12 @@ class TraceSpansCountQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunne
             team=self.team,
             workload=Workload.LOGS,
             timings=self.timings,
-            filters=HogQLFilters(dateRange=self.query.dateRange),
+            filters=self.query_date_range.to_hogql_filters(),
             settings=self.settings,
         )
         count = response.results[0][0] if response.results else 0
-        return TraceSpansQueryResponse(results={"count": count})
+        trace_count = response.results[0][1] if response.results else 0
+        return TraceSpansQueryResponse(results={"count": count, "traceCount": trace_count})
 
     def to_query(self) -> ast.SelectQuery:
         # where() bounds the window by time_bucket (day precision); add explicit half-open
@@ -73,8 +73,11 @@ class TraceSpansCountQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunne
                 ),
             ]
         )
+        # count() is every matching span (the "Spans" view's row count). The trace count must match the
+        # "Traces" view, which selects traces by root-span match (rootSpans defaults True → root_only in
+        # logic.py), so restrict the distinct-trace count to matching root spans — not any matching span.
         query = parse_select(
-            "SELECT count() FROM posthog.trace_spans WHERE {where}",
+            "SELECT count(), uniqExactIf(trace_id, is_root_span = 1) FROM posthog.trace_spans WHERE {where}",
             placeholders={"where": where_with_timestamp},
         )
         assert isinstance(query, ast.SelectQuery)

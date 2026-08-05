@@ -46,6 +46,44 @@ def asRecordingPropertyFilter(filter: dict[str, Any]) -> RecordingPropertyFilter
     )
 
 
+def _flatten_filter_group_values(values: Optional[list[Any]]) -> list[dict[str, Any]]:
+    """Recursively flatten nested universal-filter groups into their leaf filters.
+
+    Mirrors the frontend's filtersFromUniversalFilterGroups — a single-level read misses
+    filters nested under inner groups (and saved filters do nest them).
+    """
+    leaves: list[dict[str, Any]] = []
+    for item in values or []:
+        if not isinstance(item, dict):
+            continue
+        if isinstance(item.get("values"), list):
+            leaves.extend(_flatten_filter_group_values(item["values"]))
+        else:
+            leaves.append(item)
+    return leaves
+
+
+def _derive_operand(filter_group: Optional[dict[str, Any]]) -> FilterLogicalOperator:
+    """Treat the query as OR when any group in the tree is OR.
+
+    The "match any" operand can sit on the inner group (set via the nested-group editor) while
+    the outer group stays AND. Reading only the outer group would silently drop that intent, so
+    mirror the frontend's deriveOperand and let OR anywhere in the tree win.
+    """
+    if not isinstance(filter_group, dict):
+        return FilterLogicalOperator.AND_
+    if filter_group.get("type") == FilterLogicalOperator.OR_:
+        return FilterLogicalOperator.OR_
+    if any(
+        isinstance(value, dict)
+        and isinstance(value.get("values"), list)
+        and _derive_operand(value) == FilterLogicalOperator.OR_
+        for value in filter_group.get("values") or []
+    ):
+        return FilterLogicalOperator.OR_
+    return FilterLogicalOperator.AND_
+
+
 def convert_legacy_filters_to_universal_filters(filters: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     """
     Convert legacy filters to universal filters format.
@@ -150,19 +188,15 @@ def convert_filters_to_recordings_query(filters: dict[str, Any]) -> RecordingsQu
     This is the Python equivalent of the frontend's convertUniversalFiltersToRecordingsQuery function.
     """
 
-    # Extract filters from the filter group
-    extracted_filters = []
-    if filters.get("filter_group") and filters["filter_group"].get("values"):
-        # Get the first group (which should be the only one)
-        group = filters["filter_group"]["values"][0]
-        if group and group.get("values"):
-            extracted_filters = group["values"]
+    extracted_filters = _flatten_filter_group_values((filters.get("filter_group") or {}).get("values"))
 
-    events = []
-    actions = []
-    properties = []
-    console_log_filters = []
-    having_predicates = []
+    # Heterogeneous builder lists — each holds raw filter dicts and/or RecordingPropertyFilter
+    # objects that RecordingsQuery accepts via its property-filter unions.
+    events: list[Any] = []
+    actions: list[Any] = []
+    properties: list[Any] = []
+    console_log_filters: list[Any] = []
+    having_predicates: list[Any] = []
 
     # Get order and duration filter
     order = filters.get("order")
@@ -184,21 +218,9 @@ def convert_filters_to_recordings_query(filters: dict[str, Any]) -> RecordingsQu
             properties.append(f)
         elif filter_type == "recording":
             if f.get("key") == "visited_page":
-                events.append(
-                    {
-                        "id": "$pageview",
-                        "name": "$pageview",
-                        "type": "events",
-                        "properties": [
-                            {
-                                "type": "event",
-                                "key": "$current_url",
-                                "value": f.get("value"),
-                                "operator": f.get("operator"),
-                            }
-                        ],
-                    }
-                )
+                # A recording property filtered over the session's all_urls — matches the frontend
+                # converter and the list query, rather than a divergent $pageview/$current_url event.
+                properties.append(f)
             elif f.get("key") == "snapshot_source" and f.get("value"):
                 having_predicates.append(f)
             else:
@@ -219,7 +241,7 @@ def convert_filters_to_recordings_query(filters: dict[str, Any]) -> RecordingsQu
             console_log_filters=console_log_filters,
             having_predicates=having_predicates,
             filter_test_accounts=filters.get("filter_test_accounts"),
-            operand=filters.get("filter_group", {}).get("type", FilterLogicalOperator.AND_),
+            operand=_derive_operand(filters.get("filter_group")),
             limit=filters.get("limit"),
         )
     except ValidationError as e:
@@ -235,6 +257,6 @@ def convert_filters_to_recordings_query(filters: dict[str, Any]) -> RecordingsQu
             actions=actions,
             console_log_filters=console_log_filters,
             filter_test_accounts=filters.get("filter_test_accounts"),
-            operand=filters.get("filter_group", {}).get("type", FilterLogicalOperator.AND_),
+            operand=_derive_operand(filters.get("filter_group")),
         )
         raise

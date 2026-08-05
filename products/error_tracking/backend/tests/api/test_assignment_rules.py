@@ -6,8 +6,8 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 from rest_framework import status
 
+from products.error_tracking.backend.logic import match_all_bytecode
 from products.error_tracking.backend.models import ErrorTrackingAssignmentRule
-from products.error_tracking.backend.presentation.views.utils import generate_match_all_bytecode
 
 VALID_FILTERS = {
     "type": "AND",
@@ -52,7 +52,7 @@ class TestAssignmentRuleAPI(APIBaseTest):
         assert rule.bytecode is not None
         assert len(rule.bytecode) > 0
 
-    def test_create_accepts_frontend_payload_shape_with_extra_fields(self) -> None:
+    def test_create_accepts_order_key_and_ignores_frontend_only_fields(self) -> None:
         response = self.client.post(
             self._url(),
             data={
@@ -69,7 +69,7 @@ class TestAssignmentRuleAPI(APIBaseTest):
         rule = ErrorTrackingAssignmentRule.objects.get(id=response.json()["id"])
         assert rule.filters == VALID_FILTERS
         assert rule.user_id == self.user.id
-        assert rule.order_key == 0
+        assert rule.order_key == 123
         assert rule.disabled_data is None
 
     @parameterized.expand(
@@ -258,7 +258,7 @@ class TestAssignmentRuleAPI(APIBaseTest):
 
         rule = ErrorTrackingAssignmentRule.objects.get(id=response.json()["id"])
         assert rule.disabled_data is None
-        assert rule.bytecode == generate_match_all_bytecode()
+        assert rule.bytecode == match_all_bytecode()
 
     @parameterized.expand(
         [
@@ -287,7 +287,7 @@ class TestAssignmentRuleAPI(APIBaseTest):
         rule.refresh_from_db()
         assert rule.filters == empty_filters
         assert rule.disabled_data is None
-        assert rule.bytecode == generate_match_all_bytecode()
+        assert rule.bytecode == match_all_bytecode()
 
     def test_update_accepts_frontend_payload_shape_with_extra_fields(self) -> None:
         rule = self._create_rule()

@@ -1,11 +1,11 @@
 import { Counter, Histogram } from 'prom-client'
 
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { GeoIPService, GeoIp } from '~/common/utils/geoip'
+import { parseJSON } from '~/common/utils/json-parse'
+import { FetchOptions, FetchResponse } from '~/common/utils/request'
 import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from '~/plugin-scaffold'
 
-import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
-import { GeoIPService, GeoIp } from '../../utils/geoip'
-import { parseJSON } from '../../utils/json-parse'
-import { FetchOptions, FetchResponse } from '../../utils/request'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { firstTimeEventTrackerPluginProcessEventAsync } from '../legacy-plugins/_transformations/first-time-event-tracker'
 import { firstTimeEventTrackerPlugin } from '../legacy-plugins/_transformations/first-time-event-tracker/template'
@@ -17,8 +17,8 @@ import {
 } from '../legacy-plugins/types'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { CDP_TEST_ID, createAddLogFunction, destinationE2eLagMsSummary, isLegacyPluginHogFunction } from '../utils'
+import { cdpTrackedFetch } from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
-import { cdpTrackedFetch } from './hog-executor.service'
 
 const pluginExecutionDuration = new Histogram({
     name: 'cdp_plugin_execution_duration_ms',
@@ -136,6 +136,8 @@ export class LegacyPluginExecutorService {
                 url,
                 fetchParams,
                 templateId: invocation.hogFunction.template_id ?? '',
+                teamId: invocation.teamId,
+                hogFunctionId: invocation.hogFunction.id,
             })
 
             if (fetchError || !fetchResponse) {

@@ -15,7 +15,7 @@ use limiters::token_dropper::TokenDropper;
 use serde_json::Value;
 
 use capture::api::CaptureError;
-use capture::config::CaptureMode;
+use capture::config::{AiRouting, CaptureMode};
 use capture::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter, EventInfo,
 };
@@ -132,25 +132,30 @@ async fn setup_router_with_limits(
         None,
         quota_limiter,
         TokenDropper::default(),
-        None,  // event_restriction_service
-        false, // metrics
+        None, // event_restriction_service
+        None, // recorder_handle
         CaptureMode::Events,
-        String::from("capture"),
-        None,             // concurrency_limit
-        1024 * 1024,      // event_payload_size_limit
-        false,            // enable_historical_rerouting
-        1,                // historical_rerouting_threshold_days
-        false,            // is_mirror_deploy
-        0.0,              // verbose_sample_percent
-        26_214_400,       // ai_max_sum_of_parts_bytes (25MB)
-        None,             // ai_blob_storage
-        None,             // body_chunk_read_timeout_ms
-        256,              // body_read_chunk_size_kb
-        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
-        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
-        None,             // overflow_limiter
-        None,             // replay_overflow_limiter
-        None,             // v1_sink_router
+        None,               // concurrency_limit
+        1024 * 1024,        // event_payload_size_limit
+        false,              // enable_historical_rerouting
+        1,                  // historical_rerouting_threshold_days
+        false,              // is_mirror_deploy
+        0.0,                // verbose_sample_percent
+        26_214_400,         // ai_max_sum_of_parts_bytes (25MB)
+        None,               // ai_blob_storage
+        None,               // body_chunk_read_timeout_ms
+        256,                // body_read_chunk_size_kb
+        10 * 1024 * 1024,   // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024,   // capture_v1_max_decompressed_body_bytes
+        None,               // overflow_limiter
+        None,               // ai_events_overflow_limiter
+        None,               // replay_overflow_limiter
+        None,               // v1_sink_router
+        8,                  // capture_v1_scatter_gather_min_batch
+        None,               // ai_gateway_signing_secret
+        AiRouting::Primary, // ai_routing
+        false,              // ai_events_overflow_enabled
+        None,               // ingestion_warning_emitter
     );
 
     (app, sink)
@@ -1183,9 +1188,8 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        false,
+        None, // recorder_handle
         CaptureMode::Events,
-        String::from("capture"),
         None,
         1024 * 1024,
         false,
@@ -1193,14 +1197,20 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         false,
         0.0,
         26_214_400,
-        None,             // ai_blob_storage
-        None,             // body_chunk_read_timeout_ms
-        256,              // body_read_chunk_size_kb
-        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
-        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
-        None,             // overflow_limiter
-        None,             // replay_overflow_limiter
-        None,             // v1_sink_router
+        None,               // ai_blob_storage
+        None,               // body_chunk_read_timeout_ms
+        256,                // body_read_chunk_size_kb
+        10 * 1024 * 1024,   // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024,   // capture_v1_max_decompressed_body_bytes
+        None,               // overflow_limiter
+        None,               // ai_events_overflow_limiter
+        None,               // replay_overflow_limiter
+        None,               // v1_sink_router
+        8,                  // capture_v1_scatter_gather_min_batch
+        None,               // ai_gateway_signing_secret
+        AiRouting::Primary, // ai_routing
+        false,              // ai_events_overflow_enabled
+        None,               // ingestion_warning_emitter
     );
 
     let client = TestClient::new(app);
@@ -1271,9 +1281,8 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        false,
+        None, // recorder_handle
         CaptureMode::Events,
-        String::from("capture"),
         None,
         1024 * 1024,
         false,
@@ -1281,14 +1290,20 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         false,
         0.0,
         26_214_400,
-        None,             // ai_blob_storage
-        None,             // body_chunk_read_timeout_ms
-        256,              // body_read_chunk_size_kb
-        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
-        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
-        None,             // overflow_limiter
-        None,             // replay_overflow_limiter
-        None,             // v1_sink_router
+        None,               // ai_blob_storage
+        None,               // body_chunk_read_timeout_ms
+        256,                // body_read_chunk_size_kb
+        10 * 1024 * 1024,   // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024,   // capture_v1_max_decompressed_body_bytes
+        None,               // overflow_limiter
+        None,               // ai_events_overflow_limiter
+        None,               // replay_overflow_limiter
+        None,               // v1_sink_router
+        8,                  // capture_v1_scatter_gather_min_batch
+        None,               // ai_gateway_signing_secret
+        AiRouting::Primary, // ai_routing
+        false,              // ai_events_overflow_enabled
+        None,               // ingestion_warning_emitter
     );
 
     let client = TestClient::new(app);
@@ -1363,9 +1378,8 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        false,
+        None, // recorder_handle
         CaptureMode::Events,
-        String::from("capture"),
         None,
         1024 * 1024,
         false,
@@ -1373,14 +1387,20 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         false,
         0.0,
         26_214_400,
-        None,             // ai_blob_storage
-        None,             // body_chunk_read_timeout_ms
-        256,              // body_read_chunk_size_kb
-        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
-        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
-        None,             // overflow_limiter
-        None,             // replay_overflow_limiter
-        None,             // v1_sink_router
+        None,               // ai_blob_storage
+        None,               // body_chunk_read_timeout_ms
+        256,                // body_read_chunk_size_kb
+        10 * 1024 * 1024,   // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024,   // capture_v1_max_decompressed_body_bytes
+        None,               // overflow_limiter
+        None,               // ai_events_overflow_limiter
+        None,               // replay_overflow_limiter
+        None,               // v1_sink_router
+        8,                  // capture_v1_scatter_gather_min_batch
+        None,               // ai_gateway_signing_secret
+        AiRouting::Primary, // ai_routing
+        false,              // ai_events_overflow_enabled
+        None,               // ingestion_warning_emitter
     );
 
     let client = TestClient::new(app);
@@ -1792,9 +1812,8 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        false,
+        None, // recorder_handle
         CaptureMode::Events,
-        String::from("capture"),
         None,
         1024 * 1024,
         false,
@@ -1802,14 +1821,20 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         false,
         0.0,
         26_214_400,
-        None,             // ai_blob_storage
-        None,             // body_chunk_read_timeout_ms
-        256,              // body_read_chunk_size_kb
-        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
-        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
-        None,             // overflow_limiter
-        None,             // replay_overflow_limiter
-        None,             // v1_sink_router
+        None,               // ai_blob_storage
+        None,               // body_chunk_read_timeout_ms
+        256,                // body_read_chunk_size_kb
+        10 * 1024 * 1024,   // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024,   // capture_v1_max_decompressed_body_bytes
+        None,               // overflow_limiter
+        None,               // ai_events_overflow_limiter
+        None,               // replay_overflow_limiter
+        None,               // v1_sink_router
+        8,                  // capture_v1_scatter_gather_min_batch
+        None,               // ai_gateway_signing_secret
+        AiRouting::Primary, // ai_routing
+        false,              // ai_events_overflow_enabled
+        None,               // ingestion_warning_emitter
     );
 
     let client = TestClient::new(app);

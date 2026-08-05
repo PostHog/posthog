@@ -1,7 +1,0 @@
-{% extends "base.jinja" %}
-{% from "_macros.jinja" import cite_in %}
-{% block task %}Rate this session against the following criterion: {{ user_prompt }}
-
-Score it on {% if scale_label %}the '{{ scale_label }}' scale{% else %}the scale{% endif %} from {{ scale_min }} to {{ scale_max }}. Use `reasoning` to explain what drove your score.
-
-{{ cite_in('reasoning') }}{% endblock %}

@@ -6,14 +6,19 @@ import * as prometheus from 'prom-client'
 import express from 'ultimate-express'
 
 import { EncryptionCodec } from '~/common/temporal/codec'
+import { BrowserPool } from '~/session-replay/recording-rasterizer/capture/browser-pool'
+import { playerHtmlCache } from '~/session-replay/recording-rasterizer/capture/capture-page'
+import { config } from '~/session-replay/recording-rasterizer/config'
+import { createLogger } from '~/session-replay/recording-rasterizer/logger'
+import { RasterizationMetrics } from '~/session-replay/recording-rasterizer/metrics'
+import { initMetrics, shutdownMetrics } from '~/session-replay/recording-rasterizer/otel-metrics'
 
-import { BrowserPool } from '../capture/browser-pool'
-import { playerHtmlCache } from '../capture/capture-page'
-import { config } from '../config'
-import { createLogger } from '../logger'
 import { createActivities } from './activities'
 
 prometheus.collectDefaultMetrics()
+RasterizationMetrics.initialize()
+// OTLP push into the PostHog Metrics product; no-op unless OTEL_METRICS_EXPORT_URL/TOKEN are set.
+initMetrics()
 
 const log = createLogger()
 
@@ -97,14 +102,14 @@ function startMetricsServer(): http.Server {
     })
 
     return Object.assign(server, {
-        setReady: () => {
-            ready = true
+        setReady: (value: boolean) => {
+            ready = value
         },
     })
 }
 
 async function main(): Promise<void> {
-    const metricsServer = startMetricsServer() as http.Server & { setReady: () => void }
+    const metricsServer = startMetricsServer() as http.Server & { setReady: (value: boolean) => void }
 
     const address = `${config.temporalHost}:${config.temporalPort}`
     const tls = await buildTLSConfig()
@@ -137,10 +142,12 @@ async function main(): Promise<void> {
         maxHeartbeatThrottleInterval: '5s',
     })
 
-    metricsServer.setReady()
+    metricsServer.setReady(true)
 
     const shutdown = () => {
         log.info('shutting down')
+        // Flip readiness first so the pod drops out of rotation while activities drain.
+        metricsServer.setReady(false)
         worker.shutdown()
     }
 
@@ -152,6 +159,7 @@ async function main(): Promise<void> {
 
     // run() resolves after shutdown drains all in-flight activities
     await pool.shutdown()
+    await shutdownMetrics()
     metricsServer.close()
 }
 

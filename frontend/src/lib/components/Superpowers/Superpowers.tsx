@@ -5,13 +5,13 @@ import { LemonButton, LemonDivider, LemonSelect, LemonSwitch, LemonTag } from '@
 
 import { SupermanHog } from 'lib/components/hedgehogs'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { openCHQueriesDebugModal } from '../AppShortcuts/utils/DebugCHQueries'
+import { openCHQueriesDebugModal } from '../Shortcuts/utils/DebugCHQueries'
 import { FakeBillingAlert, FakeStatusOverride, superpowersLogic } from './superpowersLogic'
 
 export function SuperpowersModal(): JSX.Element | null {

@@ -51,6 +51,12 @@ export const SavedCreateBody = /* @__PURE__ */ zod.object({
             "Render mode: 'screenshot' (renders the page headlessly, default), 'iframe', or 'recording'. Only 'screenshot' generates image bytes.\n\n\* `screenshot` - Screenshot\n\* `iframe` - Iframe\n\* `recording` - Recording"
         ),
     deleted: zod.boolean().optional().describe('Set true to soft-delete the saved heatmap.'),
+    block_consent_modals: zod
+        .boolean()
+        .optional()
+        .describe(
+            "When true, ask the headless browser to dismiss cookie\/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps."
+        ),
 })
 
 /**
@@ -100,6 +106,81 @@ export const SavedPartialUpdateBody = /* @__PURE__ */ zod.object({
             "Render mode: 'screenshot' (renders the page headlessly, default), 'iframe', or 'recording'. Only 'screenshot' generates image bytes.\n\n\* `screenshot` - Screenshot\n\* `iframe` - Iframe\n\* `recording` - Recording"
         ),
     deleted: zod.boolean().optional().describe('Set true to soft-delete the saved heatmap.'),
+    block_consent_modals: zod
+        .boolean()
+        .optional()
+        .describe(
+            "When true, ask the headless browser to dismiss cookie\/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps."
+        ),
+})
+
+/**
+ * Fetch a page URL server-side and report whether it allows being embedded in the live preview iframe, plus the HTTP status it returned. The live preview loads the customer's site directly in their browser, so a site that sends X-Frame-Options or a restrictive frame-ancestors will never render, and a 4xx or 5xx from the site's own host or CDN leaves an empty frame with no explanation. This endpoint makes both cases explainable. The fetch comes from PostHog's own network rather than from the screenshot renderer, so a host that varies its response by IP or user agent can answer this differently than it answers a screenshot render. Settled verdicts are cached briefly, so repeat checks for the same URL do not refetch it.
+ * @summary Check whether a page can back a heatmap
+ */
+export const SavedPreflightCreateBody = /* @__PURE__ */ zod.object({
+    url: zod
+        .string()
+        .describe(
+            'Exact page URL to probe. Wildcards are not allowed. This is the URL that would be loaded in the live preview iframe, not the data URL used to look up heatmap events.'
+        ),
+})
+
+/**
+ * Speculatively render a screenshot for a page URL ahead of heatmap creation, so it's ready (or closer to ready) by the time the user reaches the generation screen. Renders a single preview width. Idempotent within a short window: returns the existing in-flight or completed prewarm render for the same URL and consent setting if one exists (200), otherwise starts a new one (201). The result is reused when a heatmap is later created for the same URL.
+ */
+export const savedPrewarmCreateBodyBlockConsentModalsDefault = false
+
+export const SavedPrewarmCreateBody = /* @__PURE__ */ zod.object({
+    url: zod
+        .string()
+        .describe('Exact page URL to speculatively render ahead of heatmap creation. Wildcards are not allowed.'),
+    block_consent_modals: zod
+        .boolean()
+        .default(savedPrewarmCreateBodyBlockConsentModalsDefault)
+        .describe(
+            'When true, ask the headless browser to dismiss cookie\/consent banners before capturing. Must match the value used at creation time for the prewarmed render to be reused.'
+        ),
+})
+
+/**
+ * Clears a pending celebration for the given track and stage once the client has shown it, so it isn't celebrated again. Idempotent.
+ * @summary Acknowledge an achievement celebration
+ */
+export const webAnalyticsAchievementsAcknowledgeCelebrationBodyStageMax = 5
+
+export const WebAnalyticsAchievementsAcknowledgeCelebrationBody = /* @__PURE__ */ zod.object({
+    track_key: zod.string().describe('Track of the celebration being acknowledged.'),
+    stage: zod
+        .number()
+        .min(1)
+        .max(webAnalyticsAchievementsAcknowledgeCelebrationBodyStageMax)
+        .describe('Stage number being acknowledged, 1-5.'),
+})
+
+/**
+ * Sets the requesting user's per-project Web analytics achievements preferences.
+ * @summary Update Web analytics achievements preferences
+ */
+export const WebAnalyticsAchievementsUpdatePreferencesBody = /* @__PURE__ */ zod.object({
+    achievements_opt_out: zod
+        .boolean()
+        .describe(
+            'When true, the requesting user has hidden the Web analytics achievements gamification UI and suppressed achievement-unlocked notifications for this project. Scoped per (project, user).'
+        ),
+})
+
+/**
+ * Idempotently increments the requesting user's first-party counter for an in-product Web analytics interaction (slicing data, or opening a session recording), which drives the Explorer and Detective achievement tracks.
+ * @summary Record a Web analytics interaction
+ */
+export const WebAnalyticsAchievementsRecordInteractionBody = /* @__PURE__ */ zod.object({
+    interaction_kind: zod
+        .enum(['data', 'recording'])
+        .describe('\* `data` - data\n\* `recording` - recording')
+        .describe(
+            "Which interaction counter to increment: 'data' (slicing\/filtering the dashboard) or 'recording' (opening a session recording).\n\n\* `data` - data\n\* `recording` - recording"
+        ),
 })
 
 export const webAnalyticsFilterPresetsCreateBodyNameMax = 400

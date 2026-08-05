@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::Subcommand;
 
 use crate::sourcemaps::{
-    args::{FileSelectionArgs, ReleaseArgs, UploadConflictArgs},
+    args::{FileSelectionArgs, ReleaseArgs, UploadConcurrencyArgs, UploadConflictArgs},
     inject::InjectArgs,
 };
 
@@ -33,7 +33,8 @@ pub struct ProcessArgs {
     #[clap(flatten)]
     pub release: ReleaseArgs,
 
-    /// Whether to delete the source map files after uploading them [default: false]
+    /// Whether to delete the source map files and strip sourceMappingURL comments after uploading them
+    /// [default: false]
     #[arg(long, default_value = "false")]
     pub delete_after: bool,
 
@@ -43,6 +44,9 @@ pub struct ProcessArgs {
 
     #[clap(flatten)]
     pub conflict: UploadConflictArgs,
+
+    #[clap(flatten)]
+    pub upload_concurrency: UploadConcurrencyArgs,
 }
 
 impl ProcessArgs {
@@ -68,8 +72,57 @@ impl From<ProcessArgs> for (InjectArgs, upload::Args) {
             batch_size: args.batch_size,
             release: args.release,
             conflict: args.conflict,
+            upload_concurrency: args.upload_concurrency,
         };
 
         (inject_args, upload_args)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct SourcemapCli {
+        #[command(subcommand)]
+        command: SourcemapCommand,
+    }
+
+    #[test]
+    fn process_accepts_concurrency_override() {
+        let parsed = SourcemapCli::try_parse_from([
+            "test",
+            "process",
+            "--directory",
+            ".",
+            "--concurrency",
+            "18",
+        ])
+        .expect("process args should parse");
+        let SourcemapCommand::Process(args) = parsed.command else {
+            panic!("expected process command");
+        };
+
+        assert_eq!(args.upload_concurrency.concurrency.get(), 18);
+    }
+
+    #[test]
+    fn upload_accepts_concurrency_override() {
+        let parsed = SourcemapCli::try_parse_from([
+            "test",
+            "upload",
+            "--directory",
+            ".",
+            "--concurrency",
+            "24",
+        ])
+        .expect("upload args should parse");
+        let SourcemapCommand::Upload(args) = parsed.command else {
+            panic!("expected upload command");
+        };
+
+        assert_eq!(args.upload_concurrency.concurrency.get(), 24);
     }
 }

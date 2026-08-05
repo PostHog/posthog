@@ -1,19 +1,20 @@
 use std::net::IpAddr;
 
-use axum::extract::Query as AxumQuery;
 use axum::http::{header, HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 use chrono::{DateTime, Utc};
+use common_ingestion_warnings::{WarningRequestContext, UNKNOWN_ATTRIBUTION};
 use uuid::Uuid;
 
 use crate::token::validate_token;
-use crate::v1::analytics::constants::SUPPORTED_ENCODINGS;
-use crate::v1::analytics::query::Query;
 use crate::v1::constants::*;
 use crate::v1::Error;
 
-#[derive(Debug)]
-pub struct Context {
+/// CaptureMode-agnostic request context shared by every v1 capture mode.
+/// Product-specific query state lives in a per-mode wrapper (e.g.
+/// `v1::analytics::Context`) that carries `raw_query` refined into a typed view.
+#[derive(Debug, Clone)]
+pub struct RequestContext {
     pub api_token: String,
     pub user_agent: String,
     pub content_type: String,
@@ -23,13 +24,17 @@ pub struct Context {
     pub request_id: Uuid,
     pub client_timestamp: DateTime<Utc>,
     pub client_ip: IpAddr,
-    pub query: Query,
+    /// Raw, un-parsed request query string. Each capture mode refines this into
+    /// its own typed query when wrapping into a product context.
+    pub raw_query: Option<String>,
     pub method: Method,
     pub path: &'static str,
     pub server_received_at: DateTime<Utc>,
     pub created_at: Option<String>,
     pub capture_internal: bool,
     pub historical_migration: bool,
+    /// AI-gateway provenance signature parsed from the request headers, if present.
+    pub gateway_signature: Option<super::gateway_provenance::GatewaySignature>,
 }
 
 /// Extracts a required header as &str, assuming presence was already checked.
@@ -42,7 +47,7 @@ fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Result<&'a str, Error> 
         })
 }
 
-impl Context {
+impl RequestContext {
     pub fn clock_skew(&self) -> chrono::Duration {
         self.client_timestamp
             .signed_duration_since(self.server_received_at)
@@ -63,10 +68,28 @@ impl Context {
         Some((lib, version))
     }
 
+    /// Attribution stamped onto every ingestion warning this request produces.
+    ///
+    /// [`Self::sdk_lib_and_version`] is all-or-nothing — the header is a single
+    /// `name/version` string — so both fields fall back together. Unlike the
+    /// injection callers, a warning always needs both keys present, so this
+    /// stamps the unknown placeholder rather than skipping them.
+    pub fn warning_context(&self) -> WarningRequestContext {
+        let (lib, lib_version) = self
+            .sdk_lib_and_version()
+            .unwrap_or((UNKNOWN_ATTRIBUTION, UNKNOWN_ATTRIBUTION));
+        WarningRequestContext {
+            token: self.api_token.clone(),
+            lib: lib.to_string(),
+            lib_version: lib_version.to_string(),
+            path: self.path.to_string(),
+        }
+    }
+
     pub fn new(
         headers: &HeaderMap,
         ip: &InsecureClientIp,
-        query: &AxumQuery<Query>,
+        raw_query: Option<String>,
         method: Method,
         path: &'static str,
     ) -> Result<Self, Error> {
@@ -157,6 +180,8 @@ impl Context {
         let user_agent = header_str(headers, "user-agent")?.to_string();
         let sdk_info = header_str(headers, POSTHOG_SDK_INFO)?.to_string();
 
+        let gateway_signature = super::gateway_provenance::parse_signature(headers);
+
         Ok(Self {
             api_token,
             user_agent,
@@ -167,20 +192,29 @@ impl Context {
             request_id,
             client_timestamp,
             client_ip: ip.0,
-            query: query.0.clone(),
+            raw_query,
             method,
             path,
             server_received_at: Utc::now(),
             created_at: None,
             capture_internal: false,
             historical_migration: false,
+            gateway_signature,
         })
     }
 
-    pub fn set_batch_metadata(&mut self, batch: &crate::v1::analytics::types::Batch) {
-        self.created_at = Some(batch.created_at.clone());
-        self.capture_internal = batch.capture_internal.unwrap_or(false);
-        self.historical_migration = batch.historical_migration;
+    /// Stamp request-level batch metadata. Takes primitives (not an
+    /// analytics `Batch`) so the shared context stays CaptureMode-agnostic;
+    /// product wrappers extract these from their own batch envelope.
+    pub fn set_batch_metadata(
+        &mut self,
+        created_at: Option<String>,
+        capture_internal: bool,
+        historical_migration: bool,
+    ) {
+        self.created_at = created_at;
+        self.capture_internal = capture_internal;
+        self.historical_migration = historical_migration;
     }
 }
 
@@ -188,7 +222,6 @@ impl Context {
 mod tests {
     use std::net::{IpAddr, Ipv4Addr};
 
-    use axum::extract::Query as AxumQuery;
     use axum::http::{HeaderMap, HeaderValue, Method};
     use axum_client_ip::InsecureClientIp;
     use uuid::Uuid;
@@ -196,11 +229,11 @@ mod tests {
     use super::*;
     use crate::v1::analytics::constants::CAPTURE_V1_PATH;
 
-    fn test_context(headers: &HeaderMap) -> Result<Context, Error> {
-        Context::new(
+    fn test_context(headers: &HeaderMap) -> Result<RequestContext, Error> {
+        RequestContext::new(
             headers,
             &InsecureClientIp(IpAddr::V4(Ipv4Addr::LOCALHOST)),
-            &AxumQuery(Query::default()),
+            None,
             Method::POST,
             CAPTURE_V1_PATH,
         )

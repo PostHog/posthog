@@ -21,7 +21,6 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY
 
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.marketing_analytics.backend.hogql_queries.adapters.base import (
     BingAdsConfig,
     ExternalConfig,
@@ -51,9 +50,12 @@ from products.marketing_analytics.backend.hogql_queries.adapters.self_managed im
 )
 from products.marketing_analytics.backend.hogql_queries.adapters.snapchat_ads import SnapchatAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.tiktok_ads import TikTokAdsAdapter
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSource,
+)
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 # Test Constants
 TEST_DATE_FROM = "2024-01-01"
@@ -1602,6 +1604,26 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert result.is_valid, "BingAdsAdapter validation should succeed"
         assert isinstance(result.errors, list), "BingAdsAdapter should return list of errors"
 
+    def test_bing_ads_returns_zero_when_revenue_column_missing(self):
+        campaign_table = self._create_mock_table("bingads_campaigns", "BingAds")
+        stats_table = self._create_mock_table("bingads_campaign_performance_report", "BingAds")
+        stats_table.columns = {col: {"valid": True} for col in ("impressions", "clicks", "spend", "conversions")}
+
+        config = BingAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="BingAds",
+            source_id="test_missing_revenue",
+        )
+        adapter = BingAdsAdapter(config=config, context=self.context)
+        expr = adapter._get_reported_conversion_value_field()
+
+        assert isinstance(expr, ast.Call)
+        assert expr.name == "toFloat"
+        assert isinstance(expr.args[0], ast.Constant)
+        assert expr.args[0].value == 0
+        assert adapter.build_query() is not None, "BingAdsAdapter should build a query without the revenue column"
+
     @parameterized.expand(
         [
             ("total_impression", "_get_impressions_field"),
@@ -1781,6 +1803,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
     def test_bing_ads_native_query_generation(self):
         campaign_table = self._create_mock_table("bing_campaigns", "BingAds")
         stats_table = self._create_mock_table("bing_campaign_performance_report", "BingAds")
+        stats_table.columns = {"revenue": {"valid": True}}
 
         config = BingAdsConfig(
             campaign_table=campaign_table,

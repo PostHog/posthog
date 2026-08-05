@@ -25,7 +25,6 @@ import {
 
 export class RequestContext {
     private tokenCacheInstance: RedisCache<State> | undefined
-    private sessionCacheInstance: RedisCache<State> | undefined
     private userCacheInstance: RedisCache<State> | undefined
     private apiInstance: ApiClient | undefined
     private sessionManagerInstance: SessionManager | undefined
@@ -58,16 +57,6 @@ export class RequestContext {
         return this.tokenCacheInstance
     }
 
-    get sessionCache(): RedisCache<State> {
-        if (!this.props.mcpSessionId) {
-            throw new Error('Session ID is required to use the session cache')
-        }
-        if (!this.sessionCacheInstance) {
-            this.sessionCacheInstance = new RedisCache<State>(hash(this.props.mcpSessionId), this.redis, 'session')
-        }
-        return this.sessionCacheInstance
-    }
-
     getUserCache(distinctId: string): RedisCache<State> {
         if (!this.userCacheInstance) {
             this.userCacheInstance = new RedisCache<State>(hash(distinctId), this.redis, 'user')
@@ -77,6 +66,13 @@ export class RequestContext {
 
     get cache(): RedisCache<State> {
         return this.tokenCache
+    }
+
+    private async readCachedOAuthClientName(): Promise<string | undefined> {
+        if (!this.props.userHash) {
+            return undefined
+        }
+        return (await this.tokenCache.get('clientName')) || undefined
     }
 
     private async api(): Promise<ApiClient> {
@@ -101,6 +97,12 @@ export class RequestContext {
                 mcpClientVersion: this.props.mcpClientVersion,
                 mcpProtocolVersion: this.props.mcpProtocolVersion,
                 mcpConsumer: this.props.mcpConsumer,
+                // Cached from a previous request's token introspection. On a cold cache this is
+                // still unset here, so `StateManager` also stamps it onto the live client's config
+                // the moment introspection resolves it — otherwise a token's first request would
+                // reach the API unattributed.
+                oauthClientName: await this.readCachedOAuthClientName(),
+                taskId: this.props.taskId,
             })
         }
         return this.apiInstance
@@ -118,6 +120,18 @@ export class RequestContext {
             return undefined
         }
         return this.sessionManager.getSessionUuid(sessionId)
+    }
+
+    /**
+     * Resolves the UUID emitted as `$session_id`. Prefers the explicit
+     * `?sessionId=` param and falls back to the MCP protocol session id, so
+     * sessions are still attributed for clients that don't pass an explicit
+     * session id. Without the fallback `$session_id` is absent on most events
+     * and the MCP analytics dashboard — which aggregates sessions on
+     * `$session_id` — counts zero.
+     */
+    async getEffectiveSessionUuid(requestContext: MCPRequestContext): Promise<string | undefined> {
+        return this.getSessionUuid(requestContext.sessionId ?? requestContext.mcpSessionId)
     }
 
     getDistinctId(): Promise<string> {
@@ -153,7 +167,7 @@ export class RequestContext {
             getDistinctId: () => this.getDistinctId(),
         }
         const trackEvent: Context['trackEvent'] = async (event, properties = {}) => {
-            const analyticsContext = await this.getAnalyticsContextSafe(partialContext)
+            const analyticsContext = await this.safelyGetAnalyticsContext(partialContext)
             const distinctId = await this.getDistinctId()
             await this.trackEvent(event, properties, analyticsContext, undefined, distinctId)
         }
@@ -165,7 +179,7 @@ export class RequestContext {
         this.sessionContext = sessionContext
     }
 
-    async getAnalyticsContextSafe(context: Pick<Context, 'stateManager'>): Promise<MCPAnalyticsContext | undefined> {
+    async safelyGetAnalyticsContext(context: Pick<Context, 'stateManager'>): Promise<MCPAnalyticsContext | undefined> {
         try {
             return await context.stateManager.getAnalyticsContext()
         } catch {
@@ -178,7 +192,7 @@ export class RequestContext {
         context: Context,
         previousContext: MCPAnalyticsContext | undefined
     ): Promise<void> {
-        const resolvedContext = await this.getAnalyticsContextSafe(context)
+        const resolvedContext = await this.safelyGetAnalyticsContext(context)
         if (!resolvedContext) {
             return
         }
@@ -232,6 +246,7 @@ export class RequestContext {
         try {
             const resolvedDistinctId = distinctId ?? (await this.getDistinctId())
             const clientName = await this.tokenCache.get('clientName')
+            const sessionUuid = await this.getEffectiveSessionUuid(this.requestContext)
             const contextProperties = analyticsContext ? buildMCPContextProperties(analyticsContext) : {}
             const previousContextProperties = previousContext
                 ? buildMCPContextProperties(previousContext, { prefix: 'previous_' })
@@ -244,9 +259,7 @@ export class RequestContext {
                 ...(Object.keys(groups).length > 0 ? { groups } : {}),
                 properties: {
                     ...this.buildClientProperties(),
-                    ...(this.requestContext.sessionId
-                        ? { $session_id: await this.getSessionUuid(this.requestContext.sessionId) }
-                        : {}),
+                    ...(sessionUuid ? { $session_id: sessionUuid } : {}),
                     ...(clientName ? { $mcp_oauth_client_name: clientName } : {}),
                     ...contextProperties,
                     ...previousContextProperties,

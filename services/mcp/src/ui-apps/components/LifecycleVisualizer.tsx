@@ -6,14 +6,18 @@ import { Legend, TimeSeriesBarChart, legendItemsFromSeries } from '@posthog/quil
 
 import { buildLifecycleChartModel } from 'products/product_analytics/frontend/insights/trends/TrendsLifecycleChart/trendsLifecycleChartTransforms'
 
-import { CHART_THEME, lifecycleColor } from './charts/theme'
+import { ChartHeader } from './ChartHeader'
+import { lifecycleColor, useMcpChartTheme } from './charts/theme'
 import type { LifecycleVisualizerProps } from './types'
 import { formatDate } from './utils'
+
+const TITLE = 'Lifecycle'
 
 const LIFECYCLE_TOOLTIP_CONFIG = { pinnable: true, placement: 'top' as const }
 
 export function LifecycleVisualizer({ query, results }: LifecycleVisualizerProps): ReactElement {
     const showLegend = query?.lifecycleFilter?.showLegend ?? true
+    const theme = useMcpChartTheme()
 
     const { series, labels, config } = useMemo(
         () =>
@@ -36,16 +40,19 @@ export function LifecycleVisualizer({ query, results }: LifecycleVisualizerProps
         [results, query?.lifecycleFilter?.stacked, query?.lifecycleFilter?.toggledLifecycles]
     )
 
-    const legendItems = useMemo(() => legendItemsFromSeries(series, CHART_THEME), [series])
+    const legendItems = useMemo(() => legendItemsFromSeries(series, theme), [series, theme])
 
     if (!results || results.length === 0 || series.length === 0 || labels.length === 0) {
         return (
-            <Empty>
-                <EmptyHeader>
-                    <EmptyMedia>{emptyStateIllustration('chart')}</EmptyMedia>
-                    <EmptyDescription>No data available</EmptyDescription>
-                </EmptyHeader>
-            </Empty>
+            <div>
+                <ChartHeader title={TITLE} />
+                <Empty>
+                    <EmptyHeader>
+                        <EmptyMedia>{emptyStateIllustration('chart')}</EmptyMedia>
+                        <EmptyDescription>No data available</EmptyDescription>
+                    </EmptyHeader>
+                </Empty>
+            </div>
         )
     }
 
@@ -54,13 +61,14 @@ export function LifecycleVisualizer({ query, results }: LifecycleVisualizerProps
     // leaving the canvas measured at 0 and unpainted. Funnels/trends render the chart this way too.
     return (
         <div className="w-full">
+            <ChartHeader title={TITLE} />
             {showLegend && legendItems.length > 0 && (
                 <div className="mb-2">
                     <Legend items={legendItems} orientation="horizontal" align="center" />
                 </div>
             )}
             <div className="flex flex-col w-full h-[400px]">
-                <TimeSeriesBarChart series={series} labels={labels} theme={CHART_THEME} config={config} />
+                <TimeSeriesBarChart series={series} labels={labels} theme={theme} config={config} />
             </div>
         </div>
     )

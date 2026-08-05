@@ -31,6 +31,16 @@ Marketing emails must include an unsubscribe link — render it with the built-i
 
 (`{{ unsubscribe_url_one_click }}` is also available for one-click list-unsubscribe flows.)
 
+## Click tracking and opt-out
+
+Every link is automatically rewritten through a click-tracking redirect. This breaks mobile universal links / app deeplinks, which only resolve when the href stays on their own domain. To keep a link untracked, mark its anchor (use an `html` block) with `clicktracking="off"` or `data-ph-no-track`:
+
+```html
+<a href="https://app.example.com/deeplink" data-ph-no-track>Open in app</a>
+```
+
+The marker must be on the `<a>` tag itself, not a child element. Opted-out links get no click metrics.
+
 ## Creating a template
 
 Call `workflows-create-email-template` with:
@@ -68,6 +78,18 @@ Pass the design directly in the tool call — no scratch files, no pre-validatio
 2. Modify the `design` (keep subject/text alongside it).
 3. `workflows-update-email-template` — send the complete `content` back. The server re-renders the sent email from the edited design.
 4. `workflows-show-email-template` — render the updated template so the user sees the change; its response carries the final rendered html, so read it before describing the result.
+
+For small changes to an existing design, prefer `workflows-patch-email-template`: id-addressed operations over the Unlayer blocks, so you send only the edit instead of the whole design.
+
+## Editing the email inside a workflow step
+
+A `function_email` step carries its own email snapshot (`config.inputs.email.value` with subject/text/html/design), independent of any library template.
+Edit it with `workflows-patch-action-email`: the same design operations as `workflows-patch-email-template`, plus an `email_patch` merge for subject, preheader, text, and recipients.
+
+1. `workflows-get` — the step's current design (and its block ids) is in `config.inputs.email.value.design`.
+2. `workflows-patch-action-email` with the workflow id, the step's `action_id`, and your operations and/or `email_patch`.
+3. The HTML is re-rendered server-side from the patched design, so it never goes stale.
+4. On an active workflow the edit stages a draft — test with `workflows-test-run` (`use_draft=true`) and apply it with `workflows-publish`.
 
 ## Using templates
 

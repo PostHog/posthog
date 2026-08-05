@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import posthog from 'posthog-js'
@@ -22,6 +22,7 @@ import {
 } from '~/test/mocks'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import { clearApiCache } from './infiniteListLogic'
 import { recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
 import { TaxonomicFilter } from './TaxonomicFilter'
 import { TaxonomicFilterGroupType } from './types'
@@ -61,12 +62,24 @@ describe('TaxonomicFilter', () => {
                 '/api/environments/:team/query': { results: [] },
             },
         })
+        // Recents/pinned persist to localStorage; clear so an earlier test's selection
+        // (which records a recent) can't leak in and reorder a later single-group list.
+        localStorage.clear()
+        // infiniteListLogic caches list responses in module state for a minute, so two tests
+        // searching the same term against the same endpoint would otherwise share the first
+        // one's fixture. Same reset infiniteListLogic.test.ts does.
+        clearApiCache()
         initKeaTests()
         actionsModel.mount()
         groupsModel.mount()
     })
 
     afterEach(() => {
+        // A test that hits jest's per-test timeout inside withoutDebounceDelay is abandoned with
+        // fake timers still installed, and its `finally` then flips them back to real *during the
+        // next test* — which makes that test's waitFor throw "Changed from using fake timers to
+        // real timers". Restoring here keeps one slow test from failing its neighbour as well.
+        jest.useRealTimers()
         cleanup()
     })
 
@@ -89,6 +102,27 @@ describe('TaxonomicFilter', () => {
         expect(screen.getByTestId(activeTestId)).toHaveClass('LemonTag--primary')
         if (inactiveTestId) {
             expect(screen.getByTestId(inactiveTestId)).not.toHaveClass('LemonTag--primary')
+        }
+    }
+
+    // Search interactions pay taxonomicFilterLogic's real 500ms breakpoint (plus stacked
+    // 100ms ones), which is what pushed these tests over CI's per-test timeout. Fake timers
+    // skip that wait; real timers resume immediately after so the resulting MSW round trip
+    // (and any waitFor built on it) settles normally instead of fighting fake-timer polling.
+    async function withoutDebounceDelay(
+        action: (user: ReturnType<typeof userEvent.setup>) => Promise<void>
+    ): Promise<void> {
+        // setImmediate also drives MSW v2's response-body pump (like queueMicrotask, see
+        // jest.config.ts) — faking it makes advanceTimersByTime re-run that pump once per
+        // virtual ms for every matched row, turning a fast search into a slow one.
+        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'setImmediate'] })
+        try {
+            await action(userEvent.setup({ advanceTimers: jest.advanceTimersByTime }))
+            await act(async () => {
+                jest.advanceTimersByTime(600)
+            })
+        } finally {
+            jest.useRealTimers()
         }
     }
 
@@ -132,7 +166,12 @@ describe('TaxonomicFilter', () => {
         ])('allows overriding the Suggested filters label with "$label" in $description', async ({ label }) => {
             renderFilter({
                 suggestedFiltersLabel: label,
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+                // Two substantive groups so "All" survives (a single substantive group drops it)
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                ],
             })
 
             await waitFor(() => {
@@ -212,7 +251,9 @@ describe('TaxonomicFilter', () => {
                 expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
             })
 
-            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'test event')
+            await withoutDebounceDelay((user) =>
+                user.type(screen.getByTestId('taxonomic-filter-searchfield'), 'test event')
+            )
 
             await waitFor(() => {
                 expect(screen.getAllByText('test event').length).toBeGreaterThanOrEqual(1)
@@ -262,13 +303,13 @@ describe('TaxonomicFilter', () => {
             })
 
             const searchInput = screen.getByTestId('taxonomic-filter-searchfield')
-            await userEvent.type(searchInput, 'xyznonexistent')
+            await withoutDebounceDelay((user) => user.type(searchInput, 'xyznonexistent'))
 
             await waitFor(() => {
                 expect(screen.queryByTestId('prop-filter-events-0')).not.toBeInTheDocument()
             })
 
-            await userEvent.clear(searchInput)
+            await withoutDebounceDelay((user) => user.clear(searchInput))
 
             await waitFor(() => {
                 expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
@@ -301,7 +342,11 @@ describe('TaxonomicFilter', () => {
             })
 
             await activateGroupWithResults('taxonomic-tab-person_properties')
-            // Search for something that only matches events, leaving person properties empty
+            // Search for something that only matches events, leaving person properties empty.
+            // Real timers here: this scenario includes SuggestedFilters, whose reveal-barrier
+            // state doesn't survive the fake->real timer switch withoutDebounceDelay performs
+            // (a pending fake timer is dropped rather than carried over), so the button never
+            // appears. See withoutDebounceDelay's other uses for the debounce-skip that's safe.
             await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'test event')
 
             // The empty state offers a shortcut to the aggregated all/suggested-filters section
@@ -329,12 +374,66 @@ describe('TaxonomicFilter', () => {
             })
 
             await activateGroupWithResults('taxonomic-tab-person_properties')
+            // Real timers: SuggestedFilters is present here too — see the comment in the
+            // preceding test for why withoutDebounceDelay isn't safe for this scenario.
             await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'xyznonexistent')
 
             await waitFor(() => {
                 expect(inVisibleTab(screen.getAllByText(/No results for/))).toBeTruthy()
             })
             expect(screen.queryByTestId('taxonomic-switch-to-all')).not.toBeInTheDocument()
+        })
+
+        it('offers a per-category jump when matches live on another tab and there is no all section', async () => {
+            // No SuggestedFilters group (control variant), so the aggregated "all" jump is unavailable —
+            // the empty state must instead point at the specific tab that matched.
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.PersonProperties],
+            })
+
+            await activateGroupWithResults('taxonomic-tab-events')
+            // `purchase_value` exists only as a property, so the active Events tab comes up empty
+            await withoutDebounceDelay((user) =>
+                user.type(screen.getByTestId('taxonomic-filter-searchfield'), 'purchase_value')
+            )
+
+            let switchButton: HTMLElement | undefined
+            await waitFor(() => {
+                switchButton = inVisibleTab(screen.getAllByTestId('taxonomic-switch-to-person_properties'))
+                expect(switchButton).toBeTruthy()
+            })
+            expect(switchButton).toHaveTextContent(/See results in Person properties/i)
+            expect(screen.queryByTestId('taxonomic-switch-to-all')).not.toBeInTheDocument()
+
+            await userEvent.click(switchButton!)
+
+            await waitFor(() => {
+                expectActiveTab('taxonomic-tab-person_properties')
+            })
+        })
+
+        it('does not offer a jump to a render-backed group with no real matches', async () => {
+            // SQL expression is render-backed: its affordance row makes totalListCount non-zero for
+            // any query, but it has no actual search results. It must not produce a bogus jump button.
+            renderFilter({
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.HogQLExpression,
+                ],
+            })
+
+            await activateGroupWithResults('taxonomic-tab-events')
+            await withoutDebounceDelay((user) =>
+                user.type(screen.getByTestId('taxonomic-filter-searchfield'), 'purchase_value')
+            )
+
+            // The genuinely-matching tab is still offered...
+            await waitFor(() => {
+                expect(inVisibleTab(screen.getAllByTestId('taxonomic-switch-to-person_properties'))).toBeTruthy()
+            })
+            // ...but the render-backed SQL expression tab is not.
+            expect(screen.queryByTestId('taxonomic-switch-to-hogql_expression')).not.toBeInTheDocument()
         })
     })
 
@@ -837,7 +936,10 @@ describe('TaxonomicFilter', () => {
                 expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
             })
 
-            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'zzznonexistentevent12345')
+            // Keep the query short: every keystroke re-runs the search cascade across all mounted
+            // lists plus a React commit, so a long query is what tipped this test over jest's
+            // per-test timeout on a loaded runner. Matching nothing is all the assertion needs.
+            await withoutDebounceDelay((user) => user.type(screen.getByTestId('taxonomic-filter-searchfield'), 'zzq'))
 
             await waitFor(() => {
                 expect(screen.queryAllByTestId(/^prop-filter-events-/)).toHaveLength(0)
@@ -885,7 +987,7 @@ describe('TaxonomicFilter', () => {
             expect(screen.getByTestId('prop-filter-event_properties-0')).toBeInTheDocument()
         })
 
-        await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), search)
+        await withoutDebounceDelay((user) => user.type(screen.getByTestId('taxonomic-filter-searchfield'), search))
 
         await waitFor(() => {
             expect(screen.getByTestId('prop-filter-event_properties-0')).toHaveTextContent(
@@ -1060,7 +1162,6 @@ describe('TaxonomicFilter', () => {
         }
 
         it('collapses the matching URL list to a single "URL contains" shortcut row', async () => {
-            const user = userEvent.setup()
             useMockPageviewUrls(['https://example.com/pricing', 'https://example.com/pricing/teams'])
             renderFilter({
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.PageviewUrls],
@@ -1068,7 +1169,7 @@ describe('TaxonomicFilter', () => {
             })
 
             const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
-            await user.type(searchInput, 'pricing')
+            await withoutDebounceDelay((fakeTimerUser) => fakeTimerUser.type(searchInput, 'pricing'))
 
             const firstRow = await waitFor(() => screen.getByTestId('prop-filter-pageview_urls-0'))
             // The two matching URLs collapse into one row, which is the contains shortcut.
@@ -1085,7 +1186,7 @@ describe('TaxonomicFilter', () => {
             })
 
             const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
-            await user.type(searchInput, 'pricing')
+            await withoutDebounceDelay((fakeTimerUser) => fakeTimerUser.type(searchInput, 'pricing'))
 
             const row = await waitFor(() => {
                 const el = document.querySelector('[data-attr="taxonomic-shortcut-pricing-property"]')
@@ -1111,10 +1212,22 @@ describe('TaxonomicFilter', () => {
         })
 
         it('collapses URLs in the aggregated Suggested filters tab too', async () => {
+            // Real timers: this scenario includes SuggestedFilters, whose reveal-barrier state
+            // doesn't survive the fake->real timer switch withoutDebounceDelay performs (a
+            // pending fake timer is dropped rather than carried over), so the aggregated row
+            // never appears. See withoutDebounceDelay's other uses in this describe for the
+            // debounce-skip that's safe when SuggestedFilters isn't part of the group list.
             const user = userEvent.setup()
             useMockPageviewUrls(['https://example.com/pricing', 'https://example.com/pricing/teams'])
             renderFilter({
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.PageviewUrls],
+                // Two substantive groups so the aggregated "All" tab survives (a single
+                // substantive group drops it); Events has no 'pricing' match so the URL
+                // shortcut is still the only aggregated row.
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.PageviewUrls,
+                    TaxonomicFilterGroupType.Events,
+                ],
                 collapseUrlsToContainsRow: true,
             })
 
@@ -1129,14 +1242,13 @@ describe('TaxonomicFilter', () => {
         })
 
         it('lists individual URLs (no collapse) when the prop is omitted', async () => {
-            const user = userEvent.setup()
             useMockPageviewUrls(['https://example.com/pricing'])
             renderFilter({
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.PageviewUrls],
             })
 
             const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
-            await user.type(searchInput, 'pricing')
+            await withoutDebounceDelay((fakeTimerUser) => fakeTimerUser.type(searchInput, 'pricing'))
 
             await waitFor(() => {
                 expect(screen.getByTestId('prop-filter-pageview_urls-0')).toBeInTheDocument()
@@ -1145,7 +1257,6 @@ describe('TaxonomicFilter', () => {
         })
 
         it('shows no shortcut row when no URL matches the query', async () => {
-            const user = userEvent.setup()
             // Flag set when the URL values endpoint actually responds (empty), so the negative
             // assertions below aren't vacuously true before the async fetch path runs.
             let valuesFetched = false
@@ -1165,9 +1276,10 @@ describe('TaxonomicFilter', () => {
             })
 
             const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
-            // A query unique to this test so the module-level `apiCache` in infiniteListLogic
-            // can't serve a non-empty response cached by an earlier test under the same URL.
-            await user.type(searchInput, 'nomatchquery')
+            // A query unique to this test, so this stays sound even if the `apiCache` reset in
+            // beforeEach ever goes away — a cached non-empty response under the same URL would
+            // make the negative assertions below pass for the wrong reason.
+            await withoutDebounceDelay((user) => user.type(searchInput, 'nomatchquery'))
 
             await waitFor(() => expect(valuesFetched).toBe(true))
             await waitFor(() => {
@@ -1331,7 +1443,12 @@ describe('TaxonomicFilter', () => {
         it('control variant: default suggested-filters label is "Suggestions"', async () => {
             setVariant('control')
             renderFilter({
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+                // Two substantive groups so "All" survives (a single substantive group drops it)
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                ],
             })
 
             await waitFor(() => {
@@ -1342,7 +1459,12 @@ describe('TaxonomicFilter', () => {
         it('pill variant: default suggested-filters label is "All" (seen in the dropdown items)', async () => {
             setVariant('pill')
             renderFilter({
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+                // Two substantive groups so "All" survives (a single substantive group drops it)
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                ],
             })
 
             await waitFor(() => {

@@ -69,6 +69,51 @@ async fn it_captures_one_recording() -> Result<()> {
 }
 
 #[tokio::test]
+async fn it_prefers_body_sent_at_and_falls_back_to_query_for_recordings() -> Result<()> {
+    setup_tracing();
+    let token = random_string("token", 16);
+    let main_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_recordings(&main_topic).await;
+    let query_sent_at = 1_704_067_200_000_i64;
+
+    for (body_sent_at, expected_sent_at) in [
+        (
+            json!("2024-01-02T03:04:05.678Z"),
+            "2024-01-02T03:04:05.678Z",
+        ),
+        (json!("invalid"), "2024-01-01T00:00:00Z"),
+        (json!(1_704_164_645_678_i64), "2024-01-01T00:00:00Z"),
+    ] {
+        let session_id = Uuid::now_v7().to_string();
+        let recording_events = json!([{
+            "token": token,
+            "event": "$snapshot",
+            "distinct_id": random_string("id", 16),
+            "sent_at": body_sent_at,
+            "properties": {
+                "$session_id": session_id,
+                "$window_id": Uuid::now_v7().to_string(),
+                "$snapshot_data": [],
+            }
+        }]);
+
+        let response = reqwest::Client::new()
+            .post(format!(
+                "http://{:?}/s/?sent_at={query_sent_at}",
+                server.addr
+            ))
+            .body(recording_events.to_string())
+            .send()
+            .await?;
+
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!(expected_sent_at, main_topic.next_event()?["sent_at"]);
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn it_captures_one_recording_with_user_agent_fallback_for_lib() -> Result<()> {
     setup_tracing();
     let token = random_string("token", 16);

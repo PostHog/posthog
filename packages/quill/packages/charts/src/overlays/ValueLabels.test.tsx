@@ -186,7 +186,8 @@ describe('ValueLabels', () => {
             { key: 'b', label: 'B', color: '#445566', data: [20] },
         ]
         const ctx = makeContext(series, { labels: ['Mon'] })
-        // Collision avoidance is per-series so both labels should render.
+        // Same x but different values put the two labels at different value-axis coords, so their
+        // boxes don't overlap and both render.
         const { container } = renderInChart(ctx, <ValueLabels />)
         const divs = labelDivs(container)
         expect(divs).toHaveLength(2)
@@ -276,8 +277,45 @@ describe('ValueLabels', () => {
         expect(divs[0].style.transform).toBe(expectedTransform)
     })
 
-    it('horizontal: drops vertically overlapping labels via per-series collision avoidance', () => {
-        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [40, 60] }]
+    it('vertical: keeps neighbours that overlap along x but are separated along the value axis', () => {
+        // Two adjacent bars whose labels overlap horizontally (x=100 and x=108, boxes ~24px wide)
+        // but sit far apart vertically because the bars have very different heights (90 vs 10).
+        // A categorical-axis-only pass would drop the second; the 2D check keeps both.
+        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [90, 10] }]
+        const xByLabel: Record<string, number> = { A: 100, B: 108 }
+        const ctx = makeContext(series, {
+            labels: ['A', 'B'],
+            scales: { x: (label: string) => xByLabel[label], y: yScale, yTicks: () => [0, 50, 100] },
+        })
+        expect(labelDivs(renderInChart(ctx, <ValueLabels />).container)).toHaveLength(2)
+    })
+
+    it('vertical: drops neighbours that overlap along both axes', () => {
+        // Same near-x overlap as above, but equal heights so the boxes also overlap vertically.
+        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [50, 50] }]
+        const xByLabel: Record<string, number> = { A: 100, B: 108 }
+        const ctx = makeContext(series, {
+            labels: ['A', 'B'],
+            scales: { x: (label: string) => xByLabel[label], y: yScale, yTicks: () => [0, 50, 100] },
+        })
+        expect(labelDivs(renderInChart(ctx, <ValueLabels />).container)).toHaveLength(1)
+    })
+
+    it('horizontal: keeps neighbours on the same row that are separated along the value axis', () => {
+        // Both labels share the categorical row (y=200) but their bars have very different values
+        // (10 vs 90), so the boxes sit far apart along the x (value) axis and never touch.
+        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [10, 90] }]
+        const ctx = makeContext(series, {
+            axisOrientation: 'horizontal',
+            labels: ['A', 'B'],
+            scales: { x: () => 200, y: yScale, yTicks: () => [0, 50, 100] },
+        })
+        expect(labelDivs(renderInChart(ctx, <ValueLabels />).container)).toHaveLength(2)
+    })
+
+    it('horizontal: drops neighbours that overlap along both axes', () => {
+        // Same row (y=200) and equal values, so the boxes overlap on the value axis too.
+        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [50, 50] }]
         const ctx = makeContext(series, {
             axisOrientation: 'horizontal',
             labels: ['A', 'B'],
@@ -330,6 +368,23 @@ describe('ValueLabels', () => {
                     .map((d) => d.textContent)
                     .sort()
             ).toEqual(['-10|30,-10', '25|25,75', '30|30,-10', '75|25,75'])
+        })
+
+        it('passes the preceding band as previousBandValues (empty at the first index)', () => {
+            const series: ResolvedSeries[] = [
+                { key: 'a', label: 'A', color: '#a00', data: [30, 25] },
+                { key: 'b', label: 'B', color: '#0a0', data: [-10, 75] },
+            ]
+            const ctx = makeContext(series, { labels: ['Mon', 'Tue'] })
+            const { container } = renderInChart(
+                ctx,
+                <ValueLabels valueFormatter={(_v, _si, _di, c) => `${c.rawValue}|${c.previousBandValues.join(',')}`} />
+            )
+            expect(
+                labelDivs(container)
+                    .map((d) => d.textContent)
+                    .sort()
+            ).toEqual(['-10|', '25|30,-10', '30|', '75|30,-10'])
         })
 
         it('marks the context isPercent in percent layout and passes the segment fraction as value', () => {

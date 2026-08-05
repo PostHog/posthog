@@ -1,5 +1,4 @@
 import time
-import asyncio
 from contextlib import asynccontextmanager
 from datetime import timedelta
 
@@ -115,15 +114,6 @@ class TestHealthCheckServer:
                     data = await response.json()
                     assert data["status"] == "healthy"
 
-    async def test_unknown_path_returns_404(self):
-        """Test that unknown paths return 404."""
-
-        tracker = LivenessTracker()
-        async with create_server(tracker):
-            async with ClientSession() as session:
-                async with session.get("http://localhost:18001/unknown") as response:
-                    assert response.status == 404
-
     async def test_server_can_be_started_and_stopped(self):
         """Test that server can be cleanly started and stopped."""
 
@@ -163,26 +153,6 @@ class TestHealthCheckServer:
         tracker = LivenessTracker()
         server = HealthCheckServer(port=18003, liveness_tracker=tracker, max_idle_seconds=2.0)
         await server.stop()  # Should not raise
-
-    async def test_healthz_handles_concurrent_requests(self):
-        """Test that the server can handle multiple concurrent health checks."""
-
-        tracker = LivenessTracker()
-        async with create_server(tracker):
-            tracker.record_activity_execution()
-
-            async def check_health():
-                async with ClientSession() as session:
-                    async with session.get("http://localhost:18001/healthz") as response:
-                        assert response.status == 200
-                        return await response.json()
-
-            # Make 10 concurrent requests
-            results = await asyncio.gather(*[check_health() for _ in range(10)])
-
-            # All should succeed
-            assert len(results) == 10
-            assert all(r["status"] == "healthy" for r in results)
 
     async def test_idle_time_accuracy(self):
         """Test that idle_time is calculated accurately."""
@@ -246,23 +216,3 @@ class TestHealthCheckServer:
                     assert response.status == 200
                     data = await response.json()
                     assert data["idle_seconds"] < 1.0
-
-    async def test_different_max_idle_thresholds(self):
-        """Test that different max_idle_seconds values work correctly."""
-
-        tracker = LivenessTracker()
-        # Create server with very short threshold
-        server = HealthCheckServer(port=18004, liveness_tracker=tracker, max_idle_seconds=0.5)
-        await server.start()
-
-        try:
-            tracker.record_activity_execution()
-            await asyncio.sleep(0.7)
-
-            async with ClientSession() as session:
-                async with session.get("http://localhost:18004/healthz") as response:
-                    assert response.status == 503
-                    data = await response.json()
-                    assert data["max_idle_seconds"] == 0.5
-        finally:
-            await server.stop()

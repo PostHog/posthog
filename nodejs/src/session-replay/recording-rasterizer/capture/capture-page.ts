@@ -1,8 +1,9 @@
 import * as fs from 'fs/promises'
 import { CDPSession, Page } from 'puppeteer'
 
-import { config as defaultConfig } from '../config'
-import { type Logger, createLogger } from '../logger'
+import { config as defaultConfig } from '~/session-replay/recording-rasterizer/config'
+import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
+import { type Logger, createLogger } from '~/session-replay/recording-rasterizer/logger'
 
 export const playerHtmlCache = {
     _html: null as string | null,
@@ -33,6 +34,10 @@ export const playerHtmlCache = {
  * optional log forwarding, and frame filtering for puppeteer-capture.
  */
 export class CapturePage {
+    // Set at the site that detects a fatal cause (e.g. the beginFrame compositor deadlock)
+    // so the generic captureStopped handler can attribute the abort instead of guessing.
+    fatalError: RasterizationError | null = null
+
     private constructor(
         readonly page: Page,
         readonly playerUrl: string,
@@ -150,13 +155,20 @@ export class CapturePage {
                         return result
                     } catch (err) {
                         if (timedOut) {
+                            this.fatalError = new RasterizationError(
+                                'beginFrame timeout (15s) — compositor deadlock',
+                                true,
+                                'BEGINFRAME_DEADLOCK'
+                            )
                             log.error({ params }, 'beginFrame timed out, detaching CDP session')
                             try {
                                 await session.detach()
                             } catch {
                                 // session may already be disconnected
                             }
-                            throw new Error('beginFrame timeout (15s) — compositor deadlock')
+                            // Throw the typed error so this path classifies as BEGINFRAME_DEADLOCK even
+                            // when the rejection propagates via waitForTimeout instead of captureStopped.
+                            throw this.fatalError
                         }
                         throw err
                     }

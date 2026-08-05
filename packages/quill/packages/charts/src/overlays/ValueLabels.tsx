@@ -19,6 +19,8 @@ export interface ValueLabelContext {
     /** Finite values of every series contributing to this band's stack (non-excluded, not a fill
      *  lower-bound, not an overlay) at this dataIndex — the denominator set for share math. */
     bandValues: number[]
+    /** Same as `bandValues` for the preceding dataIndex; empty at the first index. */
+    previousBandValues: number[]
     /** True in normalized/percent layout, where `value` is already a fraction. */
     isPercent: boolean
 }
@@ -186,6 +188,7 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
         const text = valueFormatter(total, -1, dIdx, {
             rawValue: total,
             bandValues: bandValuesAt(visible, dIdx),
+            previousBandValues: dIdx > 0 ? bandValuesAt(visible, dIdx - 1) : [],
             isPercent,
         })
         if (text === '') {
@@ -262,6 +265,7 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
             const text = valueFormatter(displayValue, sIdx, dIdx, {
                 rawValue,
                 bandValues: bandValuesByIndex[dIdx],
+                previousBandValues: dIdx > 0 ? bandValuesByIndex[dIdx - 1] : [],
                 isPercent,
             })
             if (text === '') {
@@ -352,48 +356,28 @@ function flipClippedCandidates(
     return candidates
 }
 
+// Greedy overlap removal over every candidate at once, keyed on the full 2D label box. Value
+// labels sit at their bar/point tip, so two neighbours can share a categorical position yet sit
+// far apart along the value axis (bars of different heights) — the boxes never touch. Testing
+// only the categorical axis would drop the second of every such pair (the "skips every other bar
+// even when there's room" case); the 2D `rectsOverlap` test keeps whatever genuinely fits, so a
+// label is skipped only when it would actually collide. Candidates are ordered by series, then
+// along the categorical axis, so ties resolve toward earlier series and a stable
+// left-to-right / top-to-bottom keep set.
 function applyCollisionAvoidance(candidates: Candidate[], minGap: number, isHorizontal: boolean): Candidate[] {
     if (candidates.length === 0) {
         return candidates
     }
-    const bySeries: Map<number, Candidate[]> = new Map()
-    for (const c of candidates) {
-        const bucket = bySeries.get(c.seriesIndex)
-        if (bucket) {
-            bucket.push(c)
-        } else {
-            bySeries.set(c.seriesIndex, [c])
+    const ordered = [...candidates].sort((a, b) => {
+        if (a.seriesIndex !== b.seriesIndex) {
+            return a.seriesIndex - b.seriesIndex
         }
-    }
-
-    const afterPrimary: Candidate[] = []
-    for (const group of bySeries.values()) {
-        if (isHorizontal) {
-            group.sort((a, b) => a.y - b.y)
-            const halfH = LABEL_HEIGHT / 2
-            let lastBottom = -Infinity
-            for (const c of group) {
-                if (c.y - halfH >= lastBottom + minGap) {
-                    afterPrimary.push(c)
-                    lastBottom = c.y + halfH
-                }
-            }
-        } else {
-            group.sort((a, b) => a.x - b.x)
-            let lastRight = -Infinity
-            for (const c of group) {
-                const halfW = c.width / 2
-                if (c.x - halfW >= lastRight + minGap) {
-                    afterPrimary.push(c)
-                    lastRight = c.x + halfW
-                }
-            }
-        }
-    }
+        return isHorizontal ? a.y - b.y : a.x - b.x
+    })
 
     const visible: Candidate[] = []
     const placedRects: Rect[] = []
-    for (const c of afterPrimary) {
+    for (const c of ordered) {
         const rect = labelRect(c, isHorizontal)
         if (!placedRects.some((p) => rectsOverlap(rect, p, minGap))) {
             visible.push(c)

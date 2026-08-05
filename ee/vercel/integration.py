@@ -42,6 +42,11 @@ logger = structlog.get_logger(__name__)
 
 VercelItemType = Literal["flag", "experiment"]
 
+# Frameworks only expose an env var to client-side bundles if it carries their own prefix, so the
+# same values are injected under every prefix we support. NEXT_PUBLIC_ must stay first: it is the
+# original contract for already-installed users.
+CLIENT_ENV_PREFIXES = ("NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_")
+
 
 class VercelSSOError(Exception):
     pass
@@ -554,15 +559,14 @@ class VercelIntegration:
 
     @staticmethod
     def _build_secrets(team: Team) -> list[dict[str, str]]:
+        values = {
+            "POSTHOG_PROJECT_TOKEN": team.api_token,
+            "POSTHOG_HOST": absolute_uri(),
+        }
         return [
-            {
-                "name": "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN",
-                "value": team.api_token,
-            },
-            {
-                "name": "NEXT_PUBLIC_POSTHOG_HOST",
-                "value": absolute_uri(),
-            },
+            {"name": f"{prefix}{name}", "value": value}
+            for prefix in CLIENT_ENV_PREFIXES
+            for name, value in values.items()
         ]
 
     @staticmethod
@@ -608,12 +612,12 @@ class VercelIntegration:
     def _setup_vercel_client_for_team(team: Team) -> VercelSetupResult | None:
         resource = VercelIntegration._get_vercel_resource_for_team(team)
         if not resource:
-            logger.debug("Vercel resource not found for team", team_id=team.id, integration="vercel")
+            logger.info("Vercel resource not found for team", team_id=team.id, integration="vercel")
             return None
 
         installation = VercelIntegration._get_installation_for_organization(team.organization)
         if not installation:
-            logger.debug(
+            logger.info(
                 "Vercel installation not found for organization",
                 team_id=team.pk,
                 organization_id=team.organization.pk,
@@ -1280,7 +1284,9 @@ class VercelIntegration:
             capture_exception(e, {"team_id": team.id, "resource_id": setup_result.resource_id})
 
 
-def _safe_vercel_sync(operation_name: str, item_id: str | int, team: Team, sync_func: Callable[[], None]) -> None:
+def _safe_vercel_sync(
+    operation_name: str, item_id: str | int, team: Team, sync_func: Callable[[], None], *, is_delete: bool = False
+) -> None:
     """
     Safety wrapper for Vercel sync operations triggered by Django signals.
 
@@ -1290,8 +1296,15 @@ def _safe_vercel_sync(operation_name: str, item_id: str | int, team: Team, sync_
 
     Operations are silently skipped if Vercel integration is not configured and
     exceptions are caught and logged rather than bubbling up to the caller.
+
+    On delete (``is_delete=True``) we never auto-create a Vercel resource: with no existing resource there is
+    nothing to delete from Vercel, and creating one is actively harmful during team deletion. Signals run in the
+    caller's transaction, so the team-deletion cascade would re-insert an Integration row for a team being deleted
+    in that same transaction — orphaning it and failing the commit with an IntegrityError on the team FK.
     """
     if not VercelIntegration._get_vercel_resource_for_team(team):
+        if is_delete:
+            return
         installation = VercelIntegration._get_installation_for_organization(team.organization)
         if not installation:
             return
@@ -1342,6 +1355,7 @@ def sync_feature_flag_experimentation_item(sender, instance: FeatureFlag, create
             instance.pk,
             instance.team,
             lambda: VercelIntegration.delete_feature_flag_from_vercel(instance),
+            is_delete=True,
         )
     else:
         _safe_vercel_sync(
@@ -1359,6 +1373,7 @@ def delete_resource_experimentation_item(sender, instance: FeatureFlag, **kwargs
         instance.pk,
         instance.team,
         lambda: VercelIntegration.delete_feature_flag_from_vercel(instance),
+        is_delete=True,
     )
 
 
@@ -1370,6 +1385,7 @@ def sync_experiment_experimentation_item(sender, instance: Experiment, created, 
             instance.pk,
             instance.team,
             lambda: VercelIntegration.delete_experiment_from_vercel(instance),
+            is_delete=True,
         )
     else:
         _safe_vercel_sync(
@@ -1387,4 +1403,5 @@ def delete_experiment_experimentation_item(sender, instance: Experiment, **kwarg
         instance.pk,
         instance.team,
         lambda: VercelIntegration.delete_experiment_from_vercel(instance),
+        is_delete=True,
     )

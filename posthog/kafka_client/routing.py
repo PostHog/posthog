@@ -50,10 +50,10 @@ from posthog.kafka_client.topics import (
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
     KAFKA_SIGNALS_REPORT_COMPLETED,
+    KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES,
+    KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS_DLQ,
-    KAFKA_WAREHOUSE_SOURCES_JOBS,
-    KAFKA_WAREHOUSE_SOURCES_JOBS_DLQ,
 )
 from posthog.settings.kafka import KafkaProfileSettings
 
@@ -90,10 +90,10 @@ _DEFAULT_TOPIC_ROUTING: dict[str, KafkaClusterProfile] = {
     # so it needs no Django producer routing entry.
     KAFKA_FLAGS_CACHE_INVALIDATION: KafkaClusterProfile.SHARED,
     # --- WAREHOUSE_SOURCES (Warpstream warehouse-pipelines) ---
-    KAFKA_WAREHOUSE_SOURCES_JOBS: KafkaClusterProfile.WAREHOUSE_SOURCES,
-    KAFKA_WAREHOUSE_SOURCES_JOBS_DLQ: KafkaClusterProfile.WAREHOUSE_SOURCES,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS: KafkaClusterProfile.WAREHOUSE_SOURCES,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS_DLQ: KafkaClusterProfile.WAREHOUSE_SOURCES,
+    KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES: KafkaClusterProfile.WAREHOUSE_SOURCES,
+    KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ: KafkaClusterProfile.WAREHOUSE_SOURCES,
     # --- CYCLOTRON (Warpstream cyclotron) ---
     KAFKA_CDP_INTERNAL_EVENTS: KafkaClusterProfile.CYCLOTRON,
     KAFKA_DWH_CDP_RAW_TABLE: KafkaClusterProfile.CYCLOTRON,
@@ -289,17 +289,17 @@ async def new_async_producer(
     return _build_async_producer(resolved)
 
 
-def flush_all_producers(timeout: Optional[float] = None) -> None:
-    """Flush every cached sync producer.
+def flush_all_producers(timeout: Optional[float] = None) -> int:
+    """Flush every cached sync producer, returning the total still-undelivered count.
 
     Useful from management commands and other terminating contexts where the
     process is about to exit and may have produced to several topics across
-    multiple profiles.
+    multiple profiles. A non-zero return means some messages were not delivered
+    within ``timeout`` — the caller should treat that as a failure.
     """
     with _LOCK:
         producers = list(_SYNC_PRODUCERS.values())
-    for producer in producers:
-        producer.flush(timeout)
+    return sum(producer.flush(timeout) for producer in producers)
 
 
 def reset_producers() -> None:

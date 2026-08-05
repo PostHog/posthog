@@ -222,7 +222,12 @@ export type LemonTreeNodeProps = LemonTreeBaseProps & {
 
 export interface LemonTreeRef {
     getVisibleItems: () => TreeDataItem[]
-    focusItem: (id: string) => void
+    focusItem: (id: string, options?: LemonTreeFocusOptions) => void
+}
+
+export interface LemonTreeFocusOptions {
+    scrollPosition?: 'top-third'
+    behavior?: ScrollBehavior
 }
 
 type FlattenedTreeItem = {
@@ -351,9 +356,10 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                                 isContextMenuOpenForItem === item.id,
                             'bg-fill-button-tertiary-active': getItemActiveState(item),
                             'group-hover/lemon-tree-button-group:bg-fill-button-tertiary-hover cursor-pointer':
-                                !isEmptyFolder,
+                                !isEmptyFolder && !item.disabledReason,
                             'hover:bg-transparent opacity-50 cursor-default':
                                 (selectMode === 'folder-only' && !isFolder) || isEmptyFolder,
+                            'opacity-50 cursor-not-allowed': !!item.disabledReason,
                             'rounded-l-[var(--radius)] justify-center [&_svg]:size-4': size === 'narrow',
                             'group-hover/lemon-tree-button-group:pr-[30px] group-has-data-[state=open]/lemon-tree-button-group:pr-[30px] group-has-focus-within/lemon-tree-button-group:pr-[30px]':
                                 size !== 'narrow',
@@ -369,7 +375,7 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                 aria-haspopup={!!contextMenuContent}
                 aria-roledescription="tree item"
                 aria-label={ariaLabel}
-                tooltip={isDragging || isEmptyFolder ? undefined : renderItemTooltip?.(item)}
+                tooltip={isDragging || isEmptyFolder ? undefined : (item.disabledReason ?? renderItemTooltip?.(item))}
                 tooltipPlacement="right"
             >
                 {size === 'default' && (
@@ -720,6 +726,10 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         const [disableKeyboardInput, setDisableKeyboardInput] = useState(false)
         const [typeAheadBuffer, setTypeAheadBuffer] = useState<string>('')
         const [focusedItemId, setFocusedItemId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
+        const [imperativeFocusRequest, setImperativeFocusRequest] = useState<{
+            id: string
+            options: LemonTreeFocusOptions
+        } | null>(null)
         const [virtualWindow, setVirtualWindow] = useState<VirtualWindow>({
             startIndex: 0,
             endIndex: 0,
@@ -877,11 +887,11 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             return []
         }, [])
 
-        const focusTreeItem = useCallback((id: string): void => {
+        const focusTreeItem = useCallback((id: string, preventScroll = false): void => {
             setFocusedItemId(id)
             setTimeout(() => {
                 const element = containerRef.current?.querySelector(`[data-id="${CSS.escape(id)}"]`) as HTMLElement
-                element?.focus()
+                element?.focus({ preventScroll })
             }, 0)
         }, [])
 
@@ -1334,8 +1344,9 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
 
         useImperativeHandle(ref, () => ({
             getVisibleItems,
-            focusItem: (id: string) => {
-                focusTreeItem(id)
+            focusItem: (id: string, options: LemonTreeFocusOptions = {}) => {
+                focusTreeItem(id, !!options.scrollPosition)
+                setImperativeFocusRequest({ id, options })
             },
         }))
 
@@ -1460,6 +1471,43 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 setVirtualWindow(nextWindow)
             }
         }, [computeVirtualWindow, focusedItemId, flattenedVisibleItems.length])
+
+        useEffect(() => {
+            if (!imperativeFocusRequest || (isFinishedBuildingTreeData ?? true) === false) {
+                return
+            }
+
+            const element = containerRef.current?.querySelector(
+                `[data-id="${CSS.escape(imperativeFocusRequest.id)}"]`
+            ) as HTMLElement | null
+            if (!element) {
+                return
+            }
+
+            element.focus({ preventScroll: !!imperativeFocusRequest.options.scrollPosition })
+
+            if (imperativeFocusRequest.options.scrollPosition === 'top-third') {
+                const viewport = virtualizationScrollContainerRef?.current ?? scrollViewportRef.current
+                if (viewport) {
+                    const viewportBounds = viewport.getBoundingClientRect()
+                    const elementBounds = element.getBoundingClientRect()
+                    const top = Math.max(
+                        0,
+                        viewport.scrollTop + elementBounds.top - viewportBounds.top - viewport.clientHeight / 3
+                    )
+                    viewport.scrollTo({ top, behavior: imperativeFocusRequest.options.behavior ?? 'auto' })
+                }
+            }
+
+            setImperativeFocusRequest(null)
+        }, [
+            imperativeFocusRequest,
+            isFinishedBuildingTreeData,
+            virtualizationScrollContainerRef,
+            virtualWindow.endIndex,
+            virtualWindow.startIndex,
+            expandedItemIdsState,
+        ])
 
         const virtualizedStartIndex = virtualWindow.startIndex
         const virtualizedEndIndex = virtualWindow.endIndex
@@ -1601,7 +1649,8 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         {
                             // for tree element
                             '--lemon-tree-button-height': 'var(--button-height-base)',
-                            '--lemon-tree-button-icon-offset-top': '5px',
+                            // Centers the 20px (size-5) icon box within the row, whatever the row height resolves to
+                            '--lemon-tree-button-icon-offset-top': 'calc((var(--lemon-tree-button-height) - 20px) / 2)',
                         } as CSSProperties
                     }
                 >

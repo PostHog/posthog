@@ -5,6 +5,10 @@ linked $ai_generation event) and eval-specific metrics (pass_rate, na_rate,
 dominant_evaluation_name, dominant_runtime, avg_judge_cost) on
 :class:`ClusterAggregateMetrics`. All new eval fields stay None for non-eval
 levels so the dataclass remains single-typed across the whole pipeline.
+
+Sentiment evaluations can be clustered like any other evaluation. Their stored
+sentiment labels/scores are evaluation result data, not the removed on-read
+cluster sentiment aggregate.
 """
 
 from collections import Counter
@@ -117,7 +121,6 @@ def _aggregate_single_cluster(
         error_rate=(items_with_errors / items_with_operational_data) if items_with_operational_data else None,
         error_count=items_with_errors,
         item_count=len(eval_event_ids),
-        sentiment=None,  # not applicable for eval clusters
         # Eval-specific
         pass_rate=(pass_count / verdict_count) if verdict_count else None,
         na_rate=(na_count / verdict_count) if verdict_count else None,

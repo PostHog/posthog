@@ -11,6 +11,7 @@ from prometheus_client import Counter
 
 from posthog.schema import (
     HogQLQueryModifiers,
+    WebAnalyticsPreComputeStrategy,
     WebVitalsMetric,
     WebVitalsMetricBand,
     WebVitalsPathBreakdownQueryResponse,
@@ -28,7 +29,6 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
-    ensure_precomputed,
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
     LAZY_TTL_SECONDS,
@@ -41,6 +41,10 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
     floor_utc_day,
     test_account_filter_expr,
     user_filter_expr,
+)
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    handle_stale_served,
+    web_ensure_precomputed,
 )
 
 _FAMILY = "web_vitals_paths"
@@ -202,7 +206,9 @@ def ensure_web_vitals_paths_precomputed(
         "team_tz": ast.Constant(value=runner.team.timezone),
     }
 
-    return ensure_precomputed(
+    return web_ensure_precomputed(
+        runner=runner,
+        family=_FAMILY,
         team=runner.team,
         insert_query=INSERT_QUERY_TEMPLATE,
         time_range_start=time_range_start,
@@ -322,7 +328,7 @@ def _build_response(
         ],
         timings=runner.timings.to_list() if runner.timings else None,
         modifiers=runner.modifiers,
-        usedLazyPrecompute=True,
+        preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
     )
 
 
@@ -379,6 +385,8 @@ def execute_lazy_precomputed_read(
             time_range_start=time_range_start,
             time_range_end=time_range_end,
         )
+        if result.stale:
+            handle_stale_served(runner=runner, family=_FAMILY)
 
         if not result.job_ids:
             WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="no_job_ids").inc()

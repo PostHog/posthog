@@ -8,10 +8,14 @@ from django.test import RequestFactory
 
 from posthog.admin import _OAUTH_ADMIN_MODEL_NAMES, install_admin_app_list_overrides, register_all_admin
 from posthog.admin.admins.event_ingestion_restriction_config import EventIngestionRestrictionConfigAdmin
+from posthog.admin.admins.global_rate_limit_threshold_config import GlobalRateLimitThresholdConfigAdmin
+from posthog.admin.admins.personal_api_key_admin import PersonalAPIKeyAdmin
 from posthog.admin.admins.user_admin import UserAdmin, UserChangeForm
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberForUserInline, OrganizationMemberInline
-from posthog.models import User
+from posthog.models import PersonalAPIKey, User
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
+from posthog.models.global_rate_limit_threshold_config import GlobalRateLimitThresholdConfig
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.cdp.backend.admin.plugin_attachment_inline import PluginAttachmentInline
@@ -24,8 +28,7 @@ from products.experiments.backend.models.experiment import Experiment, Experimen
 from products.product_analytics.backend.models.insight import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
-from products.warehouse_sources.backend.models import DataWarehouseTable
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
@@ -188,6 +191,24 @@ class TestEventIngestionRestrictionConfigAdminConfig:
         assert "display_team_id" in admin_instance.readonly_fields
 
 
+class TestGlobalRateLimitThresholdConfigAdmin:
+    def test_display_team_id_reads_annotation(self):
+        admin_instance = GlobalRateLimitThresholdConfigAdmin(GlobalRateLimitThresholdConfig, AdminSite())
+        cases = [
+            ("present", 42, 42),
+            ("missing", None, None),
+        ]
+        for label, annotation_value, expected in cases:
+            obj = MagicMock()
+            obj.team_id_from_token = annotation_value
+            assert admin_instance.display_team_id(obj) == expected, label
+
+    def test_display_resolved_key_reads_model_property(self):
+        admin_instance = GlobalRateLimitThresholdConfigAdmin(GlobalRateLimitThresholdConfig, AdminSite())
+        obj = GlobalRateLimitThresholdConfig(token="phc_abc", distinct_id="noisy_user", threshold=10)
+        assert admin_instance.display_resolved_key(obj) == "phc_abc:noisy_user"
+
+
 class TestProductAdminRegistration:
     # Regression guard: these models' admin classes live in their product app
     # (`products/<name>/backend/admin.py` or an `admin/` package), not in the
@@ -232,3 +253,38 @@ class TestOrganizationMemberInlineConfig(BaseTest):
         assert "invited_by" in OrganizationMemberInline.readonly_fields
         assert "invited_by" in OrganizationMemberForUserInline.fields
         assert "invited_by" in OrganizationMemberForUserInline.readonly_fields
+
+
+class TestPersonalAPIKeyAdminForm(BaseTest):
+    def test_change_form_saves_unscoped_key_with_blank_scoped_fields(self):
+        # scoped_teams/scoped_organizations must stay optional in Django forms
+        # (blank=True on the model): null/[] means "unscoped key", the normal state
+        # of every UI-minted key. Without it the admin change form demands values
+        # for both, making it impossible to edit an unscoped key at all (the flow
+        # for granting OAuth-hidden scopes like batch_import_support:read to a
+        # staff key).
+        key = PersonalAPIKey.objects.create(
+            user=self.user, label="support", secure_value=hash_key_value(generate_random_token_personal())
+        )
+        key_admin = PersonalAPIKeyAdmin(PersonalAPIKey, admin.site)
+        request = RequestFactory().get("/admin/")
+
+        form_class = key_admin.get_form(request, key, change=True)
+        form = form_class(
+            data={
+                "label": "support",
+                # Admin renders DateTimeField with a split date/time widget.
+                "created_at_0": "2026-01-01",
+                "created_at_1": "00:00:00",
+                "scopes": "user:read,batch_import_support:read",
+                "scoped_teams": "",
+                "scoped_organizations": "",
+            },
+            instance=key,
+        )
+
+        assert form.is_valid(), form.errors
+        saved = form.save()
+        assert saved.scopes == ["user:read", "batch_import_support:read"]
+        assert not saved.scoped_teams
+        assert not saved.scoped_organizations

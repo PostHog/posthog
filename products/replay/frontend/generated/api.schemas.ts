@@ -15,6 +15,7 @@
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -27,6 +28,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -309,6 +311,31 @@ export interface PatchedSessionRecordingApi {
     readonly external_references?: readonly PatchedSessionRecordingApiExternalReferencesItem[]
     /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
     readonly matches_filters?: boolean
+}
+
+export interface SessionRecordingBulkDeleteRequestApi {
+    /**
+     * Session IDs of the recordings to delete (max 100 per call).
+     * @minItems 1
+     * @maxItems 100
+     */
+    session_recording_ids: string[]
+    /**
+     * Earliest start time of the recordings, as an ISO date or a relative offset like '-30d'. Providing this narrows the lookup and speeds up the request; defaults to the project's recording retention period.
+     * @nullable
+     */
+    date_from?: string | null
+}
+
+export interface SessionRecordingBulkDeleteResponseApi {
+    /** True when no deletion attempt failed. IDs that were not found, or that the caller lacks edit access to, are skipped rather than failed — compare deleted_count to total_requested to detect skips. */
+    success: boolean
+    /** Number of recordings that were deleted. */
+    deleted_count: number
+    /** Number of session recording IDs in the request. */
+    total_requested: number
+    /** Session IDs that were found but could not be deleted. These can be retried. */
+    failed_ids: string[]
 }
 
 export interface SessionSummariesApi {

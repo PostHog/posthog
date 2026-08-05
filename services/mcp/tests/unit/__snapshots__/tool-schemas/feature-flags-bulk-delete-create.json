@@ -9,6 +9,10 @@
                     "enum": ["true", "false", "STALE"],
                     "type": "string"
                 },
+                "archived": {
+                    "description": "Filter by archived state. When omitted, archived flags are excluded.",
+                    "type": "boolean"
+                },
                 "created_by_id": {
                     "description": "Filter to flags created by a specific user ID.",
                     "type": "number"
@@ -21,6 +25,13 @@
                 "excluded_properties": {
                     "description": "JSON-encoded property filter to exclude. Same shape as the list endpoint.",
                     "type": "string"
+                },
+                "excluded_tags": {
+                    "description": "Tag names to exclude. Flags carrying any of these tags are filtered out.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "has_evaluation_contexts": {
                     "description": "When true, only matches flags with at least one evaluation context.",

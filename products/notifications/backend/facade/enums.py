@@ -18,11 +18,19 @@ class NotificationType(str, Enum):
     REMINDER = "reminder"
     WEB_ANALYTICS_DIGEST = "web_analytics_digest"
     ACHIEVEMENT_UNLOCKED = "achievement_unlocked"
+    SUBSCRIPTION_NUDGE = "subscription_nudge"
+    EMAIL_REPUTATION = "email_reputation"
 
 
 class Priority(str, Enum):
     NORMAL = "normal"
     CRITICAL = "critical"
+
+
+# Discriminator for transient "resource edited elsewhere" realtime events. These ride the
+# notifications SSE transport but are NOT inbox notifications (no NotificationEvent row, no unread
+# count) — see products.notifications.backend.logic.publish_resource_edited.
+RESOURCE_EDITED_EVENT_TYPE = "resource_edited"
 
 
 class TargetType(str, Enum):
@@ -42,6 +50,7 @@ class SourceType(str, Enum):
     EXPERIMENT = "experiment"
     ERROR_TRACKING = "error_tracking"
     CUSTOMER_ANALYTICS = "customer_analytics"
+    TICKET = "ticket"
 
 
 class NotificationOnlyResourceType(str, Enum):

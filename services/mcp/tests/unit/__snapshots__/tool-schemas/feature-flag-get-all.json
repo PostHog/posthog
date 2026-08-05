@@ -5,8 +5,18 @@
             "enum": ["STALE", "false", "true"],
             "type": "string"
         },
+        "archived": {
+            "description": "Filter by archived state. When omitted, archived flags are excluded.",
+            "enum": ["false", "true"],
+            "type": "string"
+        },
         "created_by_id": {
             "description": "Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.",
+            "type": "string"
+        },
+        "eligible_for_experiment": {
+            "description": "When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored.",
+            "enum": ["true"],
             "type": "string"
         },
         "evaluation_runtime": {
@@ -18,9 +28,17 @@
             "description": "JSON-encoded list of feature flag keys to exclude from the results.",
             "type": "string"
         },
+        "excluded_tags": {
+            "description": "JSON-encoded list of tag names to exclude. Flags carrying any of these tags are filtered out.",
+            "type": "string"
+        },
         "has_evaluation_contexts": {
             "description": "Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without.",
             "enum": ["false", "true"],
+            "type": "string"
+        },
+        "key": {
+            "description": "Filter by exact feature flag key match. Case insensitive.",
             "type": "string"
         },
         "limit": {

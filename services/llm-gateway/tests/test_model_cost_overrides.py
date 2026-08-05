@@ -9,6 +9,7 @@ import pytest
 
 from llm_gateway.rate_limiting.model_cost_overrides import (
     MODEL_COST_OVERRIDES,
+    PINNED_MODEL_COST_OVERRIDES,
     apply_model_cost_overrides,
 )
 from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostService
@@ -32,12 +33,26 @@ class TestApplyModelCostOverrides:
         apply_model_cost_overrides(cost_map)
         assert cost_map[model_id] == MODEL_COST_OVERRIDES[model_id]
 
-    @pytest.mark.parametrize("model_id", sorted(MODEL_COST_OVERRIDES))
+    @pytest.mark.parametrize("model_id", sorted(MODEL_COST_OVERRIDES.keys() - PINNED_MODEL_COST_OVERRIDES))
     def test_does_not_override_existing_upstream_entry(self, model_id: str) -> None:
         upstream: ModelCost = {"litellm_provider": "anthropic", "max_input_tokens": 1_000_000}
         cost_map: dict[str, ModelCost] = {model_id: upstream}
         apply_model_cost_overrides(cost_map)
         assert cost_map[model_id] is upstream
+
+    @pytest.mark.parametrize("model_id", sorted(PINNED_MODEL_COST_OVERRIDES))
+    def test_overrides_upstream_entry_for_pinned_contract_price(self, model_id: str) -> None:
+        upstream: ModelCost = {
+            "litellm_provider": "openai",
+            "input_cost_per_token": -1.0,
+            "output_cost_per_token": -1.0,
+        }
+        cost_map: dict[str, ModelCost] = {model_id: upstream}
+
+        apply_model_cost_overrides(cost_map)
+
+        assert cost_map[model_id] == MODEL_COST_OVERRIDES[model_id]
+        assert cost_map[model_id] is not MODEL_COST_OVERRIDES[model_id]
 
     def test_returns_same_object_in_place(self) -> None:
         cost_map: dict[str, ModelCost] = {}
@@ -95,9 +110,7 @@ class TestOverrideSurfacesThroughRefresh:
         assert "claude-fable-5" in service.get_all_models()
 
     @patch("llm_gateway.rate_limiting.model_cost_service.get_model_cost_map")
-    def test_fable_5_not_listed_for_posthog_code(self, mock_get_cost_map: MagicMock) -> None:
-        # The cost-override bridge keeps the model resolvable, but it is removed
-        # from the posthog_code allowlist so /v1/models must not list it.
+    def test_fable_5_listed_for_posthog_code(self, mock_get_cost_map: MagicMock) -> None:
         mock_get_cost_map.return_value = {
             "claude-opus-4-8": {
                 "litellm_provider": "anthropic",
@@ -123,4 +136,4 @@ class TestOverrideSurfacesThroughRefresh:
                 model_ids = {m.id for m in get_available_models("posthog_code")}
 
         assert "claude-opus-4-8" in model_ids
-        assert "claude-fable-5" not in model_ids
+        assert "claude-fable-5" in model_ids

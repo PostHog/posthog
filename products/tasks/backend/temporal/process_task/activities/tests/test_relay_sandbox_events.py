@@ -5,25 +5,31 @@ from types import SimpleNamespace
 from typing import cast
 
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import httpx_sse
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.relay_sandbox_events import (
+    FINAL_MESSAGE_MAX_CHARS,
+    FinalMessageTracker,
     RelaySandboxEventsInput,
     TaskRunRedisStream,
+    _flush_pending_text,
+    _is_active_agent_update,
     _is_end_of_turn,
     _is_keepalive_event,
     _is_session_update,
     _mark_error_unless_run_is_terminal,
+    _persist_final_message,
     _relay_loop,
     relay_sandbox_events,
 )
-from products.tasks.backend.temporal.process_task.activities.start_agent_server import StartAgentServerOutput
 from products.tasks.backend.temporal.process_task.workflow import (
     RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
     ProcessTaskWorkflow,
@@ -58,6 +64,11 @@ class TestIsEndOfTurn:
                 "non_notification",
                 {"type": "event", "notification": {"result": {"stopReason": "end_turn"}}},
                 False,
+            ),
+            (
+                "pi_turn_complete",
+                {"type": "pi_event", "event": {"type": "turn_completed"}},
+                True,
             ),
         ]
     )
@@ -112,6 +123,57 @@ class TestIsSessionUpdate:
     )
     def test_is_session_update(self, _name: str, event_data: dict, expected: bool):
         assert _is_session_update(event_data) == expected
+
+
+class TestIsActiveAgentUpdate:
+    @staticmethod
+    def _su(sub_type: str) -> dict:
+        return {
+            "type": "notification",
+            "notification": {"method": "session/update", "params": {"update": {"sessionUpdate": sub_type}}},
+        }
+
+    @parameterized.expand(
+        [
+            # Generation updates -> active.
+            ("agent_message", "agent_message", True),
+            ("agent_message_chunk", "agent_message_chunk", True),
+            ("agent_thought_chunk", "agent_thought_chunk", True),
+            ("tool_call", "tool_call", True),
+            ("tool_call_update", "tool_call_update", True),
+            ("plan", "plan", True),
+            ("user_message_chunk", "user_message_chunk", True),
+            # Lifecycle updates -> not active.
+            ("available_commands_update", "available_commands_update", False),
+            ("current_mode_update", "current_mode_update", False),
+            ("config_option_update", "config_option_update", False),
+            ("usage_update", "usage_update", False),
+            # Allowlist fails safe: an unknown/future sub-type is not active.
+            ("unknown_future_subtype", "some_new_lifecycle_event", False),
+        ],
+    )
+    def test_session_update_sub_types(self, _name: str, sub_type: str, expected: bool) -> None:
+        assert _is_active_agent_update(self._su(sub_type)) is expected
+
+    def test_pi_generation_event_is_active(self) -> None:
+        assert _is_active_agent_update({"type": "pi_event", "event": {"type": "assistant_message_chunk"}})
+
+    @parameterized.expand(
+        [
+            ("missing_session_update_key", {"update": {}}),
+            ("missing_update_key", {}),
+            ("null_params", None),
+        ],
+    )
+    def test_missing_session_update_is_not_active(self, _name: str, params: dict | None) -> None:
+        # A session/update with no sessionUpdate sub-type must not mark the agent active.
+        event = {"type": "notification", "notification": {"method": "session/update", "params": params}}
+        assert _is_active_agent_update(event) is False
+
+    def test_non_session_update_is_not_active(self) -> None:
+        assert (
+            _is_active_agent_update({"type": "notification", "notification": {"method": "_posthog/console"}}) is False
+        )
 
 
 class TestIsKeepaliveEvent:
@@ -246,6 +308,69 @@ class TestRelaySandboxEventsCancellation:
         redis_stream.mark_error.assert_not_awaited()
 
 
+class TestRelaySandboxEventsMissingActor:
+    @pytest.mark.django_db
+    async def test_missing_slack_actor_fails_non_retryable_with_stream_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        redis_stream = SimpleNamespace(
+            initialize=AsyncMock(),
+            mark_complete=AsyncMock(),
+            mark_error=AsyncMock(),
+        )
+
+        class StubTaskRunRedisStream:
+            def __init__(self, stream_key: str, use_dedicated: bool = False) -> None:
+                self.stream_key = stream_key
+
+            async def initialize(self) -> None:
+                await redis_stream.initialize()
+
+            async def mark_complete(self) -> None:
+                await redis_stream.mark_complete()
+
+            async def mark_error(self, error: str) -> None:
+                await redis_stream.mark_error(error)
+
+        class StubTaskRunQuerySet:
+            def select_related(self, *_args: str) -> "StubTaskRunQuerySet":
+                return self
+
+            async def aget(self, id: str) -> SimpleNamespace:
+                return SimpleNamespace(
+                    task=SimpleNamespace(id="task-id", created_by=None, origin_product=None),
+                    # A recorded actor that no longer resolves — deterministic, so the
+                    # activity must fail for good instead of retrying forever.
+                    state={"interaction_origin": "slack", "slack_actor_user_id": 424_242},
+                )
+
+        relay_loop_mock = AsyncMock()
+        monkeypatch.setattr(relay_sandbox_events_module, "TaskRunRedisStream", StubTaskRunRedisStream)
+        monkeypatch.setattr(
+            relay_sandbox_events_module,
+            "TaskRunModel",
+            SimpleNamespace(objects=StubTaskRunQuerySet()),
+        )
+        monkeypatch.setattr(relay_sandbox_events_module, "validate_sandbox_url", lambda _url: None)
+        monkeypatch.setattr(relay_sandbox_events_module, "_relay_loop", relay_loop_mock)
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await relay_sandbox_events(
+                RelaySandboxEventsInput(
+                    run_id="run-id",
+                    task_id="task-id",
+                    sandbox_url="https://sandbox.example",
+                    sandbox_connect_token=None,
+                    team_id=1,
+                    distinct_id="distinct-id",
+                )
+            )
+
+        assert exc_info.value.non_retryable is True
+        redis_stream.mark_error.assert_awaited_once()
+        relay_loop_mock.assert_not_awaited()
+
+
 class TestRelaySandboxEventsErrorHandling:
     @parameterized.expand(
         [
@@ -366,6 +491,81 @@ class TestRelaySandboxEventsErrorHandling:
         redis_stream.mark_complete.assert_awaited_once()
         redis_stream.mark_error.assert_not_awaited()
 
+    async def test_permission_request_dispatches_to_broker(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        redis_stream = SimpleNamespace(
+            write_event=AsyncMock(),
+            mark_complete=AsyncMock(),
+            mark_error=AsyncMock(),
+        )
+        permission_event = {
+            "type": "notification",
+            "notification": {
+                "method": "_posthog/permission_request",
+                "params": {
+                    "requestId": "perm-1",
+                    "options": [{"kind": "allow_once", "optionId": "allow"}],
+                    "toolCall": {"_meta": {"claudeCode": {"toolName": "Bash"}}, "rawInput": {"command": "ls"}},
+                },
+            },
+        }
+        terminal_event = {
+            "type": "notification",
+            "notification": {"method": "_posthog/task_complete"},
+        }
+        # mode="interactive" keeps the turn-complete thread-update path out of
+        # this test, which only cares about permission dispatch.
+        task_run = SimpleNamespace(id="run-id", mode="interactive")
+        dispatch_mock = MagicMock()
+
+        class SuccessfulEventSource:
+            response = SimpleNamespace(raise_for_status=lambda: None)
+
+            async def __aenter__(self) -> "SuccessfulEventSource":
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def aiter_sse(self):
+                yield SimpleNamespace(data=json.dumps(permission_event))
+                yield SimpleNamespace(data=json.dumps(terminal_event))
+
+        def fake_connect_sse(*_args: object, **_kwargs: object) -> SuccessfulEventSource:
+            return SuccessfulEventSource()
+
+        async def fake_background_heartbeat(*_args: object, **_kwargs: object) -> None:
+            return None
+
+        async def fake_to_thread(func, *args):
+            func(*args)
+
+        monkeypatch.setattr(relay_sandbox_events_module.httpx_sse, "aconnect_sse", fake_connect_sse)
+        monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", fake_background_heartbeat)
+        monkeypatch.setattr(relay_sandbox_events_module.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(relay_sandbox_events_module, "_broker_permission_request", dispatch_mock)
+
+        await _relay_loop(
+            events_url="https://sandbox.example/events",
+            headers={"Authorization": "Bearer token"},
+            params={},
+            redis_stream=cast(TaskRunRedisStream, redis_stream),
+            run_id="run-id",
+            task_id="task-id",
+            task_run=cast(TaskRun, task_run),
+        )
+
+        redis_stream.write_event.assert_any_await(permission_event)
+        dispatch_mock.assert_called_once_with(
+            task_run,
+            {
+                "request_id": "perm-1",
+                "tool_call": {"_meta": {"claudeCode": {"toolName": "Bash"}}, "rawInput": {"command": "ls"}},
+                "options": [{"optionId": "allow", "kind": "allow_once", "name": ""}],
+            },
+        )
+        redis_stream.mark_complete.assert_awaited_once()
+        redis_stream.mark_error.assert_not_awaited()
+
     async def test_terminal_run_marks_stream_complete_on_late_relay_error(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -393,6 +593,40 @@ class TestRelaySandboxEventsErrorHandling:
 
         assert marked_complete is True
         redis_stream_mock.mark_complete.assert_awaited_once()
+        redis_stream_mock.mark_error.assert_not_awaited()
+
+    async def test_deferred_relay_leaves_terminal_stream_completion_to_workflow(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        redis_stream_mock = SimpleNamespace(mark_complete=AsyncMock(), mark_error=AsyncMock())
+        redis_stream = cast(TaskRunRedisStream, redis_stream_mock)
+
+        class StubTaskRunQuerySet:
+            def only(self, *_fields: str) -> "StubTaskRunQuerySet":
+                return self
+
+            async def aget(self, id: str) -> SimpleNamespace:
+                return SimpleNamespace(status="cancelled")
+
+        monkeypatch.setattr(
+            relay_sandbox_events_module,
+            "TaskRunModel",
+            SimpleNamespace(
+                Status=SimpleNamespace(COMPLETED="completed", FAILED="failed", CANCELLED="cancelled"),
+                DoesNotExist=Exception,
+                objects=StubTaskRunQuerySet(),
+            ),
+        )
+
+        marked_complete = await _mark_error_unless_run_is_terminal(
+            redis_stream,
+            "run-id",
+            "late relay error",
+            finalize_stream=False,
+        )
+
+        assert marked_complete is True
+        redis_stream_mock.mark_complete.assert_not_awaited()
         redis_stream_mock.mark_error.assert_not_awaited()
 
     async def test_normal_stream_close_marks_stream_complete(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -554,7 +788,7 @@ class TestRelaySandboxEventsErrorHandling:
             fake_mark_error_unless_run_is_terminal,
         )
 
-        with pytest.raises(RuntimeError, match="relay error"):
+        with pytest.raises(ApplicationError, match="relay error") as exc_info:
             await relay_sandbox_events(
                 RelaySandboxEventsInput(
                     run_id="run-id",
@@ -566,6 +800,10 @@ class TestRelaySandboxEventsErrorHandling:
                 )
             )
 
+        # An error sentinel was written to the stream, so the failure must be
+        # non-retryable — a retried attempt would append events past the
+        # sentinel that disconnected consumers never see.
+        assert exc_info.value.non_retryable is True
         redis_stream.mark_complete.assert_not_awaited()
         redis_stream.mark_error.assert_awaited_once_with("relay error")
 
@@ -590,10 +828,159 @@ class TestRelaySandboxEventsWorkflowOptions:
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute_activity_mock)
 
         await workflow._relay_sandbox_events(
-            StartAgentServerOutput(sandbox_url="https://sandbox.example", connect_token="connect-token"),
+            "https://sandbox.example",
+            "connect-token",
             sandbox_id="sandbox-123",
         )
 
         assert execute_activity_mock.await_args is not None
-        _, kwargs = execute_activity_mock.await_args
+        args, kwargs = execute_activity_mock.await_args
+        assert args[0] is relay_sandbox_events_module.relay_sandbox_events_deferred_completion
         assert kwargs["start_to_close_timeout"] == RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT
+
+
+def _agent_chunk_event(text: str) -> dict:
+    return {
+        "type": "notification",
+        "notification": {
+            "method": "session/update",
+            "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}},
+        },
+    }
+
+
+def _agent_message_event(text: str) -> dict:
+    return {
+        "type": "notification",
+        "notification": {
+            "method": "session/update",
+            "params": {"update": {"sessionUpdate": "agent_message", "content": {"type": "text", "text": text}}},
+        },
+    }
+
+
+class TestFinalMessageTracker:
+    def test_snapshots_joined_prose_at_end_of_turn(self) -> None:
+        tracker = FinalMessageTracker()
+        tracker.collect(_agent_chunk_event("Weekly "))
+        tracker.collect(_agent_chunk_event("summary."))
+
+        assert tracker.end_turn() == "Weekly summary."
+
+    def test_snapshots_full_agent_message_at_end_of_turn(self) -> None:
+        tracker = FinalMessageTracker()
+        tracker.collect(_agent_message_event("Weekly summary."))
+
+        assert tracker.end_turn() == "Weekly summary."
+
+    def test_tool_only_turn_returns_none_so_prior_report_survives(self) -> None:
+        tracker = FinalMessageTracker()
+        tracker.collect(_agent_chunk_event("The report."))
+        assert tracker.end_turn() == "The report."
+
+        assert tracker.end_turn() is None
+
+    def test_later_turn_replaces_earlier_one(self) -> None:
+        tracker = FinalMessageTracker()
+        tracker.collect(_agent_chunk_event("First turn."))
+        assert tracker.end_turn() == "First turn."
+        tracker.collect(_agent_chunk_event("Second turn."))
+        assert tracker.end_turn() == "Second turn."
+
+    def test_reset_drops_partial_turn(self) -> None:
+        tracker = FinalMessageTracker()
+        tracker.collect(_agent_chunk_event("half a mess"))
+        tracker.reset()
+
+        assert tracker.end_turn() is None
+
+    def test_truncates_to_cap(self) -> None:
+        tracker = FinalMessageTracker()
+        tracker.collect(_agent_chunk_event("x" * (FINAL_MESSAGE_MAX_CHARS + 100)))
+
+        result = tracker.end_turn()
+        assert result is not None
+        assert len(result) == FINAL_MESSAGE_MAX_CHARS
+
+    @parameterized.expand(
+        [
+            (
+                "tool_call_update",
+                {
+                    "type": "notification",
+                    "notification": {"method": "session/update", "params": {"update": {"sessionUpdate": "tool_call"}}},
+                },
+            ),
+            ("non_session_method", {"type": "notification", "notification": {"method": "_posthog/console"}}),
+            ("keepalive", {"type": "keepalive"}),
+        ]
+    )
+    def test_non_prose_events_are_ignored(self, _name, event) -> None:
+        tracker = FinalMessageTracker()
+        tracker.collect(event)
+
+        assert tracker.end_turn() is None
+
+
+@pytest.mark.django_db
+class TestPersistFinalMessage:
+    def _make_run(self, **kwargs) -> TaskRun:
+        from posthog.models import Organization, Team
+
+        organization = Organization.objects.create(name="Test Org")
+        team = Team.objects.create(organization=organization, name="Test Team")
+        task = Task.objects.create(team=team, title="t", description="d")
+        return task.create_run(mode="background", **kwargs)
+
+    def test_merges_final_message_into_existing_output(self) -> None:
+        run = self._make_run()
+        run.output = {"pr_url": "https://github.com/o/r/pull/1"}
+        run.save(update_fields=["output", "updated_at"])
+
+        _persist_final_message(str(run.id), "The report.")
+
+        run.refresh_from_db()
+        assert run.output == {"pr_url": "https://github.com/o/r/pull/1", "final_message": "The report."}
+
+    def test_sets_output_when_none(self) -> None:
+        run = self._make_run()
+
+        _persist_final_message(str(run.id), "The report.")
+
+        run.refresh_from_db()
+        assert run.output == {"final_message": "The report."}
+
+    def test_missing_run_does_not_raise(self) -> None:
+        _persist_final_message("00000000-0000-0000-0000-000000000000", "The report.")
+
+
+class TestFlushPendingText:
+    """Coalescing many chunks into one agent_text_delta signal keeps the parent workflow's
+    history small enough to replay under the 2s deadlock budget."""
+
+    async def test_coalesces_buffered_parts_into_one_signal(self) -> None:
+        handle = AsyncMock()
+        parts = ["Hel", "lo, ", "world"]
+        last_flush = [0.0]
+
+        await _flush_pending_text(handle, parts, last_flush)
+
+        # One signal carrying the joined prose; buffer drained; flush time advanced.
+        handle.signal.assert_awaited_once_with("agent_text_delta", arg="Hello, world")
+        assert parts == []
+        assert last_flush[0] > 0.0
+
+    async def test_empty_buffer_sends_no_signal_but_records_flush(self) -> None:
+        handle = AsyncMock()
+        last_flush = [0.0]
+
+        await _flush_pending_text(handle, [], last_flush)
+
+        # Recording the flush time even on an empty buffer keeps the interval honest.
+        assert last_flush[0] > 0.0
+        handle.signal.assert_not_awaited()
+
+    async def test_no_handle_still_clears_buffer(self) -> None:
+        parts = ["dropped"]
+        await _flush_pending_text(None, parts, [0.0])
+        assert parts == []

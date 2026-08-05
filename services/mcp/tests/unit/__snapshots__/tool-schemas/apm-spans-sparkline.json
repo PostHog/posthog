@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "query": {
-            "description": "The sparkline / duration-histogram query to execute.",
+            "description": "The sparkline query to execute.",
             "properties": {
                 "dateRange": {
                     "description": "Date range for the query. Defaults to last hour.",
@@ -42,12 +42,16 @@
                                 "type": "string"
                             },
                             "operator": {
-                                "description": "Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+                                "description": "Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `starts_with` - starts_with\n* `not_starts_with` - not_starts_with\n* `ends_with` - ends_with\n* `not_ends_with` - not_ends_with\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
                                 "enum": [
                                     "exact",
                                     "is_not",
                                     "icontains",
                                     "not_icontains",
+                                    "starts_with",
+                                    "not_starts_with",
+                                    "ends_with",
+                                    "not_ends_with",
                                     "regex",
                                     "not_regex",
                                     "gt",
@@ -70,6 +74,11 @@
                         "type": "object"
                     },
                     "type": "array"
+                },
+                "rootSpans": {
+                    "default": false,
+                    "description": "When true, count only root spans (one per trace) so the bars reflect the Traces view. When false (default), count every matching span — the Spans view's volume.",
+                    "type": "boolean"
                 },
                 "serviceNames": {
                     "description": "Filter by service names.",

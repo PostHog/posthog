@@ -31,6 +31,7 @@
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."hide_mcp_hints",
+         "posthog_user"."ui_configuration",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -61,9 +62,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -88,48 +91,6 @@
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.10
   '''
-  SELECT "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."slug",
-         "posthog_organization"."logo_media_id",
-         "posthog_organization"."created_at",
-         "posthog_organization"."updated_at",
-         "posthog_organization"."is_active",
-         "posthog_organization"."is_not_active_reason",
-         "posthog_organization"."session_cookie_age",
-         "posthog_organization"."is_member_join_email_enabled",
-         "posthog_organization"."is_ai_data_processing_approved",
-         "posthog_organization"."is_ai_training_opted_in",
-         "posthog_organization"."is_ai_training_locked",
-         "posthog_organization"."is_ai_training_cta_shown",
-         "posthog_organization"."enforce_2fa",
-         "posthog_organization"."members_can_invite",
-         "posthog_organization"."members_can_create_projects",
-         "posthog_organization"."members_can_use_personal_api_keys",
-         "posthog_organization"."allow_publicly_shared_resources",
-         "posthog_organization"."default_role_id",
-         "posthog_organization"."plugins_access_level",
-         "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
-         "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_hipaa",
-         "posthog_organization"."is_pending_deletion",
-         "posthog_organization"."customer_id",
-         "posthog_organization"."available_product_features",
-         "posthog_organization"."usage",
-         "posthog_organization"."never_drop_data",
-         "posthog_organization"."customer_trust_scores",
-         "posthog_organization"."setup_section_2_completed",
-         "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."is_platform"
-  FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
-  '''
-# ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.11
-  '''
   SELECT 1 AS "a"
   FROM "posthog_organizationmembership"
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
@@ -137,7 +98,7 @@
   LIMIT 1
   '''
 # ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.12
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.11
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -154,9 +115,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -179,7 +142,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.13
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.12
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -203,9 +166,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -230,34 +195,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.14
-  '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at"
-  FROM "ee_accesscontrol"
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'plugin'
-          AND "ee_accesscontrol"."resource_id" IS NOT NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'plugin'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid))
-  '''
-# ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.15
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.13
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_plugin"
@@ -271,7 +209,7 @@
                    AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
   '''
 # ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.16
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.14
   '''
   SELECT "posthog_plugin"."id",
          "posthog_plugin"."organization_id",
@@ -313,9 +251,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -346,7 +286,7 @@
   LIMIT 100
   '''
 # ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.17
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.15
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -378,6 +318,7 @@
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."hide_mcp_hints",
+         "posthog_user"."ui_configuration",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -391,7 +332,7 @@
          AND "posthog_user"."id" = 99999)
   '''
 # ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.18
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.16
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -408,9 +349,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -433,6 +376,59 @@
   LIMIT 21
   '''
 # ---
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.17
+  '''
+  SELECT "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_organization"
+  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  LIMIT 21
+  '''
+# ---
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.18
+  '''
+  SELECT 1 AS "a"
+  FROM "posthog_organizationmembership"
+  WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+         AND "posthog_organizationmembership"."user_id" = 99999)
+  LIMIT 1
+  '''
+# ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.19
   '''
   SELECT "posthog_organization"."id",
@@ -450,9 +446,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -492,9 +490,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -519,57 +519,6 @@
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.20
   '''
-  SELECT 1 AS "a"
-  FROM "posthog_organizationmembership"
-  WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         AND "posthog_organizationmembership"."user_id" = 99999)
-  LIMIT 1
-  '''
-# ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.21
-  '''
-  SELECT "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."slug",
-         "posthog_organization"."logo_media_id",
-         "posthog_organization"."created_at",
-         "posthog_organization"."updated_at",
-         "posthog_organization"."is_active",
-         "posthog_organization"."is_not_active_reason",
-         "posthog_organization"."session_cookie_age",
-         "posthog_organization"."is_member_join_email_enabled",
-         "posthog_organization"."is_ai_data_processing_approved",
-         "posthog_organization"."is_ai_training_opted_in",
-         "posthog_organization"."is_ai_training_locked",
-         "posthog_organization"."is_ai_training_cta_shown",
-         "posthog_organization"."enforce_2fa",
-         "posthog_organization"."members_can_invite",
-         "posthog_organization"."members_can_create_projects",
-         "posthog_organization"."members_can_use_personal_api_keys",
-         "posthog_organization"."allow_publicly_shared_resources",
-         "posthog_organization"."default_role_id",
-         "posthog_organization"."plugins_access_level",
-         "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
-         "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_hipaa",
-         "posthog_organization"."is_pending_deletion",
-         "posthog_organization"."customer_id",
-         "posthog_organization"."available_product_features",
-         "posthog_organization"."usage",
-         "posthog_organization"."never_drop_data",
-         "posthog_organization"."customer_trust_scores",
-         "posthog_organization"."setup_section_2_completed",
-         "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."is_platform"
-  FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
-  '''
-# ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.22
-  '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
          "posthog_organizationmembership"."user_id",
@@ -592,9 +541,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -619,34 +570,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.23
-  '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at"
-  FROM "ee_accesscontrol"
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'plugin'
-          AND "ee_accesscontrol"."resource_id" IS NOT NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'plugin'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid))
-  '''
-# ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.24
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.21
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_plugin"
@@ -660,7 +584,7 @@
                    AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
   '''
 # ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.25
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.22
   '''
   SELECT "posthog_plugin"."id",
          "posthog_plugin"."organization_id",
@@ -702,9 +626,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -735,7 +661,7 @@
   LIMIT 100
   '''
 # ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.26
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.23
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -767,6 +693,7 @@
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."hide_mcp_hints",
+         "posthog_user"."ui_configuration",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -778,6 +705,103 @@
   FROM "posthog_user"
   WHERE ("posthog_user"."is_active"
          AND "posthog_user"."id" = 99999)
+  '''
+# ---
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.24
+  '''
+  SELECT "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_organization"
+  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  LIMIT 21
+  '''
+# ---
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.25
+  '''
+  SELECT "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_organization"
+  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  LIMIT 21
+  '''
+# ---
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.26
+  '''
+  SELECT 1 AS "a"
+  FROM "posthog_organizationmembership"
+  WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+         AND "posthog_organizationmembership"."user_id" = 99999)
+  LIMIT 1
   '''
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.27
@@ -797,9 +821,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -824,108 +850,6 @@
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.28
   '''
-  SELECT "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."slug",
-         "posthog_organization"."logo_media_id",
-         "posthog_organization"."created_at",
-         "posthog_organization"."updated_at",
-         "posthog_organization"."is_active",
-         "posthog_organization"."is_not_active_reason",
-         "posthog_organization"."session_cookie_age",
-         "posthog_organization"."is_member_join_email_enabled",
-         "posthog_organization"."is_ai_data_processing_approved",
-         "posthog_organization"."is_ai_training_opted_in",
-         "posthog_organization"."is_ai_training_locked",
-         "posthog_organization"."is_ai_training_cta_shown",
-         "posthog_organization"."enforce_2fa",
-         "posthog_organization"."members_can_invite",
-         "posthog_organization"."members_can_create_projects",
-         "posthog_organization"."members_can_use_personal_api_keys",
-         "posthog_organization"."allow_publicly_shared_resources",
-         "posthog_organization"."default_role_id",
-         "posthog_organization"."plugins_access_level",
-         "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
-         "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_hipaa",
-         "posthog_organization"."is_pending_deletion",
-         "posthog_organization"."customer_id",
-         "posthog_organization"."available_product_features",
-         "posthog_organization"."usage",
-         "posthog_organization"."never_drop_data",
-         "posthog_organization"."customer_trust_scores",
-         "posthog_organization"."setup_section_2_completed",
-         "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."is_platform"
-  FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
-  '''
-# ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.29
-  '''
-  SELECT 1 AS "a"
-  FROM "posthog_organizationmembership"
-  WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         AND "posthog_organizationmembership"."user_id" = 99999)
-  LIMIT 1
-  '''
-# ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.3
-  '''
-  SELECT 1 AS "a"
-  FROM "posthog_organizationmembership"
-  WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         AND "posthog_organizationmembership"."user_id" = 99999)
-  LIMIT 1
-  '''
-# ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.30
-  '''
-  SELECT "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."slug",
-         "posthog_organization"."logo_media_id",
-         "posthog_organization"."created_at",
-         "posthog_organization"."updated_at",
-         "posthog_organization"."is_active",
-         "posthog_organization"."is_not_active_reason",
-         "posthog_organization"."session_cookie_age",
-         "posthog_organization"."is_member_join_email_enabled",
-         "posthog_organization"."is_ai_data_processing_approved",
-         "posthog_organization"."is_ai_training_opted_in",
-         "posthog_organization"."is_ai_training_locked",
-         "posthog_organization"."is_ai_training_cta_shown",
-         "posthog_organization"."enforce_2fa",
-         "posthog_organization"."members_can_invite",
-         "posthog_organization"."members_can_create_projects",
-         "posthog_organization"."members_can_use_personal_api_keys",
-         "posthog_organization"."allow_publicly_shared_resources",
-         "posthog_organization"."default_role_id",
-         "posthog_organization"."plugins_access_level",
-         "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
-         "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_hipaa",
-         "posthog_organization"."is_pending_deletion",
-         "posthog_organization"."customer_id",
-         "posthog_organization"."available_product_features",
-         "posthog_organization"."usage",
-         "posthog_organization"."never_drop_data",
-         "posthog_organization"."customer_trust_scores",
-         "posthog_organization"."setup_section_2_completed",
-         "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."is_platform"
-  FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
-  '''
-# ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.31
-  '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
          "posthog_organizationmembership"."user_id",
@@ -948,9 +872,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -975,34 +901,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.32
-  '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at"
-  FROM "ee_accesscontrol"
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'plugin'
-          AND "ee_accesscontrol"."resource_id" IS NOT NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'plugin'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid))
-  '''
-# ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.33
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.29
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_plugin"
@@ -1016,7 +915,16 @@
                    AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
   '''
 # ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.34
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.3
+  '''
+  SELECT 1 AS "a"
+  FROM "posthog_organizationmembership"
+  WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+         AND "posthog_organizationmembership"."user_id" = 99999)
+  LIMIT 1
+  '''
+# ---
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.30
   '''
   SELECT "posthog_plugin"."id",
          "posthog_plugin"."organization_id",
@@ -1058,9 +966,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -1108,9 +1018,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -1157,9 +1069,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -1186,33 +1100,6 @@
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.6
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at"
-  FROM "ee_accesscontrol"
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'plugin'
-          AND "ee_accesscontrol"."resource_id" IS NOT NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'plugin'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid))
-  '''
-# ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.7
-  '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_plugin"
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
@@ -1225,7 +1112,7 @@
                    AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
   '''
 # ---
-# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.8
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.7
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -1257,6 +1144,7 @@
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."hide_mcp_hints",
+         "posthog_user"."ui_configuration",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -1268,6 +1156,50 @@
   FROM "posthog_user"
   WHERE ("posthog_user"."is_active"
          AND "posthog_user"."id" = 99999)
+  '''
+# ---
+# name: TestPluginAPI.test_listing_plugins_is_not_nplus1.8
+  '''
+  SELECT "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_organization"
+  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  LIMIT 21
   '''
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.9
@@ -1287,9 +1219,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",

@@ -1,6 +1,6 @@
 from typing import Optional
 
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 
 def get_external_data_source_detail_name(external_data_source: ExternalDataSource) -> str:

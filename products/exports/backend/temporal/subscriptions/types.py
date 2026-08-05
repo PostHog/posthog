@@ -4,8 +4,6 @@ import dataclasses
 
 from posthog.slo.types import SloConfig
 
-from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
-
 
 class DeliveryStatus:
     """Mirrors SubscriptionDelivery.Status choices for use in Temporal workflows.
@@ -20,9 +18,47 @@ class DeliveryStatus:
     SKIPPED = "skipped"
 
 
+class ExportAssetPreparationStatus:
+    READY = "ready"
+    NO_EXPORTABLE_INSIGHTS = "no_exportable_insights"
+
+
+class NoExportableInsightsReason:
+    DASHBOARD_DELETED = "dashboard_deleted"
+    EMPTY_DASHBOARD = "empty_dashboard"
+    MISSING_RESOURCE = "missing_resource"
+    SELECTED_INSIGHTS_NO_LONGER_AVAILABLE = "selected_insights_no_longer_available"
+
+
+class NoExportableInsightsContext(typing.TypedDict):
+    reason: str
+    resource_type: str
+    available_insight_count: int
+    selected_insight_count: int
+
+
+class NoExportableInsightsErrorDetails(NoExportableInsightsContext):
+    message: str
+    type: str
+
+
 # Mirrors Subscription.ResourceType.AI_PROMPT — a plain constant so the Temporal
 # workflow sandbox can route by resource type without importing the Django model.
 AI_PROMPT_RESOURCE_TYPE = "ai_prompt"
+
+# `SubscriptionDelivery.content_snapshot` keys for the AI report. The markdown and prompt can
+# exceed Temporal's ~2 MiB payload cap, so they travel through Postgres by reference rather than
+# on the wire (the same pattern insight snapshots use). They live alongside the workflow types so
+# the API serializer can import them without pulling in the LLM delivery stack.
+AI_REPORT_SNAPSHOT_KEY = "ai_report"
+# The prompt that generated the report, captured at generation time so the delivery is reproducible.
+AI_REPORT_PROMPT_SNAPSHOT_KEY = "ai_report_prompt"
+# Per-step query diagnostics (generated HogQL + failure type) so a degraded report is debuggable
+# after the fact. Written alongside the markdown; never shipped to recipients.
+AI_REPORT_DIAGNOSTICS_KEY = "ai_report_diagnostics"
+# The analysis window's end for this run, as a UTC ISO instant. The next run anchors its window here
+# (exactly gap-free); rows written before this key existed fall back to finished_at.
+AI_REPORT_WINDOW_END_KEY = "ai_report_window_end"
 
 
 class SubscriptionTriggerType:
@@ -33,7 +69,7 @@ class SubscriptionTriggerType:
     """
 
     SCHEDULED = "scheduled"  # Regular cron-based delivery
-    TARGET_CHANGE = "target_change"  # Target changed (previous_value is the old target)
+    SUBSCRIPTION_CHANGE = "target_change"  # An API create or edit triggered an immediate delivery.
     MANUAL = "manual"  # User clicked "Test delivery"
 
 
@@ -62,7 +98,8 @@ class FetchDueSubscriptionsActivityInputs:
 @dataclasses.dataclass
 class CreateExportAssetsInputs:
     subscription_id: int
-    max_asset_count: int = DEFAULT_MAX_ASSET_COUNT
+    max_asset_count: int | None = None
+    # TODO(2026-07-30): Remove in a follow-up after this PR is fully deployed and pre-deployment activity payloads expire.
     previous_value: typing.Optional[str] = None
     # When set, the activity persists the per-insight snapshot directly onto
     # SubscriptionDelivery.content_snapshot. Keeps multi-MB query_results off
@@ -85,6 +122,8 @@ class CreateExportAssetsResult:
     team_id: int = 0
     distinct_id: str = ""
     target_type: str = ""
+    status: str = ExportAssetPreparationStatus.READY
+    failure_context: NoExportableInsightsContext | None = None
 
 
 @dataclasses.dataclass
@@ -92,8 +131,10 @@ class DeliverSubscriptionInputs:
     subscription_id: int
     exported_asset_ids: list[int]
     total_insight_count: int
-    is_new_subscription_target: bool = False
+    previous_target_value: typing.Optional[str] = None
+    # TODO(2026-07-30): Remove these legacy keys in a follow-up after this PR is fully deployed and pre-deployment activity payloads expire.
     previous_value: typing.Optional[str] = None
+    is_new_subscription_target: bool | None = None
     invite_message: typing.Optional[str] = None
     change_summary: typing.Optional[str] = None
     summary_skipped_over_budget: bool = False
@@ -107,9 +148,11 @@ class ProcessSubscriptionWorkflowInputs:
     subscription_id: int
     team_id: int = 0
     distinct_id: str = ""
+    previous_target_value: typing.Optional[str] = None
+    # TODO(2026-07-30): Remove in a follow-up after this PR is fully deployed and pre-deployment workflow payloads expire.
     previous_value: typing.Optional[str] = None
     invite_message: typing.Optional[str] = None
-    trigger_type: str = SubscriptionTriggerType.TARGET_CHANGE
+    trigger_type: str = SubscriptionTriggerType.SUBSCRIPTION_CHANGE
     scheduled_at: typing.Optional[str] = None
     # Lets HandleSubscriptionValueChangeWorkflow route AI-prompt subs to
     # ProcessAISubscriptionWorkflow. Passed by the API from the loaded instance.
@@ -129,10 +172,12 @@ class TrackedSubscriptionInputs:
     subscription_id: int
     team_id: int = 0
     distinct_id: str = ""
+    previous_target_value: typing.Optional[str] = None
+    # TODO(2026-07-30): Remove in a follow-up after this PR is fully deployed and pre-deployment workflow payloads expire.
     previous_value: typing.Optional[str] = None
     invite_message: typing.Optional[str] = None
     slo: SloConfig | None = None
-    trigger_type: str = SubscriptionTriggerType.TARGET_CHANGE
+    trigger_type: str = SubscriptionTriggerType.SUBSCRIPTION_CHANGE
     scheduled_at: typing.Optional[str] = None
     resource_type: str = ""
 
@@ -167,11 +212,44 @@ class GenerateAIReportResult:
     subscription; the workflow records `recipient_results` as FAILED and skips delivery.
     `skipped` signals an over-AI-credit-budget skip: generation rescheduled the sub past
     the credit reset and notified the owner — the workflow records SKIPPED (not FAILED,
-    the sub isn't broken) and skips delivery."""
+    the sub isn't broken) and skips delivery.
+
+    The query-failure counts let the workflow flag a fully-degraded report (every query failed →
+    FAILED, not COMPLETED) without re-reading the per-query detail from content_snapshot."""
 
     aborted: bool = False
     skipped: bool = False
     recipient_results: list[RecipientResult] = dataclasses.field(default_factory=list)
+    failed_step_count: int = 0
+    total_step_count: int = 0
+    query_error_types: list[str] = dataclasses.field(default_factory=list)
+
+    @property
+    def all_queries_failed(self) -> bool:
+        # Single source of truth for the "fully degraded" judgement, so callers don't re-derive it.
+        return bool(self.total_step_count) and self.failed_step_count >= self.total_step_count
+
+    def failure_error(self) -> dict[str, str]:
+        # Access-safe reason recorded on a fully-degraded delivery's error column: failure counts and
+        # error-type names only (query_error_types are exception class names), never raw query content.
+        detail = f" ({', '.join(self.query_error_types)})" if self.query_error_types else ""
+        subject = (
+            "The query the AI generated"
+            if self.total_step_count == 1
+            else f"All {self.total_step_count} queries the AI generated"
+        )
+        return {
+            "message": f"{subject} failed to run{detail}, so the report could not be computed.",
+            "type": "AIReportQueryFailure",
+        }
+
+    def delivered_status(self) -> tuple[str, typing.Optional[dict[str, str]]]:
+        # Status to record once the report shipped: a fully-degraded report (every query failed) is FAILED
+        # with its failure detail — recording it COMPLETED would misrepresent an empty report. Partial
+        # failures stay COMPLETED. Owns this mapping so the workflow can't diverge from the judgement above.
+        if self.all_queries_failed:
+            return DeliveryStatus.FAILED, self.failure_error()
+        return DeliveryStatus.COMPLETED, None
 
 
 @dataclasses.dataclass
@@ -206,7 +284,7 @@ class UpdateDeliveryRecordInputs:
     status: str
     exported_asset_ids: typing.Optional[list[int]] = None
     recipient_results: typing.Optional[list[dict[str, typing.Any]]] = None
-    error: typing.Optional[dict[str, typing.Any]] = None
+    error: typing.Optional[dict[str, typing.Any] | NoExportableInsightsErrorDetails] = None
     change_summary: typing.Optional[str] = None
     finished: bool = False
 

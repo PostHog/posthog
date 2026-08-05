@@ -9,7 +9,7 @@ export type NotebookInlineMark =
     | { type: 'strike' }
     | { type: 'code' }
     | { type: 'link'; href: string }
-    /** Anchors an inline chat to this text: `<ref id="x">text</ref>` pairs with `<Chat ref="x" />`. */
+    /** Anchors a discussion or inline AI selection to this text. */
     | { type: 'ref'; id: string }
     /** A person mention: `<mention id="5">@Name</mention>` — the text is the display label. */
     | { type: 'mention'; id: string }
@@ -36,10 +36,22 @@ export type NotebookPropValue =
 
 export type NotebookComponentProps = Record<string, NotebookPropValue>
 
-export type NotebookTextBlockNode = {
+/** A run of consecutive text-like blocks shares one card (see `getMarkdownNotebookVisualGroups`).
+ * `startsGroup` opts a block out of the run above it, so it gets a card of its own: it is set when
+ * the block was added as a node in its own right — the insert menu's "+", an MCP cell insert, a
+ * block appended into the notebook — rather than typed as a continuation of the text before it.
+ * Stored in the markdown as a second blank line before the block so the split survives a save.
+ * Never set on the first block, which has no separator to widen and always starts a card. */
+type NotebookBlockNodeBase = {
     id: string
+    startsGroup?: boolean
+}
+
+export type NotebookTextBlockNode = NotebookBlockNodeBase & {
     type: 'paragraph' | 'heading' | 'blockquote'
     level?: 1 | 2 | 3 | 4 | 5 | 6
+    /** A heading that is part of a blockquote: serialized with a `> ` prefix on every line. */
+    blockquote?: boolean
     children: NotebookInlineNode[]
 }
 
@@ -53,8 +65,7 @@ export type NotebookListItem = {
     checked?: boolean
 }
 
-export type NotebookListBlockNode = {
-    id: string
+export type NotebookListBlockNode = NotebookBlockNodeBase & {
     type: 'list'
     ordered: boolean
     start?: number
@@ -69,23 +80,30 @@ export type NotebookTableCell = {
     children: NotebookInlineNode[]
 }
 
-export type NotebookTableBlockNode = {
-    id: string
+export type NotebookTableBlockNode = NotebookBlockNodeBase & {
     type: 'table'
     headers: NotebookTableCell[]
     rows: NotebookTableCell[][]
     alignments?: (NotebookTableAlignment | undefined)[]
 }
 
-export type NotebookCodeBlockNode = {
+/** Anchors a discussion comment to a character range inside a code block. Code carries no inline
+ * marks, so anchors live on the block and serialize as `ref=<id>:<start>-<end>` tokens in the
+ * fence info string. Offsets are UTF-16 code units into `text`. */
+export type NotebookCodeRefMark = {
     id: string
+    start: number
+    end: number
+}
+
+export type NotebookCodeBlockNode = NotebookBlockNodeBase & {
     type: 'code'
     language?: string
     text: string
+    refs?: NotebookCodeRefMark[]
 }
 
-export type NotebookComponentBlockNode = {
-    id: string
+export type NotebookComponentBlockNode = NotebookBlockNodeBase & {
     type: 'component'
     tagName: string
     props: NotebookComponentProps
@@ -149,6 +167,9 @@ export type NotebookComponentDefinition = {
     EditComponent?: (props: NotebookComponentRenderProps) => JSX.Element
     exclusiveEditPanel?: boolean
     hideModeActions?: boolean
+    /** Show the filters toggle in view mode too, when the host opts in via `allowViewModeFilters`
+     * (read-only canvases like customer profiles, where filters are the only way to configure a node). */
+    viewModeFilters?: boolean
     insertCommand?: NotebookComponentInsertCommand
 }
 

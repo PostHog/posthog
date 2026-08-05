@@ -38,8 +38,17 @@ tools:
         response:
             include:
                 - results
+    metrics-attribute-values-retrieve:
+        operation: metrics_attribute_values_retrieve
+        enabled: false
+    metrics-attributes-retrieve:
+        operation: metrics_attributes_retrieve
+        enabled: false
     metrics-has-metrics-retrieve:
         operation: metrics_has_metrics_retrieve
+        enabled: false
+    metrics-samples-create:
+        operation: metrics_samples_create
         enabled: false
     query-metrics:
         operation: metrics_query_create

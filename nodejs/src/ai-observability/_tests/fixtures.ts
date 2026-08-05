@@ -1,10 +1,10 @@
 import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
 
+import { PostgresRouter } from '~/common/utils/db/postgres'
 import { insertRow } from '~/tests/helpers/sql'
 
 import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent, Team } from '../../types'
-import { PostgresRouter } from '../../utils/db/postgres'
 import { LLMProviderKeyState, ProviderKey } from '../services/provider-key-manager.service'
 import { Evaluation, EvaluationConditionSet, EvaluationStatus, Tagger } from '../types'
 
@@ -28,6 +28,8 @@ export const createEvaluation = (evaluation: Partial<Evaluation>): Evaluation =>
                 properties: [],
             },
         ],
+        target: 'generation',
+        target_config: {},
         created_at: DateTime.now().toISO(),
         updated_at: DateTime.now().toISO(),
         ...evaluation,

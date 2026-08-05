@@ -72,9 +72,13 @@ If it is omitted, the component can still render from markdown but does not appe
 `validateProps` returns user-facing validation errors.
 The notebook shell renders those above the component.
 
-`getTitle(node)` returns the toolbar title shown when the component filters panel is hidden.
-Use it for the compact summary a reader needs while filters are collapsed, such as a URL, insight name, code title, or cached AI answer summary.
+`getTitle(node)` returns a computed contextual title — a compact summary such as a URL, insight name, code title, or cached AI answer summary.
 If omitted, the shell falls back to string props such as `title`, `name`, `url`, `href`, `src`, or `id`.
+
+Every component also has a generic, user-editable title backed by the `title` prop.
+In edit mode the shell renders an editable title field in the toolbar, watermarked with the `getTitle` value (or "Add a title").
+In view mode the shell shows the user's title if set, otherwise the `getTitle` value.
+A `title` equal to the component's own label (e.g. code blocks default `title` to "Python") is treated as no user title, so the field reads as empty by default.
 
 `ViewComponent` renders the read panel.
 `EditComponent` is optional; if omitted, the component only has a view panel.
@@ -182,10 +186,11 @@ If the node type does not exist yet, create the notebook node first under `front
 ## Reserved tags
 
 Do not reuse the tags of the default registry (`registry.tsx`): `Query`, `Image`, `Divider`, `Embed`, `Latex`, `Python`, `DuckSQL`, `HogQLSQL`, `RecordingPlaylist`, `FeatureFlag`, `Experiment`, `Survey`, `Person`, `Group`, `Cohort`, `Map`.
-The internal AI tags `Prompt` and `Chat` are also reserved (registered by the notebooks scene).
+The internal AI tag `Prompt` is also reserved (registered by the notebooks scene).
 `Image` and `Divider` are special: they serialize back to plain markdown (`![alt](src)` and `---`) rather than component-tag syntax.
 `Comment` is special too: its authorial-note flavor (`text` prop) serializes as a markdown `<!-- … -->` comment, while its discussion flavor (`ref` + `replies` props, a Google Docs-style thread anchored to an inline `<ref id="…">` highlight) serializes as a regular `<Comment … />` tag.
 The lowercase inline tags `<ref>` and `<mention>` are part of the inline grammar, not components — component tags must start with an uppercase letter.
+Code carries no inline marks, so a comment anchored to a selection inside a code block stores its anchor as a `ref=<id>:<start>-<end>` token in the fence info string (e.g. ` ```python ref=abc123:4-17 `), with UTF-16 offsets into the code text.
 Choose a specific tag name that describes the persisted block.
 
 ## Testing checklist
@@ -194,7 +199,7 @@ Add or update tests for:
 
 - parsing and serializing the tag
 - rendering the view component
-- toolbar title behavior when filters are hidden
+- editable toolbar title (edit-mode field, view-mode display, `getTitle` watermark)
 - editing props through `updateProps`
 - slash-menu insertion when `insertCommand` is present
 - validation errors when `validateProps` rejects invalid props

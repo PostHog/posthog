@@ -19,7 +19,7 @@ from prometheus_client import REGISTRY
 
 from posthog.hogql.errors import QueryError
 
-from posthog.caching.fetch_from_cache import InsightResult
+from posthog.caching.insight_result import InsightResult
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -101,6 +101,57 @@ class TestImageExporter(APIBaseTest):
 
         with self.assertRaises(InvalidExportContext):
             image_exporter._export_to_png(exported_asset)
+
+    @patch("products.exports.backend.tasks.image_exporter.process_query_dict")
+    def test_adhoc_query_export_renders_without_insight(
+        self,
+        mock_process_query: Any,
+        mock_remove: Any,
+        mock_open_file: Any,
+        mock_screenshot_asset: Any,
+    ) -> None:
+        mock_process_query.return_value = {"results": []}
+        source = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [{"event": "$pageview"}]}}
+        exported_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            created_by=self.user,
+            export_context={"source": source},
+        )
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            image_exporter.export_image(exported_asset)
+
+        call_args, call_kwargs = mock_process_query.call_args
+        assert call_args == (self.team, source)
+        assert call_kwargs["execution_mode"] == ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+        assert call_kwargs["user"] == self.user
+
+        url_to_render = mock_screenshot_asset.call_args[0][1]
+        assert "/exporter?token=" in url_to_render
+        assert exported_asset.content == b"image_data"
+
+    @patch("products.exports.backend.tasks.image_exporter.process_query_dict")
+    def test_adhoc_query_export_fails_fast_on_invalid_query(
+        self,
+        mock_process_query: Any,
+        mock_remove: Any,
+        mock_open_file: Any,
+        mock_screenshot_asset: Any,
+    ) -> None:
+        mock_process_query.return_value = {"results": None, "error": "1 validation error for QuerySchemaRoot"}
+        exported_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            created_by=self.user,
+            export_context={"source": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}},
+        )
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False), self.assertRaisesRegex(Exception, "Invalid query"):
+            image_exporter.export_image(exported_asset)
+
+        # The browser must never be reached — the point is failing before the render.
+        mock_screenshot_asset.assert_not_called()
 
     def test_image_exporter_writes_to_asset_when_object_storage_is_disabled(self, *args: Any) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=False):
@@ -648,6 +699,92 @@ class TestImageExporterQueryOverrideE2E(ClickhouseTestMixin, APIBaseTest):
         assert url_default != url_override
 
 
+class TestInsightQueryScreenshotWidth(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("funnel_default_layout", {"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery"}}, 4000),
+            (
+                "funnel_explicit_vertical",
+                {"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery", "funnelsFilter": {"layout": "vertical"}}},
+                4000,
+            ),
+            (
+                "funnel_horizontal",
+                {
+                    "kind": "InsightVizNode",
+                    "source": {"kind": "FunnelsQuery", "funnelsFilter": {"layout": "horizontal"}},
+                },
+                800,
+            ),
+            ("bare_funnel_query_without_wrapper", {"kind": "FunnelsQuery"}, 4000),
+            ("trends", {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}, 800),
+            (
+                "metric",
+                {
+                    "kind": "InsightVizNode",
+                    "source": {"kind": "TrendsQuery", "trendsFilter": {"display": "Metric"}},
+                },
+                600,
+            ),
+            (
+                "bare_metric_query_without_wrapper",
+                {"kind": "TrendsQuery", "trendsFilter": {"display": "Metric"}},
+                800,
+            ),
+            ("empty_query", {}, 800),
+        ]
+    )
+    def test_width_for_query(self, _name: str, query: dict, expected: int) -> None:
+        assert image_exporter._insight_query_screenshot_width(query) == expected
+
+
+class TestInsightQueryWantsLegend(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "two_series_gets_legend",
+                {
+                    "kind": "InsightVizNode",
+                    "source": {"kind": "TrendsQuery", "series": [{"event": "a"}, {"event": "b"}]},
+                },
+                True,
+            ),
+            (
+                "breakdown_gets_legend",
+                {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [{"event": "a"}],
+                        "breakdownFilter": {"breakdown": "$browser"},
+                    },
+                },
+                True,
+            ),
+            (
+                "single_series_skipped",
+                {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [{"event": "a"}]}},
+                False,
+            ),
+            (
+                "explicit_false_respected",
+                {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [{"event": "a"}, {"event": "b"}],
+                        "trendsFilter": {"showLegend": False},
+                    },
+                },
+                False,
+            ),
+            ("non_insight_kind", {"kind": "DataTableNode"}, False),
+        ]
+    )
+    def test_legend_defaulting(self, _name: str, query: dict, expected: bool) -> None:
+        assert image_exporter._insight_query_wants_legend(query) == expected
+
+
 class TestBuildCdpEndpoint(SimpleTestCase):
     @parameterized.expand(
         [
@@ -808,6 +945,24 @@ class TestDimensionHelpers(SimpleTestCase):
     )
     def test_cap_height(self, _name: str, raw_height: int, effective_max: int, final: bool, expected: int) -> None:
         assert image_exporter._cap_height(raw_height, effective_max, "https://example.com", final=final) == expected
+
+
+class TestMeasureContentWidthJS(SimpleTestCase):
+    # The vertical funnel (FunnelStepsBarChart, quill-charts) renders neither a <table> nor a
+    # .FunnelBarVertical, so the measurement JS must target its own selector. If that selector is
+    # absent — or is checked after the generic <table> fallback — funnel measurement returns null,
+    # _resolve_width keeps the wide 4000px funnel viewport, and the bars end up stranded on the left
+    # of a mostly-empty image. The selector must stay in sync with the data-attr rendered by
+    # FunnelStepsBarChart.tsx.
+    def test_funnel_canvas_selector_is_present_and_measured_before_table_fallback(self) -> None:
+        js = image_exporter.MEASURE_CONTENT_WIDTH_JS
+
+        canvas_index = js.find("funnel-steps-bar-chart-canvas")
+        table_fallback_index = js.find("tableElement")
+
+        assert canvas_index != -1, "vertical funnels would fall through to the table path and never get cropped"
+        assert table_fallback_index != -1
+        assert canvas_index < table_fallback_index
 
 
 class TestIsBrowserlessConnectionError(SimpleTestCase):

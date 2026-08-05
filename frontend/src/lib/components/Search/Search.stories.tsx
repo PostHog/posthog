@@ -210,7 +210,7 @@ export const Default: Story = {
         )
     },
     parameters: {
-        docs: { description: { story: 'Shows 5 recent items and apps when no search query is entered.' } },
+        docs: { description: { story: 'Shows 5 recent items and tools when no search query is entered.' } },
     },
 }
 
@@ -281,7 +281,7 @@ export const Searching: Story = {
     parameters: {
         docs: {
             description: {
-                story: 'Searching for "user": recents and apps are filtered client-side instantly, server results appear below without shifting existing items.',
+                story: 'Searching for "user": recents and tools are filtered client-side instantly, server results appear below without shifting existing items.',
             },
         },
     },

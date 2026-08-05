@@ -6,11 +6,12 @@
 import { Message } from 'node-rdkafka'
 import { compress, uncompress } from 'snappy'
 
-import { KafkaConsumerInterface, createKafkaConsumer } from '../../../kafka/consumer'
-import { KafkaProducerWrapper } from '../../../kafka/producer'
+import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
+
 import { HealthCheckResult, HealthCheckResultError } from '../../../types'
-import { parseJSON } from '../../../utils/json-parse'
-import { logger } from '../../../utils/logger'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { JobQueue } from './job-queue.interface'
@@ -142,6 +143,7 @@ export class CyclotronJobQueueKafka implements JobQueue {
     // Kafka jobs don't need explicit dequeue/cancel — they're just dropped
     public async dequeueInvocations(_invocations: CyclotronJobInvocation[]): Promise<void> {}
     public async cancelInvocations(_invocations: CyclotronJobInvocation[]): Promise<void> {}
+    public async heartbeatInvocations(_invocations: CyclotronJobInvocation[]): Promise<void> {}
 
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]) {
         // With kafka we are essentially re-queuing the work to the target topic if it isn't finished

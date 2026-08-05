@@ -30,11 +30,14 @@ from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.errors import ResolutionError
 
 from posthog.api.services.query import process_query_model
+from posthog.exceptions import DatabaseSchemaUnavailable
 
-from products.data_warehouse.backend.types import ExternalDataSourceType
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSource,
+)
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 class TestQueryService(APIBaseTest):
@@ -149,6 +152,28 @@ class TestQueryService(APIBaseTest):
             source_table_name__in={"selected_table", "selected_table_2"},
             joining_table_name__in={"selected_table", "selected_table_2"},
         )
+
+    @parameterized.expand(
+        [
+            ("resolve", "resolve_database_for_connection"),
+            ("serialize", "serialize"),
+        ]
+    )
+    @patch("posthog.api.services.query.resolve_database_for_connection")
+    def test_database_schema_query_failure_is_typed_not_a_bare_500(
+        self, _label: str, failing_step: str, mock_resolve_database_for_connection: MagicMock
+    ):
+        if failing_step == "resolve":
+            mock_resolve_database_for_connection.side_effect = RuntimeError("boom")
+        else:
+            mock_database = MagicMock()
+            mock_database.serialize.side_effect = RuntimeError("boom")
+            mock_resolve_database_for_connection.return_value = (None, mock_database)
+
+        with self.assertRaises(DatabaseSchemaUnavailable) as error:
+            process_query_model(self.team, DatabaseSchemaQuery())
+
+        self.assertEqual(error.exception.get_codes(), "database_schema_unavailable")
 
     @patch("posthog.api.services.query.DataWarehouseJoin.objects.filter")
     @patch("posthog.api.services.query.resolve_database_for_connection")

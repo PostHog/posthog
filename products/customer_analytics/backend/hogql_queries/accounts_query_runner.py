@@ -1,5 +1,3 @@
-from typing import NamedTuple
-
 from posthog.schema import AccountsQuery, AccountsQueryResponse, CachedAccountsQueryResponse
 
 from posthog.hogql import ast
@@ -20,40 +18,12 @@ DEFAULT_COLUMNS = (NAME_COLUMN, "created_at")
 DEFAULT_ORDER_BY = "created_at DESC"
 
 
-class _DeferredColumn(NamedTuple):
-    column_name: str
-    join: str
-
-
-# Lazy joins on `system.accounts` that aggregate a global Postgres junction table.
-# Selecting them inline turns each list render into a team-wide GROUP BY over the
-# junction (read live via the `postgresql()` table function), so we instead defer
-# them and enrich only the page of accounts actually returned — see `_calculate`.
-_DEFERRED_JOINS = ("tags", "notebooks")
-
-# Value to fall back to when an account has no junction rows, mirroring the LEFT
-# JOIN default the inline lazy join would have produced.
-_DEFERRED_DEFAULTS: dict[str, object] = {"tags": [], "notebooks": 0}
-
-_DEFERRED_TYPES: dict[str, str] = {"tags": "Array(String)", "notebooks": "UInt64"}
-
-
 def _normalize_order_clause(raw: str) -> str:
     """Allow Django-style `-col` shorthand alongside native HogQL `col DESC`."""
     stripped = raw.strip()
     if stripped.startswith("-"):
         return f"{stripped[1:].strip()} DESC"
     return stripped
-
-
-# Account-properties JSON keys for the three assignable roles. The
-# `allRolesUnassigned` filter ("Unassigned only") requires every one of these to
-# be empty.
-ROLE_JSON_KEYS = ("csm", "account_executive", "account_owner")
-
-# Roles that count as "assigned" for the `assignedToUserIds` filter — an account
-# is assigned to a user if they are its CSM or account executive.
-ASSIGNED_ROLE_KEYS = ("csm", "account_executive")
 
 
 class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
@@ -67,39 +37,21 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
         # resolution. A combined query carries both `select` and `metrics`.
         self._metrics_only = bool(self.query.metrics) and not self.query.select
 
-        # `columns` is the full ordered set the response advertises (and the
-        # frontend aligns rows to). `_select_exprs` drives the paginated main
-        # query and carries only the non-deferred columns; deferred lazy-join
-        # columns are fetched separately and spliced back in `_calculate`.
         self.columns: list[str] = []
         self._select_exprs: list[ast.Expr] = []
-        self._main_column_names: list[str] = []
-        self._deferred_columns: list[_DeferredColumn] = []
-        self._deferred_enrichment: dict[str, tuple[dict[str, object], object]] = {}
         if not self._metrics_only:
-            order_columns = self._order_column_names()
-            seen: set[str] = set()
-            resolved: list[tuple[str, ast.Expr]] = []
             raw_selects = list(self.query.select) if self.query.select else list(DEFAULT_COLUMNS)
+            seen: set[str] = set()
             for raw in raw_selects:
                 column_name, expr = self._resolve_column(raw)
                 if column_name in seen:
                     continue
                 seen.add(column_name)
-                resolved.append((column_name, expr))
-            if NAME_COLUMN not in seen:
-                resolved.insert(0, (NAME_COLUMN, self._name_tuple_expr()))
-
-            for column_name, expr in resolved:
                 self.columns.append(column_name)
-                join = self._deferred_join(expr)
-                # Keep a column inline if it's sorted on — ORDER BY references the
-                # SELECT alias, which only exists in the main query.
-                if join is not None and column_name not in order_columns:
-                    self._deferred_columns.append(_DeferredColumn(column_name=column_name, join=join))
-                else:
-                    self._main_column_names.append(column_name)
-                    self._select_exprs.append(expr)
+                self._select_exprs.append(expr)
+            if NAME_COLUMN not in seen:
+                self.columns.insert(0, NAME_COLUMN)
+                self._select_exprs.insert(0, self._name_tuple_expr())
 
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context,
@@ -118,28 +70,6 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
         expr = parse_expr(raw)
         column_name = expr.alias if isinstance(expr, ast.Alias) else raw
         return column_name, expr
-
-    def _order_column_names(self) -> set[str]:
-        names: set[str] = set()
-        for raw in self.query.orderBy or [DEFAULT_ORDER_BY]:
-            tokens = _normalize_order_clause(raw).split()
-            if tokens:
-                names.add(tokens[0])
-        return names
-
-    def _deferred_join(self, expr: ast.Expr) -> str | None:
-        """If `expr` is a plain `accounts.<join>.<field>` access for a deferrable
-        lazy join (tags/notebooks), return the join name; otherwise None. Anything
-        more complex (a function over the join, an unknown join) stays inline."""
-        inner = expr.expr if isinstance(expr, ast.Alias) else expr
-        if not isinstance(inner, ast.Field):
-            return None
-        chain = [str(part) for part in inner.chain]
-        if chain and chain[0] == "accounts":
-            chain = chain[1:]
-        if len(chain) == 2 and chain[0] in _DEFERRED_JOINS:
-            return chain[0]
-        return None
 
     def _name_tuple_expr(self) -> ast.Expr:
         # Single cell carries the display name, external_id (for copy
@@ -174,11 +104,17 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             where_exprs.append(self._tag_filter_expr(self.query.tagNames))
 
         if self.query.allRolesUnassigned:
-            for json_key in ROLE_JSON_KEYS:
-                where_exprs.append(self._role_id_isnull(json_key))
+            where_exprs.append(
+                parse_expr("id NOT IN {subquery}", {"subquery": self._active_relationship_account_ids()})
+            )
 
         if self.query.assignedToUserIds:
-            where_exprs.append(self._assigned_to_users_expr(self.query.assignedToUserIds))
+            where_exprs.append(
+                parse_expr(
+                    "id IN {subquery}",
+                    {"subquery": self._active_relationship_account_ids(self.query.assignedToUserIds)},
+                )
+            )
 
         if self.query.filterExpression and self.query.filterExpression.strip():
             where_exprs.append(parse_expr(self.query.filterExpression))
@@ -223,47 +159,21 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
         )
         return parse_expr("id IN {subquery}", {"subquery": subquery})
 
-    def _role_filter_expr(self, json_key: str, value: object) -> ast.Expr | None:
-        if not value:
-            return None
-        raw_values = value if isinstance(value, list) else [value]
-        user_ids: list[int] = []
-        for raw in raw_values:
-            if isinstance(raw, int):
-                user_ids.append(raw)
-            elif isinstance(raw, str):
-                try:
-                    user_ids.append(int(raw))
-                except ValueError:
-                    continue
-        if not user_ids:
-            return None
-        return parse_expr(
-            "JSONExtract(properties, {role_key}, 'id', 'Nullable(Int64)') IN {user_ids}",
-            {
-                "role_key": ast.Constant(value=json_key),
-                "user_ids": ast.Constant(value=user_ids),
-            },
-        )
-
-    def _role_id_isnull(self, json_key: str) -> ast.Expr:
-        return parse_expr(
-            "isNull(JSONExtract(properties, {role_key}, 'id', 'Nullable(Int64)'))",
-            {"role_key": ast.Constant(value=json_key)},
-        )
-
-    def _assigned_to_users_expr(self, user_ids: list[int]) -> ast.Expr:
-        # OR over the CSM/AE roles: an account is "assigned to" a user if they
-        # hold either role. Explicit ids (not the requester) so a shared URL
+    def _active_relationship_account_ids(
+        self, user_ids: list[int] | None = None
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        # An account is "assigned" when someone actively holds any relationship on
+        # it (CSM, Account executive, or a custom definition) — optionally narrowed
+        # to the given holders. Explicit ids (not the requester) so a shared URL
         # filtered by "my accounts" resolves to the same accounts for every viewer.
-        role_exprs: list[ast.Expr] = []
-        for json_key in ASSIGNED_ROLE_KEYS:
-            role_expr = self._role_filter_expr(json_key, user_ids)
-            if role_expr is not None:
-                role_exprs.append(role_expr)
-        if not role_exprs:
-            return ast.Constant(value=False)
-        return ast.Or(exprs=role_exprs)
+        if user_ids is not None:
+            return parse_select(
+                "SELECT account_id FROM system.account_relationships WHERE isNull(ended_at) AND user_id IN {user_ids}",
+                {"user_ids": ast.Constant(value=user_ids)},
+            )
+        return parse_select(
+            "SELECT account_id FROM system.account_relationships WHERE isNull(ended_at) AND isNotNull(user_id)"
+        )
 
     def _calculate(self) -> AccountsQueryResponse:
         metrics_results = self._compute_metrics_results(self.query.metrics) if self.query.metrics else None
@@ -290,113 +200,25 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             modifiers=self.modifiers,
         )
 
-        results = self._assemble_rows(self.paginator.results)
-        types = self._assemble_types(response.types)
+        name_index = self.columns.index(NAME_COLUMN)
+        results = [
+            [
+                {"name": cell[0], "external_id": cell[1], "id": cell[2]} if index == name_index else cell
+                for index, cell in enumerate(row)
+            ]
+            for row in self.paginator.results
+        ]
 
         return AccountsQueryResponse(
             kind="AccountsQuery",
             columns=list(self.columns),
             results=results,
-            types=types,
+            types=[t for _, t in response.types] if response.types else [],
             metricsResults=metrics_results,
             hogql=response.hogql or "",
             timings=response.timings,
             modifiers=self.modifiers,
             **self.paginator.response_params(),
-        )
-
-    def _assemble_rows(self, main_rows: list[list]) -> list[list]:
-        name_index = self.columns.index(NAME_COLUMN)
-        main_name_index = self._main_column_names.index(NAME_COLUMN)
-
-        if not self._deferred_columns:
-            return [self._with_name_dict(row, name_index) for row in main_rows]
-
-        # The name tuple's 3rd element is `toString(id)` — the page's account ids,
-        # which we use to scope the enrichment reads and to stitch values back.
-        page_ids = [row[main_name_index][2] for row in main_rows]
-        self._deferred_enrichment = self._fetch_deferred(page_ids)
-
-        main_index_by_column = {column: index for index, column in enumerate(self._main_column_names)}
-        deferred_by_column = {deferred.column_name: deferred for deferred in self._deferred_columns}
-
-        assembled: list[list] = []
-        for row in main_rows:
-            account_id = row[main_name_index][2]
-            full_row: list = []
-            for column in self.columns:
-                deferred = deferred_by_column.get(column)
-                if deferred is not None:
-                    values = self._deferred_enrichment[column][0]
-                    full_row.append(values.get(account_id, _DEFERRED_DEFAULTS[deferred.join]))
-                else:
-                    full_row.append(row[main_index_by_column[column]])
-            assembled.append(self._with_name_dict(full_row, name_index))
-        return assembled
-
-    def _with_name_dict(self, row: list, name_index: int) -> list:
-        return [
-            {"name": cell[0], "external_id": cell[1], "id": cell[2]} if index == name_index else cell
-            for index, cell in enumerate(row)
-        ]
-
-    def _assemble_types(self, main_types: list | None) -> list:
-        main_type_strs = [t for _, t in main_types] if main_types else []
-        if not self._deferred_columns:
-            return main_type_strs
-
-        type_by_main_column = {
-            column: (main_type_strs[index] if index < len(main_type_strs) else None)
-            for index, column in enumerate(self._main_column_names)
-        }
-        return [
-            self._deferred_enrichment.get(column, ({}, None))[1]
-            if column in {deferred.column_name for deferred in self._deferred_columns}
-            else type_by_main_column.get(column)
-            for column in self.columns
-        ]
-
-    def _fetch_deferred(self, page_ids: list[str]) -> dict[str, tuple[dict[str, object], object]]:
-        enrichment: dict[str, tuple[dict[str, object], object]] = {}
-        for deferred in self._deferred_columns:
-            fallback_type = _DEFERRED_TYPES[deferred.join]
-            if not page_ids:
-                enrichment[deferred.column_name] = ({}, fallback_type)
-                continue
-            response = execute_hogql_query(
-                query_type="AccountsEnrichmentQuery",
-                query=self._deferred_enrichment_query(deferred.join, page_ids),
-                team=self.team,
-                user=self.user,
-                timings=self.timings,
-                modifiers=self.modifiers,
-            )
-            values = {str(row[0]): row[1] for row in (response.results or [])}
-            value_type = response.types[1][1] if response.types and len(response.types) > 1 else fallback_type
-            enrichment[deferred.column_name] = (values, value_type)
-        return enrichment
-
-    def _deferred_enrichment_query(self, join: str, page_ids: list[str]) -> ast.SelectQuery | ast.SelectSetQuery:
-        if join == "tags":
-            return parse_select(
-                """
-                SELECT ti.account_id AS account_id,
-                       arraySort(arrayDistinct(groupArray(t.name))) AS value
-                FROM system._account_tagged_items AS ti
-                INNER JOIN system.tags AS t ON t.id = ti.tag_id
-                WHERE ti.account_id IN {ids}
-                GROUP BY ti.account_id
-                """,
-                {"ids": ast.Constant(value=page_ids)},
-            )
-        return parse_select(
-            """
-            SELECT arn.account_id AS account_id, count() AS value
-            FROM system._account_resource_notebooks AS arn
-            WHERE arn.account_id IN {ids}
-            GROUP BY arn.account_id
-            """,
-            {"ids": ast.Constant(value=page_ids)},
         )
 
     def _compute_metrics_results(self, metrics: list[str]) -> list[float | int | None]:

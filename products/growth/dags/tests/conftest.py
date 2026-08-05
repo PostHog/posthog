@@ -2,6 +2,7 @@
 # calls use PostgreSQL instead of SQLite (avoids locking errors).
 # Direct import (rather than pytest_plugins) is required because pytest
 # disallows pytest_plugins in non-top-level conftest files.
+from posthog.dags.tests.conftest import cluster, django_db_setup  # noqa: F401
 from posthog.dags.tests.dagster_pg_fixtures import (  # noqa: F401
     _dagster_postgres_instance,
     _use_postgres_dagster_instance,

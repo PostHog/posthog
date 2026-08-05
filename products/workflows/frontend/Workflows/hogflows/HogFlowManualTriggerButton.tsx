@@ -11,7 +11,7 @@ import { CyclotronJobInputSchemaType } from '~/types'
 
 import { WorkflowLogicProps, workflowLogic } from '../workflowLogic'
 import { hogFlowManualTriggerButtonLogic } from './HogFlowManualTriggerButtonLogic'
-import { batchTriggerLogic, BLAST_RADIUS_LIMIT } from './steps/batchTriggerLogic'
+import { batchTriggerLogic, getAudienceDedupeKey } from './steps/batchTriggerLogic'
 
 const TriggerPopover = ({
     setPopoverVisible,
@@ -24,19 +24,28 @@ const TriggerPopover = ({
     const { workflow, variableValues, inputs } = useValues(logic)
     const { setInput, clearInputs, triggerManualWorkflow, triggerBatchWorkflow } = useActions(logic)
 
+    const isAccountAudience =
+        workflow?.trigger?.type === 'batch' && workflow.trigger.filters?.audience_type === 'accounts'
+
     const { blastRadius, blastRadiusLoading } = useValues(
         batchTriggerLogic({
             id: props.id,
             filters: workflow?.trigger?.type === 'batch' ? workflow?.trigger?.filters : undefined,
+            // Account audiences carry no person, so email dedup never applies to them.
+            dedupeKey: isAccountAudience ? undefined : getAudienceDedupeKey(workflow),
         })
     )
 
     const blastRadiusExceeded =
-        workflow?.trigger?.type === 'batch' && blastRadius != null && blastRadius.affected > BLAST_RADIUS_LIMIT
+        workflow?.trigger?.type === 'batch' &&
+        blastRadius != null &&
+        blastRadius.limit != null &&
+        blastRadius.affected > blastRadius.limit
 
     const blastRadiusSuffix = (): string => {
         if (workflow?.trigger?.type === 'batch') {
-            return blastRadius ? ` for ${humanFriendlyNumber(blastRadius.affected)} users` : ' for ...'
+            const noun = isAccountAudience ? 'accounts' : 'users'
+            return blastRadius ? ` for ${humanFriendlyNumber(blastRadius.affected)} ${noun}` : ' for ...'
         }
         return ''
     }
@@ -104,8 +113,8 @@ const TriggerPopover = ({
                     status="alt"
                     loading={blastRadiusLoading}
                     disabledReason={
-                        blastRadiusExceeded
-                            ? `Batch size exceeds the limit of ${humanFriendlyNumber(BLAST_RADIUS_LIMIT)} users. Add filters to narrow your audience. This limit will be loosened in the future.`
+                        blastRadiusExceeded && blastRadius?.limit != null
+                            ? `Batch size exceeds the limit of ${humanFriendlyNumber(blastRadius.limit)} ${isAccountAudience ? 'accounts' : 'users'}. Add filters to narrow your audience. This limit will be loosened in the future.`
                             : undefined
                     }
                     onClick={() => {

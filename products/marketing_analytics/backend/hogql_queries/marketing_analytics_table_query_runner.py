@@ -18,14 +18,16 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 
-from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
-
 from .constants import (
     BASE_COLUMN_MAPPING,
+    CHANNEL_SESSIONS_CTE_NAME,
     DEFAULT_LIMIT,
     DRILL_DOWN_LEVEL_CONFIG,
     PAGINATION_EXTRA,
+    SESSIONS_COLUMN_ALIAS,
+    TOTAL_SESSIONS_FIELD,
     UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
+    UNKNOWN_CHANNEL,
     get_effective_excluded_columns,
     to_marketing_analytics_data,
 )
@@ -33,6 +35,20 @@ from .conversion_goals_aggregator import ConversionGoalsAggregator
 from .marketing_analytics_base_query_runner import MarketingAnalyticsBaseQueryRunner
 
 logger = structlog.get_logger(__name__)
+
+
+def _coalesce_non_empty(chains: list[list[str | int]], fallback: str | None = None) -> ast.Expr:
+    """coalesce(nullif(a, ''), nullif(b, ''), …[, fallback]) — pick the first side that has a value.
+
+    A FULL OUTER JOIN leaves the grouping columns NULL on whichever side didn't match, and the CTEs
+    emit '' rather than NULL for a missing key, so both have to be treated as absent.
+    """
+    args: list[ast.Expr] = [
+        ast.Call(name="nullif", args=[ast.Field(chain=chain), ast.Constant(value="")]) for chain in chains
+    ]
+    if fallback is not None:
+        args.append(ast.Constant(value=fallback))
+    return args[0] if len(args) == 1 else ast.Call(name="coalesce", args=args)
 
 
 class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[MarketingAnalyticsTableQueryResponse]):
@@ -44,8 +60,7 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
         )
-        # Initialize configuration with team-specific settings
-        self.config = MarketingAnalyticsConfig.from_team(self.team)
+        # self.config is built from team in the base runner's __init__.
 
     # Implementation of abstract methods from base class
 
@@ -72,6 +87,7 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            context=self._shared_hogql_context,
         )
 
         results = response.results or []
@@ -81,7 +97,6 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             if isinstance(query, ast.SelectQuery)
             else []
         )
-
         # Check if there are more results
         has_more = len(results) > requested_limit
 
@@ -104,29 +119,8 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             hasMore=has_more,
             limit=requested_limit,
             offset=self.query.offset or 0,
-            error="; ".join(self._conversion_goal_warnings) if self._conversion_goal_warnings else None,
+            error=self._conversion_goal_error,
         )
-
-    def _get_filtered_select_columns(self, query: ast.SelectQuery) -> list[ast.Expr]:
-        """Extract and filter select columns based on self.query.select"""
-        if self.query.select:
-            # Create a mapping of column names to their AST expressions
-            column_mapping: dict[str, ast.Expr] = {}
-            for col in query.select:
-                if isinstance(col, ast.Alias):
-                    column_mapping[col.alias] = col
-                else:
-                    column_mapping[str(col)] = col
-
-            # Filter to only include requested columns
-            filtered_select: list[ast.Expr] = []
-            for requested_col in self.query.select:
-                if requested_col in column_mapping:
-                    filtered_select.append(column_mapping[requested_col])
-            return filtered_select
-        else:
-            # If no specific columns requested, use all columns
-            return query.select if query.select else []
 
     def _get_column_names_for_order_by(self, select_columns: list[ast.Expr]) -> list[str]:
         """Extract column names from AST expressions for order by"""
@@ -144,45 +138,24 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             right=ast.Field(chain=self.config.get_unified_conversion_field_chain(self.config.source_field)),
         )
 
-    def _build_compare_join(
-        self, current_period_query: ast.SelectQuery, previous_period_query: ast.SelectQuery
-    ) -> ast.JoinExpr:
-        """Build the join expression for comparing current and previous periods.
+    def _get_compare_pivot_keys(self) -> list[str]:
+        """Columns that uniquely identify a row at the current drill-down level.
 
-        Join keys must uniquely identify a row at each drill-down level. Names alone
-        don't satisfy this for ad-group / ad levels — two campaigns can both have an
-        ad-group named "All Audiences", and renaming an entity between periods would
-        appear as "deleted + created". So at AD_GROUP / AD we join by the platform ID
-        + source. This assumes (AD_GROUP_ID, SOURCE) and (AD_ID, SOURCE) are unique
-        per source — true for Meta; future adapters must preserve it or add campaign_id
-        to the join.
+        These are the keys the compare pivot groups by — the same keys the old
+        LEFT JOIN matched on. Names alone don't uniquely identify a row at ad-group /
+        ad levels (two campaigns can both have an ad-group named "All Audiences", and
+        renaming an entity between periods would appear as "deleted + created"), so at
+        AD_GROUP / AD we key by the platform ID + source. This assumes (AD_GROUP_ID,
+        SOURCE) and (AD_ID, SOURCE) are unique per source — true for Meta; future
+        adapters must preserve it or add campaign_id to the key.
         """
         level = self.config.drill_down_level
         campaign_alias = self.config.get_campaign_column_alias()
 
-        def _eq(column: str) -> ast.CompareOperation:
-            return ast.CompareOperation(
-                left=ast.Field(chain=["current_period", column]),
-                op=ast.CompareOperationOp.Eq,
-                right=ast.Field(chain=["previous_period", column]),
-            )
-
         if level == MarketingAnalyticsDrillDownLevel.AD_GROUP:
-            # Group-by key is (ad_group_id, source). Join on the same so renamed
-            # ad-groups still match across periods.
-            join_condition: ast.Expr = ast.And(
-                exprs=[
-                    _eq(MarketingAnalyticsBaseColumns.AD_GROUP_ID.value),
-                    _eq(MarketingAnalyticsBaseColumns.SOURCE.value),
-                ]
-            )
+            return [MarketingAnalyticsBaseColumns.AD_GROUP_ID.value, MarketingAnalyticsBaseColumns.SOURCE.value]
         elif level == MarketingAnalyticsDrillDownLevel.AD:
-            join_condition = ast.And(
-                exprs=[
-                    _eq(MarketingAnalyticsBaseColumns.AD_ID.value),
-                    _eq(MarketingAnalyticsBaseColumns.SOURCE.value),
-                ]
-            )
+            return [MarketingAnalyticsBaseColumns.AD_ID.value, MarketingAnalyticsBaseColumns.SOURCE.value]
         elif level in (
             MarketingAnalyticsDrillDownLevel.CHANNEL,
             MarketingAnalyticsDrillDownLevel.SOURCE,
@@ -192,24 +165,10 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         ):
             # Repurposed-alias levels: campaign_alias holds the unique grouping value
             # (channel type / source / utm value). Names are stable identifiers here.
-            join_condition = _eq(campaign_alias)
+            return [campaign_alias]
         else:
-            # Campaign level joins on both Campaign + Source
-            join_condition = ast.And(exprs=[_eq(campaign_alias), _eq(MarketingAnalyticsBaseColumns.SOURCE.value)])
-
-        return ast.JoinExpr(
-            table=current_period_query,
-            alias="current_period",
-            next_join=ast.JoinExpr(
-                table=previous_period_query,
-                alias="previous_period",
-                join_type="LEFT JOIN",
-                constraint=ast.JoinConstraint(
-                    expr=join_condition,
-                    constraint_type="ON",
-                ),
-            ),
-        )
+            # Campaign and channel_source both key on their alias + Source.
+            return [campaign_alias, MarketingAnalyticsBaseColumns.SOURCE.value]
 
     def _build_paginated_query(
         self, select_columns: list[ast.Expr], select_from: ast.JoinExpr | None, ctes=None
@@ -250,40 +209,28 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             date_to=previous_date_range.date_to().isoformat(),
         )
 
-        # Create a new runner for the previous period
+        # user= is required: a user-less previous runner loses warehouse access and runs RBAC user-less.
         previous_runner = MarketingAnalyticsTableQueryRunner(
             query=previous_query,
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            user=self.user,
         )
+        # Share the prebuilt HogQL database across both periods so the compare query pays the ~1s
+        # Database.create_for once, not twice. Pre-populates the previous runner's cached_property.
+        previous_runner.__dict__["_shared_hogql_database"] = self._shared_hogql_database
 
         previous_period_query = previous_runner.to_query()
         current_period_query = self.to_query()
 
-        # Create the join manually with proper AST structure
-        join_expr = self._build_compare_join(current_period_query, previous_period_query)
-
         # Get column names for the compare query
         select_columns = self._get_filtered_select_columns(current_period_query)
 
-        # Create tuple columns for comparison
-        tuple_columns: list[ast.Expr] = [
-            ast.Alias(
-                alias=col.alias if isinstance(col, ast.Alias) else str(col),
-                expr=ast.Call(
-                    name="tuple",
-                    args=[
-                        ast.Field(chain=["current_period", col.alias if isinstance(col, ast.Alias) else str(col)]),
-                        ast.Field(chain=["previous_period", col.alias if isinstance(col, ast.Alias) else str(col)]),
-                    ],
-                ),
-            )
-            for col in select_columns
-        ]
-
-        return self._build_paginated_query(tuple_columns, join_expr)
+        return self._build_compare_pivot(
+            current_period_query, previous_period_query, select_columns, self._get_compare_pivot_keys()
+        )
 
     def _build_select_columns_mapping(
         self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None
@@ -376,23 +323,32 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
 
         # Create the FROM clause with base table
         from_clause = ast.JoinExpr(table=ast.Field(chain=[self.config.campaign_costs_cte_name]))
+        joined_ctes = [self.config.campaign_costs_cte_name]
 
         # Add single unified conversion goals join if we have conversion goals
         # (skip at ad-group / ad levels — no event attribution possible there).
         if conversion_aggregator and not skip_conversion_goals_join:
             if level in (
                 MarketingAnalyticsDrillDownLevel.CHANNEL,
+                MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE,
                 MarketingAnalyticsDrillDownLevel.SOURCE,
             ):
                 join_type = "FULL OUTER JOIN"
-                join_constraint = ast.JoinConstraint(
-                    expr=ast.CompareOperation(
-                        left=ast.Field(chain=self.config.get_campaign_cost_field_chain(self.config.campaign_field)),
+                # The grouping key is the join key. CHANNEL_SOURCE groups by two columns,
+                # so both have to match or a channel's sources would fan out.
+                join_fields = [self.config.campaign_field]
+                if level == MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE:
+                    join_fields.append(self.config.source_field)
+                key_comparisons: list[ast.Expr] = [
+                    ast.CompareOperation(
+                        left=ast.Field(chain=self.config.get_campaign_cost_field_chain(join_field)),
                         op=ast.CompareOperationOp.Eq,
-                        right=ast.Field(
-                            chain=self.config.get_unified_conversion_field_chain(self.config.campaign_field)
-                        ),
-                    ),
+                        right=ast.Field(chain=self.config.get_unified_conversion_field_chain(join_field)),
+                    )
+                    for join_field in join_fields
+                ]
+                join_constraint = ast.JoinConstraint(
+                    expr=key_comparisons[0] if len(key_comparisons) == 1 else ast.And(exprs=key_comparisons),
                     constraint_type="ON",
                 )
                 # Replace grouping columns with COALESCE to handle NULLs from FULL OUTER JOIN
@@ -430,10 +386,66 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
                 constraint=join_constraint,
             )
             from_clause.next_join = unified_join
+            joined_ctes.append(self.config.unified_conversion_goals_cte_alias)
+
+        if level == MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE:
+            self._append_sessions_join(from_clause, joined_ctes, conversion_columns_mapping)
 
         return ast.SelectQuery(
             select=list(conversion_columns_mapping.values()),
             select_from=from_clause,
+        )
+
+    def _append_sessions_join(
+        self,
+        from_clause: ast.JoinExpr,
+        joined_ctes: list[str],
+        columns: dict[str, ast.Expr],
+    ) -> None:
+        """FULL OUTER JOIN the sessions CTE and re-derive the grouping columns across every side.
+
+        Sessions is the only side that carries untagged traffic, so it contributes rows (organic,
+        direct, referral) the other sides never have. Its join key is the coalesce of the preceding
+        sides rather than one of them — keying off campaign_costs alone would drop the sessions of a
+        row that only exists on the conversion side.
+        """
+
+        def across(ctes: list[str], field: str, fallback: str | None = None) -> ast.Expr:
+            return _coalesce_non_empty([[cte, field] for cte in ctes], fallback)
+
+        sessions_join = ast.JoinExpr(
+            join_type="FULL OUTER JOIN",
+            table=ast.Field(chain=[CHANNEL_SESSIONS_CTE_NAME]),
+            alias=CHANNEL_SESSIONS_CTE_NAME,
+            constraint=ast.JoinConstraint(
+                expr=ast.And(
+                    exprs=[
+                        ast.CompareOperation(
+                            left=across(joined_ctes, field),
+                            op=ast.CompareOperationOp.Eq,
+                            right=ast.Field(chain=[CHANNEL_SESSIONS_CTE_NAME, field]),
+                        )
+                        for field in (self.config.campaign_field, self.config.source_field)
+                    ]
+                ),
+                constraint_type="ON",
+            ),
+        )
+        self._append_joins(from_clause, [sessions_join])
+
+        all_sides = [*joined_ctes, CHANNEL_SESSIONS_CTE_NAME]
+        campaign_alias = self.config.get_campaign_column_alias()
+        columns[campaign_alias] = ast.Alias(
+            alias=campaign_alias,
+            expr=across(all_sides, self.config.campaign_field, UNKNOWN_CHANNEL),
+        )
+        columns[self.config.source_column_alias] = ast.Alias(
+            alias=self.config.source_column_alias,
+            expr=across(all_sides, self.config.source_field, self.config.organic_source),
+        )
+        columns[SESSIONS_COLUMN_ALIAS] = ast.Alias(
+            alias=SESSIONS_COLUMN_ALIAS,
+            expr=ast.Field(chain=[CHANNEL_SESSIONS_CTE_NAME, TOTAL_SESSIONS_FIELD]),
         )
 
     def _append_joins(self, initial_join: ast.JoinExpr, joins: list[ast.JoinExpr]) -> ast.JoinExpr:

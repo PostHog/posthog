@@ -4,6 +4,7 @@ import {
     type BarLayout,
     barContainsPointOnBandAxis,
     barsAtCursor,
+    cursorBeyondTrackCeiling,
     cursorOutsideBarFillExtent,
     findVisibleStackedSegment,
 } from './bars-under-cursor'
@@ -70,6 +71,11 @@ export function resolveClickedBarSeries<Meta>({
                 return null
             }
             const inTrackArea = cursorOutsideBarFillExtent(bar, cursor, isHorizontal)
+            // Beyond a per-bar track ceiling the cursor is in the blank volume gap (funnel compare) —
+            // pass the click through so it opens nothing.
+            if (inTrackArea && cursorBeyondTrackCeiling(s, bar, scales, cursor, isHorizontal)) {
+                return null
+            }
             return { ...rewrite(hit.series, hit.value, dataIndex), inTrackArea }
         }
         return null

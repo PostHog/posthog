@@ -215,7 +215,7 @@ mod tests {
     #[test]
     fn encoding_tag_covers_supported_encodings_and_identity() {
         // Keep in lockstep with SUPPORTED_ENCODINGS.
-        for enc in crate::v1::analytics::constants::SUPPORTED_ENCODINGS {
+        for enc in crate::v1::constants::SUPPORTED_ENCODINGS {
             assert_eq!(
                 encoding_tag(Some(enc)),
                 *enc,

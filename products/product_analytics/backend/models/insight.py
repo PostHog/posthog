@@ -37,6 +37,8 @@ _ANALYTICS_INSIGHT_QUERY_KINDS = frozenset(
 
 
 if TYPE_CHECKING:
+    from posthog.schema import NodeKind
+
     from posthog.models.team import Team
 
     from products.dashboards.backend.models.dashboard import Dashboard
@@ -266,14 +268,6 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
         sharing_configurations = self.sharingconfiguration_set.all()
         return sharing_configurations[0].enabled if sharing_configurations and sharing_configurations[0] else False
 
-    @property
-    def caching_state(self):
-        # uses .all and not .first so that prefetching can be used
-        for state in self.caching_states.all():
-            if state.dashboard_tile_id is None:
-                return state
-        return None
-
     @cached_property
     def query_from_filters(self):
         from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
@@ -302,6 +296,18 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
                 )
             }
             dashboard_properties = dashboard_filters.pop("properties") if dashboard_filters.get("properties") else None
+            # `dashboard_properties` may be stored (or supplied via ?filters_override=) as a
+            # PropertyGroupFilter dict ({"type": ..., "values": [...]}) rather than a flat list of
+            # leaves. The merge below wraps it as {"type": "AND", "values": dashboard_properties},
+            # so a dict would make `values` a dict and silently drop the filters. Flatten to leaves.
+            # Imported lazily — this model loads during django.setup(), and the apply_dashboard_filters
+            # module pulls in the query_runner import graph.
+            if isinstance(dashboard_properties, list) or (
+                isinstance(dashboard_properties, dict) and "values" in dashboard_properties
+            ):
+                from posthog.hogql_queries.apply_dashboard_filters import flatten_property_leaves  # noqa: PLC0415
+
+                dashboard_properties = flatten_property_leaves(dashboard_properties)
             insight_date_from = self.filters.get("date_from", None)
             insight_date_to = self.filters.get("date_to", None)
             dashboard_date_from = dashboard_filters.get("date_from", None)
@@ -400,19 +406,33 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
         except (AttributeError, TypeError, KeyError):
             return False
 
-    @property
-    def are_alerts_supported(self) -> bool:
+    def _unwrapped_query_kind(self) -> str | None:
+        """Innermost query ``kind`` after unwrapping DataTable/DataVisualization/InsightVizNode
+        wrappers, or None if the insight has no query."""
         from posthog.schema_migrations.upgrade_manager import upgrade_query
 
         with upgrade_query(self):
             query = self.query
             if query is None:
-                return False
+                return None
             while query.get("source"):
                 query = query["source"]
-            if query.get("kind") != "TrendsQuery":
-                return False
-        return True
+            return query.get("kind")
+
+    @property
+    def alertable_query_kind(self) -> "NodeKind | None":
+        # Pure kind check (no flag gating — that's the caller's job), so existing alerts keep
+        # displaying and survive insight edits when a flag is off.
+        from posthog.schema import NodeKind  # noqa: PLC0415
+
+        kind = self._unwrapped_query_kind()
+        alertable_kinds = (
+            NodeKind.TRENDS_QUERY,
+            NodeKind.HOG_QL_QUERY,
+            NodeKind.FUNNELS_QUERY,
+            NodeKind.METRICS_QUERY,
+        )
+        return NodeKind(kind) if kind in alertable_kinds else None
 
     def generate_query_metadata(self):
         from posthog.hogql_queries.query_metadata import extract_query_metadata

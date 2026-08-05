@@ -259,7 +259,7 @@ class ExperimentFunnelActorsQueryBuilder:
 
         # Build the complete SELECT query
         # Note: recordings_fields and temporal_filter are internally computed safe strings
-        # covered by semgrep exception (see .semgrep/rules/hogql-no-fstring.yaml line 114)
+        # covered by semgrep exception (see .semgrep/rules/security/hogql-no-fstring.yaml line 114)
         query = cast(
             ast.SelectQuery,
             parse_select(

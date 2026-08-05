@@ -12,10 +12,12 @@ up first.
 from __future__ import annotations
 
 from ..check import WorkflowCheck
+from .cache_writes import CacheWriteGateCheck
 from .checkout_full_depth import CheckoutFullDepthCheck
 from .dorny_negation import DornyNegationCheck
 from .job_timeouts import JobTimeoutsCheck
 from .pr_concurrency import PrConcurrencyCheck
+from .required_gates import RequiredGateCheck
 from .semgrep_services_coverage import SemgrepServicesCoverageCheck
 
 CHECKS: list[WorkflowCheck] = [
@@ -24,6 +26,8 @@ CHECKS: list[WorkflowCheck] = [
     DornyNegationCheck(),
     SemgrepServicesCoverageCheck(),
     CheckoutFullDepthCheck(),
+    CacheWriteGateCheck(),
+    RequiredGateCheck(),
 ]
 
 

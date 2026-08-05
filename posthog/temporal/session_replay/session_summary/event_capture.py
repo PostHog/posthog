@@ -2,7 +2,7 @@ from django.conf import settings
 
 import structlog
 
-from posthog.api.capture_dispatch import capture_internal_routed
+from posthog.api.capture import capture_internal
 from posthog.temporal.session_replay.session_summary.types.events import SessionSummaryReadyProperties
 
 from products.replay.backend.models.session_summaries import SingleSessionSummary
@@ -36,7 +36,7 @@ def capture_session_summary_ready(
         session_duration=summary.session_duration,
     )
     try:
-        result = capture_internal_routed(
+        result = capture_internal(
             token=team_api_token,
             event_name="$session_summary_ready",
             event_source=EVENT_SOURCE,

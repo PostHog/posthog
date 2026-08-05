@@ -27,12 +27,20 @@ class CreateExperimentInput:
     description: str = ""
     type: str = "product"
 
-    # Feature flag configuration
+    # Experiment-own parameters (variant_notes, custom_exposure_filter, prompt_metadata, ...).
+    # Flag config is NOT accepted here — it goes through feature_flag_config below.
     parameters: dict[str, Any] | None = None
+
+    # Feature flag configuration in the flag's own write shape:
+    # {filters: {multivariate, groups, aggregation_group_type_index, payloads}, ensure_experience_continuity}
+    feature_flag_config: dict[str, Any] | None = None
 
     # Running-time calculator state (minimum_detectable_effect, recommended_running_time,
     # recommended_sample_size, exposure_estimate_config)
     running_time_calculation: dict[str, Any] | None = None
+
+    # Variant keys dropped from statistical analysis
+    excluded_variants: list[str] | None = None
 
     # Metrics configuration
     metrics: list[dict] | None = None
@@ -54,6 +62,8 @@ class CreateExperimentInput:
     deleted: bool = False
     conclusion: str | None = None
     conclusion_comment: str | None = None
+    # GitHub repo (`org/repo`) targeted by the flag-cleanup PR on experiment end
+    repository: str | None = None
 
     # Advanced configuration
     holdout_id: int | None = None  # We'll pass ID, facade will load the model

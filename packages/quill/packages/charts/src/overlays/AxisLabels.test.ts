@@ -1,5 +1,7 @@
+import { scaleLog } from 'd3-scale'
+
 import { measureLabelWidth } from '../utils/text-measure'
-import { computeVisibleValueTicks, computeVisibleXLabels } from './AxisLabels'
+import { computeVisibleValueTicks, computeVisibleXLabels, computeVisibleYTicks } from './AxisLabels'
 
 describe('computeVisibleXLabels', () => {
     const longUrl = 'https://app.posthog.com/project/1/insights/abc123/edit?with=a&very=long&query=string'
@@ -91,5 +93,48 @@ describe('computeVisibleValueTicks', () => {
         const visible = computeVisibleValueTicks(ticks, valueToCoord, fmt)
 
         expect(visible.map((v) => v.tick)).toEqual(expected)
+    })
+})
+
+describe('computeVisibleYTicks', () => {
+    it('keeps every linear tick when comfortably spaced', () => {
+        const ticks = [0, 25, 50, 75, 100]
+        // 50px apart — far beyond the ~16px overlap threshold.
+        const valueToCoord = (v: number): number => 250 - (v / 100) * 200
+
+        expect(computeVisibleYTicks(ticks, valueToCoord)).toEqual(ticks)
+    })
+
+    it('thins an overcrowded log axis down to non-overlapping labels, preferring round values', () => {
+        // d3 log ticks for a 1→1000 domain: 1..9, 10..90, 100..900, 1000 — far too many to label
+        // in a 300px gutter without overlap.
+        const scale = scaleLog().domain([1, 1000]).range([300, 0])
+        const ticks = scale.ticks() as number[]
+
+        const visible = computeVisibleYTicks(ticks, (v) => scale(v))
+
+        // No two surviving labels sit closer than the overlap threshold.
+        const coords = visible.map((t) => scale(t)).sort((a, b) => a - b)
+        for (let i = 1; i < coords.length; i++) {
+            expect(coords[i] - coords[i - 1]).toBeGreaterThanOrEqual(16)
+        }
+        // The powers of ten — the roundest values — all survive.
+        expect(visible).toEqual(expect.arrayContaining([1, 10, 100, 1000]))
+        // Ascending order is preserved.
+        expect([...visible].sort((a, b) => a - b)).toEqual(visible)
+    })
+
+    it('prefers a power of ten over an adjacent sub-decade tick when only one fits', () => {
+        // 90 and 100 map ~5px apart — too close to both label; the rounder 100 must win.
+        const valueToCoord = (v: number): number => (v === 90 ? 105 : v === 100 ? 100 : 300 - v)
+        const visible = computeVisibleYTicks([90, 100], valueToCoord)
+
+        expect(visible).toEqual([100])
+    })
+
+    it('drops ticks whose coordinate is not finite', () => {
+        const valueToCoord = (v: number): number => (v === 50 ? NaN : 200 - v)
+
+        expect(computeVisibleYTicks([0, 50, 100], valueToCoord)).toEqual([0, 100])
     })
 })

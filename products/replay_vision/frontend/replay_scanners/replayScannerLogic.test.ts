@@ -1,43 +1,73 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { parseCsvParam, parseSortParam } from '../utils/urlParams'
 import {
     buildObservationListParams,
     ObservationStatusValue,
     ObservationTriggeredByValue,
     ObservationVerdictValue,
-    parseCsvParam,
-    parseSortParam,
     replayScannerLogic,
+    shouldGuardScannerNavigation,
 } from './replayScannerLogic'
+import { readScannerDraft } from './scannerDraft'
+import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
+import { observationsDrilldownSearchParams } from './scannerOverviewLogic'
 import { defaultScannerTemplates } from './scannerTemplates'
 import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
+
+jest.mock('lib/forms/scrollToFormError', () => ({
+    scrollToFormError: jest.fn(),
+}))
 
 describe('replayScannerLogic', () => {
     let logic: ReturnType<typeof replayScannerLogic.build>
     let observeSpy: jest.Mock
+    let retrySpy: jest.Mock
+    let suggestSpy: jest.Mock
+    let createSpy: jest.Mock
 
     beforeEach(() => {
         observeSpy = jest.fn(() => [202, { workflow_id: 'wf-test' }])
+        retrySpy = jest.fn(() => [202, { workflow_id: 'wf-retry' }])
+        suggestSpy = jest.fn(() => [200, { suggestions: [] }])
+        createSpy = jest.fn(() => [201, { id: 'created-scanner' }])
         useMocks({
             get: {
                 '/api/projects/:team/vision/scanners/:id/': () => [404, {}],
                 '/api/projects/:team/vision/scanners/:id/observations/': { results: [] },
+                '/api/projects/:team/vision/scanners/:id/observations/stats/': {
+                    status_counts: { total: 0, succeeded: 0, failed: 0, ineligible: 0, in_flight: 0 },
+                    coverage: { recent_sessions: 0, total_sessions: 0, recent_days: 14 },
+                    available_tags: [],
+                },
             },
             post: {
+                '/api/projects/:team/vision/scanners/': createSpy,
                 '/api/projects/:team/vision/scanners/:id/observe/': observeSpy,
+                '/api/projects/:team/vision/observations/:id/retry/': retrySpy,
+                '/api/projects/:team/vision/scanners/suggest_tags/': suggestSpy,
             },
         })
+        // The draft layer persists form edits to localStorage; without a reset, one test's edits
+        // restore into the next test's freshly mounted wizard.
+        localStorage.clear()
         initKeaTests()
         logic = replayScannerLogic({ id: 'new' })
         logic.mount()
+        // The submit handler reads the wizard step from scannerEditorSceneLogic, so mount it too.
+        scannerEditorSceneLogic.mount()
     })
 
     afterEach(() => {
         logic?.unmount()
+        scannerEditorSceneLogic.unmount()
     })
 
     describe('form defaults', () => {
@@ -98,6 +128,108 @@ describe('replayScannerLogic', () => {
         })
     })
 
+    describe('appendClassifierTags', () => {
+        it('merges suggested tags into the vocabulary, deduping case-insensitively and trimming', async () => {
+            logic.actions.setScannerType('classifier')
+            logic.actions.setScannerValues({
+                scanner_config: {
+                    prompt: 'Categorize intent',
+                    tags: ['checkout', 'pricing'],
+                    multi_label: true,
+                } as ClassifierScanner['scanner_config'],
+            })
+            await expectLogic(logic, () => {
+                logic.actions.appendClassifierTags(['Checkout', '  billing ', 'pricing', '', 'account'])
+            }).toMatchValues({
+                scanner: expect.objectContaining({
+                    scanner_config: expect.objectContaining({ tags: ['checkout', 'pricing', 'billing', 'account'] }),
+                }),
+            })
+        })
+
+        it('is a no-op for non-classifier scanners', async () => {
+            // Default scanner is a monitor — appending classifier tags must not add a tags field.
+            await expectLogic(logic, () => logic.actions.appendClassifierTags(['x'])).toMatchValues({
+                scanner: expect.objectContaining({ scanner_type: 'monitor', scanner_config: { prompt: '' } }),
+            })
+        })
+    })
+
+    describe('tag suggestions', () => {
+        const setupClassifier = (): void => {
+            logic.actions.setScannerType('classifier')
+            logic.actions.setScannerValues({
+                scanner_config: {
+                    prompt: 'Categorize intent',
+                    tags: ['pricing'],
+                    multi_label: true,
+                } as ClassifierScanner['scanner_config'],
+            })
+        }
+
+        it('loads grounded suggestions from the endpoint', async () => {
+            suggestSpy.mockReturnValueOnce([
+                200,
+                { suggestions: [{ tag: 'abandoned_checkout', rationale: 'seen 12x', source: 'observed' }] },
+            ])
+            setupClassifier()
+            await expectLogic(logic, () => logic.actions.loadTagSuggestions())
+                .toDispatchActions(['loadTagSuggestionsSuccess'])
+                .toMatchValues({
+                    tagSuggestions: [{ tag: 'abandoned_checkout', rationale: 'seen 12x', source: 'observed' }],
+                    tagSuggestionsLoading: false,
+                })
+        })
+
+        it('accepting a suggestion adds it to the vocabulary and drops it from the panel', async () => {
+            suggestSpy.mockReturnValueOnce([
+                200,
+                {
+                    suggestions: [
+                        { tag: 'abandoned_checkout', rationale: 'r', source: 'observed' },
+                        { tag: 'pricing_confusion', rationale: 'r', source: 'product' },
+                    ],
+                },
+            ])
+            setupClassifier()
+            await expectLogic(logic, () => logic.actions.loadTagSuggestions()).toDispatchActions([
+                'loadTagSuggestionsSuccess',
+            ])
+            await expectLogic(logic, () => logic.actions.acceptTagSuggestion('abandoned_checkout'))
+                .toFinishAllListeners()
+                .toMatchValues({
+                    scanner: expect.objectContaining({
+                        scanner_config: expect.objectContaining({ tags: ['pricing', 'abandoned_checkout'] }),
+                    }),
+                    tagSuggestions: [{ tag: 'pricing_confusion', rationale: 'r', source: 'product' }],
+                })
+        })
+
+        it('accept all adds every suggestion and clears the panel', async () => {
+            suggestSpy.mockReturnValueOnce([
+                200,
+                {
+                    suggestions: [
+                        { tag: 'rage_clicking', rationale: 'r', source: 'observed' },
+                        { tag: 'form_errors', rationale: 'r', source: 'product' },
+                    ],
+                },
+            ])
+            setupClassifier()
+            await expectLogic(logic, () => logic.actions.loadTagSuggestions()).toDispatchActions([
+                'loadTagSuggestionsSuccess',
+            ])
+            await expectLogic(logic, () => logic.actions.acceptAllTagSuggestions())
+                .toFinishAllListeners()
+                .toMatchValues({
+                    scanner: expect.objectContaining({
+                        scanner_config: expect.objectContaining({ tags: ['pricing', 'rage_clicking', 'form_errors'] }),
+                    }),
+                    tagSuggestions: [],
+                })
+        })
+    })
+
     describe('submit intent', () => {
         it('advance intent routes to /triggers without calling the API', async () => {
             router.actions.push('/replay-vision/new/configure')
@@ -109,6 +241,69 @@ describe('replayScannerLogic', () => {
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
             expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
             expect(logic.values.submitIntent).toBe('save')
+        })
+
+        it('advance does not mark the draft as saved, so the unsaved-changes guard stays armed', async () => {
+            router.actions.push('/replay-vision/new/configure')
+            logic.actions.setScannerValues({ name: 'Draft scanner', scanner_config: { prompt: 'Q?' } })
+            logic.actions.setSubmitIntent('advance')
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            // The draft must not be adopted as the saved baseline — no API write happened.
+            expect(logic.values.originalScanner?.name).toBe('')
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+        })
+
+        it('default-intent submit (Enter) on the new-scanner configure step advances instead of creating', async () => {
+            router.actions.push('/replay-vision/new/configure')
+            logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(createSpy).not.toHaveBeenCalled()
+            expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
+        })
+
+        it('advances from the step the editor scene reports, even when the URL matches no step', async () => {
+            router.actions.push('/replay-vision/new/not-a-step')
+            scannerEditorSceneLogic.actions.setStep('configure')
+            logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
+            logic.actions.setSubmitIntent('advance')
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
+        })
+
+        it('routes a rejected submit to the step that renders the errored fields', async () => {
+            // Defaults leave name and prompt empty, both configure-owned.
+            router.actions.push('/replay-vision/new/triggers')
+            logic.actions.setSubmitIntent('advance')
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(createSpy).not.toHaveBeenCalled()
+            expect(router.values.location.pathname).toContain('/replay-vision/new/configure')
+        })
+    })
+
+    describe('new scanner draft', () => {
+        beforeEach(() => {
+            teamLogic.mount()
+        })
+
+        it('restores drafted values when the wizard remounts, keeping the unsaved-changes guard armed', async () => {
+            logic.actions.setScannerValues({ name: 'Half done', scanner_config: { prompt: 'Find rage clicks' } })
+            logic.unmount()
+            logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.scanner?.name).toBe('Half done')
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+        })
+
+        it.each([
+            ['scannerSaved', () => logic.actions.scannerSaved(logic.values.scanner!)],
+            ['resetScanner', () => logic.actions.resetScanner()],
+        ])('clears the draft on %s', async (_label, act) => {
+            const teamId = teamLogic.values.currentTeamId!
+            logic.actions.setScannerValues({ name: 'Drafted' })
+            expect(readScannerDraft(teamId)?.name).toBe('Drafted')
+            act()
+            expect(readScannerDraft(teamId)).toBeNull()
         })
     })
 
@@ -240,6 +435,9 @@ describe('replayScannerLogic', () => {
             observationTriggeredByFilter: [] as ObservationTriggeredByValue[],
             observationVerdictFilter: [] as ObservationVerdictValue[],
             observationTagFilter: [] as string[],
+            observationSubjectFilter: '',
+            observationDateFrom: null as string | null,
+            observationDateTo: null as string | null,
             observationsSort: null,
             scanner: null,
         }
@@ -265,6 +463,15 @@ describe('replayScannerLogic', () => {
             expect(params.triggered_by).toBe('on_demand')
             expect(params.verdict).toBe('yes,inconclusive')
             expect(params.tags).toBe('onboarding,support')
+        })
+
+        it('passes date range only when set', () => {
+            const params = buildObservationListParams({
+                ...emptyValues,
+                observationDateFrom: '-7d',
+                observationDateTo: '2026-07-01',
+            })
+            expect(params).toEqual({ date_from: '-7d', date_to: '2026-07-01' })
         })
 
         it.each<[ReplayScanner, string]>([
@@ -303,6 +510,19 @@ describe('replayScannerLogic', () => {
             })
             expect(params.order_by).toBe('scanner_version')
         })
+
+        it('passes recording_subject trimmed when set', () => {
+            const params = buildObservationListParams({ ...emptyValues, observationSubjectFilter: '  acme  ' })
+            expect(params.recording_subject).toBe('acme')
+        })
+
+        it('maps recording_subject column to recording_subject_email', () => {
+            const params = buildObservationListParams({
+                ...emptyValues,
+                observationsSort: { columnKey: 'recording_subject', order: 1 },
+            })
+            expect(params.order_by).toBe('recording_subject_email')
+        })
     })
 
     describe('parseSortParam', () => {
@@ -329,6 +549,14 @@ describe('replayScannerLogic', () => {
 
         it('splits, trims, and drops empty values', () => {
             expect(parseCsvParam('a, b ,c,')).toEqual(['a', 'b', 'c'])
+        })
+
+        it('survives the router coercing a single numeric param to a number', () => {
+            expect(parseCsvParam(2024)).toEqual(['2024'])
+        })
+
+        it('drops values outside the allowlist when one is given', () => {
+            expect(parseCsvParam('banana,yes', ['yes', 'no'])).toEqual(['yes'])
         })
     })
 
@@ -435,6 +663,50 @@ describe('replayScannerLogic', () => {
         })
     })
 
+    describe('shouldGuardScannerNavigation', () => {
+        const scannerId = 'abc-123'
+        const configure = urls.replayVisionScannerConfigure(scannerId)
+        const triggers = urls.replayVisionScannerTriggers(scannerId)
+        const template = urls.replayVisionScannerTemplate(scannerId)
+        const selfDriving = urls.replayVisionScannerSelfDriving(scannerId)
+        const detail = urls.replayVision(scannerId)
+        const base = { hasUnsavedChanges: true, isSubmitting: false, scannerId, currentPathname: configure }
+
+        it.each([
+            // Nothing to lose, or the editor is mid-submit (save / step advance redirects itself).
+            ['no unsaved changes', { ...base, hasUnsavedChanges: false, nextPathname: '/insights' }, false],
+            ['mid-submit redirect to detail', { ...base, isSubmitting: true, nextPathname: detail }, false],
+            // Moving between the wizard's own steps keeps the same draft mounted.
+            ['forward to triggers step', { ...base, nextPathname: triggers }, false],
+            ['back to template step', { ...base, currentPathname: triggers, nextPathname: template }, false],
+            // Only guard while actually inside this scanner's editor.
+            ['not currently in the editor', { ...base, currentPathname: detail, nextPathname: '/insights' }, false],
+            // Genuinely leaving the editor with unsaved edits.
+            ['out to the detail page', { ...base, nextPathname: detail }, true],
+            ['out to an unrelated scene', { ...base, nextPathname: '/insights' }, true],
+            ['closing the tab (no next location)', { ...base, nextPathname: undefined }, true],
+            [
+                'over to a different scanner’s editor',
+                { ...base, nextPathname: urls.replayVisionScannerConfigure('other-id') },
+                true,
+            ],
+            ['out from the self-driving step', { ...base, currentPathname: selfDriving, nextPathname: detail }, true],
+            // The router stores pathnames with the `/project/:id` prefix; `urls.*` are unprefixed.
+            [
+                'out to settings from a project-prefixed URL',
+                { ...base, currentPathname: `/project/123${triggers}`, nextPathname: '/settings/environment' },
+                true,
+            ],
+            [
+                'between steps with project-prefixed URLs',
+                { ...base, currentPathname: `/project/123${configure}`, nextPathname: `/project/123${triggers}` },
+                false,
+            ],
+        ])('%s', (_label, params, expected) => {
+            expect(shouldGuardScannerNavigation(params)).toBe(expected)
+        })
+    })
+
     describe('triggerOnDemandObservation', () => {
         it.each([
             { name: 'empty string', input: '' },
@@ -459,6 +731,71 @@ describe('replayScannerLogic', () => {
             )
             expect(logic.values.triggeringOnDemandObservation).toBe(false)
             expect(observeSpy).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('retrying failed observations', () => {
+        it('retryObservation hits the endpoint and re-arms the poll window for the replacement row', async () => {
+            const persisted = replayScannerLogic({ id: 'abc-123' })
+            persisted.mount()
+            try {
+                await expectLogic(persisted, () => persisted.actions.retryObservation('obs-1')).toDispatchActions([
+                    'retryObservationSuccess',
+                ])
+                expect(retrySpy).toHaveBeenCalledTimes(1)
+                expect(persisted.values.retryingObservationIds).toEqual([])
+                // Without the grace window the replacement row, inserted moments later, is never polled in.
+                expect(persisted.values.pollUntil).toBeGreaterThan(Date.now())
+            } finally {
+                persisted.unmount()
+            }
+        })
+    })
+
+    describe('background polling', () => {
+        it('background reloads stay silent so the table stays interactable, foreground loads do not', () => {
+            const persisted = replayScannerLogic({ id: 'abc-123' })
+            persisted.mount()
+            try {
+                // The initial foreground load (also manual refresh, filter/sort/pagination) shows the overlay.
+                expect(persisted.values.observationsLoading).toBe(true)
+
+                persisted.actions.loadObservationsSuccess([], 0)
+                expect(persisted.values.observationsLoading).toBe(false)
+
+                // The 3s in-flight poll reloads in the background — no overlay, so rows update in place.
+                persisted.actions.loadObservations(true)
+                expect(persisted.values.observationsLoading).toBe(false)
+
+                // A foreground reload still shows it — proving the silent case isn't just a no-op action.
+                persisted.actions.loadObservations()
+                expect(persisted.values.observationsLoading).toBe(true)
+            } finally {
+                persisted.unmount()
+            }
+        })
+    })
+
+    describe('observations drill-down round-trip', () => {
+        // Guards the URL contract between the Overview chart drill-down and this logic's urlToAction:
+        // a param rename on either side breaks the drill-down silently.
+        it('restores the drill-down search params into the observations table filters', async () => {
+            const sidLogic = replayScannerLogic({ id: 'sid' })
+            sidLogic.mount()
+            try {
+                const params = observationsDrilldownSearchParams({
+                    day: '2026-05-04',
+                    interval: 'day',
+                    scannerType: 'monitor',
+                })
+                router.actions.push(urls.replayVision('sid'), params!)
+                await expectLogic(sidLogic).toFinishAllListeners()
+                expect(sidLogic.values.observationDateFrom).toBe('2026-05-04')
+                expect(sidLogic.values.observationDateTo).toBe('2026-05-04')
+                expect(sidLogic.values.observationVerdictFilter).toEqual(['yes'])
+            } finally {
+                sidLogic.unmount()
+            }
         })
     })
 })

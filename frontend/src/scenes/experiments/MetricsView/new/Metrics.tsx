@@ -8,13 +8,14 @@ import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
+import { SummarizeExperimentButton } from '~/scenes/experiments/components/SummarizeExperimentButton'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import { experimentMetricsLogic } from '~/scenes/experiments/experimentMetricsLogic'
 import { AddMetricButton } from '~/scenes/experiments/Metrics/AddMetricButton'
 import { METRIC_CONTEXTS } from '~/scenes/experiments/Metrics/experimentMetricModalLogic'
 import { MetricsReorderModal } from '~/scenes/experiments/MetricsView/MetricsReorderModal'
 import { modalsLogic } from '~/scenes/experiments/modalsLogic'
-import { isSavedExperiment, metricResults } from '~/scenes/experiments/utils'
+import { getExperimentVariants, isSavedExperiment, metricResults } from '~/scenes/experiments/utils'
 import { Experiment } from '~/types'
 
 import { HowToReadTooltip } from './HowToReadTooltip'
@@ -24,9 +25,9 @@ import { ResultDetails } from './ResultDetails'
 export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element | null {
     const { experiment } = useValues(experimentLogic)
 
-    const variants = experiment?.feature_flag?.filters?.multivariate?.variants
+    const variants = getExperimentVariants(experiment)
     // Guard here so the child can take a non-null, real experiment and mount keyed child logics safely.
-    if (!variants || !isSavedExperiment(experiment)) {
+    if (!variants.length || !isSavedExperiment(experiment)) {
         return null
     }
 
@@ -87,17 +88,12 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
                         <h2 className="mb-0 font-semibold text-lg leading-6">
                             {isSecondary ? 'Secondary metrics' : 'Primary metrics'}
                         </h2>
-                        {metrics.length > 0 && (
-                            <Tooltip
-                                title={
-                                    isSecondary
-                                        ? 'Secondary metrics capture additional outcomes or behaviors affected by your experiment. They help you understand broader impacts and potential side effects beyond the primary goal.'
-                                        : 'Primary metrics represent the main goal of your experiment. They directly measure whether your hypothesis was successful and are the key factor in deciding if the test achieved its primary objective.'
-                                }
-                            >
+                        {isSecondary && metrics.length > 0 && (
+                            <Tooltip title="Secondary metrics capture additional outcomes or behaviors affected by your experiment. They help you understand broader impacts and potential side effects beyond the primary goal.">
                                 <IconInfo className="text-secondary text-lg" />
                             </Tooltip>
                         )}
+                        {!isSecondary && hasMinimumExposureForResults && <SummarizeExperimentButton />}
                         {hasSomeResults && !isSecondary && <HowToReadTooltip />}
                     </div>
                 </div>

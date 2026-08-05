@@ -10,14 +10,20 @@ DEFAULT_MAX_SAMPLES = 1500
 DEFAULT_MIN_K = 2
 DEFAULT_MAX_K = 10
 
-# Minimum traces required for clustering
-MIN_TRACES_FOR_CLUSTERING = 20
+# Minimum items required for clustering, checked per analysis level over the
+# lookback window (~1 week). A team qualifies for trace clustering with >= this
+# many traces, and independently for generation clustering with >= this many
+# generations.
+MIN_TRACES_FOR_CLUSTERING = 1000
 
-# Coordinator concurrency settings
-DEFAULT_MAX_CONCURRENT_TEAMS = 4  # Max teams to process in parallel
+# Coordinator concurrency settings.
+# Each team's compute activity runs a heavy embedding scan against ClickHouse, so keep the
+# fan-out low to avoid exhausting the shared query pool (see the offline-workload routing in
+# data.py and the capacity backoff in activities.py).
+DEFAULT_MAX_CONCURRENT_TEAMS = 2  # Max teams to process in parallel
 
 # Workflow timeouts
-WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)
+WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=45)  # Covers all activity budgets plus orchestration overhead
 COORDINATOR_EXECUTION_TIMEOUT = timedelta(hours=12)  # Must be less than daily schedule interval to avoid blocking
 # Temporal configuration
 WORKFLOW_NAME = "llma-trace-clustering"
@@ -30,9 +36,9 @@ GENERATION_COORDINATOR_SCHEDULE_ID = "llma-generation-clustering-coordinator-sch
 GENERATION_CHILD_WORKFLOW_ID_PREFIX = "llma-generation-clustering-team"
 
 # Activity timeouts (per activity type, per single attempt)
-COMPUTE_ACTIVITY_TIMEOUT = timedelta(seconds=120)  # Fetch + clustering + distances
+COMPUTE_ACTIVITY_TIMEOUT = timedelta(seconds=300)  # Two 120s ClickHouse query caps plus clustering
 LLM_ACTIVITY_TIMEOUT = timedelta(seconds=600)  # 10 minutes for full labeling agent run (LangGraph multi-turn)
-AGGREGATES_ACTIVITY_TIMEOUT = timedelta(seconds=300)  # 5 min budget for metrics + sentiment
+AGGREGATES_ACTIVITY_TIMEOUT = timedelta(seconds=300)  # 5 min budget for metrics
 EMIT_ACTIVITY_TIMEOUT = timedelta(seconds=60)  # ClickHouse write
 
 # Heartbeat timeouts - allows Temporal to detect dead workers faster than
@@ -41,13 +47,13 @@ EMIT_ACTIVITY_TIMEOUT = timedelta(seconds=60)  # ClickHouse write
 # and schedule a retry on another worker.
 COMPUTE_HEARTBEAT_TIMEOUT = timedelta(seconds=60)  # 1 minute - compute is mostly CPU-bound
 LLM_HEARTBEAT_TIMEOUT = timedelta(seconds=120)  # 2 minutes - agent runs can have long pauses between LLM calls
-AGGREGATES_HEARTBEAT_TIMEOUT = timedelta(seconds=60)  # 1 minute - external calls to ClickHouse + sentiment
+AGGREGATES_HEARTBEAT_TIMEOUT = timedelta(seconds=60)  # 1 minute - external calls to ClickHouse
 EMIT_HEARTBEAT_TIMEOUT = timedelta(seconds=30)  # 30 seconds - ClickHouse writes are fast
 
 # Schedule-to-close timeouts - caps total time including all retry attempts,
 # backoff intervals, and queue time. Prevents runaway retries from blocking
 # the workflow indefinitely.
-COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=300)  # 5 min (2 attempts * 120s + backoff)
+COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=720)  # Two attempts, 60s backoff, and queue time
 LLM_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=900)  # 15 min (2 attempts * 600s + backoff, capped)
 AGGREGATES_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=330)  # 5.5 min (1 attempt only, best-effort)
 EMIT_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=150)  # 2.5 min (2 attempts * 60s + backoff)
@@ -60,6 +66,13 @@ COMPUTE_ACTIVITY_RETRY_POLICY = RetryPolicy(
     backoff_coefficient=2.0,
     non_retryable_error_types=["ValueError", "TypeError"],
 )
+
+# When ClickHouse reports it is at capacity (too many simultaneous queries), an immediate retry
+# just piles more load onto a pool that is already starved. Back off with jitter instead, so the
+# retry lands after the contention has had a chance to clear. Jitter spreads retries from the
+# concurrent per-team activities so they don't all re-fire at the same instant.
+CLICKHOUSE_AT_CAPACITY_BACKOFF_MIN = timedelta(seconds=20)
+CLICKHOUSE_AT_CAPACITY_BACKOFF_MAX = timedelta(seconds=60)
 
 # LLM activity - external dependency, longer intervals between retries
 LLM_ACTIVITY_RETRY_POLICY = RetryPolicy(
@@ -74,12 +87,6 @@ LLM_ACTIVITY_RETRY_POLICY = RetryPolicy(
 AGGREGATES_ACTIVITY_RETRY_POLICY = RetryPolicy(
     maximum_attempts=1,
 )
-
-# Sentiment batching within the aggregates activity
-SENTIMENT_BATCH_SIZE = 5  # trace IDs per sentiment workflow (matches API batch size)
-SENTIMENT_MAX_CONCURRENT = 10  # max concurrent sentiment workflows
-SENTIMENT_PER_BATCH_TIMEOUT = 120  # seconds per sentiment batch
-SENTIMENT_TOTAL_TIMEOUT = 240  # seconds total budget for all sentiment batches (must be < activity timeout)
 
 # Event emission - database write, quick retries
 EMIT_ACTIVITY_RETRY_POLICY = RetryPolicy(

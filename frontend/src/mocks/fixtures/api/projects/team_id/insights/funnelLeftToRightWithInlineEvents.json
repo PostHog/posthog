@@ -12,6 +12,7 @@
     "color": null,
     "last_refresh": null,
     "refreshing": false,
+    "total_median_conversion_time": 691.5,
     "result": [
         {
             "action_id": "$pageview, $pageleave",

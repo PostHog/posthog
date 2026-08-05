@@ -1,0 +1,121 @@
+{
+  "id": 22,
+  "short_id": "qJ3UMu6h",
+  "name": "SQL with trend line",
+  "derived_name": null,
+  "filters": {},
+  "query": {
+    "kind": "DataVisualizationNode",
+    "source": {
+      "kind": "HogQLQuery",
+      "query": "SELECT\n    toStartOfMonth(timestamp) AS month,\n    count() AS pageviews\nFROM events\nGROUP BY month\nORDER BY month"
+    },
+    "display": "ActionsLineGraph",
+    "chartSettings": {
+      "xAxis": {
+        "column": "month"
+      },
+      "yAxis": [
+        {
+          "column": "pageviews",
+          "settings": {
+            "display": {
+              "trendLine": true
+            },
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        }
+      ]
+    },
+    "tableSettings": {
+      "columns": [
+        {
+          "column": "month",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "pageviews",
+          "settings": {
+            "display": {
+              "trendLine": true
+            },
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        }
+      ]
+    }
+  },
+  "order": null,
+  "deleted": false,
+  "dashboards": [],
+  "dashboard_tiles": [],
+  "last_refresh": "2026-03-04T16:10:59.052768Z",
+  "cache_target_age": "2026-03-04T22:10:59.052768Z",
+  "next_allowed_client_refresh": "2026-03-04T16:11:59.052768Z",
+  "result": [
+    ["2025-10-01", 1520],
+    ["2025-11-01", 6775],
+    ["2025-12-01", 9162],
+    ["2026-01-01", 12520],
+    ["2026-02-01", 14192],
+    ["2026-03-01", 19208]
+  ],
+  "hasMore": false,
+  "columns": ["month", "pageviews"],
+  "created_at": "2026-03-04T16:11:08.460573Z",
+  "created_by": {
+    "id": 1,
+    "uuid": "019c66e6-fd77-0000-a6bb-509ac38f988e",
+    "distinct_id": "otSl3FZiAxw3Vv8GUTeWtZcV3mdpR0lH9pprZmBRKXd",
+    "first_name": "Employee 427",
+    "last_name": "",
+    "email": "test@posthog.com",
+    "is_email_verified": null,
+    "hedgehog_config": null,
+    "role_at_organization": "engineering"
+  },
+  "description": null,
+  "updated_at": "2026-03-04T16:11:08.460609Z",
+  "favorited": false,
+  "saved": true,
+  "last_modified_at": "2026-03-04T16:11:08.456506Z",
+  "last_modified_by": {
+    "id": 1,
+    "uuid": "019c66e6-fd77-0000-a6bb-509ac38f988e",
+    "distinct_id": "otSl3FZiAxw3Vv8GUTeWtZcV3mdpR0lH9pprZmBRKXd",
+    "first_name": "Employee 427",
+    "last_name": "",
+    "email": "test@posthog.com",
+    "is_email_verified": null,
+    "hedgehog_config": null,
+    "role_at_organization": "engineering"
+  },
+  "is_sample": false,
+  "effective_restriction_level": 21,
+  "effective_privilege_level": 37,
+  "user_access_level": "manager",
+  "timezone": "UTC",
+  "is_cached": true,
+  "query_status": null,
+  "hogql": "SELECT\n    toStartOfMonth(timestamp) AS month,\n    count() AS pageviews\nFROM\n    events\nGROUP BY\n    month\nORDER BY\n    month ASC\nLIMIT 101\nOFFSET 0",
+  "types": [
+    ["month", "Date"],
+    ["pageviews", "UInt64"]
+  ],
+  "resolved_date_range": null,
+  "alerts": [],
+  "last_viewed_at": "2026-03-04T16:11:30.018817Z",
+  "tags": [],
+  "filters_hash": "cache_1_eb04b61fff884f29a4c74600aea3684fb7769ff1fa6e0d4e59865ee187c3b58c"
+}

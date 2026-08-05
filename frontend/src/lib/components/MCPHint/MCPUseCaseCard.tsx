@@ -41,12 +41,12 @@ export function MCPUseCaseCard({
     expiresAfterMs?: number
     forceDisplay?: boolean
 }): JSX.Element | null {
-    const { effectiveOptOut, featureEnabled, userRole, topEvents } = useValues(mcpHintLogic)
+    const { effectiveOptOut, userRole, topEvents } = useValues(mcpHintLogic)
     const { loadTopEvents } = useActions(mcpHintLogic)
     const [expired] = useState(() => (expiresAfterMs ? getExpiryState(surfaceKey, expiresAfterMs).expired : false))
     const triedLoadingEvents = useRef(false)
 
-    const willRender = forceDisplay || (featureEnabled && !effectiveOptOut && !expired)
+    const willRender = forceDisplay || (!effectiveOptOut && !expired)
 
     useEffect(() => {
         // Only the SQL editor surface benefits from the team's real event names — keep the call narrow.

@@ -1,6 +1,6 @@
-import { EventHeaders } from '../../../types'
-import { dlq, ok } from '../../pipelines/results'
-import { ProcessingStep } from '../../pipelines/steps'
+import { dlq, ok } from '~/ingestion/framework/results'
+import { ProcessingStep } from '~/ingestion/framework/steps'
+import { EventHeaders } from '~/types'
 
 /**
  * DLQs any event whose header `event` name is not in the allow list.

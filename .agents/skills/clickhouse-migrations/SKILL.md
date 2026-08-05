@@ -49,6 +49,7 @@ Distributed engine:
 - If a function generating SQL has on_cluster param, always set `on_cluster=False`
 - Use `sharded=True` when altering sharded tables
 - Use `is_alter_on_replicated_table=True` when altering non-sharded replicated tables
+- **Never write `CODEC(ZSTD(1))` on a column** — the server already compresses every column with ZSTD, so it buys nothing. Declare a CODEC only where it beats that default, and check the `ORDER BY` first: `Delta`/`DoubleDelta` need the column near-sorted in storage order (a leading sort-key prefix), and lose on a column the key only buckets or omits. `T64`/`Gorilla` are ordering-independent. Put it on the storage table only — a CODEC on a Distributed or Kafka table is inert metadata that drifts from the sharded table it fronts.
 - **Never write a `DROP COLUMN` migration yourself** — `DROP COLUMN` can get stuck in ClickHouse and block releases. Column removal is a two-step process: (1) the ClickHouse team drops the column directly on the cluster, then (2) you write a migration with the matching `DROP COLUMN` so the codebase schema stays in sync. Never initiate the drop from a migration without the ClickHouse team having done step 1 first.
 - **Never drop or recreate `kafka_events_json_ws` or `events_json_ws_mv`** — these tables are a no-go zone. The MV definition differs significantly between US prod, EU prod, and dev (dozens of environment-specific `mat_*` columns) and those differences are **not reflected in the repo**. Dropping and recreating from repo SQL would destroy the environment-specific schema and break event ingestion. Any change must go through the ClickHouse team.
 
@@ -88,6 +89,8 @@ If you create a new table inside such a guard, you must also add its SQL functio
 | Dictionary             | `CREATE_DICTIONARY_QUERIES`        |
 
 The only exception is tables whose definition intentionally differs per environment and is not tracked in the repo (e.g. the no-go zone `events_json_ws_mv` table).
+
+**Dictionary credentials:** when a dictionary uses a `SOURCE(CLICKHOUSE(...))`, resolve the source user/password via `get_clickhouse_creds(ClickHouseUser.DICT_READER)` and interpolate them into the `USER`/`PASSWORD` clause — do not hardcode `default`/`CLICKHOUSE_USER` or omit credentials. This keeps dictionary auth on the dedicated low-privilege `dict_reader` user, decoupled from `default`; it falls back to `default` creds when the env vars are unset. See `posthog/models/exchange_rate/sql.py` for the pattern.
 
 ### Testing
 

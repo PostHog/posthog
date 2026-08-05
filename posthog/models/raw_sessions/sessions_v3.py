@@ -235,23 +235,9 @@ def ALTER_SHARDED_RAW_SESSIONS_TABLE_SETTINGS_V3():
     )
 
 
-SESSION_V3_LOWER_TIER_AD_IDS = [
-    "gclsrc",
-    "dclid",
-    "gbraid",
-    "wbraid",
-    "msclkid",
-    "twclid",
-    "li_fat_id",
-    "mc_cid",
-    "igshid",
-    "ttclid",
-    "epik",
-    "qclid",
-    "sccid",
-    "_kx",
-    "irclid",
-]
+# Re-exported from the Django-free posthog.raw_sessions_v3_ad_ids module so the HogQL schema can
+# use it without booting Django; kept importable here for existing callers.
+from posthog.raw_sessions_v3_ad_ids import SESSION_V3_LOWER_TIER_AD_IDS  # noqa: E402
 
 new_line = "\n"
 

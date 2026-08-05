@@ -10,7 +10,10 @@ def query_kind_label(query: dict | None) -> str:
 ENDPOINT_EXECUTION_TOTAL = Counter(
     "posthog_endpoint_execution_total",
     "Endpoint executions that reached query execution (excludes concurrency rejections; see posthog_endpoint_concurrency_rejected_total). "
-    "status is success, user_error (invalid query/variables in the user's endpoint, returned as 4xx), or error (unexpected system failure)",
+    "status is success; user_error (invalid query/variables in the user's endpoint, returned as 4xx); "
+    "query_performance (the query hit a ClickHouse cost guardrail — timeout/memory/size/estimated-too-slow — returned as 400); "
+    "capacity (shared ClickHouse pool momentarily saturated, returned as 503); "
+    'or error (unexpected system failure). Only error is a system fault — alert on status="error"',
     labelnames=["execution_type", "query_kind", "status"],
 )
 
@@ -25,17 +28,6 @@ ENDPOINT_MATERIALIZATION_EVENT_TOTAL = Counter(
     "posthog_endpoint_materialization_event_total",
     "Materialization lifecycle events (enable/disable/deactivate_stale)",
     labelnames=["action", "status"],
-)
-
-ENDPOINT_DUCKLAKE_FALLBACK_TOTAL = Counter(
-    "posthog_endpoint_ducklake_fallback_total",
-    "DuckLake executions that fell back to inline",
-)
-
-ENDPOINT_RATE_LIMITED_TOTAL = Counter(
-    "posthog_endpoint_rate_limited_total",
-    "Rate-limited endpoint requests",
-    labelnames=["scope"],
 )
 
 ENDPOINT_CONCURRENCY_REJECTED_TOTAL = Counter(

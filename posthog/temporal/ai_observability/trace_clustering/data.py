@@ -15,6 +15,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 from posthog.temporal.ai_observability.trace_clustering import constants
@@ -25,6 +26,9 @@ from posthog.temporal.ai_observability.trace_clustering.models import (
     ItemId,
     ItemSummaries,
 )
+from posthog.temporal.ai_observability.trace_summarization.constants import EMBEDDING_DOCUMENT_ID_JOB_DELIMITER
+
+from products.ai_observability.backend.summarization.models import SummarizationMode
 
 logger = structlog.get_logger(__name__)
 
@@ -47,6 +51,12 @@ def fetch_item_embeddings_for_clustering(
     Two paths:
     - job_id present: scope to one ClusteringJob via ``metadata.job_id``
     - no job_id: return all embeddings for the document type (legacy/unfiltered)
+
+    Each embedding's ``document_id`` is ``{item_id}::{job_id}`` (Stage A scopes it per job so
+    overlapping jobs don't collapse on the ReplacingMergeTree key — see
+    EMBEDDING_DOCUMENT_ID_JOB_DELIMITER). We strip it back to the bare ``item_id`` here and dedupe,
+    so a trace summarized by several jobs yields one clustering item. Pre-suffix rows carry a bare
+    id and pass through unchanged.
 
     The ``batch_run_id`` used to pair each embedding with its summary event now lives in the
     embedding's ``metadata`` JSON (read via JSONExtractString); ``rendering`` is just the
@@ -115,6 +125,9 @@ def fetch_item_embeddings_for_clustering(
             query=query,
             placeholders=placeholders,
             team=team,
+            # Background clustering scans run on the offline cluster so they don't compete with
+            # user-facing traffic on the online `default` pool (this is a large embedding scan).
+            workload=Workload.OFFLINE,
             settings=HogQLGlobalSettings(max_execution_time=CLUSTERING_QUERY_MAX_EXECUTION_TIME),
         )
 
@@ -132,20 +145,22 @@ def fetch_item_embeddings_for_clustering(
     embeddings_map: ItemEmbeddings = {}
     batch_run_ids_map: ItemBatchRunIds = {}
 
-    # `rendering` values that are NOT batch_run_ids: the current mode enum (post-migration
-    # rendering = the summary mode) plus the older legacy render modes. A row whose rendering
-    # is one of these and whose metadata lacks a batch_run_id contributes no pairing key, so
-    # fetch_item_summaries falls back to accepting any matching summary.
+    # `rendering` values that are NOT batch_run_ids: the current summary-mode enum plus the older
+    # legacy render modes. A row whose rendering is one of these and whose metadata lacks a
+    # batch_run_id contributes no pairing key, so fetch_item_summaries accepts any matching summary.
     non_batch_run_id_renderings = {
         constants.LLMA_TRACE_RENDERING_LEGACY,  # "llma_trace_detailed"
-        "llma_trace_minimal",  # Other legacy mode
-        "detailed",  # SummarizationMode.DETAILED — current rendering value
-        "minimal",  # SummarizationMode.MINIMAL — current rendering value
+        "llma_trace_minimal",  # legacy minimal rendering
+        *(mode.value for mode in SummarizationMode),  # current rendering values
     }
 
     for row in rows:
-        item_id = row[0]
-        item_ids.append(item_id)
+        # document_id is `{item_id}::{job_id}` (or a bare id for pre-suffix rows). Strip back to the
+        # item id; ids contain no ":", so a single split recovers it. Dedupe so a trace summarized
+        # by multiple jobs (or a bare + suffixed row in transition) yields one clustering item.
+        item_id = row[0].split(EMBEDDING_DOCUMENT_ID_JOB_DELIMITER, 1)[0]
+        if item_id not in embeddings_map:
+            item_ids.append(item_id)
         embeddings_map[item_id] = row[1]
 
         # batch_run_id now lives in metadata; prefer it. Pre-migration rows carry it in
@@ -233,6 +248,7 @@ def fetch_item_summaries(
                 "max_rows": ast.Constant(value=max_rows),
             },
             team=team,
+            workload=Workload.OFFLINE,
             settings=HogQLGlobalSettings(max_execution_time=CLUSTERING_QUERY_MAX_EXECUTION_TIME),
         )
 
@@ -369,6 +385,7 @@ def fetch_item_metrics(
             query=query,
             placeholders=placeholders,
             team=team,
+            workload=Workload.OFFLINE,
             settings=HogQLGlobalSettings(max_execution_time=CLUSTERING_QUERY_MAX_EXECUTION_TIME),
         )
 

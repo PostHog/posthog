@@ -9,9 +9,11 @@ from posthog.schema import HogLanguage, HogQLMetadata, HogQLMetadataResponse, Ho
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.compiler.bytecode import create_bytecode
+from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
+from posthog.hogql.direct_sql import get_adapter
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.metadata_heuristics import run_metadata_heuristics
@@ -71,6 +73,11 @@ def get_hogql_metadata(
             database=database,
             modifiers=query_modifiers,
             enable_select_queries=True,
+            # A resolved direct-connection source prints with its engine dialect (below), so the
+            # context must be marked direct — otherwise the ClickHouse printer's direct-table guard
+            # fires and metadata/autocomplete reports a false "can only be queried through its direct
+            # connection" error for a query that actually runs fine.
+            is_direct_query=source is not None,
             debug=query.debug or False,
             globals=query.globals,
         )
@@ -105,8 +112,9 @@ def get_hogql_metadata(
             response.table_names = hogql_table_names
 
             if not printed_sql or not prepared_ast:
-                direct_dialect: Literal["postgres", "mysql"] = (
-                    "mysql" if source and source.is_direct_mysql else "postgres"
+                direct_adapter = get_adapter(source.direct_engine) if source else None
+                direct_dialect: HogQLDialect = (
+                    direct_adapter.dialect if direct_adapter and direct_adapter.dialect else "postgres"
                 )
                 printed_sql, prepared_ast = prepare_and_print_ast(
                     clone_expr(hogql_ast),
