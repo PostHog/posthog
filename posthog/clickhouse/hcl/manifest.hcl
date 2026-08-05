@@ -26,10 +26,10 @@
 # golden from a host of that role (codegen/README has the extraction).
 
 role "ops" {
-  env "local-multi"   { layers = ["roles/shared", "roles/ops/shared", "roles/ops/local"] }
-  env "dev"     { layers = ["roles/shared", "roles/ops/shared", "roles/ops/dev"] }
-  env "prod-us" { layers = ["roles/shared", "roles/ops/shared", "roles/ops/prod", "roles/ops/prod-us"] }
-  env "prod-eu" { layers = ["roles/shared", "roles/ops/shared", "roles/ops/prod", "roles/ops/prod-eu"] }
+  env "local-multi"   { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local"] }
+  env "dev"     { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/dev"] }
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/prod", "roles/ops/prod-us"] }
+  env "prod-eu" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/prod", "roles/ops/prod-eu"] }
 }
 
 # The local LOGS node runs a partial/newer schema than the cloud logs nodes, so it
@@ -37,9 +37,9 @@ role "ops" {
 # than the shared cloud layers.
 role "logs" {
   env "local-multi"   { layers = ["roles/logs/local"] }
-  env "dev"     { layers = ["roles/shared", "roles/logs/shared", "roles/logs/dev"] }
-  env "prod-us" { layers = ["roles/shared", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-us"] }
-  env "prod-eu" { layers = ["roles/shared", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-eu"] }
+  env "dev"     { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/logs/shared", "roles/logs/dev"] }
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-us"] }
+  env "prod-eu" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-eu"] }
 }
 
 # AI_EVENTS satellite (LLM analytics). local/hobby run the MSK variant

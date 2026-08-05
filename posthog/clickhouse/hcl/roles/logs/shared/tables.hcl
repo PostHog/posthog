@@ -1,8 +1,5 @@
 # LOGS role — managed logs/traces/metrics objects extracted from *-logs.hcl dumps.
 database "posthog" {
-  view "custom_metrics" {
-    query = file("sql/custom_metrics.sql")
-  }
   materialized_view "kafka_logs_avro_kafka_metrics_mv" {
     to_table = "posthog.logs_kafka_metrics"
     query = file("sql/kafka_logs_avro_kafka_metrics_mv.sql")

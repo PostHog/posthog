@@ -6,7 +6,6 @@ posthog.ai_events
 posthog.channel_definition
 posthog.channel_definition_dict
 posthog.cohortpeople
-posthog.custom_metrics
 posthog.events
 posthog.events_main
 posthog.events_recent
