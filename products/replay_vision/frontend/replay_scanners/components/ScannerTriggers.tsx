@@ -1,8 +1,17 @@
 import './ScannerTriggers.scss'
 
 import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
 
-import { LemonBanner, LemonCard, LemonInput, LemonInputSelect, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonCard,
+    LemonInput,
+    LemonInputSelect,
+    LemonModal,
+    LemonSegmentedButton,
+    LemonTag,
+} from '@posthog/lemon-ui'
 
 import { resolveCategoryDropdownVariant, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -35,6 +44,7 @@ import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { PropertyFilterType, RecordingUniversalFilters, UniversalFiltersGroup } from '~/types'
 
 import { clampDurationFilter, durationFilterError, MAX_ACTIVE_LABEL } from '../durationBounds'
+import { replaceExperimentExposureFilter, stripManagedExposureFilters } from '../experimentTargeting'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { SAMPLING_MODE_OPTIONS, SamplingMode } from '../types'
 import { ScannerCreditLimit } from './ScannerCreditLimit'
@@ -150,10 +160,74 @@ function ExperimentTargeting({ scannerId }: { scannerId: string }): JSX.Element 
     )
 }
 
+// Cold-entry experiment picker: the wizard wasn't opened from an experiment, so offer the list.
+function TargetExperimentModal({
+    scannerId,
+    isOpen,
+    onClose,
+}: {
+    scannerId: string
+    isOpen: boolean
+    onClose: () => void
+}): JSX.Element {
+    const { experimentOptions, experimentOptionsLoading } = useValues(replayScannerLogic({ id: scannerId }))
+    const { attachExperiment, loadExperimentOptions } = useActions(replayScannerLogic({ id: scannerId }))
+    const [selectedId, setSelectedId] = useState<string | null>(null)
+
+    useEffect(() => {
+        if (isOpen) {
+            loadExperimentOptions()
+        }
+    }, [isOpen, loadExperimentOptions])
+
+    return (
+        <LemonModal
+            isOpen={isOpen}
+            onClose={onClose}
+            title="Target an experiment"
+            description="Watch sessions of people exposed to an experiment. You can narrow to specific variants after linking."
+            footer={
+                <>
+                    <LemonButton type="secondary" onClick={onClose}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        disabledReason={selectedId ? undefined : 'Choose an experiment first'}
+                        onClick={() => {
+                            if (selectedId) {
+                                attachExperiment(Number(selectedId))
+                                setSelectedId(null)
+                                onClose()
+                            }
+                        }}
+                        data-attr="vision-target-experiment-confirm"
+                    >
+                        Add targeting
+                    </LemonButton>
+                </>
+            }
+        >
+            <LemonInputSelect
+                mode="single"
+                value={selectedId ? [selectedId] : []}
+                onChange={(values) => setSelectedId(values[0] ?? null)}
+                options={experimentOptions.map((option) => ({ key: String(option.id), label: option.name }))}
+                loading={experimentOptionsLoading}
+                placeholder="Choose an experiment"
+                data-attr="vision-target-experiment-select"
+            />
+        </LemonModal>
+    )
+}
+
 export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Element {
-    const { scanner, scannerEstimate, scannerEstimateLoading } = useValues(replayScannerLogic({ id: scannerId }))
+    const { scanner, experimentContext, scannerEstimate, scannerEstimateLoading } = useValues(
+        replayScannerLogic({ id: scannerId })
+    )
     const { featureFlags } = useValues(featureFlagLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const [experimentModalOpen, setExperimentModalOpen] = useState(false)
     const categoryDropdownVariant = resolveCategoryDropdownVariant(
         featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
     )
@@ -171,14 +245,27 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
     return (
         <div className="space-y-6">
             <ExperimentTargeting scannerId={scannerId} />
+            <TargetExperimentModal
+                scannerId={scannerId}
+                isOpen={experimentModalOpen}
+                onClose={() => setExperimentModalOpen(false)}
+            />
             <LemonField name="query">
                 {({ value, onChange }) => {
                     const query = value as RecordingsQuery | null
                     const universal = recordingsQueryToUniversalFilters(query)
+                    // While an experiment is attached, its compiled exposure filter is represented by
+                    // the targeting card above, so the editor hides it and pares back to the extras:
+                    // no chip for the managed filter, no match-operand row, no empty-filters warning.
+                    const attached = experimentContext !== null
+                    const displayGroup = attached
+                        ? stripManagedExposureFilters(universal.filter_group, experimentContext.experiment)
+                        : universal.filter_group
+                    const displayUniversal = { ...universal, filter_group: displayGroup }
                     const applyUniversal = (next: RecordingUniversalFilters): void => {
                         const converted = convertUniversalFiltersToRecordingsQuery(next)
                         // Overlay only the dimensions this editor renders so other query fields survive an edit.
-                        onChange({
+                        const overlaid = {
                             ...query,
                             kind: converted.kind,
                             events: converted.events,
@@ -189,7 +276,10 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                             comment_text: converted.comment_text,
                             filter_test_accounts: converted.filter_test_accounts,
                             operand: converted.operand,
-                        })
+                        }
+                        // Edits arrive based on the stripped display group; re-inject the managed
+                        // exposure filter so no edit can silently drop the experiment targeting.
+                        onChange(attached ? replaceExperimentExposureFilter(overlaid, experimentContext) : overlaid)
                     }
                     const durationFilter = clampDurationFilter(universal.duration[0] ?? defaultRecordingDurationFilter)
                     const durationError = durationFilterError(durationFilter)
@@ -197,40 +287,56 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                         <LemonCard hoverEffect={false} className="p-3 space-y-3">
                             <div className="flex flex-wrap items-start justify-between gap-2">
                                 <div className="space-y-1">
-                                    <LemonLabel>Recording filters</LemonLabel>
+                                    <LemonLabel>{attached ? 'Additional filters' : 'Recording filters'}</LemonLabel>
                                     <div className="text-xs text-muted">
-                                        Filter by event, action, person, session, or cohort.
+                                        {attached
+                                            ? 'Optional. Narrow which exposed sessions get scanned.'
+                                            : 'Filter by event, action, person, session, or cohort.'}
                                     </div>
                                 </div>
-                                <TestAccountFilterSwitch
-                                    size="xsmall"
-                                    checked={universal.filter_test_accounts ?? false}
-                                    onChange={(checked) =>
-                                        applyUniversal({ ...universal, filter_test_accounts: checked })
-                                    }
-                                />
+                                <div className="flex items-center gap-2">
+                                    {!attached && (
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="secondary"
+                                            onClick={() => setExperimentModalOpen(true)}
+                                            data-attr="vision-target-experiment-open"
+                                        >
+                                            Target an experiment
+                                        </LemonButton>
+                                    )}
+                                    <TestAccountFilterSwitch
+                                        size="xsmall"
+                                        checked={universal.filter_test_accounts ?? false}
+                                        onChange={(checked) =>
+                                            applyUniversal({ ...displayUniversal, filter_test_accounts: checked })
+                                        }
+                                    />
+                                </div>
                             </div>
                             {/* -ml-2 cancels AndOrFilterSelect's built-in prefix indent so "Match" left-aligns with the rest. */}
-                            <div className="-ml-2">
-                                <AndOrFilterSelect
-                                    value={deriveOperand(universal.filter_group)}
-                                    onChange={(type) => {
-                                        if (type === deriveOperand(universal.filter_group)) {
-                                            return
-                                        }
-                                        let values = universal.filter_group.values
-                                        // With a single nested group, the effective operand lives on that child.
-                                        if (values.length === 1) {
-                                            const group = values[0] as UniversalFiltersGroup
-                                            values = [{ ...group, type }]
-                                        }
-                                        applyUniversal({ ...universal, filter_group: { type, values } })
-                                    }}
-                                    topLevelFilter
-                                    suffix={['filter', 'filters']}
-                                    size="small"
-                                />
-                            </div>
+                            {!attached && (
+                                <div className="-ml-2">
+                                    <AndOrFilterSelect
+                                        value={deriveOperand(universal.filter_group)}
+                                        onChange={(type) => {
+                                            if (type === deriveOperand(universal.filter_group)) {
+                                                return
+                                            }
+                                            let values = universal.filter_group.values
+                                            // With a single nested group, the effective operand lives on that child.
+                                            if (values.length === 1) {
+                                                const group = values[0] as UniversalFiltersGroup
+                                                values = [{ ...group, type }]
+                                            }
+                                            applyUniversal({ ...universal, filter_group: { type, values } })
+                                        }}
+                                        topLevelFilter
+                                        suffix={['filter', 'filters']}
+                                        size="small"
+                                    />
+                                </div>
+                            )}
                             {noMatchWindowDays !== null ? (
                                 <LemonBanner type="warning">
                                     <span className="text-xs">
@@ -240,6 +346,7 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                     </span>
                                 </LemonBanner>
                             ) : (
+                                !attached &&
                                 groupHasNoFilters(universal.filter_group) && (
                                     <LemonBanner type="warning">
                                         <span className="text-xs">
@@ -251,7 +358,7 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                     </LemonBanner>
                                 )
                             )}
-                            {groupHasEventProperty(universal.filter_group) && (
+                            {groupHasEventProperty(displayGroup) && (
                                 <LemonBanner type="info" dismissKey="replay-vision-event-vs-person-property-hint">
                                     <span className="text-xs">
                                         Some attributes are stored on the person, not the event. If an event property
@@ -261,25 +368,24 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                             )}
                             <UniversalFilters
                                 rootKey={`replay-scanner-${scanner.id}`}
-                                group={universal.filter_group}
+                                group={displayGroup}
                                 taxonomicGroupTypes={scannerFilterTypes}
-                                onChange={(filterGroup) => applyUniversal({ ...universal, filter_group: filterGroup })}
+                                onChange={(filterGroup) =>
+                                    applyUniversal({ ...displayUniversal, filter_group: filterGroup })
+                                }
                             >
-                                {universal.filter_group.values.length > 0 &&
-                                    isUniversalGroupFilterLike(universal.filter_group.values[0]) && (
+                                {displayGroup.values.length > 0 &&
+                                    isUniversalGroupFilterLike(displayGroup.values[0]) && (
                                         <UniversalFilters
                                             rootKey={`replay-scanner-${scanner.id}.nested`}
-                                            group={universal.filter_group.values[0]}
+                                            group={displayGroup.values[0]}
                                             taxonomicGroupTypes={scannerFilterTypes}
                                             onChange={(nestedGroup) =>
                                                 applyUniversal({
-                                                    ...universal,
+                                                    ...displayUniversal,
                                                     filter_group: {
-                                                        ...universal.filter_group,
-                                                        values: [
-                                                            nestedGroup,
-                                                            ...universal.filter_group.values.slice(1),
-                                                        ],
+                                                        ...displayGroup,
+                                                        values: [nestedGroup, ...displayGroup.values.slice(1)],
                                                     },
                                                 })
                                             }

@@ -1,3 +1,5 @@
+import { recordingsQueryToUniversalFilters } from 'scenes/session-recordings/filters/recordingsQueryConversions'
+
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { Experiment, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -8,6 +10,7 @@ import {
     parseExperimentScannerParams,
     reconcileVariantKeys,
     replaceExperimentExposureFilter,
+    stripManagedExposureFilters,
 } from './experimentTargeting'
 
 const experiment = {
@@ -180,6 +183,23 @@ describe('experimentTargeting', () => {
             useExposureFallback: false,
         })
         expect(updated.operand).toEqual(FilterLogicalOperator.And)
+    })
+
+    it('strips only the managed exposure filter from the display group, recursively', () => {
+        const base = buildExperimentScannerQuery(experiment, ['test'], false)
+        const userFilter = {
+            key: '$browser',
+            type: PropertyFilterType.Event,
+            value: ['Chrome'],
+            operator: PropertyOperator.Exact,
+        }
+        const withUserFilter = { ...base, properties: [userFilter] } as RecordingsQuery
+
+        const universal = recordingsQueryToUniversalFilters(withUserFilter)
+        const stripped = stripManagedExposureFilters(universal.filter_group, experiment)
+
+        const leaves = (stripped.values[0] as { values: unknown[] }).values
+        expect(leaves).toEqual([expect.objectContaining({ key: '$browser' })])
     })
 
     it('inserts the exposure filter when the user removed it', () => {

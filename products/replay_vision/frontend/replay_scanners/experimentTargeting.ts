@@ -135,7 +135,7 @@ export function buildExperimentScannerQuery(
  * filters on the same flag are indistinguishable by design; the variant selector owns flag
  * targeting while the experiment link is attached.
  */
-function isManagedExposureFilter(value: UniversalFiltersGroupValue, experiment: Experiment): boolean {
+export function isManagedExposureFilter(value: UniversalFiltersGroupValue, experiment: Experiment): boolean {
     if (isUniversalGroupFilterLike(value)) {
         return false
     }
@@ -195,6 +195,25 @@ export function replaceExperimentExposureFilter(
             ? { ...universal.filter_group, type: FilterLogicalOperator.And, values: [swapIn(first), ...rest] }
             : swapIn(universal.filter_group)
     return toScannerQuery({ ...universal, filter_group: filterGroup })
+}
+
+/**
+ * The filter group without the managed exposure filter, for display while the experiment link is
+ * attached: the targeting card already represents that filter, so rendering its chip too would
+ * duplicate it. The persisted query keeps the filter; only the editor view drops it.
+ */
+export function stripManagedExposureFilters(
+    group: UniversalFiltersGroup,
+    experiment: Experiment
+): UniversalFiltersGroup {
+    return {
+        ...group,
+        values: group.values
+            .filter((value) => !isManagedExposureFilter(value, experiment))
+            .map((value) =>
+                isUniversalGroupFilterLike(value) ? stripManagedExposureFilters(value, experiment) : value
+            ),
+    }
 }
 
 /**
