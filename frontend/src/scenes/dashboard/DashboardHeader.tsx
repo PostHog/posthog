@@ -19,12 +19,14 @@ import { DashboardScenePanel } from './DashboardScenePanel'
 export const DASHBOARD_CANNOT_EDIT_MESSAGE =
     "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."
 
-export function DashboardHeader(): JSX.Element | null {
+export function DashboardHeader({ loading = false }: { loading?: boolean }): JSX.Element | null {
     const { dashboard, dashboardLoading, dashboardMode, canEditDashboard } = useValues(dashboardLogic)
     const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
     const { updateDashboard } = useActions(dashboardsModel)
 
-    if (!dashboard && !dashboardLoading) {
+    const isLoading = loading || dashboardLoading
+
+    if (!dashboard && !isLoading) {
         return null
     }
 
@@ -53,7 +55,7 @@ export function DashboardHeader(): JSX.Element | null {
                 }}
                 markdown
                 canEdit={canEditDashboard}
-                isLoading={dashboardLoading}
+                isLoading={isLoading}
                 saveOnBlur
                 renameDebounceMs={0}
                 maxButtonLabel="PostHog AI"
@@ -78,7 +80,7 @@ export function DashboardHeader(): JSX.Element | null {
                         : undefined
                 }
                 actions={
-                    dashboardMode === DashboardMode.Edit ? (
+                    !dashboard ? undefined : dashboardMode === DashboardMode.Edit ? (
                         <EditModeActions />
                     ) : dashboardMode === DashboardMode.Fullscreen ? (
                         <FullscreenModeActions />
