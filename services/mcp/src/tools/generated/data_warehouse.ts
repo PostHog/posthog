@@ -284,7 +284,7 @@ const viewMaterialize = (): ToolBase<typeof ViewMaterializeSchema, unknown> => (
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/materialize/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/sql?open_view=${result.id}`)
+        return await withPostHogUrl(context, result, `/sql?open_view=${params.id}`)
     },
 })
 

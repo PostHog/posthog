@@ -9985,7 +9985,7 @@
         }
     },
     "view-materialize": {
-        "description": "Enable materialization for a saved query. This creates a physical table from the view's query and sets up a 24-hour sync schedule to keep it refreshed. Materialized views are faster to query but use storage. Use 'view-unmaterialize' to undo. Rate limited.",
+        "description": "Enable materialization for a saved query. This creates a physical table from the view's query and sets up a sync schedule to keep it refreshed, daily unless `sync_frequency` asks for another cadence. A cadence is rejected when the view's lineage cannot support it: no more often than its sources deliver new data, and no less often than a downstream view or endpoint needs. Materialized views are faster to query but use storage. Use 'view-unmaterialize' to undo. Rate limited.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Materialize saved query",
