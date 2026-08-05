@@ -179,6 +179,7 @@ export interface supportTicketSceneLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     assignee: TicketAssignee
     breadcrumbs: Breadcrumb[]
+    broadcastToMerged: boolean
     chatMessages: ChatMessage[]
     chatPanelWidth: (desiredSize: number | null) => number
     draftContent: JSONContent | null
@@ -358,6 +359,9 @@ export interface supportTicketSceneLogicActions {
     }
     setAssignee: (assignee: TicketAssignee) => {
         assignee: TicketAssignee
+    }
+    setBroadcastToMerged: (broadcast: boolean) => {
+        broadcast: boolean
     }
     setDraftContent: (content: JSONContent | null) => {
         content: JSONContent | null
@@ -551,6 +555,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         showAllMergedTickets: true,
         hideAllMergedTickets: true,
         loadMergedConversations: true,
+        // When replying, also deliver the reply to every merged ticket's channel.
+        setBroadcastToMerged: (broadcast: boolean) => ({ broadcast }),
 
         // Session context actions
         loadPerson: true,
@@ -821,6 +827,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 setVisibleMergedTicketIds: (_: string[], { ids }) => ids,
                 // Reset when navigating to a different ticket.
                 setTicket: () => [],
+            },
+        ],
+        broadcastToMerged: [
+            false,
+            {
+                setBroadcastToMerged: (_: boolean, { broadcast }) => broadcast,
+                setTicket: () => false,
             },
         ],
         draftContent: [
@@ -1242,9 +1255,34 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     },
                     {}
                 )
+                // Optionally blast the same reply to every merged ticket's source. Only public
+                // replies are delivered over a channel, so private notes never broadcast.
+                const broadcastIds = !isPrivate && values.broadcastToMerged ? values.mergedTickets.map((t) => t.id) : []
+                if (broadcastIds.length > 0) {
+                    await Promise.all(
+                        broadcastIds.map((id) =>
+                            api.comments.create(
+                                {
+                                    content,
+                                    rich_content: richContent,
+                                    scope: 'conversations_ticket',
+                                    item_id: id,
+                                    item_context: { author_type: 'support', is_private: false },
+                                },
+                                {}
+                            )
+                        )
+                    )
+                }
                 // "Added", not "sent": email delivery is async (outbox + Celery) and can still fail
                 // after this API call succeeds; the per-message delivery status is the send signal.
-                lemonToast.success(isPrivate ? 'Private note added' : 'Reply added')
+                lemonToast.success(
+                    isPrivate
+                        ? 'Private note added'
+                        : broadcastIds.length > 0
+                          ? `Reply added and sent to ${broadcastIds.length} merged ticket${broadcastIds.length === 1 ? '' : 's'}`
+                          : 'Reply added'
+                )
                 actions.setMessageSending(false)
                 onSuccess?.()
                 if (!isPrivate) {
