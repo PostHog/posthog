@@ -144,3 +144,23 @@ class TestUpsertRepositoryDetectionValidation(SimpleTestCase):
             data={"repository": "posthog/posthog", "kind": "error-tracking-source-maps", **body_part}
         )
         self.assertEqual(serializer.is_valid(), expected_valid)
+
+    @parameterized.expand(
+        [
+            ("org_and_repo", "posthog/posthog", "posthog/posthog"),
+            ("surrounding_whitespace_stripped", "  posthog/posthog  ", "posthog/posthog"),
+            ("no_slash", "posthog", None),
+            ("trailing_slash", "posthog/posthog/", None),
+            ("empty_org", "/posthog", None),
+            ("nested_path", "posthog/posthog/frontend", None),
+        ]
+    )
+    def test_repository_must_be_org_slash_repo(self, _name, repository, expected):
+        # repository is half the idempotency anchor under a unique constraint, so a value the shape
+        # check lets through splits into a second row instead of replacing the first.
+        serializer = UpsertRepositoryDetectionRequestSerializer(
+            data={"repository": repository, "kind": "error-tracking-source-maps", "report": _report()}
+        )
+        self.assertEqual(serializer.is_valid(), expected is not None)
+        if expected is not None:
+            self.assertEqual(serializer.validated_data.repository, expected)

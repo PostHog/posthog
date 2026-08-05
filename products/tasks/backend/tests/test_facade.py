@@ -755,7 +755,9 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertIsNone(run.state.get("pending_user_message"))
         self.assertIsNone(run.state.get("wizard_head_branch"))
         task = Task.objects.get(id=created.task_id)
-        self.assertEqual(task.origin_product, Task.OriginProduct.ERROR_TRACKING)
+        # Cloud wizard runs stamp wizard_config too, so the origin is what keeps this run out of the
+        # process-task reconciler and off the cloud-run quota window.
+        self.assertEqual(task.origin_product, Task.OriginProduct.REPOSITORY_DETECTION)
 
     def test_create_detection_run_rejects_unknown_kind(self):
         Integration.objects.create(team=self.team, kind="github", config={})
@@ -846,6 +848,30 @@ class TestRecentWizardCloudRunTimes(TestCase):
         self._make_run(**run_kwargs)
         since = django_timezone.now() - timedelta(hours=1)
         self.assertEqual(len(facade.recent_wizard_cloud_run_times(self.user.id, since)), expected_count)
+
+    @parameterized.expand(
+        [
+            ("cloud_run", {}, 1, 0),
+            (
+                "detection_run",
+                {
+                    "origin_product": Task.OriginProduct.REPOSITORY_DETECTION,
+                    "state": {"wizard_config": {"kind": "error-tracking-source-maps"}},
+                },
+                0,
+                1,
+            ),
+        ]
+    )
+    def test_detection_and_cloud_runs_count_against_separate_windows(
+        self, _name, run_kwargs, cloud_count, detection_count
+    ):
+        # Both stamp wizard_config, so the origin is the only thing keeping repository scans out of
+        # the much tighter cloud-run window the user needs to get through onboarding.
+        self._make_run(**run_kwargs)
+        since = django_timezone.now() - timedelta(hours=1)
+        self.assertEqual(len(facade.recent_wizard_cloud_run_times(self.user.id, since)), cloud_count)
+        self.assertEqual(len(facade.recent_wizard_detection_run_times(self.user.id, since)), detection_count)
 
     def test_scopes_by_user_across_teams_and_respects_window(self):
         self._make_run()

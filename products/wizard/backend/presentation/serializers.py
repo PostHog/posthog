@@ -232,6 +232,17 @@ class UpsertRepositoryDetectionRequestSerializer(DataclassSerializer):
         # The contract dataclass carries a plain string; UUIDField only validates format.
         return str(value) if value is not None else None
 
+    def validate_repository(self, value: str) -> str:
+        # This value is half the idempotency anchor and is stored verbatim under a unique
+        # constraint, so anything the shape check lets through splits into a second row instead of
+        # replacing the first. Matches the shape SetupWizardDetectionSerializer accepts on the
+        # trigger side, which local (non-cloud) runs would otherwise bypass entirely.
+        repository = value.strip()
+        parts = repository.split("/")
+        if len(parts) != 2 or not all(parts):
+            raise serializers.ValidationError("Repository must be in 'owner/repo' format.")
+        return repository
+
     def validate(self, attrs: UpsertRepositoryDetectionRequest) -> UpsertRepositoryDetectionRequest:
         # DataclassSerializer hands validate() the built dataclass, not a dict.
         if (attrs.report is not None) == (attrs.error is not None):

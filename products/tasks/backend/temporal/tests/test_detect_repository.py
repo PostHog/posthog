@@ -72,13 +72,17 @@ class _FakeCreated:
 
 
 class TestDetectRepositoryWorkflow:
-    def _install_fake_activities(self, monkeypatch, *, detection_error: Exception | None = None):
+    def _install_fake_activities(
+        self, monkeypatch, *, detection_error: Exception | None = None, context_error: Exception | None = None
+    ):
         """Replace workflow.execute_activity with a dispatch table; returns the call log."""
         calls: list[tuple[object, object]] = []
 
         async def fake_execute_activity(activity_fn, activity_input, **kwargs):
             calls.append((activity_fn, activity_input))
             if activity_fn is get_task_processing_context:
+                if context_error is not None:
+                    raise context_error
                 return _FakeContext()
             if activity_fn is prepare_sandbox_for_repository:
                 return _FakePrepared()
@@ -127,6 +131,20 @@ class TestDetectRepositoryWorkflow:
         assert calls[-1][1].sandbox_id == "sandbox-123"
         statuses = [inp.status for fn, inp in calls if fn is update_task_run_status]
         assert statuses == ["in_progress", "failed"]
+
+    async def test_context_failure_marks_run_failed_instead_of_orphaning_it(self, monkeypatch):
+        # get_task_processing_context fails on real states (no created_by, an inaccessible sandbox
+        # environment) and on the row-not-visible-yet race. Raised outside the try, it escapes the
+        # workflow and leaves the run in QUEUED with no error until the 24h killer sweeps it.
+        calls = self._install_fake_activities(monkeypatch, context_error=RuntimeError("run row not ready"))
+
+        result = await DetectRepositoryWorkflow().run(DetectRepositoryInput(run_id="run-id"))
+
+        assert result.success is False
+        assert result.error is not None and "run row not ready" in result.error
+        statuses = [inp.status for fn, inp in calls if fn is update_task_run_status]
+        assert statuses == ["failed"]
+        assert prepare_sandbox_for_repository not in [fn for fn, _ in calls]
 
     async def test_missing_repository_fails_without_provisioning(self, monkeypatch):
         calls = self._install_fake_activities(monkeypatch)

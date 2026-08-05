@@ -12,6 +12,7 @@ agent server, no PR, no signals, no CI loop — reusing its activities but none
 of its orchestration, so the two evolve independently.
 """
 
+import json
 import shlex
 import logging
 from dataclasses import dataclass
@@ -160,18 +161,23 @@ class DetectRepositoryOutput:
 class DetectRepositoryWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> DetectRepositoryInput:
-        return DetectRepositoryInput(run_id=inputs[0])
+        loaded = json.loads(inputs[0])
+        return DetectRepositoryInput(run_id=loaded["run_id"])
 
     @workflow.run
     async def run(self, input: DetectRepositoryInput) -> DetectRepositoryOutput:
-        context: TaskProcessingContext = await workflow.execute_activity(
-            get_task_processing_context,
-            GetTaskProcessingContextInput(run_id=input.run_id, create_pr=False),
-            start_to_close_timeout=timedelta(minutes=1),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
         sandbox_id: str | None = None
         try:
+            # Inside the try so a context failure (TaskInvalidStateError, or the row-not-visible-yet
+            # race exhausting its retries) still terminalizes the run. Outside it, the exception
+            # escapes and the run sits in QUEUED until the 24h killer sweeps it.
+            context: TaskProcessingContext = await workflow.execute_activity(
+                get_task_processing_context,
+                GetTaskProcessingContextInput(run_id=input.run_id, create_pr=False),
+                start_to_close_timeout=timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+
             await self._update_status(input.run_id, "in_progress")
 
             repository = context.repository

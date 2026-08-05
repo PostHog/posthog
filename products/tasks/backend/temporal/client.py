@@ -386,6 +386,11 @@ def execute_repository_detection_workflow(task_id: str, run_id: str, team_id: in
         Team.objects.get(id=team_id)
 
         workflow_id = f"detect-repository-{task_id}-{run_id}"
+        # Persist before starting: the prefixed ID isn't derivable from (task_id, run_id), so
+        # without this `TaskRun.workflow_id` resolves to `task-processing-*` and every row-to-workflow
+        # lookup misses. Cancellation reads that miss as "workflow gone" and tears the sandbox down
+        # under the still-running detection; team deletion cancels an ID that does not exist.
+        _record_prefixed_workflow_id(run_id, workflow_id)
         client = sync_connect()
         asyncio.run(
             client.start_workflow(
@@ -465,6 +470,7 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
     Returns an outcome for metrics/logs: ``recovered`` (workflow started), ``already_running``
     (a workflow already exists), ``left_queue`` (row is no longer QUEUED), ``skipped_prewarmed``
     (owned by the prewarmed reaper), ``skipped_local`` (desktop-driven run, nothing to recover),
+    ``skipped_detection`` (detect-repository run, not recoverable as a process-task run),
     ``error`` (transient).
     """
     from temporalio.exceptions import WorkflowAlreadyStartedError  # noqa: PLC0415 — keep temporalio off the import path
@@ -491,6 +497,14 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
         return "skipped_prewarmed"
 
     task = task_run.task
+    # Detection runs are driven by detect-repository, not process-task, and this reconciler only
+    # knows how to start the latter. Recovering one here would swap an agentless read-only scan for
+    # a full agent run: they are created with start_workflow=False, so they carry no
+    # pending_dispatch, and the fallbacks below resolve to create_pr=True plus "full" MCP scopes.
+    # Their recovery path is the 24h killer, which fails the run so the user can retrigger it.
+    if task.origin_product == Task.OriginProduct.REPOSITORY_DETECTION:
+        return "skipped_detection"
+
     task_id = str(task.id)
     # create_and_run persists these on the row; the bootstrap/start path does not, so fall back to
     # deriving mcp scopes from run_source exactly as _trigger_task_processing_workflow does.

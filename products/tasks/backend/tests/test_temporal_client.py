@@ -307,6 +307,7 @@ class TestRedispatchOrphanedTaskRun(TestCase):
         run_source: str | None = None,
         prewarmed: bool = False,
         environment: str = TaskRun.Environment.CLOUD,
+        task: Task | None = None,
     ) -> TaskRun:
         state: dict = {}
         if pending_dispatch is not None:
@@ -316,7 +317,7 @@ class TestRedispatchOrphanedTaskRun(TestCase):
         if prewarmed:
             state["prewarmed"] = True
         return TaskRun.objects.create(
-            task=self.task, team=self.team, status=TaskRun.Status.QUEUED, state=state, environment=environment
+            task=task or self.task, team=self.team, status=TaskRun.Status.QUEUED, state=state, environment=environment
         )
 
     def _run_reconcile(self, run: TaskRun, start_workflow: Mock) -> str:
@@ -512,6 +513,27 @@ class TestRedispatchOrphanedTaskRun(TestCase):
         outcome = self._run_reconcile(run, start_workflow)
 
         self.assertEqual(outcome, "skipped_local")
+        start_workflow.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.QUEUED)
+
+    def test_skips_detection_run(self) -> None:
+        # A detection run is created with start_workflow=False, so it carries no pending_dispatch
+        # and the fallbacks below would resolve to create_pr=True with "full" MCP scopes. Recovering
+        # one here turns an agentless read-only scan into an agent run that can open a PR.
+        detection_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Repository detection",
+            description="Scan the repository",
+            origin_product=Task.OriginProduct.REPOSITORY_DETECTION,
+        )
+        run = self._orphaned_run(task=detection_task)
+        start_workflow = AsyncMock()
+
+        outcome = self._run_reconcile(run, start_workflow)
+
+        self.assertEqual(outcome, "skipped_detection")
         start_workflow.assert_not_called()
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.QUEUED)

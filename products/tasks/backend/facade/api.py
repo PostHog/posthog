@@ -1044,6 +1044,16 @@ def create_wizard_cloud_run(
     )
 
 
+def supported_detection_kinds() -> frozenset[str]:
+    """Detection kinds ``create_detection_run`` accepts.
+
+    Exposed so callers can reject an unknown kind up front, before doing anything that costs the
+    user quota. ``create_detection_run`` re-checks, since it is reachable without going through a
+    caller that pre-validates.
+    """
+    return frozenset(WIZARD_DETECTION_PROGRAMS)
+
+
 def create_detection_run(
     *,
     team,
@@ -1060,7 +1070,13 @@ def create_detection_run(
     process-task with none of its agent machinery: no agent boots, no PR is opened.
 
     ``wizard_config`` carries the kind for the detection activity, and its presence is what
-    makes provisioning inject the wizard's own OAuth token into the sandbox.
+    makes provisioning inject the wizard's own OAuth token into the sandbox — the same gate a
+    cloud wizard run uses, because a detection scan runs the same wizard binary.
+
+    ``REPOSITORY_DETECTION`` is what separates the two wherever both are visible: the reconciler
+    skips these runs (it only knows how to start process-task) and each origin holds its own quota
+    window. It is a server-set origin, rejected from API task creation, so neither can be forged
+    into the other.
     """
     if kind not in WIZARD_DETECTION_PROGRAMS:
         raise ValueError(f"Unknown detection kind: {kind}")
@@ -1072,14 +1088,13 @@ def create_detection_run(
         team=team,
         title=f"Repository detection: {kind}",
         description=f"Scan the repository ({kind} detection).",
-        origin_product=Task.OriginProduct.ERROR_TRACKING,
+        origin_product=Task.OriginProduct.REPOSITORY_DETECTION,
         user_id=user_id,
         repository=repository,
         create_pr=False,
         mode="background",
         start_workflow=False,
         wizard_config={"kind": kind},
-        posthog_mcp_scopes="read_only",
     )
     latest_run = created.latest_run
     assert latest_run is not None  # create_and_run_task always creates the run row
@@ -1106,10 +1121,13 @@ def recent_wizard_cloud_run_times(user_id: int, since: datetime) -> list[datetim
     cache reservation, not here.
 
     The filter trusts only PATCH-immutable markers: ``created_by`` (set at creation) and the
-    protected ``wizard_config`` state key that only ``create_wizard_cloud_run`` stamps (see
-    ``_PROTECTED_RUN_STATE_KEYS``). Mutable fields like the run's ``environment`` are
-    deliberately NOT filtered — a run PATCHed from cloud to local must keep consuming quota,
-    or flipping it would launder sandbox boots out of the limits.
+    protected ``wizard_config`` state key (see ``_PROTECTED_RUN_STATE_KEYS``). Mutable fields
+    like the run's ``environment`` are deliberately NOT filtered — a run PATCHed from cloud to
+    local must keep consuming quota, or flipping it would launder sandbox boots out of the limits.
+
+    Detection runs stamp ``wizard_config`` too (it is what makes provisioning inject the wizard
+    token), so they are excluded by origin and counted by ``recent_wizard_detection_run_times``
+    against their own window instead.
 
     Deliberately user-scoped across teams: the throttle is per user, and a user can run the
     wizard on projects in different teams. Returns only timestamps, no run data.
@@ -1118,6 +1136,35 @@ def recent_wizard_cloud_run_times(user_id: int, since: datetime) -> list[datetim
         TaskRun.objects.filter(
             task__created_by_id=user_id,
             state__has_key="wizard_config",
+            created_at__gte=since,
+        )
+        .exclude(status__in=[TaskRun.Status.FAILED, TaskRun.Status.CANCELLED])
+        .exclude(task__origin_product=Task.OriginProduct.REPOSITORY_DETECTION)
+        .order_by("created_at")
+        .values_list("created_at", flat=True)
+    )
+
+
+def recent_wizard_detection_run_times(user_id: int, since: datetime) -> list[datetime]:
+    """Creation times of a user's recent repository detection runs that still count against quota.
+
+    Backs the outcome-aware detection throttles, on a window of their own: a scan boots a sandbox
+    but runs no agent, and is triggered per repository rather than per onboarding, so it must not
+    spend the tighter budget that gets a user through setup. Failed and cancelled runs are excluded
+    so a user whose scan broke can retry immediately. The hard ceiling on total attempts lives in
+    the detection view as an atomic cache reservation, not here.
+
+    Membership is the task's origin, which is set once at creation and rejected from API task
+    creation (see ``TaskWriteSerializer.validate_origin_product``), so a caller can neither forge a
+    run into this window nor move one out of the cloud wizard's.
+
+    Deliberately user-scoped across teams, like the cloud-run counterpart: the throttle is per user.
+    Returns only timestamps, no run data.
+    """
+    return list(
+        TaskRun.objects.filter(
+            task__created_by_id=user_id,
+            task__origin_product=Task.OriginProduct.REPOSITORY_DETECTION,
             created_at__gte=since,
         )
         .exclude(status__in=[TaskRun.Status.FAILED, TaskRun.Status.CANCELLED])
@@ -1270,7 +1317,7 @@ def redispatch_task_run(run_id: str | UUID) -> str:
     """Re-dispatch a QUEUED run whose create-time workflow dispatch was lost. Cross-team janitor call.
 
     Idempotent recover-only wrapper over the temporal client — never fails the run. Returns the
-    outcome (``recovered`` / ``already_running`` / ``left_queue`` / ``error``).
+    outcome (``recovered`` / ``already_running`` / ``left_queue`` / ``skipped_detection`` / ``error``).
     """
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         redispatch_orphaned_task_run,

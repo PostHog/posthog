@@ -182,6 +182,10 @@ class Task(DeletedMetaFields, models.Model):
         LOOP = "loop", "Loop"
         # "Create fix task" on the MCP analytics tool-quality failure drill-down.
         MCP_ANALYTICS = "mcp_analytics", "MCP Analytics"
+        # Repository detection scans: the wizard's detect programs, run in a sandbox with no agent
+        # and no PR. Its own origin because the detect-repository workflow, not process-task, drives
+        # these runs, and they hold a quota separate from the cloud wizard's.
+        REPOSITORY_DETECTION = "repo_detection", "Repository Detection"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

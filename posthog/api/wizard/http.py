@@ -38,6 +38,8 @@ from posthog.rate_limit import (
     SetupWizardAuthenticationRateThrottle,
     SetupWizardCloudRunBurstRateThrottle,
     SetupWizardCloudRunSustainedRateThrottle,
+    SetupWizardDetectionBurstRateThrottle,
+    SetupWizardDetectionSustainedRateThrottle,
     SetupWizardQueryRateThrottle,
 )
 from posthog.user_permissions import UserPermissions
@@ -60,6 +62,11 @@ OPENAI_SUPPORTED_MODELS = {"o4-mini", "gpt-5-mini", "gpt-5-nano", "gpt-5"}
 # parallel requests; this cache.incr cannot, so it is the hard bound a start-cancel or crash
 # loop lands on. Only requests that reach creation consume it.
 WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP = 15
+
+# The same ceiling for detection scans, on its own counter. A scan boots a sandbox but runs no
+# agent, and a user scanning several repositories must not exhaust the budget that gets them through
+# onboarding, so the two budgets are separate and this one is higher.
+WIZARD_DETECTION_DAILY_ATTEMPT_CAP = 30
 
 WIZARD_CLOUD_RUN_REQUESTS_TOTAL = Counter(
     "posthog_wizard_cloud_run_requests_total",
@@ -149,13 +156,20 @@ class SetupWizardDetectionSerializer(serializers.Serializer):
             "must have a connected GitHub integration with access to it."
         )
     )
-    # CharField rather than ChoiceField: the supported set lives in the tasks facade (the
-    # creation call rejects unknown kinds), and 'kind' as a ChoiceField would mint a
-    # collision-prone KindEnum in the OpenAPI schema.
+    # CharField rather than ChoiceField: the supported set lives in the tasks facade, and 'kind'
+    # as a ChoiceField would mint a collision-prone KindEnum in the OpenAPI schema. validate_kind
+    # below applies the same membership check the facade does.
     kind = serializers.CharField(
         max_length=64,
         help_text="Detection flavor to run, e.g. 'error-tracking-source-maps'. Unsupported kinds are rejected.",
     )
+
+    def validate_kind(self, value: str) -> str:
+        # Checked here rather than left to create_detection_run so an unknown kind is rejected
+        # before _reserve_detection_attempt charges the user's daily budget for it.
+        if value not in tasks_facade.supported_detection_kinds():
+            raise serializers.ValidationError(f"Unknown detection kind: {value}")
+        return value
 
     def validate_repository(self, value: str) -> str:
         repository = value.strip()
@@ -523,6 +537,24 @@ class SetupWizardViewSet(viewsets.ViewSet):
             raise exceptions.Throttled(detail="You've reached today's limit for cloud setup runs. Try again tomorrow.")
 
     @staticmethod
+    def _reserve_detection_attempt(user_id: int) -> None:
+        """Atomically consume one of the user's daily detection attempts or raise Throttled.
+
+        The detection counterpart of ``_reserve_cloud_run_attempt``, on its own counter and cap;
+        see that method for why the reservation is atomic and where it sits in the request.
+        """
+        window = int(time.time()) // 86400
+        key = f"wizard_detection_attempts:{user_id}:{window}"
+        cache.add(key, 0, timeout=86400)
+        try:
+            count = cache.incr(key)
+        except ValueError:
+            # The key expired between add and incr; this request is the window's first.
+            count = 1
+        if count > WIZARD_DETECTION_DAILY_ATTEMPT_CAP:
+            raise exceptions.Throttled(detail="You've reached today's limit for repository scans. Try again tomorrow.")
+
+    @staticmethod
     def _resolve_visible_project(request: Request, project_id: int) -> Project:
         visible_project_ids = UserPermissions(cast(User, request.user)).project_ids_visible_for_user
         try:
@@ -579,8 +611,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
         authentication_classes=[SessionAuthentication],
         permission_classes=[IsAuthenticated],
         throttle_classes=[
-            SetupWizardCloudRunBurstRateThrottle,
-            SetupWizardCloudRunSustainedRateThrottle,
+            SetupWizardDetectionBurstRateThrottle,
+            SetupWizardDetectionSustainedRateThrottle,
         ],
     )
     def detection(self, request: Request) -> Response:
@@ -589,8 +621,11 @@ class SetupWizardViewSet(viewsets.ViewSet):
         Provisions a task-run sandbox that clones the repository and runs the wizard detection
         program the kind selects. The wizard posts the resulting report to the wizard product's
         repository-detections API under the same kind; the app reads it from there later. No
-        agent runs and no pull request is opened. Shares the cloud wizard run's per-user daily
-        attempt budget because each run starts a sandbox.
+        agent runs and no pull request is opened.
+
+        Rate limited on its own budget rather than the cloud wizard run's: each scan still boots a
+        sandbox, but it runs no agent and is triggered per repository, so a user scanning several
+        repositories must not lock themselves out of the setup run.
         """
         if not bool(settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID):
             raise exceptions.NotFound("Running the setup wizard in the cloud is not available.")
@@ -599,7 +634,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
         serializer.is_valid(raise_exception=True)
         project = self._resolve_visible_project(request, serializer.validated_data["project_id"])
 
-        self._reserve_cloud_run_attempt(cast(User, request.user).id)
+        self._reserve_detection_attempt(cast(User, request.user).id)
 
         try:
             result = tasks_facade.create_detection_run(

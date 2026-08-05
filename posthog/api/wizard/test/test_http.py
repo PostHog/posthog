@@ -581,10 +581,40 @@ class SetupWizardCloudRunTests(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         mock_create.assert_not_called()
 
-    def test_detection_rejects_unknown_kind(self):
-        # End-to-end through the real facade: the registry is the only kind validation.
-        response = self.client.post(self.DETECTION_URL, data=self._detection_body(kind="no-such-kind"), format="json")
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+    @patch("posthog.api.wizard.http.WIZARD_DETECTION_DAILY_ATTEMPT_CAP", 1)
+    @patch("posthog.api.wizard.http.tasks_facade.create_detection_run")
+    def test_detection_rejects_unknown_kind_without_consuming_the_daily_budget(self, mock_create):
+        # The kind is a plain dict membership check, so validating it after reserving an attempt
+        # would let a client with a bad kind burn the whole day's budget on rejected requests.
+        mock_create.return_value = MagicMock(task_id="task-uuid", latest_run=MagicMock(id="run-uuid", status="queued"))
+
+        rejected = self.client.post(self.DETECTION_URL, data=self._detection_body(kind="no-such-kind"), format="json")
+        assert rejected.status_code == status.HTTP_400_BAD_REQUEST
+
+        accepted = self.client.post(self.DETECTION_URL, data=self._detection_body(), format="json")
+        assert accepted.status_code == status.HTTP_200_OK, accepted.content
+
+    @patch("posthog.api.wizard.http.WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP", 1)
+    @patch("products.tasks.backend.facade.api.recent_wizard_cloud_run_times")
+    @patch("posthog.api.wizard.http.tasks_facade.create_detection_run")
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
+    def test_detection_does_not_consume_the_cloud_run_budget(self, mock_cloud_run, mock_detection, mock_run_times):
+        # A scan boots a sandbox but runs no agent and is triggered per repository, so it must not
+        # spend the budget that gets the user through onboarding.
+        mock_run_times.return_value = []
+        created = MagicMock(task_id="task-uuid", latest_run=MagicMock(id="run-uuid", status="queued"))
+        mock_detection.return_value = created
+        mock_cloud_run.return_value = created
+
+        detection = self.client.post(self.DETECTION_URL, data=self._detection_body(), format="json")
+        assert detection.status_code == status.HTTP_200_OK, detection.content
+
+        cloud_run = self.client.post(
+            self.CLOUD_RUN_URL,
+            data={"project_id": self.team.id, "repository": "acme/app"},
+            format="json",
+        )
+        assert cloud_run.status_code == status.HTTP_200_OK, cloud_run.content
 
     @patch("posthog.api.wizard.http.tasks_facade.create_detection_run")
     def test_detection_rejects_project_without_access(self, mock_create):
