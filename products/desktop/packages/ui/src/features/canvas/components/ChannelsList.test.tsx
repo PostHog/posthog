@@ -10,6 +10,12 @@ const mocks = vi.hoisted(() => ({
     channelType: "public" | "personal";
     starred: boolean;
   }[],
+  tasks: [] as {
+    id: string;
+    title: string;
+    channel: string;
+    updated_at: string;
+  }[],
   channelsLayout: true,
   navigate: vi.fn(),
 }));
@@ -34,6 +40,33 @@ vi.mock("@posthog/ui/features/canvas/hooks/useDashboards", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useUnreadChannels", () => ({
   useIsChannelUnread: () => () => false,
 }));
+vi.mock("@posthog/ui/features/canvas/hooks/useRecentSpaceTasks", () => ({
+  usePrefetchSpaceTasks: () => () => undefined,
+  useRecentSpaceTasks: (spaceIds: string[]) =>
+    new Map(
+      spaceIds.map((spaceId) => [
+        spaceId,
+        mocks.tasks
+          .filter((task) => task.channel === spaceId)
+          .map((task) => ({
+            key: `task:${task.id}`,
+            kind: "task",
+            id: task.id,
+            title: task.title,
+            ts: Date.parse(task.updated_at),
+            pinned: false,
+            rawStatus: null,
+            authorUser: null,
+            authorName: null,
+            authorUuid: null,
+            task: null,
+          })),
+      ]),
+    ),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useChannelTaskStatus", () => ({
+  useChannelTaskStatus: () => null,
+}));
 vi.mock("@posthog/ui/features/canvas/components/RenameChannelModal", () => ({
   RenameChannelModal: () => null,
 }));
@@ -43,10 +76,16 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 import {
+  consumeKeepListForNextRoute,
   showChannelList,
   showChannelPane,
+  useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import {
+  requestSpaceSearchFocus,
+  useSpaceTreeStore,
+} from "@posthog/ui/features/canvas/stores/spaceTreeStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { ChannelsList } from "./ChannelsList";
 
@@ -88,6 +127,25 @@ describe("ChannelsList", () => {
     // Same for the collapse state — a test that folds a group away would
     // otherwise hide its rows from every test that runs after it.
     useSidebarStore.setState({ collapsedSections: new Set() });
+    useSpaceTreeStore.setState({
+      expandedSpaceIds: new Set(),
+      searchFocusRequest: 0,
+    });
+    useCurrentChannelStore.setState({ currentChannelId: null });
+    mocks.tasks = [
+      {
+        id: "task-new",
+        title: "Ship the tree",
+        channel: ENG.id,
+        updated_at: "2026-08-02T00:00:00Z",
+      },
+      {
+        id: "task-old",
+        title: "Write the tests",
+        channel: ENG.id,
+        updated_at: "2026-08-01T00:00:00Z",
+      },
+    ];
   });
 
   it("opens a space in the sidebar without navigating the main window", async () => {
@@ -119,12 +177,14 @@ describe("ChannelsList", () => {
       mocks.channels = [ME, { ...ENG, starred: true }, DESIGN];
     });
 
-    it("slightly indents rows under the layout", () => {
+    // "me" is a starred space among the rest, so it takes the same inset —
+    // otherwise its caret hangs a step left of every other row's.
+    it("slightly indents every space row under the layout", () => {
       renderList();
       expect(screen.getByText("engineering").closest("button")).toHaveClass(
         "pl-4",
       );
-      expect(screen.getByText("me").closest("button")).not.toHaveClass("pl-4");
+      expect(screen.getByText("me").closest("button")).toHaveClass("pl-4");
     });
 
     it("keeps the indented tree off the layout", () => {
@@ -296,9 +356,105 @@ describe("ChannelsList", () => {
     });
   });
 
+  // The list is a tree: a space opens onto its most recent tasks, and the whole
+  // of it is reachable from the search box without ever leaving the keyboard.
+  describe("space tree", () => {
+    it("opens a space onto its recent tasks with ArrowRight", async () => {
+      const user = userEvent.setup();
+      renderList();
+
+      await user.click(screen.getByLabelText("Search spaces"));
+      // #me is highlighted to begin with, so one press down is "engineering".
+      await user.keyboard("{ArrowDown}{ArrowRight}");
+
+      expect(screen.getByText("Ship the tree")).toBeTruthy();
+      expect(screen.getByText("Write the tests")).toBeTruthy();
+      // Opening the tree is not opening the space.
+      expect(useCurrentChannelStore.getState().currentChannelId).toBeNull();
+    });
+
+    // The fiddly half: the highlight is an index into a flat list, so walking
+    // back to the parent has to happen before its children stop existing.
+    it("walks into the tasks and back out to their space", async () => {
+      const user = userEvent.setup();
+      renderList();
+
+      await user.click(screen.getByLabelText("Search spaces"));
+      await user.keyboard("{ArrowDown}{ArrowRight}{ArrowDown}{ArrowDown}");
+      // On the second task, two rows below its space.
+      await user.keyboard("{ArrowLeft}");
+
+      expect(screen.queryByText("Ship the tree")).toBeNull();
+      // The highlight came back to the space it closed, so ⏎ opens that space
+      // rather than whatever row inherited the index.
+      await user.keyboard("{Enter}");
+      expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
+    });
+
+    it("toggles from the caret without opening the space", async () => {
+      const user = userEvent.setup();
+      renderList();
+
+      await user.click(screen.getByLabelText("Expand engineering"));
+      expect(screen.getByText("Ship the tree")).toBeTruthy();
+      expect(useCurrentChannelStore.getState().currentChannelId).toBeNull();
+
+      await user.click(screen.getByLabelText("Collapse engineering"));
+      expect(screen.queryByText("Ship the tree")).toBeNull();
+    });
+
+    // Picking a session out of the tree is browsing across spaces, not a
+    // request to go into one — sliding into the space would take the tree the
+    // reader is working through off the screen.
+    it("opens a session without leaving the list", async () => {
+      const user = userEvent.setup();
+      renderList();
+      act(() => showChannelList());
+
+      await user.click(screen.getByLabelText("Expand engineering"));
+      await user.click(screen.getByText("Ship the tree"));
+
+      expect(mocks.navigate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          params: { channelId: ENG.id, taskId: "task-new" },
+        }),
+      );
+      expect(useChannelPaneStore.getState().pane).toBe("list");
+      // The other half of it: the route effect in ChannelsSidebar slides into
+      // the space unless the navigation says to stay put.
+      expect(consumeKeepListForNextRoute()).toBe(true);
+      // Still scoped, so whatever asks for the channel pane next opens on the
+      // space the session came from.
+      expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
+    });
+
+    it("says when an expanded space has nothing in it", async () => {
+      const user = userEvent.setup();
+      renderList();
+
+      await user.click(screen.getByLabelText("Expand design"));
+
+      expect(screen.getByText("No sessions yet")).toBeTruthy();
+    });
+  });
+
   // Sliding back from a space, the list is what you came here for — so it hands
   // the search box the caret rather than making you click it.
   describe("focus on returning to the list", () => {
+    // ⌘⇧S is bound in ChannelHotkeys, which can only ask; the list is what
+    // actually takes the keyboard.
+    it("takes the keyboard on a focus request", async () => {
+      renderList();
+
+      act(() => requestSpaceSearchFocus());
+
+      await waitFor(() =>
+        expect(document.activeElement).toBe(
+          screen.getByLabelText("Search spaces"),
+        ),
+      );
+    });
+
     it("focuses the search box when the pane slides back", async () => {
       renderList();
       expect(document.activeElement).not.toBe(

@@ -13,6 +13,7 @@ import {
   StarIcon,
   TrashIcon,
 } from "@phosphor-icons/react";
+import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import {
   AlertDialogClose,
   AlertDialogContent,
@@ -59,11 +60,17 @@ import {
   useChannels,
 } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { useChannelTaskStatus } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
 import { useCreateAndOpenDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import {
+  usePrefetchSpaceTasks,
+  useRecentSpaceTasks,
+} from "@posthog/ui/features/canvas/hooks/useRecentSpaceTasks";
 import { useStarredChannelSlots } from "@posthog/ui/features/canvas/hooks/useStarredChannelSlots";
 import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useIsChannelUnread } from "@posthog/ui/features/canvas/hooks/useUnreadChannels";
 import {
+  keepListForNextRoute,
   showChannelPane,
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
@@ -71,8 +78,17 @@ import {
   resetCurrentChannel,
   useCurrentChannelStore,
 } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
-import { formatHotkey } from "@posthog/ui/features/command/keyboard-shortcuts";
+import {
+  formatHotkey,
+  SHORTCUTS,
+} from "@posthog/ui/features/command/keyboard-shortcuts";
+import {
+  TaskBadgeStack,
+  TaskStatusDot,
+} from "@posthog/ui/features/sidebar/components/items/TaskStatusDot";
+import { taskDot } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import {
   OverflowTickerText,
@@ -86,8 +102,12 @@ import { useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   type ComponentProps,
   Fragment,
+  memo,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
+  type SyntheticEvent as ReactSyntheticEvent,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -155,6 +175,232 @@ function SpaceRowSurface({
     >
       {children}
     </AutocompleteItem>
+  );
+}
+
+/**
+ * A row in the flat list the keyboard walks. The rows render as a tree, but
+ * Autocomplete only knows a sequence — so the tree's shape lives here, as the
+ * parent each task hangs off and the space each row belongs to.
+ */
+type SpaceTreeNode =
+  | { kind: "space"; value: string; spaceId: string | undefined }
+  | { kind: "task"; value: string; spaceId: string; parentValue: string };
+
+/**
+ * One array for every space with nothing to show, so a collapsed row's props
+ * are identical between renders and its memo holds.
+ */
+const NO_ITEMS: ChannelItemModel[] = [];
+
+/** How long the pointer has to rest on a space before its sessions are warmed. */
+const SESSION_PREFETCH_DELAY_MS = 250;
+
+/**
+ * Hand the pane's keyboard to the search box: focus it, send the highlight back
+ * to the top, and select whatever query was left there so it types over.
+ */
+function focusSearch(input: HTMLInputElement): void {
+  input.focus();
+  // Autocomplete leaves its highlight where it was and exposes no way to move
+  // it, so the list would open mid-scroll. Home is the key it listens for;
+  // sending it is how the list reopens at the top.
+  input.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Home", bubbles: true }),
+  );
+  // After Home, so the caret it parks at the start doesn't undo the selection.
+  input.select();
+}
+
+/**
+ * Walk Autocomplete's highlight by synthesizing the arrow keys it already
+ * listens for. There is no API to set the highlighted row, and the input keeps
+ * focus throughout — it is the list's only cursor. Base UI holds the index in a
+ * ref, so a run of dispatches steps that many rows rather than collapsing into
+ * one.
+ */
+function moveHighlight(
+  input: HTMLInputElement,
+  key: "ArrowUp" | "ArrowDown",
+  steps: number,
+): void {
+  for (let step = 0; step < steps; step++) {
+    input.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+  }
+}
+
+/**
+ * The tree's disclosure caret, in its own fixed slot ahead of the space glyph.
+ * Always drawn: a control that only appears on hover moves the row's contents
+ * as the pointer crosses the list, and leaves the tree invisible to anyone who
+ * hasn't hovered a row yet.
+ *
+ * Not a `<button>` — the row around it already is one (quill's option renders a
+ * button too), and nesting buttons is invalid. Keyboard users get ArrowRight /
+ * ArrowLeft on the row instead, which is the point of the tree.
+ */
+function SpaceDisclosure({
+  expanded,
+  spaceName,
+  onToggle,
+}: {
+  expanded: boolean;
+  spaceName: string;
+  onToggle: () => void;
+}) {
+  const toggle = (event: ReactSyntheticEvent) => {
+    // The row opens the space; the caret only opens the tree, so its events
+    // stop before they reach the row underneath.
+    event.preventDefault();
+    event.stopPropagation();
+    onToggle();
+  };
+
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: a nested clickable inside the row's own <button>
+    <span
+      role="button"
+      // Out of the tab order on purpose: the search box is the pane's single
+      // focus holder, and a stop per space would bury it.
+      tabIndex={-1}
+      aria-expanded={expanded}
+      aria-label={`${expanded ? "Collapse" : "Expand"} ${spaceName}`}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={toggle}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") toggle(event);
+      }}
+      className={cn(
+        "relative flex size-3.5 shrink-0 items-center justify-center",
+        // Half-lit at rest, open or closed: a column of carets down the whole
+        // list would out-draw the names beside it, and an open space already
+        // says so with the rows under it.
+        "text-muted-foreground/50 hover:text-foreground group-hover/chan:text-muted-foreground",
+        // A 28px hit target on a 14px mark. The padding is an overlay rather
+        // than real box size, so the caret keeps its slot and nothing in the row
+        // moves; it reaches to the name's edge and no further.
+        "before:-inset-[7px] before:absolute before:content-['']",
+      )}
+    >
+      {expanded ? <CaretDownIcon size={10} /> : <CaretRightIcon size={10} />}
+    </span>
+  );
+}
+
+/**
+ * Opening a session from the tree: load it in the main window and leave the
+ * sidebar where it is.
+ *
+ * Picking a session out of the tree is not a request to go into its space — you
+ * are browsing across spaces, and sliding into one would take the tree you are
+ * reading off the screen. Entering a space is what its own row is for.
+ */
+function useOpenSpaceTask(): (spaceId: string, taskId: string) => void {
+  const navigate = useNavigate();
+  const setCurrentChannel = useCurrentChannelStore((s) => s.setCurrentChannel);
+
+  return (spaceId, taskId) => {
+    keepListForNextRoute();
+    // Still scoped: the space is where the session lives, so anything that then
+    // asks for the channel pane opens on the right one.
+    setCurrentChannel(spaceId);
+    void navigate({
+      to: "/website/$channelId/tasks/$taskId",
+      params: { channelId: spaceId, taskId },
+    });
+  };
+}
+
+/**
+ * One session under an expanded space — a leaf of the tree.
+ *
+ * Wears the space's own session list vocabulary: the state dot on the left, the
+ * identity badges on the right. Not `ChannelItemRow` itself, which is a button
+ * with a hover card and a context menu of its own and so can't be an
+ * Autocomplete option — and being one is what keeps ↑/↓/⏎ walking the tree.
+ */
+const SpaceTaskRow = memo(function SpaceTaskRow({
+  item,
+  spaceId,
+  asOption,
+}: {
+  item: ChannelItemModel;
+  spaceId: string;
+  asOption: boolean;
+}) {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const openTask = useOpenSpaceTask();
+  // No PR lookup here: that is a host round trip per row, and the tree can show
+  // a dozen spaces' worth of rows at once.
+  const status = useChannelTaskStatus(item, { withPrStatus: false });
+  const isActive = pathname.endsWith(`/tasks/${item.id}`);
+
+  return (
+    <SpaceRowSurface
+      asOption={asOption}
+      optionValue={item.key}
+      data-selected={isActive || undefined}
+      onClick={() => openTask(spaceId, item.id)}
+      // A step in from its space's name, so the depth reads off that column
+      // without a guide line to draw it.
+      className="pl-12"
+    >
+      {/* The dot belongs to the title, not to the row: its own tighter gap
+          keeps them one mark rather than two columns. */}
+      <span className="flex min-w-0 items-center gap-1.5">
+        <TaskStatusDot dot={taskDot(status ?? {})} />
+        <span
+          className={cn(
+            "truncate text-[13px]",
+            isActive
+              ? "text-foreground"
+              : "text-muted-foreground group-hover/button:text-foreground",
+          )}
+        >
+          {item.title}
+        </span>
+      </span>
+      {status && (
+        <span className="ml-auto flex shrink-0 items-center gap-1">
+          <TaskBadgeStack status={status} pinned={item.pinned} />
+        </span>
+      )}
+    </SpaceRowSurface>
+  );
+});
+
+/**
+ * The sessions under one expanded space, or the fact that it has none. The
+ * empty line is not an option: ↓ walking onto "No sessions yet" would be a dead
+ * end.
+ */
+function SpaceTaskRows({
+  spaceId,
+  items,
+  asOption,
+}: {
+  spaceId: string;
+  items: ChannelItemModel[];
+  asOption: boolean;
+}) {
+  if (items.length === 0) {
+    return (
+      <div className="py-1 pl-12 text-subtle-foreground text-xs">
+        No sessions yet
+      </div>
+    );
+  }
+  return (
+    <>
+      {items.map((item) => (
+        <SpaceTaskRow
+          key={item.key}
+          item={item}
+          spaceId={spaceId}
+          asOption={asOption}
+        />
+      ))}
+    </>
   );
 }
 
@@ -386,230 +632,309 @@ function ChannelMenu({
   );
 }
 
-// One channel in the list: a "# name" row that opens its sidebar.
-// No expansion — the channel's surfaces live in the in-channel top nav.
-function ChannelSection({
-  channel,
-  isUnread,
-  hotkeySlot,
-}: {
-  channel: Channel;
-  /** Bolds the name: activity here the viewer hasn't seen. */
-  isUnread?: boolean;
-  /** ⌘1-9 slot, shown as a hint while the row isn't hovered. */
-  hotkeySlot?: number;
-}) {
-  const spacesLayout = useChannelsLayout();
-  const noun = spacesLayout ? "space" : "channel";
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const openChannel = useOpenChannel();
-  const base = `/website/${channel.id}`;
-  // Highlight the row whenever any of the channel's routes is open.
-  const isActive = pathname === base || pathname.startsWith(`${base}/`);
-  // Lifted so the hover button group stays visible while the menu is open.
-  const [menuOpen, setMenuOpen] = useState(false);
-  // The "+" dropdown (New task / New canvas). Keeps the hover actions pinned
-  // while open.
-  const [newMenuOpen, setNewMenuOpen] = useState(false);
-  const { reveal, hoverProps, focusProps } = useOverflowTickerReveal();
-  const createAndOpenCanvas = useCreateAndOpenDashboard(channel.id);
-  // Shared by the "..." dropdown and the right-click context menu so both offer
-  // the same star / edit / rename / delete actions.
-  const {
-    actions,
-    renameOpen,
-    setRenameOpen,
-    confirmDeleteOpen,
-    setConfirmDeleteOpen,
-    confirmDelete,
-    isDeleting,
-  } = useChannelActions(channel);
+// One channel in the list: a "# name" row that opens its sidebar, above the
+// space's most recent tasks when it's expanded. The channel's other surfaces
+// live in the in-channel top nav.
+const ChannelSection = memo(
+  function ChannelSection({
+    channel,
+    isUnread,
+    hotkeySlot,
+    expanded = false,
+    items,
+    onToggleExpanded,
+  }: {
+    channel: Channel;
+    /** Bolds the name: activity here the viewer hasn't seen. */
+    isUnread?: boolean;
+    /** ⌘1-9 slot, shown as a hint while the row isn't hovered. */
+    hotkeySlot?: number;
+    expanded?: boolean;
+    /** The space's recent sessions; only read while expanded. */
+    items?: ChannelItemModel[];
+    /**
+     * Absent while searching, where the list is flat. Takes the space id rather
+     * than closing over it, so the list can hand every row the same function and
+     * the memo below survives a parent render.
+     */
+    onToggleExpanded?: (spaceId: string) => void;
+  }) {
+    const spacesLayout = useChannelsLayout();
+    const noun = spacesLayout ? "space" : "channel";
+    const pathname = useRouterState({ select: (s) => s.location.pathname });
+    const openChannel = useOpenChannel();
+    const base = `/website/${channel.id}`;
+    // Highlight the row whenever any of the channel's routes is open.
+    const isActive = pathname === base || pathname.startsWith(`${base}/`);
+    // Lifted so the hover button group stays visible while the menu is open.
+    const [menuOpen, setMenuOpen] = useState(false);
+    // The "+" dropdown (New task / New canvas). Keeps the hover actions pinned
+    // while open.
+    const [newMenuOpen, setNewMenuOpen] = useState(false);
+    const { reveal, hoverProps, focusProps } = useOverflowTickerReveal();
+    const prefetchSessions = usePrefetchSpaceTasks();
+    const prefetchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+      undefined,
+    );
+    useEffect(() => () => clearTimeout(prefetchTimer.current), []);
+    const createAndOpenCanvas = useCreateAndOpenDashboard(channel.id);
+    // Shared by the "..." dropdown and the right-click context menu so both offer
+    // the same star / edit / rename / delete actions.
+    const {
+      actions,
+      renameOpen,
+      setRenameOpen,
+      confirmDeleteOpen,
+      setConfirmDeleteOpen,
+      confirmDelete,
+      isDeleting,
+    } = useChannelActions(channel);
 
-  return (
-    <Box className="group/chan relative" {...hoverProps}>
-      {/* A single, non-expandable row: the "# name" opens the channel sidebar.
-          Right-clicking opens the same actions as the "..." menu. */}
-      <ContextMenu>
-        <ContextMenuTrigger
-          render={
-            <SpaceRowSurface
-              asOption={spacesLayout}
-              optionValue={channel.id}
-              data-selected={isActive || undefined}
-              onClick={() => openChannel(channel)}
-              {...focusProps}
-              className={spacesLayout ? "pl-4" : undefined}
-            >
-              {channelGlyph(channel.name, {
-                size: 14,
-                space: spacesLayout,
-                weight: isUnread ? "bold" : undefined,
-                className: cn(
-                  "shrink-0",
-                  isUnread || isActive
-                    ? "text-foreground"
-                    : "text-muted-foreground group-hover/button:text-foreground",
-                ),
-              })}
-              <OverflowTickerText
-                reveal={reveal}
-                className={cn(
-                  // mr-11 clears the two icon-xs hover buttons pinned at right-1.
-                  "text-[13px] group-hover/chan:mr-11",
-                  // Bold is unread's alone; full contrast is shared with the
-                  // channel you're in. Either way there's no hover brighten
-                  // left to do, so those rows skip it.
-                  isUnread ? "font-bold" : "font-medium",
-                  isUnread || isActive
-                    ? "text-foreground"
-                    : "text-muted-foreground group-hover/button:text-foreground",
-                  menuOpen && "mr-11",
-                )}
-              >
-                {channel.name}
-              </OverflowTickerText>
-              {/* `!mr-0` undoes quill's `.quill-button kbd { margin-right: -4px }`,
+    const glyph = channelGlyph(channel.name, {
+      size: 14,
+      space: spacesLayout,
+      weight: isUnread ? "bold" : undefined,
+      className: cn(
+        "shrink-0",
+        isUnread || isActive
+          ? "text-foreground"
+          : "text-muted-foreground group-hover/button:text-foreground",
+      ),
+    });
+
+    return (
+      <>
+        <Box
+          className="group/chan relative"
+          {...hoverProps}
+          // Warm the sessions while the pointer is on the row, so opening the
+          // space is a render rather than a round trip.
+          onPointerEnter={() => {
+            hoverProps.onPointerEnter();
+            // Only once the pointer rests. Arrowing through the tree scrolls
+            // rows under a stationary cursor, and prefetching on the enter
+            // itself turned every keypress into a fetch per row it passed.
+            clearTimeout(prefetchTimer.current);
+            prefetchTimer.current = setTimeout(
+              () => prefetchSessions(channel.id),
+              SESSION_PREFETCH_DELAY_MS,
+            );
+          }}
+          onPointerLeave={() => {
+            hoverProps.onPointerLeave();
+            clearTimeout(prefetchTimer.current);
+          }}
+        >
+          {/* The "# name" opens the channel sidebar; the glyph doubles as the
+            caret that opens the space's recent tasks below it. Right-clicking
+            opens the same actions as the "..." menu. */}
+          <ContextMenu>
+            <ContextMenuTrigger
+              render={
+                <SpaceRowSurface
+                  asOption={spacesLayout}
+                  optionValue={channel.id}
+                  // An open space hands the fill to the session under it: the row
+                  // you are in is the one the fill is for, and two of them stacked
+                  // reads as two selections.
+                  data-selected={(isActive && !expanded) || undefined}
+                  onClick={() => openChannel(channel)}
+                  {...focusProps}
+                  className={spacesLayout ? "pl-4" : undefined}
+                >
+                  {onToggleExpanded && (
+                    <SpaceDisclosure
+                      expanded={expanded}
+                      spaceName={channel.name}
+                      onToggle={() => onToggleExpanded(channel.id)}
+                    />
+                  )}
+                  {glyph}
+                  <OverflowTickerText
+                    reveal={reveal}
+                    className={cn(
+                      // mr-11 clears the two icon-xs hover buttons pinned at right-1.
+                      "text-[13px] group-hover/chan:mr-11",
+                      // Bold is unread's alone; full contrast is shared with the
+                      // channel you're in. Either way there's no hover brighten
+                      // left to do, so those rows skip it.
+                      isUnread ? "font-bold" : "font-medium",
+                      isUnread || isActive
+                        ? "text-foreground"
+                        : "text-muted-foreground group-hover/button:text-foreground",
+                      menuOpen && "mr-11",
+                    )}
+                  >
+                    {channel.name}
+                  </OverflowTickerText>
+                  {/* `!mr-0` undoes quill's `.quill-button kbd { margin-right: -4px }`,
                   which is meant to let a shortcut hang into a button's own
                   padding. Here the row's inner span is `truncate` (overflow
                   hidden) and `ml-auto` eats every pixel of slack, so the hang
                   had nowhere to go and the last 4px of the hint was cut off. */}
-              {hotkeySlot != null && (
-                <Kbd className="!mr-0 ml-auto shrink-0 opacity-50 group-hover/chan:opacity-0">
-                  {formatHotkey(`mod+${hotkeySlot}`)}
-                </Kbd>
-              )}
-            </SpaceRowSurface>
-          }
-        />
-        <ContextMenuContent>
-          <ChannelActionItems actions={actions} kind="context" />
-        </ContextMenuContent>
-      </ContextMenu>
-      {/* Hover actions: the "+" dropdown (New task / New canvas) and the
+                  {hotkeySlot != null && (
+                    <Kbd className="!mr-0 ml-auto shrink-0 opacity-50 group-hover/chan:opacity-0">
+                      {formatHotkey(`mod+${hotkeySlot}`)}
+                    </Kbd>
+                  )}
+                </SpaceRowSurface>
+              }
+            />
+            <ContextMenuContent>
+              <ChannelActionItems actions={actions} kind="context" />
+            </ContextMenuContent>
+          </ContextMenu>
+          {/* Hover actions: the "+" dropdown (New task / New canvas) and the
             options menu. Stay visible while either is open. */}
-      <div className="absolute top-1 right-1">
-        <ButtonGroup>
-          <DropdownMenu open={newMenuOpen} onOpenChange={setNewMenuOpen}>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <DropdownMenuTrigger
+          <div className="absolute top-1 right-1">
+            <ButtonGroup>
+              <DropdownMenu open={newMenuOpen} onOpenChange={setNewMenuOpen}>
+                <Tooltip>
+                  <TooltipTrigger
                     render={
-                      <Button
-                        variant="outline"
-                        size="icon-xs"
-                        aria-label={`New in ${channel.name}`}
-                        className={cn(
-                          "gap-1 transition-opacity group-hover:border-border",
-                          menuOpen || newMenuOpen
-                            ? "opacity-100"
-                            : "opacity-0 group-hover/chan:opacity-100",
-                        )}
-                      >
-                        <PlusIcon size={12} weight="bold" />
-                      </Button>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button
+                            variant="outline"
+                            size="icon-xs"
+                            aria-label={`New in ${channel.name}`}
+                            className={cn(
+                              "gap-1 transition-opacity group-hover:border-border",
+                              menuOpen || newMenuOpen
+                                ? "opacity-100"
+                                : "opacity-0 group-hover/chan:opacity-100",
+                            )}
+                          >
+                            <PlusIcon size={12} weight="bold" />
+                          </Button>
+                        }
+                      />
                     }
                   />
-                }
+                  <TooltipContent side="top">New…</TooltipContent>
+                </Tooltip>
+                <DropdownMenuContent
+                  align="start"
+                  side="bottom"
+                  sideOffset={4}
+                  className="w-auto min-w-fit"
+                >
+                  <DropdownMenuItem
+                    onClick={() => {
+                      track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+                        action_type: "new_task_open",
+                        surface: "sidebar",
+                        channel_id: channel.id,
+                      });
+                      openTaskInput({ channelId: channel.id });
+                    }}
+                  >
+                    <FileTextIcon size={14} />
+                    New task
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      // Create + open a canvas with the default template directly;
+                      // the canvas's own composer drives what gets built.
+                      trackAndCreateCanvas(
+                        channel.id,
+                        undefined,
+                        "sidebar",
+                        () => void createAndOpenCanvas(),
+                      );
+                    }}
+                  >
+                    <ChartBarIcon size={14} />
+                    New canvas
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <ChannelMenu
+                channelName={channel.name}
+                actions={actions}
+                open={menuOpen}
+                onOpenChange={setMenuOpen}
               />
-              <TooltipContent side="top">New…</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent
-              align="start"
-              side="bottom"
-              sideOffset={4}
-              className="w-auto min-w-fit"
-            >
-              <DropdownMenuItem
-                onClick={() => {
-                  track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
-                    action_type: "new_task_open",
-                    surface: "sidebar",
-                    channel_id: channel.id,
-                  });
-                  openTaskInput({ channelId: channel.id });
-                }}
-              >
-                <FileTextIcon size={14} />
-                New task
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => {
-                  // Create + open a canvas with the default template directly;
-                  // the canvas's own composer drives what gets built.
-                  trackAndCreateCanvas(
-                    channel.id,
-                    undefined,
-                    "sidebar",
-                    () => void createAndOpenCanvas(),
-                  );
-                }}
-              >
-                <ChartBarIcon size={14} />
-                New canvas
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <ChannelMenu
-            channelName={channel.name}
-            actions={actions}
-            open={menuOpen}
-            onOpenChange={setMenuOpen}
+            </ButtonGroup>
+          </div>
+          {/* One modal for both the dropdown and context-menu "Rename" actions. */}
+          <RenameChannelModal
+            channel={channel}
+            open={renameOpen}
+            onOpenChange={setRenameOpen}
           />
-        </ButtonGroup>
-      </div>
-      {/* One modal for both the dropdown and context-menu "Rename" actions. */}
-      <RenameChannelModal
-        channel={channel}
-        open={renameOpen}
-        onOpenChange={setRenameOpen}
-      />
-      {/* Destructive confirm for "Delete channel" — spells out what's removed. */}
-      <ConfirmDialog
-        open={confirmDeleteOpen}
-        onOpenChange={setConfirmDeleteOpen}
-      >
-        <AlertDialogContent className="max-w-md">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete {channel.name}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This permanently deletes the {noun} and can’t be undone.
-              <ul className="list-disc ps-4">
-                <li>
-                  The {noun} and its{" "}
-                  <span className="font-medium">CONTEXT.md</span> are deleted.
-                </li>
-                <li>
-                  Every canvas saved in this {noun} is permanently deleted.
-                </li>
-                <li>
-                  Filed tasks are removed from the {noun}, but the tasks
-                  themselves are not deleted.
-                </li>
-              </ul>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogClose
-              render={<Button variant="outline">Cancel</Button>}
-            />
-            <Button
-              variant="primary"
-              loading={isDeleting}
-              onClick={() =>
-                void confirmDelete().then((ok) => {
-                  if (ok) setConfirmDeleteOpen(false);
-                })
-              }
-            >
-              Delete {noun}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </ConfirmDialog>
-    </Box>
-  );
-}
+          {/* Destructive confirm for "Delete channel" — spells out what's removed. */}
+          <ConfirmDialog
+            open={confirmDeleteOpen}
+            onOpenChange={setConfirmDeleteOpen}
+          >
+            <AlertDialogContent className="max-w-md">
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete {channel.name}?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This permanently deletes the {noun} and can’t be undone.
+                  <ul className="list-disc ps-4">
+                    <li>
+                      The {noun} and its{" "}
+                      <span className="font-medium">CONTEXT.md</span> are
+                      deleted.
+                    </li>
+                    <li>
+                      Every canvas saved in this {noun} is permanently deleted.
+                    </li>
+                    <li>
+                      Filed tasks are removed from the {noun}, but the tasks
+                      themselves are not deleted.
+                    </li>
+                  </ul>
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogClose
+                  render={<Button variant="outline">Cancel</Button>}
+                />
+                <Button
+                  variant="primary"
+                  loading={isDeleting}
+                  onClick={() =>
+                    void confirmDelete().then((ok) => {
+                      if (ok) setConfirmDeleteOpen(false);
+                    })
+                  }
+                >
+                  Delete {noun}
+                </Button>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </ConfirmDialog>
+        </Box>
+        {expanded && (
+          <SpaceTaskRows
+            spaceId={channel.id}
+            items={items ?? NO_ITEMS}
+            asOption={spacesLayout}
+          />
+        )}
+      </>
+    );
+  },
+  // A space row is expensive — a context menu, two dropdowns, a tooltip and two
+  // dialogs each — and there are dozens of them. Without this, expanding one
+  // space rebuilt every other row: ~350-540ms per expand, in 300ms chunks that
+  // blocked the keyboard. The channel object is compared by the fields the row
+  // actually draws, because the channel list is polled and hands out new objects
+  // on every refetch.
+  (prev, next) =>
+    prev.expanded === next.expanded &&
+    prev.isUnread === next.isUnread &&
+    prev.hotkeySlot === next.hotkeySlot &&
+    prev.items === next.items &&
+    prev.onToggleExpanded === next.onToggleExpanded &&
+    prev.channel.id === next.channel.id &&
+    prev.channel.name === next.channel.name &&
+    prev.channel.starred === next.channel.starred &&
+    prev.channel.channelType === next.channel.channelType,
+);
 
 // The user's private "#me" channel, pinned above the shared channel list.
 // Provisioned lazily server-side when the channel list is fetched, so the row
@@ -680,7 +1005,18 @@ function useOpenChannel(): (channel: Channel) => void {
   };
 }
 
-function PersonalChannelRow({ hotkeySlot }: { hotkeySlot?: number }) {
+const PersonalChannelRow = memo(function PersonalChannelRow({
+  hotkeySlot,
+  expanded = false,
+  items,
+  onToggleExpanded,
+}: {
+  hotkeySlot?: number;
+  expanded?: boolean;
+  items?: ChannelItemModel[];
+  /** Absent while searching; takes the space id, like the shared rows. */
+  onToggleExpanded?: (spaceId: string) => void;
+}) {
   const spacesLayout = useChannelsLayout();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { channels } = useChannels();
@@ -720,90 +1056,118 @@ function PersonalChannelRow({ hotkeySlot }: { hotkeySlot?: number }) {
     );
   };
 
+  // No glyph in the list of spaces: nothing else in that column carries one, and
+  // a lock on this row alone would start its name a glyph's width right of every
+  // other. `channelGlyph` keeps the lock for a private channel whatever the
+  // layout, so dropping it is this row's call. It still appears everywhere the
+  // space is named on its own — the back row, the breadcrumb.
+  const glyph = spacesLayout
+    ? null
+    : channelGlyph(PERSONAL_CHANNEL_NAME, {
+        size: 14,
+        weight: isUnread ? "bold" : undefined,
+        className: cn(
+          "shrink-0",
+          isUnread || isActive
+            ? "text-foreground"
+            : "text-muted-foreground group-hover/button:text-foreground",
+        ),
+      });
+
   return (
-    <Box className="group/chan relative">
-      <SpaceRowSurface
-        asOption={spacesLayout}
-        // "me" is provisioned server-side with the first list fetch, so before
-        // it loads there is no id to identify the option by — its name is
-        // unique among spaces either way.
-        optionValue={meChannel?.id ?? PERSONAL_CHANNEL_NAME}
-        data-selected={isActive || undefined}
-        onClick={openPersonalChannel}
-      >
-        {channelGlyph(PERSONAL_CHANNEL_NAME, {
-          size: 14,
-          weight: isUnread ? "bold" : undefined,
-          className: cn(
-            "shrink-0",
-            isUnread || isActive
-              ? "text-foreground"
-              : "text-muted-foreground group-hover/button:text-foreground",
-          ),
-        })}
-        <span
-          className={cn(
-            "truncate text-[13px]",
-            isUnread ? "font-bold" : "font-medium",
-            isUnread || isActive
-              ? "text-foreground"
-              : "text-muted-foreground group-hover/button:text-foreground",
-          )}
+    <>
+      <Box className="group/chan relative">
+        <SpaceRowSurface
+          asOption={spacesLayout}
+          // "me" is provisioned server-side with the first list fetch, so before
+          // it loads there is no id to identify the option by — its name is
+          // unique among spaces either way.
+          optionValue={meChannel?.id ?? PERSONAL_CHANNEL_NAME}
+          data-selected={(isActive && !expanded) || undefined}
+          onClick={openPersonalChannel}
+          // "me" is a starred space among the others now, so it takes the same
+          // inset rather than sitting out at the heading's margin.
+          className={spacesLayout ? "pl-4" : undefined}
         >
-          {PERSONAL_CHANNEL_NAME}
-        </span>
-        {hotkeySlot != null && (
-          <Kbd className="!mr-0 ml-auto shrink-0 opacity-50 group-hover/chan:opacity-0">
-            {formatHotkey(`mod+${hotkeySlot}`)}
-          </Kbd>
-        )}
-      </SpaceRowSurface>
-      <div className="absolute top-0 right-1">
-        <DropdownMenu open={newMenuOpen} onOpenChange={setNewMenuOpen}>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      variant="outline"
-                      size="icon-xs"
-                      aria-label={`New in ${PERSONAL_CHANNEL_NAME}`}
-                      className={cn(
-                        "gap-1 transition-opacity group-hover:border-border",
-                        newMenuOpen
-                          ? "opacity-100"
-                          : "opacity-0 group-hover/chan:opacity-100",
-                      )}
-                    >
-                      <PlusIcon size={12} weight="bold" />
-                    </Button>
-                  }
-                />
-              }
+          {onToggleExpanded && meChannel && (
+            <SpaceDisclosure
+              expanded={expanded}
+              spaceName={PERSONAL_CHANNEL_NAME}
+              onToggle={() => onToggleExpanded(meChannel.id)}
             />
-            <TooltipContent side="top">New…</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent
-            align="start"
-            side="bottom"
-            sideOffset={4}
-            className="w-auto min-w-fit"
+          )}
+          {glyph}
+          <span
+            className={cn(
+              "truncate text-[13px]",
+              isUnread ? "font-bold" : "font-medium",
+              isUnread || isActive
+                ? "text-foreground"
+                : "text-muted-foreground group-hover/button:text-foreground",
+            )}
           >
-            <DropdownMenuItem onClick={newTask}>
-              <FileTextIcon size={14} />
-              New task
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={newCanvas}>
-              <ChartBarIcon size={14} />
-              New canvas
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-    </Box>
+            {PERSONAL_CHANNEL_NAME}
+          </span>
+          {hotkeySlot != null && (
+            <Kbd className="!mr-0 ml-auto shrink-0 opacity-50 group-hover/chan:opacity-0">
+              {formatHotkey(`mod+${hotkeySlot}`)}
+            </Kbd>
+          )}
+        </SpaceRowSurface>
+        <div className="absolute top-0 right-1">
+          <DropdownMenu open={newMenuOpen} onOpenChange={setNewMenuOpen}>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        variant="outline"
+                        size="icon-xs"
+                        aria-label={`New in ${PERSONAL_CHANNEL_NAME}`}
+                        className={cn(
+                          "gap-1 transition-opacity group-hover:border-border",
+                          newMenuOpen
+                            ? "opacity-100"
+                            : "opacity-0 group-hover/chan:opacity-100",
+                        )}
+                      >
+                        <PlusIcon size={12} weight="bold" />
+                      </Button>
+                    }
+                  />
+                }
+              />
+              <TooltipContent side="top">New…</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent
+              align="start"
+              side="bottom"
+              sideOffset={4}
+              className="w-auto min-w-fit"
+            >
+              <DropdownMenuItem onClick={newTask}>
+                <FileTextIcon size={14} />
+                New task
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={newCanvas}>
+                <ChartBarIcon size={14} />
+                New canvas
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </Box>
+      {expanded && meChannel && (
+        <SpaceTaskRows
+          spaceId={meChannel.id}
+          items={items ?? NO_ITEMS}
+          asOption={spacesLayout}
+        />
+      )}
+    </>
   );
-}
+});
 
 // Collapse state is keyed per section in the shared sidebar store, so it
 // persists across navigation and restarts. Prefixed to stay clear of the Code
@@ -855,7 +1219,7 @@ function ChannelGroup({
       onOpenChange={(open) => {
         if (open !== isOpen) toggleSection(sectionId);
       }}
-      className={className}
+      className={cn(className, "mb-2")}
     >
       {/* MenuLabel carries the sidebar's label styling; `render` keeps it a
           real button so the whole row is clickable. */}
@@ -929,29 +1293,81 @@ export function ChannelsList() {
   const noMatches =
     normalizedQuery !== "" && !meMatches && !searchResults.length;
 
-  // The option values, in the order the rows below render them. The rows are
-  // elements rather than a rendered collection, but Autocomplete still needs the
-  // list to map a highlight index onto — without it the first ArrowDown after a
-  // keystroke is swallowed re-establishing the highlight it already shows.
-  // A collapsed group renders no rows, so it contributes none.
+  // The tree's expansion, and the tasks the expanded spaces show. Searching
+  // flattens the list — a query is a request for the space you named, and rows
+  // for tasks you didn't would sit between you and it.
+  const expandedSpaceIds = useSpaceTreeStore((s) => s.expandedSpaceIds);
+  const toggleSpace = useSpaceTreeStore((s) => s.toggleSpace);
+  const expandSpace = useSpaceTreeStore((s) => s.expandSpace);
+  const collapseSpace = useSpaceTreeStore((s) => s.collapseSpace);
+  const treeOn = !normalizedQuery;
+  const isExpanded = (spaceId: string | undefined) =>
+    treeOn && spaceId != null && expandedSpaceIds.has(spaceId);
+  // One feed query per open space, and none for the rest. Sorted so the array
+  // only changes when the set of open spaces does.
+  const openSpaceIds = useMemo(
+    () =>
+      treeOn
+        ? allChannels
+            .map((channel) => channel.id)
+            .filter((id) => expandedSpaceIds.has(id))
+            .sort()
+        : [],
+    [allChannels, expandedSpaceIds, treeOn],
+  );
+  const tasksBySpace = useRecentSpaceTasks(openSpaceIds);
+  const itemsOf = (spaceId: string | undefined) =>
+    (spaceId && tasksBySpace.get(spaceId)) || NO_ITEMS;
+
+  // The rows below, in render order, as the flat list the keyboard walks.
+  // Autocomplete needs the values to map a highlight index onto — without it the
+  // first ArrowDown after a keystroke is swallowed re-establishing the highlight
+  // it already shows — and ArrowLeft needs to know which space a task hangs off.
+  // A collapsed group or space renders no rows, so it contributes none.
   const collapsedSections = useSidebarStore((s) => s.collapsedSections);
   // "me" is provisioned server-side with the first list fetch; before it loads
   // it has no id to go by.
   const meValue = me?.id ?? PERSONAL_CHANNEL_NAME;
-  const optionValues = normalizedQuery
+  const spaceNodes = (
+    value: string,
+    spaceId: string | undefined,
+  ): SpaceTreeNode[] => [
+    { kind: "space", value, spaceId },
+    ...(isExpanded(spaceId) && spaceId
+      ? itemsOf(spaceId).map(
+          (item): SpaceTreeNode => ({
+            kind: "task",
+            value: item.key,
+            spaceId,
+            parentValue: value,
+          }),
+        )
+      : []),
+  ];
+  const nodes: SpaceTreeNode[] = normalizedQuery
     ? [
-        ...(meMatches ? [meValue] : []),
-        ...searchResults.map((channel) => channel.id),
+        ...(meMatches ? spaceNodes(meValue, me?.id) : []),
+        ...searchResults.flatMap((channel) =>
+          spaceNodes(channel.id, channel.id),
+        ),
       ]
     : [
-        meValue,
+        // "me" leads the starred section rather than floating above it: it is
+        // the space you always keep, so it belongs with the ones you chose to
+        // keep. Folding the section away takes it with them.
         ...(collapsedSections.has(STARRED_SECTION_ID)
           ? []
-          : starred.map((channel) => channel.id)),
+          : [
+              ...spaceNodes(meValue, me?.id),
+              ...starred.flatMap((channel) =>
+                spaceNodes(channel.id, channel.id),
+              ),
+            ]),
         ...(collapsedSections.has(CHANNELS_SECTION_ID)
           ? []
-          : others.map((channel) => channel.id)),
+          : others.flatMap((channel) => spaceNodes(channel.id, channel.id))),
       ];
+  const optionValues = nodes.map((node) => node.value);
 
   // Coming back from a space, the list is what you came here to browse — so the
   // search box takes focus and any previous query is selected, ready to be typed
@@ -965,17 +1381,70 @@ export function ChannelsList() {
     previousPane.current = pane;
     if (!channelsLayout || pane !== "list" || !cameFromChannel) return;
     const input = searchRef.current;
-    if (!input) return;
-    input.focus();
-    // Autocomplete leaves its highlight on the row you opened and exposes no
-    // way to move it, so the pane would come back mid-list. Home is the key it
-    // listens for; sending it is how the list reopens at the top.
-    input.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Home", bubbles: true }),
-    );
-    // After Home, so the caret it parks at the start doesn't undo the selection.
-    input.select();
+    if (input) focusSearch(input);
   }, [pane, channelsLayout]);
+
+  // ⌘⇧S from anywhere in the app ends here. A counter, not a flag: pressing the
+  // key again while the box already has focus has to reach the list again, to
+  // put the highlight back at the top and select the query.
+  const searchFocusRequest = useSpaceTreeStore((s) => s.searchFocusRequest);
+  useEffect(() => {
+    if (!channelsLayout || searchFocusRequest === 0) return;
+    const input = searchRef.current;
+    if (input) focusSearch(input);
+  }, [searchFocusRequest, channelsLayout]);
+
+  // Which row the keyboard is on. A ref rather than state: the arrow handlers
+  // read it during the event, and re-rendering the whole list on every ↑/↓ is
+  // exactly the cost this pane can't afford.
+  const highlightedValue = useRef<string | undefined>(undefined);
+
+  // ArrowRight opens a space (then steps into it); ArrowLeft closes the one
+  // you're in and puts the highlight back on its space. Both defer to the text
+  // caret first — the same box holds the query, so a key that would move the
+  // caret through it belongs to the text.
+  const onTreeKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+    if (!treeOn) return;
+    const input = event.currentTarget;
+    const { selectionStart, selectionEnd, value } = input;
+    const atStart = selectionStart === 0 && selectionEnd === 0;
+    const atEnd =
+      selectionStart === value.length && selectionEnd === value.length;
+    const node = nodes.find((n) => n.value === highlightedValue.current);
+    if (!node) return;
+
+    if (event.key === "ArrowRight") {
+      if (!atEnd || node.kind !== "space" || !node.spaceId) return;
+      event.preventDefault();
+      if (!expandedSpaceIds.has(node.spaceId)) {
+        expandSpace(node.spaceId);
+        return;
+      }
+      // Already open: the next press walks into it, so ArrowRight then ArrowDown
+      // and ArrowRight twice land in the same place.
+      moveHighlight(input, "ArrowDown", 1);
+      return;
+    }
+
+    if (!atStart) return;
+    if (node.kind === "task") {
+      event.preventDefault();
+      // Move first, while the children are still rendered — the highlight is an
+      // index into the list, so walking up to the parent has to happen before
+      // the rows between here and it stop existing.
+      const steps =
+        optionValues.indexOf(node.value) -
+        optionValues.indexOf(node.parentValue);
+      moveHighlight(input, "ArrowUp", steps);
+      collapseSpace(node.spaceId);
+      return;
+    }
+    if (node.spaceId && expandedSpaceIds.has(node.spaceId)) {
+      event.preventDefault();
+      collapseSpace(node.spaceId);
+    }
+  };
 
   const rows = normalizedQuery ? (
     <>
@@ -997,28 +1466,32 @@ export function ChannelsList() {
     </>
   ) : (
     <>
-      <PersonalChannelRow
-        hotkeySlot={channelsLayout && me ? slotFor(me) : undefined}
-      />
-
-      {starred.length > 0 && (
-        <ChannelGroup
-          sectionId={STARRED_SECTION_ID}
-          label="Starred"
-          flat={channelsLayout}
-          keepMounted={!channelsLayout}
-          icon={<StarIcon size={14} />}
-        >
-          {starred.map((channel) => (
-            <ChannelSection
-              key={channel.id}
-              channel={channel}
-              isUnread={isUnread(channel.id)}
-              hotkeySlot={channelsLayout ? slotFor(channel) : undefined}
-            />
-          ))}
-        </ChannelGroup>
-      )}
+      {/* Always rendered: "me" lives here, so the section is never empty. */}
+      <ChannelGroup
+        sectionId={STARRED_SECTION_ID}
+        label="Starred"
+        flat={channelsLayout}
+        keepMounted={!channelsLayout}
+        icon={<StarIcon size={14} />}
+      >
+        <PersonalChannelRow
+          hotkeySlot={channelsLayout && me ? slotFor(me) : undefined}
+          expanded={isExpanded(me?.id)}
+          items={itemsOf(me?.id)}
+          onToggleExpanded={toggleSpace}
+        />
+        {starred.map((channel) => (
+          <ChannelSection
+            key={channel.id}
+            channel={channel}
+            isUnread={isUnread(channel.id)}
+            hotkeySlot={channelsLayout ? slotFor(channel) : undefined}
+            expanded={isExpanded(channel.id)}
+            items={itemsOf(channel.id)}
+            onToggleExpanded={toggleSpace}
+          />
+        ))}
+      </ChannelGroup>
 
       <ChannelGroup
         sectionId={CHANNELS_SECTION_ID}
@@ -1041,6 +1514,9 @@ export function ChannelsList() {
             key={channel.id}
             channel={channel}
             isUnread={isUnread(channel.id)}
+            expanded={isExpanded(channel.id)}
+            items={itemsOf(channel.id)}
+            onToggleExpanded={toggleSpace}
           />
         ))}
       </ChannelGroup>
@@ -1057,7 +1533,7 @@ export function ChannelsList() {
   // own padding has to win: `!` is what outranks an unlayered rule.
   const listClass = cn(
     "flex flex-col gap-px",
-    "!max-h-none !px-2 !pt-2 !pb-16",
+    "!max-h-none !px-2 !pt-2 !pb-16 scroll-py-8",
     scrollClass,
   );
 
@@ -1072,6 +1548,7 @@ export function ChannelsList() {
             showSearchIcon={false}
             className="h-7 text-[13px]"
             onKeyDown={(event) => {
+              onTreeKeyDown(event);
               // Base UI's clear is a tabIndex=-1 decoration, so Escape is the
               // keyboard way out of a query. With the box already empty there's
               // nothing to clear, and Escape belongs to whoever is listening
@@ -1082,13 +1559,22 @@ export function ChannelsList() {
               setQuery("");
             }}
           >
-            {/* Rendered here rather than via `showClear` so it can be given a
-                tab stop: quill passes no props to the one it renders itself. */}
-            <AutocompleteClear
-              tabIndex={0}
-              aria-label="Clear search"
-              onClick={() => setQuery("")}
-            />
+            {/* The key that lands here from anywhere, advertised where it lands.
+                It gives way to the clear button once there's a query — by then
+                you are in the box and clearing is the useful action. */}
+            {query === "" ? (
+              <Kbd className="!mr-0 shrink-0 opacity-50">
+                {formatHotkey(SHORTCUTS.FOCUS_SPACE_SEARCH)}
+              </Kbd>
+            ) : (
+              /* Rendered here rather than via `showClear` so it can be given a
+                 tab stop: quill passes no props to the one it renders itself. */
+              <AutocompleteClear
+                tabIndex={0}
+                aria-label="Clear search"
+                onClick={() => setQuery("")}
+              />
+            )}
           </AutocompleteInput>
         </Box>
       )}
@@ -1130,6 +1616,11 @@ export function ChannelsList() {
           // then snaps it back to the first row — so drifting the mouse across
           // the gap between two rows threw the keyboard back to the top.
           keepHighlight
+          // ArrowRight / ArrowLeft act on the row the keyboard is on, and this
+          // is the only way to know which one that is.
+          onItemHighlighted={(value) => {
+            highlightedValue.current = value;
+          }}
           onValueChange={(value, eventDetails) => {
             // Selecting a row would otherwise write the row's value back into
             // the input; only what the user types moves the query.

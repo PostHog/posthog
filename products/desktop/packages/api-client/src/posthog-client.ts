@@ -2168,10 +2168,12 @@ export class PostHogAPIClient {
     originProduct?: string;
     internal?: boolean;
     channel?: string;
+    /** Caller-side cap for surfaces that only show the newest few. */
+    limit?: number;
   }): Promise<Task[]> {
     const teamId = await this.getTeamId();
     const params: Record<string, string | number | boolean> = {
-      limit: 500,
+      limit: options?.limit ?? 500,
     };
 
     if (options?.repository) {

@@ -50,9 +50,49 @@ The root `AGENTS.md` architecture rules still apply.
   slide and returning to the list doesn't rebuild every row. A two-finger
   horizontal swipe moves between them (`useChannelPaneSwipe`, wheel `deltaX`
   accumulated per gesture and locked until the wheel goes quiet).
-- In the list, "Starred"/"Spaces" are headings above lightly indented shared
-  rows; the pinned private "me" row aligns with the headings. The alpha's more
-  deeply indented Channels tree and hash glyphs are unchanged.
+- In the list, "Starred"/"Spaces" are headings above lightly indented rows. The
+  private "me" row leads the Starred section and takes the same inset as the
+  spaces beside it. No row carries a glyph: "me" drops its lock here so every
+  name starts in the same column, and it still marks the space everywhere it is
+  named on its own (the back row, the breadcrumb). The alpha's more deeply
+  indented Channels tree and hash glyphs are unchanged.
+- **The list is a tree.** Each space has a disclosure caret that opens it onto
+  its most recent sessions (`useRecentSpaceTasks` — one channel-feed query per
+  open space, sharing the feed's query key and polling slower; expansion lives
+  in `spaceTreeStore` and persists). Session rows wear the space's own session
+  vocabulary (`TaskStatusDot` + `TaskBadgeStack`) but are hand-built rather than
+  `ChannelItemRow`: a row has to be an `AutocompleteItem` to stay on the
+  keyboard's path, and that row is a button with a hover card of its own.
+- **The tree's rows are memoized, and have to stay that way.** A space row
+  carries a context menu, two dropdowns, a tooltip and two dialogs, and there
+  are dozens of them; before `ChannelSection`/`PersonalChannelRow`/`SpaceTaskRow`
+  were `memo`ed, expanding one space rebuilt every other row (350-540ms per
+  expand, in 300ms chunks). Keeping that means keeping their props stable: the
+  toggle callback takes a space id instead of closing over one, empty session
+  lists are a shared constant, `useRecentSpaceTasks` caches each space's item
+  list against the query data it was built from, and its `combine` is defined at
+  module scope so `useQueries` can memoize on it. A row's `channel` is compared
+  field by field, because the channel list is polled and hands out new objects.
+- **The tree stays off the host.** Its rows skip the per-task PR lookup
+  (`useChannelTaskStatus(item, { withPrStatus: false })`) — that is a query per
+  row into git, and the tree can show a dozen spaces' worth at once; the PR's
+  existence still shows, because `prUrl` comes from the task itself. Its feed
+  query is its own key with a 20-row page, not the channel feed's 500: sharing
+  the feed's key would hand the space's own list a truncated feed.
+- **Hover prefetch waits for the pointer to rest** (250ms). Arrowing through the
+  tree scrolls rows under a stationary cursor, so prefetching straight from
+  `pointerenter` fired a request for every row the list passed and made each
+  keypress take a second.
+- **Keyboard contract of the list.** The search box holds focus and drives
+  everything: ↑/↓ walk every visible row, → opens the highlighted space (and
+  again steps into it), ← closes the space you're in and puts the highlight back
+  on it. Both arrows defer to the text caret first, so they still edit the
+  query. ⌘⇧S from anywhere opens the sidebar, slides back to the list and takes
+  the keyboard; it is advertised on the search box (until a query replaces it
+  with the clear button) and on the space's back row, which is what it does from
+  inside a space. Autocomplete has no API for setting the highlight, so moving it
+  means synthesizing the arrow keys it listens for — and moving *before*
+  collapsing, while the rows still exist.
 - One `ChannelsFab` serves both panes: given a `channelId` it creates inside
   that channel (task, canvas), and either way it can create a channel. Off the
   layout it keeps its original two-item menu. Archived moves out of the sidebar
@@ -62,6 +102,10 @@ The root `AGENTS.md` architecture rules still apply.
   browses the list while the route, the main pane and the scoped channel stay
   put. Every way into a channel — a row click, a deep link, a mention, ⌘1-9 —
   ends at `showChannelPane()`, directly or through the route effect.
+  The one exception is a session opened from the list's tree: it loads in the
+  main window and leaves the sidebar on the list, because picking a session
+  while browsing across spaces is not a request to go into one. It says so with
+  `keepListForNextRoute()`, which the route effect consumes in place of sliding.
 
 ## Breadcrumbs
 
