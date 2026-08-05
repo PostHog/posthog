@@ -25,6 +25,8 @@ from posthog.persons_seed import insert_seed_group, insert_seed_group_type_mappi
 
 from products.actions.backend.models.action import Action
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
+from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
+from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.review_queues import ReviewQueue, ReviewQueueItem
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition
 from products.ai_observability.backend.models.trace_reviews import TraceReview, TraceReviewScore
@@ -514,6 +516,27 @@ def _create_logs_alert(team: Team, label: str) -> LogsAlertConfiguration:
     )
 
 
+def _create_evaluation_directory(team: Team, label: str) -> EvaluationDirectory:
+    user = _get_or_create_user_for_team(team, label)
+    return EvaluationDirectory.objects.for_team(team.id).create(
+        team=team,
+        name=f"evaluation_directory_{label}",
+        created_by=user,
+    )
+
+
+def _create_evaluation(team: Team, label: str) -> Evaluation:
+    user = _get_or_create_user_for_team(team, label)
+    return Evaluation.objects.create(
+        team=team,
+        name=f"evaluation_{label}",
+        evaluation_type="hog",
+        evaluation_config={"source": "return true"},
+        output_type="boolean",
+        created_by=user,
+    )
+
+
 def _create_review_queue(team: Team, label: str) -> ReviewQueue:
     user = _get_or_create_user_for_team(team, label)
     return ReviewQueue.objects.create(team=team, name=f"review_queue_{label}", created_by=user)
@@ -767,6 +790,8 @@ SYSTEM_TABLE_FACTORIES = [
     ("error_tracking_releases", _create_error_tracking_release),
     ("error_tracking_symbol_sets", _create_error_tracking_symbol_set),
     ("error_tracking_suppression_rules", _create_error_tracking_suppression_rule),
+    ("evaluation_directories", _create_evaluation_directory),
+    ("evaluations", _create_evaluation),
     ("experiments", _create_experiment),
     ("exports", _create_export),
     ("feature_flags", _create_feature_flag),

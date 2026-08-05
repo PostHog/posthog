@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("ai_observability", "0036_make_dataset_item_version_dataset_non_null"),
+        ("ai_observability", "0038_make_dataset_item_version_dataset_non_null"),
     ]
 
     operations = [

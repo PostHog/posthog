@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("ai_observability", "0035_backfill_dataset_item_version_dataset"),
+        ("ai_observability", "0037_backfill_dataset_item_version_dataset"),
     ]
 
     operations = [

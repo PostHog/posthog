@@ -3,7 +3,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("ai_observability", "0034_dataset_item_client_id_and_version_dataset"),
+        ("ai_observability", "0036_dataset_item_client_id_and_version_dataset"),
     ]
 
     operations = [

@@ -5,7 +5,7 @@ from posthog.migration_helpers import ValidateForeignKey
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("ai_observability", "0037_dataset_item_version_ownership_constraints"),
+        ("ai_observability", "0039_dataset_item_version_ownership_constraints"),
     ]
 
     operations = [

@@ -496,10 +496,11 @@ tools:
             Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration with provider and
             model; provider_key_id may be null when no key is pinned. 'hog': evaluation_config.source (Hog returning a
             boolean). 'sentiment': output_type='sentiment', omit model_configuration, optional
-            evaluation_config.source='user_messages'. `target` accepts 'generation' (default), 'trace', or 'session' — a
+            evaluation_config.source='user_messages'. `target` accepts 'generation' (default), 'trace', or 'session'. A
             session target runs once per `$ai_session_id` and defaults to the 'inactivity' settle strategy. Pass
             `enabled` as a boolean (true to start scoring new $ai_generation events immediately, false to create it
-            paused). Results are '$ai_evaluation' events.
+            paused). To organize the evaluation, pass a `directory_id` returned by llma-evaluation-directory-list. Omit
+            `directory_id` or pass null to keep it at the top level. Results are '$ai_evaluation' events.
     llma-evaluation-delete:
         operation: evaluations_destroy
         enabled: true
@@ -514,6 +515,67 @@ tools:
             Soft-delete an AI observability evaluation. The evaluation stops running and is hidden from list views.
             Historical evaluation results ($ai_evaluation events) are preserved.
         soft_delete: true
+    llma-evaluation-directory-create:
+        operation: evaluation_directories_create
+        enabled: true
+        scopes:
+            - evaluation:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create evaluation directory
+        description: >
+            Create a top-level directory for organizing online evaluations. Directory names must be unique within the
+            project, ignoring capitalization.
+    llma-evaluation-directory-delete:
+        operation: evaluation_directories_destroy
+        enabled: true
+        scopes:
+            - evaluation:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete evaluation directory
+        description: |
+            Delete an evaluation directory. Evaluations in the directory are preserved and moved to the top level.
+    llma-evaluation-directory-get:
+        operation: evaluation_directories_retrieve
+        enabled: true
+        scopes:
+            - evaluation:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get evaluation directory
+        description: |
+            Get an evaluation directory by UUID, including its name and active evaluation count.
+    llma-evaluation-directory-list:
+        operation: evaluation_directories_list
+        enabled: true
+        scopes:
+            - evaluation:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List evaluation directories
+        description: |
+            List the project's evaluation directories and active evaluation counts.
+    llma-evaluation-directory-update:
+        operation: evaluation_directories_partial_update
+        enabled: true
+        scopes:
+            - evaluation:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update evaluation directory
+        description: |
+            Rename an evaluation directory. Directory names must be unique within the project, ignoring capitalization.
     llma-evaluation-get:
         operation: evaluations_retrieve
         enabled: true
@@ -556,10 +618,11 @@ tools:
         title: List evaluations
         description: >
             List all AI observability evaluations for the current project. Optionally filter by name/description search
-            or enabled status. Evaluations automatically score $ai_generation events for quality, relevance, safety,
-            sentiment, and other criteria. Supported types are 'llm_judge' (LLM scores outputs against a prompt), 'hog'
-            (deterministic Hog code), and 'sentiment' (user-message sentiment analysis). Results are stored as
-            '$ai_evaluation' events.
+            or enabled status. Pass `directory_id` to list evaluations in a directory, or `directory_id__isnull=true` to
+            list only top-level evaluations. Call llma-evaluation-directory-list to find directory UUIDs. Evaluations
+            automatically score $ai_generation events for quality, relevance, safety, sentiment, and other criteria.
+            Supported types are 'llm_judge' (LLM scores outputs against a prompt), 'hog' (deterministic Hog code), and
+            'sentiment' (user-message sentiment analysis). Results are stored as '$ai_evaluation' events.
     llma-evaluation-report-create:
         operation: llm_analytics_evaluation_reports_create
         enabled: true
@@ -737,14 +800,15 @@ tools:
             idempotent: true
         title: Update evaluation
         description: >
-            Partially update an AI observability evaluation. Requires the evaluation `id` (UUID) — if you don't have it,
+            Partially update an AI observability evaluation. Requires the evaluation `id` (UUID). If you don't have it,
             call llma-evaluation-list first to look it up by name. Toggle enabled, change its type or evaluation config,
             or change the model for an llm_judge. When switching to llm_judge, include model_configuration with provider
             and model. When an llm_judge remains an llm_judge, omit model_configuration to keep its current model or
             provide both fields to replace it; null is rejected for configured judges. When switching an llm_judge to
             hog or sentiment, set model_configuration to null. Legacy llm_judge evaluations without a model remain
             editable. provider_key_id may be null when no key is pinned. `target` accepts 'generation', 'trace', or
-            'session'.
+            'session'. Pass a `directory_id` returned by llma-evaluation-directory-list to move the evaluation into a
+            directory, or pass null to move it to the top level.
     llma-evaluation-update-full:
         operation: evaluations_update
         enabled: false

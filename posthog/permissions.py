@@ -947,6 +947,9 @@ class AccessControlPermission(ScopeBasePermission):
         has_access = uac.check_access_level_for_resource(scope_object, required_level=required_level)
         if has_access:
             return True
+        elif getattr(view, "requires_resource_level_access", False):
+            self.message = f"You do not have {required_level} access to this resource."
+            return False
         elif view.action == "create":
             # If the user has no access to the resource level, but is trying to create a new object, we should block it
             # Specific object access isn't relevant here as we are trying to create a new object

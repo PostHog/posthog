@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 72 enabled ops
+ * PostHog API - MCP 77 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -412,6 +412,68 @@ export const DatasetsRestoreParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const EvaluationDirectoriesListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const EvaluationDirectoriesCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const evaluationDirectoriesCreateBodyNameMax = 400
+
+export const EvaluationDirectoriesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(evaluationDirectoriesCreateBodyNameMax)
+        .describe('Directory name shown in the online evals list.'),
+})
+
+export const EvaluationDirectoriesRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this evaluation directory.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const EvaluationDirectoriesPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this evaluation directory.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const evaluationDirectoriesPartialUpdateBodyNameMax = 400
+
+export const EvaluationDirectoriesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(evaluationDirectoriesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Directory name shown in the online evals list.'),
+})
+
+export const EvaluationDirectoriesDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this evaluation directory.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
 /**
  * List immutable dataset revisions, newest first.
  */
@@ -467,6 +529,8 @@ export const EvaluationsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const EvaluationsListQueryParams = /* @__PURE__ */ zod.object({
+    directory_id: zod.string().optional().describe('Filter evaluations by directory UUID.'),
+    directory_id__isnull: zod.boolean().optional().describe('Filter evaluations by whether they are at the top level.'),
     enabled: zod.boolean().optional().describe('Filter by enabled status'),
     evaluation_type: zod
         .enum(['hog', 'llm_judge', 'sentiment'])
@@ -518,6 +582,10 @@ export const evaluationsCreateBodyModelConfigurationOneModelMax = 100
 export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(evaluationsCreateBodyNameMax).describe('Name of the evaluation.'),
     description: zod.string().optional().describe('Optional description of what this evaluation checks.'),
+    directory_id: zod
+        .string()
+        .nullish()
+        .describe('Directory containing the evaluation. Pass null to move the evaluation to the top level.'),
     enabled: zod
         .boolean()
         .optional()
@@ -725,6 +793,10 @@ export const evaluationsPartialUpdateBodyModelConfigurationOneModelMax = 100
 export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(evaluationsPartialUpdateBodyNameMax).optional().describe('Name of the evaluation.'),
     description: zod.string().optional().describe('Optional description of what this evaluation checks.'),
+    directory_id: zod
+        .string()
+        .nullish()
+        .describe('Directory containing the evaluation. Pass null to move the evaluation to the top level.'),
     enabled: zod
         .boolean()
         .optional()

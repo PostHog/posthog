@@ -5673,7 +5673,7 @@
         }
     },
     "llma-evaluation-create": {
-        "description": "Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration with provider and model; provider_key_id may be null when no key is pinned. 'hog': evaluation_config.source (Hog returning a boolean). 'sentiment': output_type='sentiment', omit model_configuration, optional evaluation_config.source='user_messages'. `target` accepts 'generation' (default), 'trace', or 'session' — a session target runs once per `$ai_session_id` and defaults to the 'inactivity' settle strategy. Pass `enabled` as a boolean (true to start scoring new $ai_generation events immediately, false to create it paused). Results are '$ai_evaluation' events.",
+        "description": "Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration with provider and model; provider_key_id may be null when no key is pinned. 'hog': evaluation_config.source (Hog returning a boolean). 'sentiment': output_type='sentiment', omit model_configuration, optional evaluation_config.source='user_messages'. `target` accepts 'generation' (default), 'trace', or 'session'. A session target runs once per `$ai_session_id` and defaults to the 'inactivity' settle strategy. Pass `enabled` as a boolean (true to start scoring new $ai_generation events immediately, false to create it paused). To organize the evaluation, pass a `directory_id` returned by llma-evaluation-directory-list. Omit `directory_id` or pass null to keep it at the top level. Results are '$ai_evaluation' events.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create evaluation",
@@ -5695,6 +5695,76 @@
         "required_scopes": ["evaluation:write"],
         "annotations": {
             "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-evaluation-directory-create": {
+        "description": "Create a top-level directory for organizing online evaluations. Directory names must be unique within the project, ignoring capitalization.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Create evaluation directory",
+        "title": "Create evaluation directory",
+        "required_scopes": ["evaluation:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-evaluation-directory-delete": {
+        "description": "Delete an evaluation directory. Evaluations in the directory are preserved and moved to the top level.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Delete evaluation directory",
+        "title": "Delete evaluation directory",
+        "required_scopes": ["evaluation:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-evaluation-directory-get": {
+        "description": "Get an evaluation directory by UUID, including its name and active evaluation count.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Get evaluation directory",
+        "title": "Get evaluation directory",
+        "required_scopes": ["evaluation:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-evaluation-directory-list": {
+        "description": "List the project's evaluation directories and active evaluation counts.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "List evaluation directories",
+        "title": "List evaluation directories",
+        "required_scopes": ["evaluation:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-evaluation-directory-update": {
+        "description": "Rename an evaluation directory. Directory names must be unique within the project, ignoring capitalization.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Update evaluation directory",
+        "title": "Update evaluation directory",
+        "required_scopes": ["evaluation:write"],
+        "annotations": {
+            "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
@@ -5729,7 +5799,7 @@
         }
     },
     "llma-evaluation-list": {
-        "description": "List all AI observability evaluations for the current project. Optionally filter by name/description search or enabled status. Evaluations automatically score $ai_generation events for quality, relevance, safety, sentiment, and other criteria. Supported types are 'llm_judge' (LLM scores outputs against a prompt), 'hog' (deterministic Hog code), and 'sentiment' (user-message sentiment analysis). Results are stored as '$ai_evaluation' events.",
+        "description": "List all AI observability evaluations for the current project. Optionally filter by name/description search or enabled status. Pass `directory_id` to list evaluations in a directory, or `directory_id__isnull=true` to list only top-level evaluations. Call llma-evaluation-directory-list to find directory UUIDs. Evaluations automatically score $ai_generation events for quality, relevance, safety, sentiment, and other criteria. Supported types are 'llm_judge' (LLM scores outputs against a prompt), 'hog' (deterministic Hog code), and 'sentiment' (user-message sentiment analysis). Results are stored as '$ai_evaluation' events.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List evaluations",
@@ -5870,7 +5940,7 @@
         }
     },
     "llma-evaluation-update": {
-        "description": "Partially update an AI observability evaluation. Requires the evaluation `id` (UUID) — if you don't have it, call llma-evaluation-list first to look it up by name. Toggle enabled, change its type or evaluation config, or change the model for an llm_judge. When switching to llm_judge, include model_configuration with provider and model. When an llm_judge remains an llm_judge, omit model_configuration to keep its current model or provide both fields to replace it; null is rejected for configured judges. When switching an llm_judge to hog or sentiment, set model_configuration to null. Legacy llm_judge evaluations without a model remain editable. provider_key_id may be null when no key is pinned. `target` accepts 'generation', 'trace', or 'session'.",
+        "description": "Partially update an AI observability evaluation. Requires the evaluation `id` (UUID). If you don't have it, call llma-evaluation-list first to look it up by name. Toggle enabled, change its type or evaluation config, or change the model for an llm_judge. When switching to llm_judge, include model_configuration with provider and model. When an llm_judge remains an llm_judge, omit model_configuration to keep its current model or provide both fields to replace it; null is rejected for configured judges. When switching an llm_judge to hog or sentiment, set model_configuration to null. Legacy llm_judge evaluations without a model remain editable. provider_key_id may be null when no key is pinned. `target` accepts 'generation', 'trace', or 'session'. Pass a `directory_id` returned by llma-evaluation-directory-list to move the evaluation into a directory, or pass null to move it to the top level.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update evaluation",

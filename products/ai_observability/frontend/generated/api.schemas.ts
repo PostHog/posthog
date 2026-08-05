@@ -592,6 +592,38 @@ export interface PaginatedDatasetRevisionReadListApi {
     results: DatasetRevisionReadApi[]
 }
 
+export interface EvaluationDirectoryApi {
+    readonly id: string
+    /**
+     * Directory name shown in the online evals list.
+     * @maxLength 400
+     */
+    name: string
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** User who created the directory. */
+    readonly created_by: UserBasicApi | null
+    /** Number of active evaluations in the directory. */
+    readonly evaluation_count: number
+}
+
+export interface PatchedEvaluationDirectoryApi {
+    readonly id?: string
+    /**
+     * Directory name shown in the online evals list.
+     * @maxLength 400
+     */
+    name?: string
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+    /** User who created the directory. */
+    readonly created_by?: UserBasicApi | null
+    /** Number of active evaluations in the directory. */
+    readonly evaluation_count?: number
+}
+
 export interface EvaluationRunRequestApi {
     /** UUID of the evaluation to run. */
     evaluation_id: string
@@ -816,6 +848,11 @@ export interface EvaluationApi {
     name: string
     /** Optional description of what this evaluation checks. */
     description?: string
+    /**
+     * Directory containing the evaluation. Pass null to move the evaluation to the top level.
+     * @nullable
+     */
+    directory_id?: string | null
     /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
     readonly status: EvaluationStatusEnumApi
@@ -854,7 +891,8 @@ export interface EvaluationApi {
     model_configuration?: ModelConfigurationApi | null
     readonly created_at: string
     readonly updated_at: string
-    readonly created_by: UserBasicApi
+    /** User who created the evaluation. */
+    readonly created_by: UserBasicApi | null
     /** Set to true to soft-delete the evaluation. */
     deleted?: boolean
 }
@@ -939,6 +977,11 @@ export interface PatchedEvaluationApi {
     name?: string
     /** Optional description of what this evaluation checks. */
     description?: string
+    /**
+     * Directory containing the evaluation. Pass null to move the evaluation to the top level.
+     * @nullable
+     */
+    directory_id?: string | null
     /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
     readonly status?: EvaluationStatusEnumApi
@@ -977,7 +1020,8 @@ export interface PatchedEvaluationApi {
     model_configuration?: ModelConfigurationApi | null
     readonly created_at?: string
     readonly updated_at?: string
-    readonly created_by?: UserBasicApi
+    /** User who created the evaluation. */
+    readonly created_by?: UserBasicApi | null
     /** Set to true to soft-delete the evaluation. */
     deleted?: boolean
 }
@@ -3127,6 +3171,14 @@ export type DatasetsRevisionsListParams = {
 export type EvaluationRunsCreate200 = { [key: string]: unknown }
 
 export type EvaluationsListParams = {
+    /**
+     * Filter evaluations by directory UUID.
+     */
+    directory_id?: string
+    /**
+     * Filter evaluations by whether they are at the top level.
+     */
+    directory_id__isnull?: boolean
     /**
      * Filter by enabled status
      */

@@ -67,6 +67,7 @@ Schema reference for PostHog's core system models, organized by domain:
 - [Hog Functions](./references/models-hog-functions.md)
 - [Integrations](./references/models-integrations.md)
 - [AI observability events (`posthog.ai_events`)](./references/models-ai-observability-events.md)
+- [AI observability evaluations](./references/models-ai-observability-evaluations.md)
 - [AI observability reviews](./references/models-ai-observability-reviews.md)
 - [AI observability datasets](./references/models-datasets.md)
 - [Logs (`logs` data plane + saved views and alerts)](./references/models-logs.md)
