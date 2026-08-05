@@ -3,9 +3,6 @@ import type { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import type { AccountSortOrder } from './accountsLogic'
 import { sortAccountRows } from './accountsSort'
 
-// Rows are result-arrays aligned to the visible column names, matching what the
-// accounts query runner emits: the name column is a { name, external_id, id } tuple,
-// relationship columns are arrays of assignee ids, everything else is a primitive.
 const COLUMNS = ['name', 'notebook_count', 'csm']
 
 const buildRow = ({
