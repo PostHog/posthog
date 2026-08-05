@@ -538,6 +538,35 @@ class TestResponsesApiItems:
                 {"type": "reasoning", "summary": [{"text": "Checking the error rate.", "type": "summary_text"}]},
                 "Checking the error rate.",
             ),
+            (
+                "string_output",
+                {"call_id": "call_3", "output": "London", "type": "function_call_output"},
+                "London",
+            ),
+            (
+                "builtin_web_search_call",
+                {"id": "ws1", "status": "completed", "type": "web_search_call"},
+                "web_search_call() (completed)",
+            ),
+            (
+                "builtin_code_interpreter_call",
+                {"id": "ci1", "status": "completed", "code": 'print("hi")', "type": "code_interpreter_call"},
+                'print(\\"hi\\")',
+            ),
+            (
+                "builtin_mcp_call",
+                {"id": "m1", "name": "get_thing", "arguments": '{"x": 1}', "output": "done", "type": "mcp_call"},
+                "get_thing(x=1)",
+            ),
+            (
+                "additional_tools",
+                {
+                    "role": "developer",
+                    "type": "additional_tools",
+                    "tools": [{"name": "search", "description": "Finds things."}],
+                },
+                "search()",
+            ),
         ]
     )
     def test_renders_payload_held_outside_content(self, _name, message, expected):
@@ -563,6 +592,21 @@ class TestResponsesApiItems:
         message = {"type": "reasoning", "encrypted_content": "gAAAA", "summary": []}
         result = "\n".join(format_input_messages([message]))
         assert MISSING_REASONING_NOTE in result
+
+    def test_falsey_tool_output_is_not_reported_as_missing(self):
+        message = {"call_id": "call_1", "output": 0, "type": "function_call_output"}
+        result = "\n".join(format_input_messages([message]))
+        assert "0" in result
+        assert MISSING_TOOL_OUTPUT_NOTE not in result
+
+    def test_top_level_output_items_are_rendered(self):
+        output_choices = [
+            {"call_id": "c1", "name": "get_weather", "arguments": '{"city": "Paris"}', "type": "function_call"},
+            {"call_id": "c1", "output": "22C, sunny", "type": "function_call_output"},
+        ]
+        result = "\n".join(format_output_messages(None, output_choices))
+        assert 'get_weather(city="Paris")' in result
+        assert "22C, sunny" in result
 
     def test_responses_output_object_is_unwrapped(self):
         output_choices = {

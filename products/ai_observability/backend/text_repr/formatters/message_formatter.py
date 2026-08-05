@@ -18,6 +18,9 @@ from .constants import (
     MISSING_TOOL_OUTPUT_NOTE,
     PLAIN_TEXT_BLOCK_TYPES,
     PRESERVE_HEADER_LINES,
+    RESPONSES_BUILTIN_TOOL_CALL_TYPES,
+    RESPONSES_ITEM_METADATA_KEYS,
+    RESPONSES_ITEM_TYPES,
     RESPONSES_TOOL_CALL_TYPES,
     RESPONSES_TOOL_OUTPUT_TYPES,
     SAMPLED_VIEW_HEADER,
@@ -406,15 +409,41 @@ def extract_text_content(content: Any) -> str:
     return safe_extract_text(content)
 
 
-def _extract_responses_payload_text(payload: Any) -> str:
-    """Extract text from a Responses API payload, which is a string or a list of content blocks."""
-    if not payload:
-        # Guard before `extract_text_content`, whose repr fallback would turn an empty list or
-        # dict into a literal "[]" / "{}" and read as recorded content.
+def extract_payload_text(payload: Any) -> str:
+    """Extract text from a tool payload, returning "" only when nothing was recorded.
+
+    A falsey scalar such as `0` or `False` is a real result, so it must not collapse to "" the
+    way `None` and empty containers do. Callers label the "" case as unrecorded, and a tool that
+    counted zero rows would otherwise be reported as missing evidence.
+    """
+    if payload is None:
         return ""
     if isinstance(payload, str):
         return payload
+    if isinstance(payload, list | dict | tuple) and not payload:
+        # `extract_text_content`'s repr fallback would render an empty container as a literal
+        # "[]" / "{}", which reads as recorded output.
+        return ""
     return extract_text_content(payload)
+
+
+def _format_builtin_tool_call(msg: dict[str, Any], options: FormatterOptions | None) -> list[str]:
+    """Format a Responses built-in tool call (web search, code interpreter, MCP, and so on).
+
+    Each type carries its own payload keys rather than a uniform argument object, so render the
+    item's remaining fields instead of fitting them to a function signature.
+    """
+    name = str(msg.get("name") or msg.get("type") or "unknown")
+    signature = format_single_tool_call(name, msg.get("arguments") or {})
+    status = msg.get("status")
+    parts = [f"{signature} ({status})" if status else signature]
+
+    payload = {key: value for key, value in msg.items() if key not in RESPONSES_ITEM_METADATA_KEYS}
+    if payload:
+        parts.append(json.dumps(payload, indent=2, default=str))
+
+    lines, _ = truncate_content("\n".join(parts), options)
+    return lines
 
 
 def _format_responses_item(msg: dict[str, Any], options: FormatterOptions | None = None) -> list[str] | None:
@@ -436,15 +465,19 @@ def _format_responses_item(msg: dict[str, Any], options: FormatterOptions | None
         lines, _ = truncate_content(call_line, options)
         return lines
 
+    if item_type in RESPONSES_BUILTIN_TOOL_CALL_TYPES:
+        return _format_builtin_tool_call(msg, options)
+
     if item_type in RESPONSES_TOOL_OUTPUT_TYPES:
-        text = _extract_responses_payload_text(msg.get("output") or msg.get("content"))
+        output = msg.get("output")
+        text = extract_payload_text(msg.get("content") if output is None else output)
         if not text:
             return [MISSING_TOOL_OUTPUT_NOTE]
         lines, _ = truncate_content(text, options)
         return lines
 
     if item_type == "reasoning":
-        text = _extract_responses_payload_text(msg.get("summary") or msg.get("content"))
+        text = extract_payload_text(msg.get("summary") or msg.get("content"))
         if not text:
             # Reasoning is frequently returned encrypted, with no readable summary at all.
             return [MISSING_REASONING_NOTE]
@@ -595,6 +628,13 @@ def format_output_messages(
         messages = []
         for choice in choices:
             if not isinstance(choice, dict):
+                continue
+
+            # The Responses API can send its items at the top level of the array, with no `role`
+            # and no `content`. Pass those straight to `format_messages_array`, which knows their
+            # shapes, rather than dropping them for failing the role check below.
+            if choice.get("type") in RESPONSES_ITEM_TYPES:
+                messages.append(choice)
                 continue
 
             # Extract message from choice

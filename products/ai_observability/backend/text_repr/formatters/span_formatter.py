@@ -13,7 +13,7 @@ from .constants import MISSING_TOOL_OUTPUT_NOTE
 from .message_formatter import (
     FormatterOptions,
     add_line_numbers,
-    extract_text_content,
+    extract_payload_text,
     format_messages_array,
     format_single_tool_call,
     truncate_content,
@@ -103,7 +103,7 @@ def _format_tool_result(state: dict, options: FormatterOptions | None) -> list[s
 
     lines.append("")
     # `content` is often a list of content blocks, which `str()` would render as a Python repr.
-    text = content if isinstance(content, str) else extract_text_content(content) if content else ""
+    text = extract_payload_text(content)
     if text:
         content_lines, _ = truncate_content(text, options)
         lines.extend(content_lines)

@@ -35,6 +35,27 @@ DEFAULT_TOOLS_COLLAPSE_THRESHOLD = 5  # Collapse tool lists longer than this
 # reasoning in `summary`. A formatter that reads only `content` renders them as a bare header.
 RESPONSES_TOOL_CALL_TYPES = frozenset({"function_call", "custom_tool_call"})
 RESPONSES_TOOL_OUTPUT_TYPES = frozenset({"function_call_output", "custom_tool_call_output"})
+# Built-in tools the Responses API runs itself. Each type carries a different payload (`code`,
+# `queries`, `action`), so they get rendered from their own fields. Mirrors
+# OPENAI_RESPONSES_BUILTIN_TOOL_TYPES in products/ai_observability/frontend/utils.ts.
+RESPONSES_BUILTIN_TOOL_CALL_TYPES = frozenset(
+    {
+        "web_search_call",
+        "code_interpreter_call",
+        "image_generation_call",
+        "mcp_call",
+        "file_search_call",
+        "computer_call",
+    }
+)
+RESPONSES_ITEM_TYPES = (
+    RESPONSES_TOOL_CALL_TYPES
+    | RESPONSES_TOOL_OUTPUT_TYPES
+    | RESPONSES_BUILTIN_TOOL_CALL_TYPES
+    | frozenset({"reasoning", "additional_tools"})
+)
+# Keys a built-in tool call renders in its signature line, so its payload dump can skip them.
+RESPONSES_ITEM_METADATA_KEYS = frozenset({"type", "id", "call_id", "name", "arguments", "status", "encrypted_content"})
 # Content-block types that hold plain text, so prefixing them with a `[TYPE]` label spends two
 # lines repeating what the block already is.
 PLAIN_TEXT_BLOCK_TYPES = frozenset({"text", "input_text", "output_text", "summary_text"})
