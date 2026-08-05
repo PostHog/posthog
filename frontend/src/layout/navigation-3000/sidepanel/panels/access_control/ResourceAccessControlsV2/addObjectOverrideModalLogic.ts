@@ -422,7 +422,7 @@ export interface addObjectOverrideModalLogicActions {
 export interface addObjectOverrideModalLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        displayObjectOptions: (objectOptions: ObjectOption[], selectedObject: any) => ObjectOption[]
+        displayObjectOptions: (objectOptions: ObjectOption[], selectedObject: ObjectOption | null) => ObjectOption[]
     }
 }
 

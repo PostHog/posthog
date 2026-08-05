@@ -92,7 +92,10 @@ export interface addPropertyRestrictionModalLogicActions {
 export interface addPropertyRestrictionModalLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        displayPropertyOptions: (propertyOptions: PropertyOption[], selectedProperty: any) => PropertyOption[]
+        displayPropertyOptions: (
+            propertyOptions: PropertyOption[],
+            selectedProperty: PropertyOption | null
+        ) => PropertyOption[]
     }
 }
 
