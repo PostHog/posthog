@@ -19,7 +19,14 @@ import {
 } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import { Box, Flex, Text, TextArea, TextField } from "@radix-ui/themes";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import {
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useAuthStateValue } from "../../auth/store";
 import {
   useCreateLoop,
@@ -98,6 +105,40 @@ interface LoopFormProps {
   onSaved?: (loop: LoopSchemas.Loop) => void;
 }
 
+type LoopFormSource = {
+  loopId: string | null;
+  updatedAt: string | null;
+  values: LoopFormValues;
+  serialized: string;
+};
+
+type LoopFormDraft = {
+  baselineLoopId: string | null;
+  baselineUpdatedAt: string | null;
+  baselineSerialized: string;
+  values: LoopFormValues;
+};
+
+type LoopFormViewProps = {
+  canSubmit: boolean;
+  handleCancel: () => void;
+  handleSubmit: () => Promise<void>;
+  hasRemoteUpdate: boolean;
+  isEdit: boolean;
+  isLastStep: boolean;
+  isSubmitting: boolean;
+  patch: (next: Partial<LoopFormValues>) => void;
+  setShowAdvanced: Dispatch<SetStateAction<boolean>>;
+  setStep: Dispatch<SetStateAction<number>>;
+  showAdvanced: boolean;
+  showContextField: boolean;
+  step: number;
+  stepComplete: boolean[];
+  triggerEndpointPath: string | null;
+  updateValues: (updater: (prev: LoopFormValues) => LoopFormValues) => void;
+  values: LoopFormValues;
+};
+
 export function LoopForm({
   loop,
   variant = "wizard",
@@ -108,8 +149,8 @@ export function LoopForm({
   const isEdit = !!loop;
   const isEmbedded = variant === "embedded";
   const projectId = useAuthStateValue((state) => state.currentProjectId);
-  const [values, setValues] = useState<LoopFormValues>(() => {
-    if (loop) return normalizeLoopFormValues(loopToFormValues(loop));
+  const [createInitialValues] = useState<LoopFormValues>(() => {
+    if (loop) return normalizeLoopFormValues(emptyLoopFormValues());
     // One-shot prefill from the landing prompt or a template; merged over the
     // blank defaults. Read (not consumed) here, then cleared in the effect
     // below so the manual "New loop" button always opens a blank form.
@@ -119,48 +160,40 @@ export function LoopForm({
       ...(prefill ?? {}),
     });
   });
+  const source = useMemo<LoopFormSource>(() => {
+    const values = loop
+      ? buildLoopFormBaseline(loop).values
+      : createInitialValues;
+    return {
+      loopId: loop?.id ?? null,
+      updatedAt: loop?.updated_at ?? null,
+      values,
+      serialized: JSON.stringify(values),
+    };
+  }, [loop, createInitialValues]);
+  const [draft, setDraft] = useState<LoopFormDraft | null>(null);
   const [step, setStep] = useState(0);
-  const [baseline, setBaseline] = useState<LoopFormBaseline | null>(() =>
-    loop ? buildLoopFormBaseline(loop) : null,
-  );
-  const [hasRemoteUpdate, setHasRemoteUpdate] = useState(false);
   // Open when editing a loop that already pins a model, so the pinned value
   // is visible without hunting for it.
   const [showAdvanced, setShowAdvanced] = useState(
     () => !!(loop && (loop.model || loop.reasoning_effort)),
   );
-  const isDirty = !!baseline && JSON.stringify(values) !== baseline.serialized;
+  const draftIsDirty =
+    !!draft && JSON.stringify(draft.values) !== draft.baselineSerialized;
+  const useDraft =
+    !!draft &&
+    draft.baselineLoopId === source.loopId &&
+    (draftIsDirty || draft.baselineSerialized !== source.serialized);
+  const values = useDraft ? draft.values : source.values;
+  const hasRemoteUpdate =
+    !!loop &&
+    draftIsDirty &&
+    draft.baselineLoopId === source.loopId &&
+    draft.baselineUpdatedAt !== loop.updated_at;
 
   useEffect(() => {
     if (!loop) useLoopDraftStore.getState().setPrefill(null);
   }, [loop]);
-
-  useEffect(() => {
-    if (!loop) return;
-
-    const nextBaseline = buildLoopFormBaseline(loop);
-    if (!baseline || baseline.loopId !== loop.id) {
-      setBaseline(nextBaseline);
-      setValues(nextBaseline.values);
-      setHasRemoteUpdate(false);
-      return;
-    }
-
-    if (nextBaseline.updatedAt === baseline.updatedAt) return;
-
-    if (isDirty) {
-      setHasRemoteUpdate(true);
-      return;
-    }
-
-    setBaseline(nextBaseline);
-    setValues(nextBaseline.values);
-    setHasRemoteUpdate(false);
-  }, [loop, baseline, isDirty]);
-
-  useEffect(() => {
-    onDirtyChange?.(isDirty);
-  }, [isDirty, onDirtyChange]);
 
   // Contexts are a channels surface; hide the attachment UI when channels are
   // off, unless this loop is already attached so the link stays visible and
@@ -169,19 +202,6 @@ export function LoopForm({
   const channelsEnabled =
     useSidebarStore((s) => s.channelsEnabled) && bluebirdEnabled;
   const showContextField = channelsEnabled || !!values.contextTarget;
-
-  const createLoop = useCreateLoop();
-  const updateLoop = useUpdateLoop(loop?.id ?? "");
-  const deleteLoop = useDeleteLoop();
-  const bundleSkill = useBundleLocalSkill();
-  const replaceSkillBundles = useReplaceLoopSkillBundles();
-  const isSubmitting =
-    (isEdit ? updateLoop.isPending : createLoop.isPending) ||
-    bundleSkill.isPending ||
-    replaceSkillBundles.isPending ||
-    deleteLoop.isPending;
-  const canSubmit =
-    isLoopFormValid(values) && !isSubmitting && !hasRemoteUpdate;
 
   // Per-step gate for the Next button. The final Create button is gated on the
   // whole form being valid, so jumping between steps can't submit a bad loop.
@@ -221,7 +241,41 @@ export function LoopForm({
       : null;
 
   const patch = (next: Partial<LoopFormValues>) =>
-    setValues((prev) => ({ ...prev, ...next }));
+    updateValues((prev) => ({ ...prev, ...next }));
+
+  const updateValues = (updater: (prev: LoopFormValues) => LoopFormValues) => {
+    const baseline =
+      draft && useDraft
+        ? draft
+        : {
+            baselineUpdatedAt: source.updatedAt,
+            baselineLoopId: source.loopId,
+            baselineSerialized: source.serialized,
+            values: source.values,
+          };
+    const nextValues = updater(values);
+    setDraft({ ...baseline, values: nextValues });
+    onDirtyChange?.(JSON.stringify(nextValues) !== baseline.baselineSerialized);
+  };
+
+  const markClean = (saved: LoopSchemas.Loop) => {
+    const nextValues = normalizeLoopFormValues(loopToFormValues(saved));
+    setDraft({
+      baselineLoopId: saved.id,
+      baselineUpdatedAt: saved.updated_at,
+      baselineSerialized: JSON.stringify(nextValues),
+      values: nextValues,
+    });
+    onDirtyChange?.(false);
+  };
+
+  const { canSubmit, handleSubmit, isSubmitting } = useLoopFormSubmit({
+    hasRemoteUpdate,
+    loop,
+    markClean,
+    onSaved,
+    values,
+  });
 
   const handleCancel = () => {
     if (onCancel) {
@@ -235,304 +289,163 @@ export function LoopForm({
     }
   };
 
-  const handleSubmit = async () => {
-    if (hasRemoteUpdate) {
-      toast.error("Loop changed elsewhere", {
-        description: "Cancel and reopen editing before saving changes.",
-      });
-      return;
-    }
-    if (!canSubmit) return;
-    const body = formValuesToLoopWrite(values);
-
-    // Bundling runs before anything is persisted: a missing or broken local
-    // skill fails here with no partial state, instead of leaving a saved loop
-    // whose `/skill-name` instructions have no matching bundle.
-    let uploads: LoopSchemas.LoopSkillBundleUpload[] | null = null;
-    if (values.skill?.kind === "local") {
-      try {
-        uploads = await bundleSkill.mutateAsync(values.skill);
-      } catch (error) {
-        toast.error("Failed to bundle the skill", {
-          description: error instanceof Error ? error.message : undefined,
-        });
-        return;
-      }
-    }
-
-    try {
-      const saved = isEdit
-        ? await updateLoop.mutateAsync(body)
-        : await createLoop.mutateAsync(body);
-      track(
-        isEdit ? ANALYTICS_EVENTS.LOOP_UPDATED : ANALYTICS_EVENTS.LOOP_CREATED,
-        buildLoopSavedProps(saved),
-      );
-      const needsDetach =
-        values.skill === null && loopSkillBundles(saved).length > 0;
-      if (uploads || needsDetach) {
-        try {
-          await replaceSkillBundles.mutateAsync({
-            loopId: saved.id,
-            uploads: uploads ?? [],
-          });
-        } catch (error) {
-          const description =
-            error instanceof Error ? error.message : undefined;
-          if (!isEdit) {
-            // Roll the just-created loop back rather than leaving one that
-            // fires `/skill-name` with no bundle behind it. If the rollback
-            // itself fails, an orphaned loop exists — say so instead of
-            // pretending nothing was created.
-            try {
-              await deleteLoop.mutateAsync(saved.id);
-              toast.error("Failed to create loop", { description });
-            } catch {
-              toast.error("Loop created, but attaching its skill failed", {
-                description: [
-                  description,
-                  `Delete "${saved.name}" or re-save it from Edit.`,
-                ]
-                  .filter(Boolean)
-                  .join(" "),
-              });
-            }
-            return;
-          }
-          // Keep the form open with its state intact: saving again retries
-          // both the loop write and the skill upload.
-          toast.error("Loop saved, but updating its skill failed", {
-            description: [description, "Save again to retry."]
-              .filter(Boolean)
-              .join(" "),
-          });
-          return;
-        }
-      }
-      if (onSaved) {
-        onSaved(saved);
-      } else {
-        navigateToLoopDetail(saved.id);
-      }
-    } catch (error) {
-      const safetyLimit =
-        error instanceof LoopsApiError ? error.safetyLimit : null;
-      if (safetyLimit) {
-        // A safety/abuse ceiling, not a normal failure: tell the user plainly so they can
-        // course-correct (delete a loop, remove triggers) or contact support for a raise.
-        toast.error("Safety limit reached", {
-          description: safetyLimit.detail,
-        });
-        return;
-      }
-      toast.error(isEdit ? "Failed to save loop" : "Failed to create loop", {
-        description:
-          error instanceof LoopsApiError
-            ? (error.detail ?? error.message)
-            : error instanceof Error
-              ? error.message
-              : undefined,
-      });
-    }
+  const viewProps: LoopFormViewProps = {
+    canSubmit,
+    handleCancel,
+    handleSubmit,
+    hasRemoteUpdate,
+    isEdit,
+    isLastStep,
+    isSubmitting,
+    patch,
+    setShowAdvanced,
+    setStep,
+    showAdvanced,
+    showContextField,
+    step,
+    stepComplete,
+    triggerEndpointPath,
+    updateValues,
+    values,
   };
 
-  if (isEmbedded) {
-    return (
-      <Flex
-        direction="column"
-        gap="4"
-        className="rounded-(--radius-2) border border-border bg-(--gray-1) p-4"
-      >
-        <Step
-          title="Prompt"
-          description="Name the loop and describe what PostHog should do each time it runs."
-        >
-          <Field label="Name" required>
-            <TextField.Root
-              size="2"
-              value={values.name}
-              placeholder="Daily standup summary"
-              disabled={isSubmitting}
-              onChange={(e) => patch({ name: e.target.value })}
-            />
-          </Field>
-          <Field label="Description">
-            <TextArea
-              value={values.description}
-              placeholder="A short summary shown on the Loops list"
-              disabled={isSubmitting}
-              className="min-h-[72px] text-[13px] leading-relaxed"
-              onChange={(e) => patch({ description: e.target.value })}
-            />
-          </Field>
-          <LoopInstructionsFields
-            values={values}
-            disabled={isSubmitting}
-            onPatch={patch}
-          />
-        </Step>
+  return isEmbedded
+    ? renderEmbeddedLoopForm(viewProps)
+    : renderWizardLoopForm(viewProps);
+}
 
-        <Divider />
+function renderEmbeddedLoopForm({
+  canSubmit,
+  handleCancel,
+  handleSubmit,
+  hasRemoteUpdate,
+  isSubmitting,
+  patch,
+  showContextField,
+  triggerEndpointPath,
+  updateValues,
+  values,
+}: LoopFormViewProps) {
+  return (
+    <Flex
+      direction="column"
+      gap="4"
+      className="rounded-(--radius-2) border border-border bg-(--gray-1) p-4"
+    >
+      {renderStep({
+        title: "Prompt",
+        description:
+          "Name the loop and describe what PostHog should do each time it runs.",
+        children: (
+          <>
+            <Field label="Name" required>
+              <TextField.Root
+                size="2"
+                value={values.name}
+                placeholder="Daily standup summary"
+                disabled={isSubmitting}
+                onChange={(e) => patch({ name: e.target.value })}
+              />
+            </Field>
+            <Field label="Description">
+              <TextArea
+                value={values.description}
+                placeholder="A short summary shown on the Loops list"
+                disabled={isSubmitting}
+                className="min-h-[72px] text-[13px] leading-relaxed"
+                onChange={(e) => patch({ description: e.target.value })}
+              />
+            </Field>
+            <LoopInstructionsFields
+              values={values}
+              disabled={isSubmitting}
+              onPatch={patch}
+            />
+          </>
+        ),
+      })}
 
-        <Step
-          title="When"
-          description="Add automatic triggers, or leave this manual-only."
-        >
+      {renderDivider()}
+
+      {renderStep({
+        title: "When",
+        description: "Add automatic triggers, or leave this manual-only.",
+        children: (
           <LoopTriggerEditor
             triggers={values.triggers}
             triggerEndpointPath={triggerEndpointPath}
             disabled={isSubmitting}
             onChange={(triggers) => patch({ triggers })}
           />
-        </Step>
+        ),
+      })}
 
-        <Divider />
+      {renderDivider()}
 
-        <Step
-          title="Settings"
-          description="Choose who can see it, where it works, and when to notify you."
+      {renderStep({
+        title: "Settings",
+        description:
+          "Choose who can see it, where it works, and when to notify you.",
+        children: renderEmbeddedSettingsFields({
+          isSubmitting,
+          patch,
+          showContextField,
+          updateValues,
+          values,
+        }),
+      })}
+
+      {renderDivider()}
+
+      {renderStep({
+        title: "Advanced",
+        description: "Model, reasoning, and pull requests.",
+        children: renderAdvancedFields({ isSubmitting, patch, values }),
+      })}
+
+      {renderRemoteUpdateNotice(hasRemoteUpdate)}
+
+      <Flex
+        align="center"
+        justify="end"
+        gap="2"
+        className="sticky bottom-0 z-10 border-border border-t bg-(--gray-1) py-4"
+      >
+        <Button
+          variant="soft"
+          color="gray"
+          size="2"
+          disabled={isSubmitting}
+          onClick={handleCancel}
         >
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field
-              label="Visibility"
-              hint={
-                values.contextTarget
-                  ? "Channel loops are team-visible."
-                  : undefined
-              }
-            >
-              <SettingsOptionSelect
-                value={values.visibility}
-                options={VISIBILITY_OPTIONS}
-                disabled={isSubmitting || !!values.contextTarget}
-                size="lg"
-                ariaLabel="Visibility"
-                onValueChange={(value) =>
-                  patch({
-                    visibility: value as LoopSchemas.LoopVisibilityEnum,
-                  })
-                }
-              />
-            </Field>
-
-            <Field
-              label="Base repository"
-              hint={
-                values.repositories.length > 1
-                  ? `${values.repositories.length - 1} more attached.`
-                  : "Optional. Choose a repository if this loop should read code or open PRs."
-              }
-            >
-              <LoopRepositoryPicker
-                value={values.repositories[0] ?? null}
-                disabled={isSubmitting}
-                onChange={(repository) =>
-                  setValues((prev) => ({
-                    ...prev,
-                    repositories: repository
-                      ? [repository, ...prev.repositories.slice(1)]
-                      : prev.repositories.slice(1),
-                  }))
-                }
-              />
-            </Field>
-          </div>
-
-          {showContextField ? (
-            <Field label="Context" hint="Attach runs to a sidebar channel.">
-              <LoopContextFields
-                value={values.contextTarget}
-                disabled={isSubmitting}
-                onChange={(contextTarget) =>
-                  patch(
-                    contextTarget
-                      ? { contextTarget, visibility: "team" }
-                      : { contextTarget },
-                  )
-                }
-              />
-            </Field>
-          ) : null}
-
-          <Field label="Notifications">
-            <LoopNotificationsFields
-              notifications={values.notifications}
-              disabled={isSubmitting}
-              onChange={(notifications) => patch({ notifications })}
-            />
-          </Field>
-        </Step>
-
-        <Divider />
-
-        <Step
-          title="Advanced"
-          description="Model, reasoning, and pull requests."
+          Cancel
+        </Button>
+        <Button
+          variant="solid"
+          size="2"
+          loading={isSubmitting}
+          disabled={!canSubmit}
+          onClick={() => void handleSubmit()}
         >
-          <Field label="Behavior">
-            <LoopBehaviorFields
-              behaviors={values.behaviors}
-              disabled={isSubmitting}
-              onChange={(behaviors) => patch({ behaviors })}
-            />
-          </Field>
-          <LoopModelFields
-            adapter={values.runtimeAdapter}
-            model={values.model}
-            reasoningEffort={values.reasoningEffort}
-            disabled={isSubmitting}
-            onAdapterChange={(runtimeAdapter) => patch({ runtimeAdapter })}
-            onModelChange={(model) => patch({ model })}
-            onReasoningEffortChange={(reasoningEffort) =>
-              patch({ reasoningEffort })
-            }
-          />
-        </Step>
-
-        {hasRemoteUpdate ? (
-          <Flex
-            direction="column"
-            gap="1"
-            className="rounded-(--radius-2) border border-(--amber-6) bg-(--amber-2) px-3 py-2"
-          >
-            <Text className="font-medium text-(--amber-12) text-[12.5px]">
-              This loop changed elsewhere
-            </Text>
-            <Text className="text-(--amber-11) text-[12px] leading-snug">
-              Cancel and reopen editing before saving, so you don't overwrite
-              newer settings.
-            </Text>
-          </Flex>
-        ) : null}
-
-        <Flex
-          align="center"
-          justify="end"
-          gap="2"
-          className="sticky bottom-0 z-10 border-border border-t bg-(--gray-1) py-4"
-        >
-          <Button
-            variant="soft"
-            color="gray"
-            size="2"
-            disabled={isSubmitting}
-            onClick={handleCancel}
-          >
-            Cancel
-          </Button>
-          <Button
-            variant="solid"
-            size="2"
-            loading={isSubmitting}
-            disabled={!canSubmit}
-            onClick={() => void handleSubmit()}
-          >
-            Save changes
-          </Button>
-        </Flex>
+          Save changes
+        </Button>
       </Flex>
-    );
-  }
+    </Flex>
+  );
+}
+
+function renderWizardLoopForm(props: LoopFormViewProps) {
+  const {
+    canSubmit,
+    handleCancel,
+    handleSubmit,
+    isEdit,
+    isLastStep,
+    isSubmitting,
+    setStep,
+    step,
+    stepComplete,
+  } = props;
 
   return (
     <Box className="flex h-full items-center justify-center p-6">
@@ -541,205 +454,18 @@ export function LoopForm({
         className="max-h-full w-full max-w-[640px] overflow-hidden rounded-(--radius-3) border border-border bg-(--color-panel-solid) shadow-xl"
       >
         <Box className="border-border border-b px-6 pt-5 pb-4">
-          <Stepper current={step} complete={stepComplete} onSelect={setStep} />
+          {renderStepper({
+            complete: stepComplete,
+            current: step,
+            onSelect: setStep,
+          })}
         </Box>
 
         <Box className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
-          {step === 0 ? (
-            <Step
-              title="What should this loop do?"
-              description="Name the loop and describe what PostHog should do each time it runs."
-            >
-              <Field label="Name" required>
-                <TextField.Root
-                  size="2"
-                  value={values.name}
-                  placeholder="Daily standup summary"
-                  disabled={isSubmitting}
-                  autoFocus
-                  onChange={(e) => patch({ name: e.target.value })}
-                />
-              </Field>
-              <Field label="Description">
-                <TextField.Root
-                  size="2"
-                  value={values.description}
-                  placeholder="A short summary shown on the Loops list"
-                  disabled={isSubmitting}
-                  onChange={(e) => patch({ description: e.target.value })}
-                />
-              </Field>
-              <LoopInstructionsFields
-                values={values}
-                disabled={isSubmitting}
-                onPatch={patch}
-              />
-            </Step>
-          ) : null}
-
-          {step === 1 ? (
-            <Step
-              title="When should it run?"
-              description="Add one or more triggers. Any trigger can start the loop."
-            >
-              <LoopTriggerEditor
-                triggers={values.triggers}
-                triggerEndpointPath={triggerEndpointPath}
-                disabled={isSubmitting}
-                onChange={(triggers) => patch({ triggers })}
-              />
-            </Step>
-          ) : null}
-
-          {step === 2 ? (
-            <Step
-              title="Settings"
-              description="Choose who can see it, where it works, and when to notify you."
-            >
-              <SettingsSection title="Access">
-                <Field
-                  label="Visibility"
-                  className="max-w-[340px]"
-                  hint={
-                    values.contextTarget
-                      ? "Loops attached to a channel post runs to its shared feed, so they're visible to everyone on the project."
-                      : undefined
-                  }
-                >
-                  <SettingsOptionSelect
-                    value={values.visibility}
-                    options={VISIBILITY_OPTIONS}
-                    disabled={isSubmitting || !!values.contextTarget}
-                    size="lg"
-                    ariaLabel="Visibility"
-                    onValueChange={(value) =>
-                      patch({
-                        visibility: value as LoopSchemas.LoopVisibilityEnum,
-                      })
-                    }
-                  />
-                </Field>
-              </SettingsSection>
-
-              {showContextField ? (
-                <SettingsSection title="Channel context">
-                  <Field
-                    label="Context"
-                    hint="Attach this loop to a sidebar channel. Runs show in the channel feed. The loop can also update context.md or a canvas."
-                  >
-                    <LoopContextFields
-                      value={values.contextTarget}
-                      disabled={isSubmitting}
-                      onChange={(contextTarget) =>
-                        patch(
-                          contextTarget
-                            ? { contextTarget, visibility: "team" }
-                            : { contextTarget },
-                        )
-                      }
-                    />
-                  </Field>
-                </SettingsSection>
-              ) : null}
-
-              <SettingsSection title="Repository">
-                <Field
-                  label="Base repository"
-                  hint={
-                    values.repositories.length > 1
-                      ? `${values.repositories.length - 1} more ${
-                          values.repositories.length === 2
-                            ? "repository stays"
-                            : "repositories stay"
-                        } attached to this loop.`
-                      : "Optional. Choose a repository if this loop should read code or open PRs. Leave empty for report-only loops."
-                  }
-                >
-                  <LoopRepositoryPicker
-                    value={values.repositories[0] ?? null}
-                    disabled={isSubmitting}
-                    onChange={(repository) =>
-                      setValues((prev) => ({
-                        ...prev,
-                        repositories: repository
-                          ? [repository, ...prev.repositories.slice(1)]
-                          : prev.repositories.slice(1),
-                      }))
-                    }
-                  />
-                </Field>
-              </SettingsSection>
-
-              <SettingsSection
-                title="Notifications"
-                description="Full run output is always saved on the loop page. Notifications send a short summary and link."
-              >
-                <LoopNotificationsFields
-                  notifications={values.notifications}
-                  disabled={isSubmitting}
-                  onChange={(notifications) => patch({ notifications })}
-                />
-              </SettingsSection>
-
-              <SettingsSection>
-                <button
-                  type="button"
-                  onClick={() => setShowAdvanced((open) => !open)}
-                  className="flex items-center gap-1.5 text-left"
-                >
-                  <CaretRight
-                    size={12}
-                    className={`text-gray-10 transition-transform ${
-                      showAdvanced ? "rotate-90" : ""
-                    }`}
-                  />
-                  <Text className="font-medium text-[12.5px] text-gray-11">
-                    Advanced
-                  </Text>
-                  <Text className="text-[11.5px] text-gray-9">
-                    Model, reasoning, and pull requests
-                  </Text>
-                </button>
-                {showAdvanced ? (
-                  <Flex direction="column" gap="4">
-                    <Field label="Behavior">
-                      <LoopBehaviorFields
-                        behaviors={values.behaviors}
-                        disabled={isSubmitting}
-                        onChange={(behaviors) => patch({ behaviors })}
-                      />
-                    </Field>
-                    <LoopModelFields
-                      adapter={values.runtimeAdapter}
-                      model={values.model}
-                      reasoningEffort={values.reasoningEffort}
-                      disabled={isSubmitting}
-                      onAdapterChange={(runtimeAdapter) =>
-                        patch({ runtimeAdapter })
-                      }
-                      onModelChange={(model) => patch({ model })}
-                      onReasoningEffortChange={(reasoningEffort) =>
-                        patch({ reasoningEffort })
-                      }
-                    />
-                  </Flex>
-                ) : null}
-              </SettingsSection>
-            </Step>
-          ) : null}
-
-          {step === 3 ? (
-            <Step
-              title="Review"
-              description="Check the loop before creating it."
-            >
-              <ReviewList
-                values={values}
-                showContext={showContextField}
-                onEdit={setStep}
-              />
-            </Step>
-          ) : null}
+          {step === 0 ? renderPromptStep(props) : null}
+          {step === 1 ? renderWhenStep(props) : null}
+          {step === 2 ? renderSettingsStep(props) : null}
+          {step === 3 ? renderReviewStep(props) : null}
         </Box>
 
         <Flex
@@ -798,7 +524,346 @@ export function LoopForm({
   );
 }
 
-function Stepper({
+function renderPromptStep({ isSubmitting, patch, values }: LoopFormViewProps) {
+  return renderStep({
+    title: "What should this loop do?",
+    description:
+      "Name the loop and describe what PostHog should do each time it runs.",
+    children: (
+      <>
+        <Field label="Name" required>
+          <TextField.Root
+            size="2"
+            value={values.name}
+            placeholder="Daily standup summary"
+            disabled={isSubmitting}
+            autoFocus
+            onChange={(e) => patch({ name: e.target.value })}
+          />
+        </Field>
+        <Field label="Description">
+          <TextField.Root
+            size="2"
+            value={values.description}
+            placeholder="A short summary shown on the Loops list"
+            disabled={isSubmitting}
+            onChange={(e) => patch({ description: e.target.value })}
+          />
+        </Field>
+        <LoopInstructionsFields
+          values={values}
+          disabled={isSubmitting}
+          onPatch={patch}
+        />
+      </>
+    ),
+  });
+}
+
+function renderWhenStep({
+  isSubmitting,
+  patch,
+  triggerEndpointPath,
+  values,
+}: LoopFormViewProps) {
+  return renderStep({
+    title: "When should it run?",
+    description: "Add one or more triggers. Any trigger can start the loop.",
+    children: (
+      <LoopTriggerEditor
+        triggers={values.triggers}
+        triggerEndpointPath={triggerEndpointPath}
+        disabled={isSubmitting}
+        onChange={(triggers) => patch({ triggers })}
+      />
+    ),
+  });
+}
+
+function renderSettingsStep(props: LoopFormViewProps) {
+  return renderStep({
+    title: "Settings",
+    description:
+      "Choose who can see it, where it works, and when to notify you.",
+    children: (
+      <>
+        {renderSettingsSection({
+          title: "Access",
+          children: renderVisibilityField(props, {
+            className: "max-w-[340px]",
+            channelHint:
+              "Loops attached to a channel post runs to its shared feed, so they're visible to everyone on the project.",
+          }),
+        })}
+
+        {props.showContextField
+          ? renderSettingsSection({
+              title: "Channel context",
+              children: renderContextField(props, {
+                hint: "Attach this loop to a sidebar channel. Runs show in the channel feed. The loop can also update context.md or a canvas.",
+              }),
+            })
+          : null}
+
+        {renderSettingsSection({
+          title: "Repository",
+          children: renderRepositoryField(props, {
+            multipleHint: (count) =>
+              `${count - 1} more ${
+                count === 2 ? "repository stays" : "repositories stay"
+              } attached to this loop.`,
+            singleHint:
+              "Optional. Choose a repository if this loop should read code or open PRs. Leave empty for report-only loops.",
+          }),
+        })}
+
+        {renderSettingsSection({
+          title: "Notifications",
+          description:
+            "Full run output is always saved on the loop page. Notifications send a short summary and link.",
+          children: (
+            <LoopNotificationsFields
+              notifications={props.values.notifications}
+              disabled={props.isSubmitting}
+              onChange={(notifications) => props.patch({ notifications })}
+            />
+          ),
+        })}
+
+        {renderAdvancedDisclosure(props)}
+      </>
+    ),
+  });
+}
+
+function renderEmbeddedSettingsFields(props: {
+  isSubmitting: boolean;
+  patch: (next: Partial<LoopFormValues>) => void;
+  showContextField: boolean;
+  updateValues: (updater: (prev: LoopFormValues) => LoopFormValues) => void;
+  values: LoopFormValues;
+}) {
+  return (
+    <>
+      <div className="grid gap-4 md:grid-cols-2">
+        {renderVisibilityField(props, {
+          channelHint: "Channel loops are team-visible.",
+        })}
+        {renderRepositoryField(props, {
+          multipleHint: (count) => `${count - 1} more attached.`,
+          singleHint:
+            "Optional. Choose a repository if this loop should read code or open PRs.",
+        })}
+      </div>
+
+      {props.showContextField
+        ? renderContextField(props, {
+            hint: "Attach runs to a sidebar channel.",
+          })
+        : null}
+
+      <Field label="Notifications">
+        <LoopNotificationsFields
+          notifications={props.values.notifications}
+          disabled={props.isSubmitting}
+          onChange={(notifications) => props.patch({ notifications })}
+        />
+      </Field>
+    </>
+  );
+}
+
+function renderVisibilityField(
+  {
+    isSubmitting,
+    patch,
+    values,
+  }: Pick<LoopFormViewProps, "isSubmitting" | "patch" | "values">,
+  options: { channelHint: string; className?: string },
+) {
+  return (
+    <Field
+      label="Visibility"
+      className={options.className}
+      hint={values.contextTarget ? options.channelHint : undefined}
+    >
+      <SettingsOptionSelect
+        value={values.visibility}
+        options={VISIBILITY_OPTIONS}
+        disabled={isSubmitting || !!values.contextTarget}
+        size="lg"
+        ariaLabel="Visibility"
+        onValueChange={(value) =>
+          patch({
+            visibility: value as LoopSchemas.LoopVisibilityEnum,
+          })
+        }
+      />
+    </Field>
+  );
+}
+
+function renderRepositoryField(
+  {
+    isSubmitting,
+    updateValues,
+    values,
+  }: Pick<LoopFormViewProps, "isSubmitting" | "updateValues" | "values">,
+  options: {
+    multipleHint: (count: number) => string;
+    singleHint: string;
+  },
+) {
+  return (
+    <Field
+      label="Base repository"
+      hint={
+        values.repositories.length > 1
+          ? options.multipleHint(values.repositories.length)
+          : options.singleHint
+      }
+    >
+      <LoopRepositoryPicker
+        value={values.repositories[0] ?? null}
+        disabled={isSubmitting}
+        onChange={(repository) =>
+          updateValues((prev) => ({
+            ...prev,
+            repositories: repository
+              ? [repository, ...prev.repositories.slice(1)]
+              : prev.repositories.slice(1),
+          }))
+        }
+      />
+    </Field>
+  );
+}
+
+function renderContextField(
+  {
+    isSubmitting,
+    patch,
+    values,
+  }: Pick<LoopFormViewProps, "isSubmitting" | "patch" | "values">,
+  options: { hint: string },
+) {
+  return (
+    <Field label="Context" hint={options.hint}>
+      <LoopContextFields
+        value={values.contextTarget}
+        disabled={isSubmitting}
+        onChange={(contextTarget) =>
+          patch(
+            contextTarget
+              ? { contextTarget, visibility: "team" }
+              : { contextTarget },
+          )
+        }
+      />
+    </Field>
+  );
+}
+
+function renderAdvancedDisclosure({
+  isSubmitting,
+  patch,
+  setShowAdvanced,
+  showAdvanced,
+  values,
+}: LoopFormViewProps) {
+  return renderSettingsSection({
+    children: (
+      <>
+        <button
+          type="button"
+          onClick={() => setShowAdvanced((open) => !open)}
+          className="flex items-center gap-1.5 text-left"
+        >
+          <CaretRight
+            size={12}
+            className={`text-gray-10 transition-transform ${
+              showAdvanced ? "rotate-90" : ""
+            }`}
+          />
+          <Text className="font-medium text-[12.5px] text-gray-11">
+            Advanced
+          </Text>
+          <Text className="text-[11.5px] text-gray-9">
+            Model, reasoning, and pull requests
+          </Text>
+        </button>
+        {showAdvanced
+          ? renderAdvancedFields({ isSubmitting, patch, values })
+          : null}
+      </>
+    ),
+  });
+}
+
+function renderAdvancedFields({
+  isSubmitting,
+  patch,
+  values,
+}: Pick<LoopFormViewProps, "isSubmitting" | "patch" | "values">) {
+  return (
+    <Flex direction="column" gap="4">
+      <Field label="Behavior">
+        <LoopBehaviorFields
+          behaviors={values.behaviors}
+          disabled={isSubmitting}
+          onChange={(behaviors) => patch({ behaviors })}
+        />
+      </Field>
+      <LoopModelFields
+        adapter={values.runtimeAdapter}
+        model={values.model}
+        reasoningEffort={values.reasoningEffort}
+        disabled={isSubmitting}
+        onAdapterChange={(runtimeAdapter) => patch({ runtimeAdapter })}
+        onModelChange={(model) => patch({ model })}
+        onReasoningEffortChange={(reasoningEffort) =>
+          patch({ reasoningEffort })
+        }
+      />
+    </Flex>
+  );
+}
+
+function renderReviewStep({
+  setStep,
+  showContextField,
+  values,
+}: LoopFormViewProps) {
+  return renderStep({
+    title: "Review",
+    description: "Check the loop before creating it.",
+    children: renderReviewList({
+      values,
+      showContext: showContextField,
+      onEdit: setStep,
+    }),
+  });
+}
+
+function renderRemoteUpdateNotice(hasRemoteUpdate: boolean) {
+  return hasRemoteUpdate ? (
+    <Flex
+      direction="column"
+      gap="1"
+      className="rounded-(--radius-2) border border-(--amber-6) bg-(--amber-2) px-3 py-2"
+    >
+      <Text className="font-medium text-(--amber-12) text-[12.5px]">
+        This loop changed elsewhere
+      </Text>
+      <Text className="text-(--amber-11) text-[12px] leading-snug">
+        Cancel and reopen editing before saving, so you don't overwrite newer
+        settings.
+      </Text>
+    </Flex>
+  ) : null;
+}
+
+function renderStepper({
   current,
   complete,
   onSelect,
@@ -859,7 +924,159 @@ function Stepper({
   );
 }
 
-function Step({
+function useLoopFormSubmit({
+  hasRemoteUpdate,
+  loop,
+  markClean,
+  onSaved,
+  values,
+}: {
+  hasRemoteUpdate: boolean;
+  loop?: LoopSchemas.Loop;
+  markClean: (loop: LoopSchemas.Loop) => void;
+  onSaved?: (loop: LoopSchemas.Loop) => void;
+  values: LoopFormValues;
+}) {
+  const isEdit = !!loop;
+  const createLoop = useCreateLoop();
+  const updateLoop = useUpdateLoop(loop?.id ?? "");
+  const deleteLoop = useDeleteLoop();
+  const bundleSkill = useBundleLocalSkill();
+  const replaceSkillBundles = useReplaceLoopSkillBundles();
+  const isSubmitting =
+    (isEdit ? updateLoop.isPending : createLoop.isPending) ||
+    bundleSkill.isPending ||
+    replaceSkillBundles.isPending ||
+    deleteLoop.isPending;
+  const canSubmit =
+    isLoopFormValid(values) && !isSubmitting && !hasRemoteUpdate;
+
+  const handleSubmit = async () => {
+    if (hasRemoteUpdate) {
+      toast.error("Loop changed elsewhere", {
+        description: "Cancel and reopen editing before saving changes.",
+      });
+      return;
+    }
+    if (!canSubmit) return;
+    const body = formValuesToLoopWrite(values);
+
+    // Bundling runs before anything is persisted: a missing or broken local
+    // skill fails here with no partial state, instead of leaving a saved loop
+    // whose `/skill-name` instructions have no matching bundle.
+    let uploads: LoopSchemas.LoopSkillBundleUpload[] | null = null;
+    if (values.skill?.kind === "local") {
+      try {
+        uploads = await bundleSkill.mutateAsync(values.skill);
+      } catch (error) {
+        toast.error("Failed to bundle the skill", {
+          description: error instanceof Error ? error.message : undefined,
+        });
+        return;
+      }
+    }
+
+    try {
+      const saved = isEdit
+        ? await updateLoop.mutateAsync(body)
+        : await createLoop.mutateAsync(body);
+      markClean(saved);
+      track(
+        isEdit ? ANALYTICS_EVENTS.LOOP_UPDATED : ANALYTICS_EVENTS.LOOP_CREATED,
+        buildLoopSavedProps(saved),
+      );
+      const needsDetach =
+        values.skill === null && loopSkillBundles(saved).length > 0;
+      if (uploads || needsDetach) {
+        const uploaded = await replaceSavedLoopBundles({
+          deleteLoop: deleteLoop.mutateAsync,
+          isEdit,
+          replaceSkillBundles: replaceSkillBundles.mutateAsync,
+          saved,
+          uploads,
+        });
+        if (!uploaded) return;
+      }
+      if (onSaved) {
+        onSaved(saved);
+      } else {
+        navigateToLoopDetail(saved.id);
+      }
+    } catch (error) {
+      const safetyLimit =
+        error instanceof LoopsApiError ? error.safetyLimit : null;
+      if (safetyLimit) {
+        // A safety/abuse ceiling, not a normal failure: tell the user plainly so they can
+        // course-correct (delete a loop, remove triggers) or contact support for a raise.
+        toast.error("Safety limit reached", {
+          description: safetyLimit.detail,
+        });
+        return;
+      }
+      toast.error(isEdit ? "Failed to save loop" : "Failed to create loop", {
+        description:
+          error instanceof LoopsApiError
+            ? (error.detail ?? error.message)
+            : error instanceof Error
+              ? error.message
+              : undefined,
+      });
+    }
+  };
+
+  return { canSubmit, handleSubmit, isSubmitting };
+}
+
+async function replaceSavedLoopBundles({
+  deleteLoop,
+  isEdit,
+  replaceSkillBundles,
+  saved,
+  uploads,
+}: {
+  deleteLoop: (loopId: string) => Promise<unknown>;
+  isEdit: boolean;
+  replaceSkillBundles: (input: {
+    loopId: string;
+    uploads: LoopSchemas.LoopSkillBundleUpload[];
+  }) => Promise<unknown>;
+  saved: LoopSchemas.Loop;
+  uploads: LoopSchemas.LoopSkillBundleUpload[] | null;
+}) {
+  try {
+    await replaceSkillBundles({
+      loopId: saved.id,
+      uploads: uploads ?? [],
+    });
+    return true;
+  } catch (error) {
+    const description = error instanceof Error ? error.message : undefined;
+    if (!isEdit) {
+      try {
+        await deleteLoop(saved.id);
+        toast.error("Failed to create loop", { description });
+      } catch {
+        toast.error("Loop created, but attaching its skill failed", {
+          description: [
+            description,
+            `Delete "${saved.name}" or re-save it from Edit.`,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        });
+      }
+      return false;
+    }
+    toast.error("Loop saved, but updating its skill failed", {
+      description: [description, "Save again to retry."]
+        .filter(Boolean)
+        .join(" "),
+    });
+    return false;
+  }
+}
+
+function renderStep({
   title,
   description,
   children,
@@ -881,11 +1098,11 @@ function Step({
   );
 }
 
-function Divider() {
+function renderDivider() {
   return <Box className="h-px bg-(--gray-4)" />;
 }
 
-function SettingsSection({
+function renderSettingsSection({
   title,
   description,
   children,
@@ -911,12 +1128,12 @@ function SettingsSection({
         </Flex>
       ) : null}
       {children}
-      <Divider />
+      {renderDivider()}
     </Flex>
   );
 }
 
-function ReviewList({
+function renderReviewList({
   values,
   showContext,
   onEdit,
@@ -936,70 +1153,83 @@ function ReviewList({
       gap="3"
       className="rounded-(--radius-3) border border-border p-3"
     >
-      <ReviewSection title="Prompt" onEdit={() => onEdit(0)}>
-        <ReviewRow label="Name" value={values.name || "Not set"} />
-        <ReviewRow
-          label="Instructions"
-          value={
-            values.skill
-              ? buildSkillInstructions(values.skill.name, values.skillContext)
-              : values.instructions.trim() || "No instructions"
-          }
-          multiline
-        />
-      </ReviewSection>
+      {renderReviewSection({
+        title: "Prompt",
+        onEdit: () => onEdit(0),
+        children: (
+          <>
+            {renderReviewRow({
+              label: "Name",
+              value: values.name || "Not set",
+            })}
+            {renderReviewRow({
+              label: "Instructions",
+              value: values.skill
+                ? buildSkillInstructions(values.skill.name, values.skillContext)
+                : values.instructions.trim() || "No instructions",
+              multiline: true,
+            })}
+          </>
+        ),
+      })}
 
-      <ReviewSection title="Schedule" onEdit={() => onEdit(1)}>
-        <ReviewRow
-          label="Triggers"
-          value={
+      {renderReviewSection({
+        title: "Schedule",
+        onEdit: () => onEdit(1),
+        children: renderReviewRow({
+          label: "Triggers",
+          value:
             values.triggers.length === 0
               ? "Manual only"
-              : values.triggers.map(summarizeTrigger).join(", ")
-          }
-        />
-      </ReviewSection>
+              : values.triggers.map(summarizeTrigger).join(", "),
+        }),
+      })}
 
-      <ReviewSection title="Settings" onEdit={() => onEdit(2)}>
-        <ReviewRow
-          label="Visibility"
-          value={values.visibility === "team" ? "Team" : "Personal"}
-        />
-        {showContext ? (
-          <ReviewRow
-            label="Context"
-            value={describeContext(values.contextTarget)}
-          />
-        ) : null}
-        <ReviewRow
-          label="Repository"
-          value={
-            values.repositories.length > 0
-              ? values.repositories.map((repo) => repo.full_name).join(", ")
-              : "None, report-only"
-          }
-        />
-        <ReviewRow
-          label="Notifications"
-          value={channels.length === 0 ? "None" : channels.join(", ")}
-        />
-        <ReviewRow
-          label="Auto-fix PRs"
-          value={isAutoFixEnabled(values.behaviors) ? "On" : "Off"}
-        />
-        <ReviewRow
-          label="Model"
-          value={`${ADAPTER_LABELS[values.runtimeAdapter]} · ${formatLoopModel(
-            values.runtimeAdapter,
-            values.model,
-          )} · ${reasoning} reasoning`}
-        />
-      </ReviewSection>
+      {renderReviewSection({
+        title: "Settings",
+        onEdit: () => onEdit(2),
+        children: (
+          <>
+            {renderReviewRow({
+              label: "Visibility",
+              value: values.visibility === "team" ? "Team" : "Personal",
+            })}
+            {showContext
+              ? renderReviewRow({
+                  label: "Context",
+                  value: describeContext(values.contextTarget),
+                })
+              : null}
+            {renderReviewRow({
+              label: "Repository",
+              value:
+                values.repositories.length > 0
+                  ? values.repositories.map((repo) => repo.full_name).join(", ")
+                  : "None, report-only",
+            })}
+            {renderReviewRow({
+              label: "Notifications",
+              value: channels.length === 0 ? "None" : channels.join(", "),
+            })}
+            {renderReviewRow({
+              label: "Auto-fix PRs",
+              value: isAutoFixEnabled(values.behaviors) ? "On" : "Off",
+            })}
+            {renderReviewRow({
+              label: "Model",
+              value: `${ADAPTER_LABELS[values.runtimeAdapter]} · ${formatLoopModel(
+                values.runtimeAdapter,
+                values.model,
+              )} · ${reasoning} reasoning`,
+            })}
+          </>
+        ),
+      })}
     </Flex>
   );
 }
 
-function ReviewSection({
+function renderReviewSection({
   title,
   onEdit,
   children,
@@ -1030,7 +1260,7 @@ function ReviewSection({
   );
 }
 
-function ReviewRow({
+function renderReviewRow({
   label,
   value,
   multiline,
