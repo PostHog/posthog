@@ -436,6 +436,10 @@ class EnterpriseExperimentsViewSet(
             scopes = ["experiment:write"]
             if request.data.get("open_cleanup_pr", False) in serializers.BooleanField.TRUE_VALUES:
                 scopes.append("task:write")
+            # Saving the team default cleanup repository writes environment-wide configuration,
+            # so the token also needs project:write, matching the experiments_config surface.
+            if request.data.get("set_repository_as_team_default", False) in serializers.BooleanField.TRUE_VALUES:
+                scopes.append("project:write")
             return scopes
         return None
 
