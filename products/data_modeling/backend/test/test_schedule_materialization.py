@@ -3,9 +3,12 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from parameterized import parameterized
+
 from products.data_modeling.backend.logic.cohort_scheduling import is_tier_schedule_id
 from products.data_modeling.backend.logic.freshness import UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.node_frequency import get_declared_target, set_declared_target
+from products.data_modeling.backend.logic.schedule_reconcile import BootstrapDecline, dag_bootstrap_decline_reason
 from products.data_modeling.backend.models import DAG, Node
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import NodeType
@@ -125,6 +128,26 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         ):
             self.sq.schedule_materialization()
         sync_wf.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("virgin", True, False, None),
+            ("flag_off", False, False, BootstrapDecline.TIERING_DISABLED),
+            ("unmigrated", True, True, BootstrapDecline.LIVE_V1_SCHEDULES),
+        ]
+    )
+    def test_bootstrap_decline_reason_names_the_blocker(
+        self, _name: str, tiering_enabled: bool, has_v1_schedule: bool, expected: BootstrapDecline | None
+    ):
+        # this reason labels the backend metric, so reporting the wrong one points the migration
+        # drive at the wrong blocker: an unmigrated team reading as "tiering is off" looks like a
+        # flag problem to go fix, when the DAG is in fact correctly declined until it is migrated
+        with (
+            mock.patch(f"{RECONCILE}.feature_enabled_or_false", return_value=tiering_enabled),
+            mock.patch(f"{RECONCILE}.schedule_exists", return_value=has_v1_schedule),
+            mock.patch(f"{RECONCILE}.sync_connect"),
+        ):
+            assert dag_bootstrap_decline_reason(self.dag) == expected
 
     def test_rejected_frequency_leaves_a_virgin_dag_unbootstrapped(self):
         # the bootstrap is all side effects, and on_commit fires immediately for the callers that

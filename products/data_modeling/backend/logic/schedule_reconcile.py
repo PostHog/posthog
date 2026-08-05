@@ -14,6 +14,7 @@ import uuid
 import dataclasses
 from collections.abc import Iterable
 from datetime import timedelta
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from django.conf import settings
@@ -143,8 +144,19 @@ def dag_has_live_v1_schedules(dag: DAG) -> bool:
     return False
 
 
-def dag_can_bootstrap_to_tiers(dag: DAG) -> bool:
-    """Whether this DAG can be born straight onto cadence tiers. Decides only — no side effects.
+class BootstrapDecline(StrEnum):
+    """Why a DAG could not be born onto cadence tiers, and so falls back to a v1 schedule."""
+
+    TIERING_DISABLED = "tiering_disabled"
+    LIVE_V1_SCHEDULES = "live_v1_schedules"
+
+
+def dag_bootstrap_decline_reason(dag: DAG) -> BootstrapDecline | None:
+    """Why this DAG cannot be born straight onto cadence tiers, or None when it can.
+
+    Decides only, no side effects. Returning the reason rather than a bare bool is what lets
+    the caller label its "which backend did this materialization land on" metric, so a v1
+    schedule appearing somewhere unexpected is visible without querying for it after the fact.
 
     Callers reach this only once the v2 lookup has said the DAG has no `execute-dag` schedule.
     Adding "and no live v1 schedules either" identifies a DAG that nothing has ever scheduled —
@@ -157,8 +169,10 @@ def dag_can_bootstrap_to_tiers(dag: DAG) -> bool:
     materialize everything twice. It stays for a migration command to convert and sweep.
     """
     if not tiered_schedules_enabled(dag.team):
-        return False
-    return not dag_has_live_v1_schedules(dag)
+        return BootstrapDecline.TIERING_DISABLED
+    if dag_has_live_v1_schedules(dag):
+        return BootstrapDecline.LIVE_V1_SCHEDULES
+    return None
 
 
 def bootstrap_dag_to_tiers(dag: DAG) -> None:
@@ -166,8 +180,8 @@ def bootstrap_dag_to_tiers(dag: DAG) -> None:
 
     Everything here is a side effect, and `transaction.on_commit` runs the callback immediately
     for callers that are not inside an atomic block — so call this only once
-    `dag_can_bootstrap_to_tiers` has said yes, and only after whatever frequency validation the
-    caller does, never before.
+    `dag_bootstrap_decline_reason` has returned None, and only after whatever frequency
+    validation the caller does, never before.
 
     Reconciles without `require_tiered`, because this is the pass that creates the DAG's first
     tier schedules: `maybe_reconcile_dag` cannot stand in for it, since it declines a DAG that

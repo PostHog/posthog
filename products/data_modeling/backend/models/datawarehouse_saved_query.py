@@ -203,10 +203,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             UnsatisfiableFrequencyError,
             UnsupportedFrequencyTargetError,
         )
+        from products.data_modeling.backend.logic.schedule_metrics import record_schedule_backend
         from products.data_modeling.backend.logic.schedule_reconcile import (
             apply_saved_query_frequency_target,
             bootstrap_dag_to_tiers,
-            dag_can_bootstrap_to_tiers,
+            dag_bootstrap_decline_reason,
             tiered_schedules_enabled,
         )
         from products.data_modeling.backend.models.node import Node
@@ -224,6 +225,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             # is_materialized=True with no schedule backing it.
             on_v2 = self.id in get_v2_saved_query_ids([self.id])
             dag_to_bootstrap = None
+            backend_reason = "existing_v2_schedule"
             if not on_v2:
                 # Nothing creates a DAG's first v2 schedule outside the migration commands, so a
                 # brand-new team would fall through to v1 forever. Bootstrap it instead — declined
@@ -233,9 +235,17 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                     .select_related("dag", "dag__team")
                     .first()
                 )
-                if node is not None and node.dag is not None and dag_can_bootstrap_to_tiers(node.dag):
-                    dag_to_bootstrap = node.dag
-                    on_v2 = True
+                if node is None or node.dag is None:
+                    backend_reason = "no_dag_node"
+                else:
+                    decline = dag_bootstrap_decline_reason(node.dag)
+                    if decline is None:
+                        dag_to_bootstrap = node.dag
+                        on_v2 = True
+                        backend_reason = "bootstrapped"
+                    else:
+                        backend_reason = decline.value
+            record_schedule_backend(backend="v2" if on_v2 else "v1", reason=backend_reason)
 
             if on_v2:
                 # Tiered v2: the interval is one-shot transport for frequency intent — consume
