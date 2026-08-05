@@ -21,6 +21,7 @@ import {
     defaultAuthorizedUrlProperties,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
@@ -749,6 +750,9 @@ export const heatmapCreationLogic = kea<heatmapCreationLogicType>([
                 }
                 captureWizardStepCompleted(values, 'review', { page_access: 'login', background_type: 'recording' })
                 actions.markRecordingHandoff(values.recordingBackground.matchingRecordingCount)
+                lemonToast.info(
+                    "This recording-based heatmap wasn't saved. Recording backgrounds are temporary and can't be added to your saved heatmaps."
+                )
                 router.actions.push(urls.heatmaps())
             },
             creationCompleted: () => {
@@ -791,7 +795,9 @@ export const heatmapCreationLogic = kea<heatmapCreationLogicType>([
     }),
 
     beforeUnmount(({ values, cache }) => {
-        if (cache.wizardStarted && !values.terminalOutcome) {
+        // Only a persisted heatmap counts as a completed wizard - a recording handoff never calls
+        // the create API, so it's still a drop-off and must show up in the funnel.
+        if (cache.wizardStarted && values.terminalOutcome !== 'created') {
             posthog.capture('in-app heatmap creation wizard abandoned', {
                 furthest_step: values.furthestStep,
                 capture_enabled: values.captureEnabled,

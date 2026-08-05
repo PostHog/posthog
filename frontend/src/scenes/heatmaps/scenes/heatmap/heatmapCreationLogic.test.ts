@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
@@ -137,6 +138,12 @@ describe('heatmapCreationLogic', () => {
         expect(logic.values.terminalOutcome).toBe('recording_handoff')
         expect(router.values.location.pathname).toContain('/heatmaps')
         expect(router.values.location.pathname).not.toContain('/heatmaps/new')
+
+        // A recording handoff never calls the create API, so it must still surface as a drop-off
+        // in the wizard-abandoned funnel rather than being silently treated as a completion.
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        logic.unmount()
+        expect(captureSpy).toHaveBeenCalledWith('in-app heatmap creation wizard abandoned', expect.anything())
     })
 
     it('discards a readiness result after the effective data URL changes', async () => {
