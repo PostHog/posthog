@@ -7,6 +7,8 @@ import {
     buildBIQuery,
     createDefaultDateFilter,
     defaultAggregationForField,
+    getBIDataSourceKey,
+    getBIFieldId,
     isBIFieldCompatible,
 } from './biEditorTypes'
 
@@ -222,14 +224,38 @@ describe('BI editor query generation', () => {
     })
 
     test.each([
-        ['the selected table', { ...eventField, expression: 'properties.browser' }, true],
-        ['a different table', { ...eventField, source: { table: 'persons' } }, false],
+        ['the selected table', { table: 'events' }, { ...eventField, expression: 'properties.browser' }, true],
+        ['a different table', { table: 'events' }, { ...eventField, source: { table: 'persons' } }, false],
         [
             'the same table on another connection',
+            { table: 'events' },
             { ...eventField, source: { table: 'events', connectionId: '1' } },
             false,
         ],
-    ])('accepts fields from %s according to the active source', (_name, field, expected) => {
-        expect(isBIFieldCompatible({ table: 'events' }, field)).toBe(expected)
+        [
+            'the selected direct connection',
+            { table: 'events', connectionId: '1' },
+            { ...eventField, source: { table: 'events', connectionId: '1' } },
+            true,
+        ],
+        [
+            'another direct connection with the same table',
+            { table: 'events', connectionId: '1' },
+            { ...eventField, source: { table: 'events', connectionId: '2' } },
+            false,
+        ],
+    ])('accepts fields from %s according to the active source', (_name, source, field, expected) => {
+        expect(isBIFieldCompatible(source, field)).toBe(expected)
+    })
+
+    it('keeps same-named sources and fields distinct across connections', () => {
+        const sources = [
+            { table: 'events' },
+            { table: 'events', connectionId: 'direct-1' },
+            { table: 'events', connectionId: 'direct-2' },
+        ]
+
+        expect(new Set(sources.map(getBIDataSourceKey)).size).toBe(sources.length)
+        expect(new Set(sources.map((source) => getBIFieldId(source, 'event'))).size).toBe(sources.length)
     })
 })

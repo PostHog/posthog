@@ -41,8 +41,10 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 import { biEditorLogic } from 'scenes/data-warehouse/editor/bi/biEditorLogic'
 import {
     BI_FIELD_DRAG_MIME_TYPE,
+    BIDataSource,
     BIEditorView,
     BIField,
+    getBIFieldId,
     isBIFieldCompatible,
     serializeBIField,
 } from 'scenes/data-warehouse/editor/bi/biEditorTypes'
@@ -79,6 +81,20 @@ export function getSidebarAddJoinSourceTableName(
         default:
             return null
     }
+}
+
+/**
+ * The text a column row inserts at the cursor, or null when there is nothing to insert.
+ *
+ * The name has to be checked rather than assumed: escaping an undefined one throws, and a throw
+ * escapes the tree row's `<a>` click handler before it can preventDefault, so the browser follows
+ * the row's placeholder href and leaves the scene the tree is embedded in.
+ */
+export function getColumnInsertText(record: Record<string, any> | undefined): string | null {
+    if (record?.type !== 'column' || !record.columnName) {
+        return null
+    }
+    return escapeDottedHogQLIdentifier(record.columnName)
 }
 
 /**
@@ -417,8 +433,9 @@ export const QueryDatabase = ({
                 }
 
                 // Insert the column at the cursor, preserving the rest of the query the user has typed
-                if (item && item.record?.type === 'column' && !isBIEditor) {
-                    insertTextAtCursor(escapeDottedHogQLIdentifier(item.record.columnName))
+                const columnInsertText = isBIEditor ? null : getColumnInsertText(item?.record)
+                if (columnInsertText) {
+                    insertTextAtCursor(columnInsertText)
                 }
 
                 if (item && item.record?.type === 'unsaved-query') {
@@ -430,19 +447,26 @@ export const QueryDatabase = ({
                 const matches = item.record?.searchMatches
                 const hasMatches = matches && matches.length > 0
                 const isColumn = item.record?.type === 'column'
-                const biField: BIField | null = isColumn
-                    ? {
-                          id: `${connectionId ?? POSTHOG_WAREHOUSE}:${item.record?.table}:${item.record?.columnName}`,
-                          name: item.name,
-                          expression: item.record?.columnName,
-                          type: item.record?.field.type,
-                          source: {
-                              table: item.record?.table,
+                const biFieldSource: BIDataSource | null =
+                    isColumn && typeof item.record?.table === 'string'
+                        ? {
+                              table: item.record.table,
                               connectionId:
                                   connectionId && connectionId !== POSTHOG_WAREHOUSE ? connectionId : undefined,
-                          },
-                      }
-                    : null
+                          }
+                        : null
+                const columnName =
+                    isColumn && typeof item.record?.columnName === 'string' ? item.record.columnName : null
+                const biField: BIField | null =
+                    biFieldSource && columnName
+                        ? {
+                              id: getBIFieldId(biFieldSource, columnName),
+                              name: item.name,
+                              expression: columnName,
+                              type: item.record?.field.type,
+                              source: biFieldSource,
+                          }
+                        : null
                 const canDragBIField = isBIEditor && !!biField && isBIFieldCompatible(biConfig.source, biField)
                 const columnType = isColumn ? item.record?.field?.type : null
                 const tableKindLabel = !isColumn && item.children?.length ? getTableKindLabel(item) : null

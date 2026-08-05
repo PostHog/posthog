@@ -29,6 +29,14 @@ export interface BIDataSource {
     connectionId?: string
 }
 
+export function getBIDataSourceKey(source: BIDataSource): string {
+    return JSON.stringify([source.connectionId ?? null, source.table])
+}
+
+export function getBIFieldId(source: BIDataSource, expression: string): string {
+    return JSON.stringify([source.connectionId ?? null, source.table, expression])
+}
+
 export interface BIField {
     id: string
     name: string

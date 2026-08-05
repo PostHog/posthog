@@ -35,6 +35,7 @@ import {
     BIFilterOperator,
     BIShelf,
     BIField,
+    getBIDataSourceKey,
     isDateTimeBIField,
     isNumericBIField,
     parseBIField,
@@ -87,14 +88,8 @@ const DATE_BUCKET_OPTIONS: { value: BIDateBucket | null; label: string }[] = [
 
 export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
     const logic = biEditorLogic({ tabId })
-    const {
-        activeDropShelf,
-        activeExpressionEditorId,
-        availableDataSources,
-        config,
-        databaseConnectionId,
-        databaseLoading,
-    } = useValues(logic)
+    const { activeDropShelf, activeExpressionEditorId, availableDataSources, config, databaseLoading } =
+        useValues(logic)
     const { biEditorHeight, biEditorResizerProps } = useValues(editorSizingLogic)
     const { setDatabaseTreeCollapsed } = useActions(editorSizingLogic)
     const { locateTable } = useActions(queryDatabaseLogic)
@@ -146,14 +141,19 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                     </div>
                     <div className="flex items-center gap-2">
                         <LemonSearchableSelect
-                            value={config.source?.table}
+                            value={config.source ? getBIDataSourceKey(config.source) : undefined}
                             options={availableDataSources.map((source) => ({
-                                value: source.table,
+                                value: getBIDataSourceKey(source),
                                 label: source.table,
                             }))}
-                            onSelect={(table) =>
-                                setDataSource({ table, connectionId: databaseConnectionId ?? undefined })
-                            }
+                            onSelect={(sourceKey) => {
+                                const source = availableDataSources.find(
+                                    (candidate) => getBIDataSourceKey(candidate) === sourceKey
+                                )
+                                if (source) {
+                                    setDataSource(source)
+                                }
+                            }}
                             icon={<IconDatabase />}
                             loading={databaseLoading}
                             disabledReason={
