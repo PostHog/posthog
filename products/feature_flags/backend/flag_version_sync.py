@@ -90,7 +90,10 @@ def _capture_definition_before_save(
     fields = definition_fields if update_fields is None else definition_fields.intersection(update_fields)
     if not fields:
         return
-    setattr(instance, _DEFINITION_BEFORE_SAVE_ATTR, manager.filter(pk=instance.pk).values(*fields).first())
+    # sorted(): set iteration order varies between processes, and it reaches the SELECT's
+    # column list — an unstable query string defeats plan reuse and makes the query
+    # snapshots that cover flag saves fail at random.
+    setattr(instance, _DEFINITION_BEFORE_SAVE_ATTR, manager.filter(pk=instance.pk).values(*sorted(fields)).first())
 
 
 def _changed_definition_fields(instance: models.Model) -> dict[str, Any] | None:

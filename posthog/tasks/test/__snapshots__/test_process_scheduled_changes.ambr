@@ -46,8 +46,8 @@
 # name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.10
   '''
   SELECT "posthog_featureflag"."active" AS "active",
-         "posthog_featureflag"."filters" AS "filters",
          "posthog_featureflag"."deleted" AS "deleted",
+         "posthog_featureflag"."filters" AS "filters",
          "posthog_featureflag"."key" AS "key"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."id" = 99999
@@ -948,8 +948,8 @@
 # name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.30
   '''
   SELECT "posthog_featureflag"."active" AS "active",
-         "posthog_featureflag"."filters" AS "filters",
          "posthog_featureflag"."deleted" AS "deleted",
+         "posthog_featureflag"."filters" AS "filters",
          "posthog_featureflag"."key" AS "key"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."id" = 99999
