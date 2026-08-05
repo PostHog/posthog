@@ -6,13 +6,16 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 import { onboardingEventUsageLogic } from 'scenes/onboarding/onboardingEventUsageLogic'
 import { CheckList } from 'scenes/onboarding/shared/components/CheckList'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
+import { useLocalWizardRunActive } from 'scenes/onboarding/shared/wizard-sync/hooks'
 import { WizardCommandBlock } from 'scenes/onboarding/shared/wizard-sync/WizardCommandBlock'
 import { WizardInstallOptions } from 'scenes/onboarding/shared/wizard-sync/WizardInstallOptions'
+import { SELF_DRIVING_WORKFLOW_ID } from 'scenes/onboarding/shared/wizard-sync/workflows'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import { SELF_DRIVING_TOOLS, toolSetForGoal } from '../goals'
 import { goalSelectionLogic } from '../goalSelectionLogic'
+import { InstallationTracker } from './InstallationTracker'
 
 /** A quiet reminder of what the install feeds: the goal's tool set, as icons and names. */
 function ProductsBeingInstalled(): JSX.Element {
@@ -52,6 +55,9 @@ const WIZARD_SETS_UP = [
 export function SelfDrivingInstallOptions({ onContinue }: { onContinue: () => void }): JSX.Element {
     const { isCloudOrDev } = useWizardCommand()
     const { reportSelfDrivingOnboardingInstallModeSelected } = useActions(onboardingEventUsageLogic)
+    // Once the CLI registers a run, the command block and its caption give way to the tracker -
+    // the command has been run, so repeating it is noise.
+    const isRunActive = useLocalWizardRunActive(SELF_DRIVING_WORKFLOW_ID)
 
     // Self-hosted: the wizard CLI only targets cloud + dev, so the command block renders nothing.
     // Show a real, actionable fallback instead of an empty step.
@@ -81,11 +87,15 @@ export function SelfDrivingInstallOptions({ onContinue }: { onContinue: () => vo
                 onModeSelected={reportSelfDrivingOnboardingInstallModeSelected}
                 localBlock={
                     <div className="flex flex-col gap-2">
-                        <WizardCommandBlock
-                            hideHog
-                            subcommand="self-driving"
-                            description="Takes about ten minutes. It'll ask you a few things along the way."
-                        />
+                        {isRunActive ? (
+                            <InstallationTracker variant="card" />
+                        ) : (
+                            <WizardCommandBlock
+                                hideHog
+                                subcommand="self-driving"
+                                description="Takes about ten minutes. It'll ask you a few things along the way."
+                            />
+                        )}
                         <ProductsBeingInstalled />
                     </div>
                 }

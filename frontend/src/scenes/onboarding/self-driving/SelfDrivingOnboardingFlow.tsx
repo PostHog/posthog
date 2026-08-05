@@ -13,6 +13,8 @@ import { cn } from 'lib/utils/css-classes'
 // team onboarded, redirecting out) for both variants.
 import { onboardingLogic } from '../legacy/onboardingLogic'
 import { onboardingEventUsageLogic, type SelfDrivingOnboardingStepId } from '../onboardingEventUsageLogic'
+import { wizardSyncUiLogic } from '../shared/wizard-sync/wizardSyncUiLogic'
+import { InstallationTrackerGate } from './components/InstallationTracker'
 import type { SelfDrivingGoal } from './goals'
 import { goalSelectionLogic } from './goalSelectionLogic'
 import { productEnablementStepLogic } from './productEnablementStepLogic'
@@ -132,6 +134,14 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
     // Mounted for the whole flow so the goal step's fire-and-forget auto-enable calls outlive the
     // step that fired them.
     useMountedLogic(productEnablementStepLogic)
+    const { claimInlinePanel, releaseInlinePanel } = useActions(wizardSyncUiLogic)
+    // The flow surfaces the run itself (install-step tracker, header pill), so claim the inline
+    // panel for its whole lifetime - the corner FAB never appears during onboarding.
+    useEffect(() => {
+        claimInlinePanel('local')
+        return () => releaseInlinePanel('local')
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
     const { completeSelfDrivingOnboarding } = useActions(onboardingLogic)
     const { isCompleting } = useValues(onboardingLogic)
     const {
@@ -245,7 +255,11 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
                             />
                         ))}
                     </div>
-                    <div className="w-8 shrink-0" />
+                    <div className="min-w-8 shrink-0 flex justify-end">
+                        {/* Past the install step, the run keeps a quiet presence up here; on the
+                            install step itself the tracker lives in the content. */}
+                        {stepIndex > steps.findIndex((s) => s.id === 'install') && <InstallationTrackerGate />}
+                    </div>
                 </div>
                 {step.title && (
                     <h1 className="text-2xl font-bold text-center m-0">
