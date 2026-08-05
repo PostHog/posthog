@@ -31,24 +31,13 @@ class PropertyAccessControlRule:
     """A single access control rule for a property definition."""
 
     id: UUID
+    property_definition_id: UUID
     access_level: PropertyAccessLevel
     organization_member_id: UUID | None
     role_id: UUID | None
     created_by_id: int | None
     created_at: datetime
     updated_at: datetime
-
-
-@dataclass(frozen=True)
-class SubjectPropertyRule:
-    """A property rule listed across properties for one subject — says which property it targets.
-
-    Unlike PropertyAccessControlRule, which lives inside the state of a single property
-    definition, this row identifies its property because the listing spans many.
-    """
-
-    property_definition_id: UUID
-    access_level: PropertyAccessLevel
 
 
 @dataclass(frozen=True)

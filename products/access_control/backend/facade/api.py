@@ -49,8 +49,12 @@ class InvalidPropertyAccessControlTargetError(Exception):
 
 
 def _to_rule(rule: PropertyAccessControl) -> contracts.PropertyAccessControlRule:
+    # The FK is nullable in the schema, but a rule is always attached to a property: the upsert
+    # resolves a concrete definition before writing, and every read path filters null rows out
+    assert rule.property_definition_id is not None
     return contracts.PropertyAccessControlRule(
         id=rule.id,
+        property_definition_id=rule.property_definition_id,
         access_level=PropertyAccessLevel(rule.access_level),
         organization_member_id=rule.organization_member_id,
         role_id=rule.role_id,
@@ -108,7 +112,7 @@ def list_property_access_controls(
     team_id: int,
     organization_member_id: UUID | None = None,
     role_id: UUID | None = None,
-) -> list[contracts.SubjectPropertyRule]:
+) -> list[contracts.PropertyAccessControlRule]:
     """All property rules belonging to one subject: a member, a role, or (both None) the project-wide default."""
     rules = PropertyAccessControl.objects.filter(
         team_id=team_id,
@@ -116,14 +120,7 @@ def list_property_access_controls(
         role_id=role_id,  # type: ignore
         property_definition__isnull=False,
     )
-    return [
-        contracts.SubjectPropertyRule(
-            property_definition_id=rule.property_definition_id,
-            access_level=PropertyAccessLevel(rule.access_level),
-        )
-        for rule in rules
-        if rule.property_definition_id is not None
-    ]
+    return [_to_rule(rule) for rule in rules]
 
 
 def team_has_property_access_rules(*, team_id: int) -> bool:
