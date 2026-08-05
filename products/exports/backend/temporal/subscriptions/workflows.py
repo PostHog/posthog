@@ -283,8 +283,8 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                 inputs.slo.completion_properties.update(
                     {
                         "target_type": prepare_result.target_type,
-                        "selected_insight_count": len(prepare_result.exported_asset_ids),
-                        "available_insight_count": prepare_result.total_insight_count,
+                        "selected_insight_count": prepare_result.selected_insight_count,
+                        "available_insight_count": prepare_result.available_insight_count,
                     }
                 )
 

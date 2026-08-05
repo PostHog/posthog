@@ -88,7 +88,13 @@ async def test_process_subscription_picks_delivery_activity_from_patch(patch_act
         if activity is validate_subscription_for_delivery:
             return None
         if activity is create_export_assets:
-            return CreateExportAssetsResult(exported_asset_ids=[1], total_insight_count=3, target_type="email")
+            return CreateExportAssetsResult(
+                exported_asset_ids=[1],
+                total_insight_count=3,
+                target_type="email",
+                available_insight_count=5,
+                selected_insight_count=4,
+            )
         if activity is export_asset_activity:
             return ExportAssetResult(exported_asset_id=1, success=True)
         if activity is snapshot_subscription_insights:
@@ -125,8 +131,8 @@ async def test_process_subscription_picks_delivery_activity_from_patch(patch_act
     assert picked is (deliver_subscription_v2 if patch_active else deliver_subscription)
     assert inputs.slo is not None
     assert inputs.slo.completion_properties["target_type"] == "email"
-    assert inputs.slo.completion_properties["selected_insight_count"] == 1
-    assert inputs.slo.completion_properties["available_insight_count"] == 3
+    assert inputs.slo.completion_properties["selected_insight_count"] == 4
+    assert inputs.slo.completion_properties["available_insight_count"] == 5
 
 
 @pytest.mark.parametrize("patch_active", [True, False], ids=["patched_v2", "pre_patch_v1"])
