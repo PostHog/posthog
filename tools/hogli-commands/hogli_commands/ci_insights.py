@@ -8,12 +8,8 @@ An ordinary REST client over the named ``engineering_analytics`` endpoints — t
 the in-app UI and the MCP tools read, so there is no second copy of the domain rules here.
 This module only picks endpoints, summarizes, and renders.
 
-Auth reuses the personal API key engineers already mint for the PostHog MCP: its
-``mcp_server`` preset grants ``engineering_analytics:write``, which satisfies the ``:read``
-these endpoints require. ``POSTHOG_PERSONAL_API_KEY`` (the name the wizard and the rest of
-the ecosystem use) is checked first, then ``POSTHOG_AUTH_HEADER`` (the name
-``services/mcp`` has you export for mcp-remote). Either can be a literal line in
-``.env.local``, which hogli loads on every invocation.
+Auth is `posthog_auth`, which asks only for ``engineering_analytics:read`` — no key to mint
+(`hogli auth:posthog:login`), and nothing here knows how a token is obtained.
 
 Missing or rejected credentials exit ``78`` (sysexits ``EX_CONFIG``) so the
 debugging-ci-failures skill can branch to its read-only ``gh`` fallback on the exit code
@@ -43,17 +39,18 @@ import click
 import requests
 from click.core import ParameterSource
 
+from hogli_commands import posthog_auth
+
 _DEFAULT_HOST = "https://us.posthog.com"
 # The project holding the synced PostHog/posthog GitHub source. A project id, not a secret
 # — committed for the same reason hogli.yaml commits the telemetry write key.
 _DEFAULT_PROJECT_ID = "2"
 
-_KEY_ENV_VARS = ("POSTHOG_PERSONAL_API_KEY", "POSTHOG_AUTH_HEADER")
-_KEY_MINT_URL = "https://us.posthog.com/settings/user-api-keys?preset=mcp_server"
+# The one scope these endpoints require. Narrow on purpose: a token minted for this carries
+# nothing else, so a CI-triage credential cannot write anywhere.
+_SCOPES = ("engineering_analytics:read",)
 
-# sysexits.h EX_CONFIG. Distinct from 1 so a caller can tell "you have not set this up"
-# from "the data says something is wrong" without parsing prose.
-_EXIT_NOT_CONFIGURED = 78
+_EXIT_NOT_CONFIGURED = posthog_auth.EXIT_NOT_CONFIGURED
 
 _DIGEST_ROWS = 8
 _SEARCH_ROWS = 10
@@ -107,25 +104,6 @@ def _fail(error: _ApiError) -> NoReturn:
     raise SystemExit(error.exit_code)
 
 
-def _token() -> str:
-    """The personal API key, from the first env var that carries one.
-
-    ``POSTHOG_AUTH_HEADER`` holds a whole ``Bearer <key>`` header value, so strip the
-    scheme rather than sending it twice.
-    """
-    for var in _KEY_ENV_VARS:
-        raw = (os.environ.get(var) or "").strip()
-        if raw:
-            return raw.removeprefix("Bearer ")
-    raise _ApiError(
-        "CI insights needs a PostHog personal API key.\n"
-        f"  Mint one — or reuse the key you already made for the PostHog MCP: {_KEY_MINT_URL}\n"
-        f"  Then set {_KEY_ENV_VARS[0]} in your shell, or add it as a literal line in .env.local.\n"
-        "  Until then, fall back to read-only `gh` inspection.",
-        exit_code=_EXIT_NOT_CONFIGURED,
-    )
-
-
 def _request(url: str, *, token: str, params: dict[str, Any], timeout: float) -> requests.Response:
     """One authenticated GET. The single HTTP seam, so tests can replace it wholesale."""
     return requests.get(
@@ -160,13 +138,13 @@ def _explain(response: requests.Response, action: str, *, host: str, project_id:
     status = response.status_code
     if status == 401:
         return _ApiError(
-            f"{host} rejected the API key. It may be revoked, or minted in a different region.",
+            f"{host} rejected the credential. It may be revoked, or issued for a different region.\n"
+            "  Run `hogli auth:posthog:logout` then `hogli auth:posthog:login` to re-authorize.",
             exit_code=_EXIT_NOT_CONFIGURED,
         )
     if status == 403 and "scope" in detail:
         return _ApiError(
-            "The API key lacks 'engineering_analytics:read'.\n"
-            f"  Re-mint it with the MCP Server preset, which covers it: {_KEY_MINT_URL}",
+            "The credential lacks 'engineering_analytics:read'.\n  Run `hogli auth:posthog:login` to authorize it.",
             exit_code=_EXIT_NOT_CONFIGURED,
         )
     if status == 403:
@@ -450,7 +428,14 @@ class _Options:
     limit: int
 
     def api(self) -> _Api:
-        return _Api(host=self.host.rstrip("/"), project_id=self.project, token=_token(), timeout=self.timeout)
+        host = self.host.rstrip("/")
+        try:
+            token = posthog_auth.token(scopes=_SCOPES, host=host)
+        except posthog_auth.AuthError as exc:
+            # Re-raised as this module's error so every failure reaches the one `_fail` path,
+            # keeping the exit code and the stderr-only rule in one place.
+            raise _ApiError(exc.message, exit_code=exc.exit_code) from exc
+        return _Api(host=host, project_id=self.project, token=token, timeout=self.timeout)
 
     def json(self) -> bool:
         if self.output_format == "json":

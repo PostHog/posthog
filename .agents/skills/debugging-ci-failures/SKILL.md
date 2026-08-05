@@ -97,11 +97,12 @@ Caveats to carry into whatever you report:
   there is no denominator and no failure rate to quote.
 - A run's conclusion can lag until GitHub's `workflow_run` webhook settles it.
 
-If it is not set up, `hogli ci:insights` exits `78` and prints how to fix it
-(a personal API key — the one you already made for the PostHog MCP works). Treat
+If nobody has signed in on this machine, `hogli ci:insights` exits `78`. Treat
 exit `78` as "no CI insights available" and fall back to the `gh`-based
-inspection below. Surface what you find per the Safety rules — do not auto-apply
-a fix.
+inspection below — then tell the user they can run `hogli auth:posthog:login`
+once, which opens a browser and needs no API key. Do not run it yourself: it
+waits on a consent screen you cannot see. Surface what you find per the Safety
+rules — do not auto-apply a fix.
 
 ### 2. Find the failing run (for a specific failure)
 

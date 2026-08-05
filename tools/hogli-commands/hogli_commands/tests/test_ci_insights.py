@@ -8,7 +8,7 @@ import pytest
 from unittest.mock import patch
 
 from click.testing import CliRunner
-from hogli_commands import ci_insights
+from hogli_commands import ci_insights, posthog_auth
 
 _TOKEN = "phx_test_key_do_not_leak"
 
@@ -168,7 +168,9 @@ def repo_checkout() -> Iterator[None]:
 
 @pytest.fixture(autouse=True)
 def token(monkeypatch: pytest.MonkeyPatch) -> None:
-    for var in ci_insights._KEY_ENV_VARS:
+    """Stand in for a signed-in caller. How a token is obtained is posthog_auth's contract,
+    tested there; this suite is about what ci:insights does once it has one."""
+    for var in posthog_auth.KEY_ENV_VARS:
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("POSTHOG_PERSONAL_API_KEY", _TOKEN)
 
@@ -192,33 +194,17 @@ def test_help_works_without_a_configured_key(
     assert "personal API key" not in result.output
 
 
-@pytest.mark.parametrize(
-    "env, expected",
-    [
-        ({"POSTHOG_PERSONAL_API_KEY": "phx_direct"}, "phx_direct"),
-        ({"POSTHOG_AUTH_HEADER": "Bearer phx_from_header"}, "phx_from_header"),
-        ({"POSTHOG_AUTH_HEADER": "phx_bare_header"}, "phx_bare_header"),
-        ({"POSTHOG_PERSONAL_API_KEY": "phx_wins", "POSTHOG_AUTH_HEADER": "Bearer phx_loses"}, "phx_wins"),
-    ],
-)
-def test_key_ladder(monkeypatch: pytest.MonkeyPatch, env: dict[str, str], expected: str) -> None:
-    for var in ci_insights._KEY_ENV_VARS:
-        monkeypatch.delenv(var, raising=False)
-    for var, value in env.items():
-        monkeypatch.setenv(var, value)
-    assert ci_insights._token() == expected
-
-
-def test_missing_key_exits_not_configured_with_the_hint_on_stderr(
-    runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+def test_an_unauthenticated_caller_exits_not_configured_with_the_hint_on_stderr(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The debugging-ci-failures skill branches to `gh` on exit 78, so the code is contract."""
-    for var in ci_insights._KEY_ENV_VARS:
+    """The debugging-ci-failures skill branches to `gh` on exit 78, so the code is contract —
+    including when the failure comes from the shared auth module rather than from this one."""
+    for var in posthog_auth.KEY_ENV_VARS:
         monkeypatch.delenv(var, raising=False)
-    result = CliRunner(mix_stderr=False).invoke(ci_insights.ci_insights, [])
-    assert result.exit_code == ci_insights._EXIT_NOT_CONFIGURED
-    assert "personal API key" in result.stderr
-    assert "preset=mcp_server" in result.stderr
+    with patch.object(posthog_auth, "load", return_value=None):
+        result = CliRunner(mix_stderr=False).invoke(ci_insights.ci_insights, [])
+    assert result.exit_code == posthog_auth.EXIT_NOT_CONFIGURED
+    assert "auth:posthog:login" in result.stderr
     # Diagnostics stay off stdout so `--format json` consumers never parse them.
     assert result.stdout == ""
 
@@ -246,7 +232,7 @@ def test_request_shape_and_no_key_in_output(runner: CliRunner) -> None:
 @pytest.mark.parametrize(
     "status, detail, expected_exit, expected_text",
     [
-        (401, "Invalid token", ci_insights._EXIT_NOT_CONFIGURED, "rejected the API key"),
+        (401, "Invalid token", ci_insights._EXIT_NOT_CONFIGURED, "rejected the credential"),
         (403, "API key missing required scope 'engineering_analytics:read'", 78, "engineering_analytics:read"),
         (403, "This action requires feature flag 'engineering-analytics'", 78, "flag-gated"),
         (400, "Connect a GitHub data warehouse source to use engineering analytics.", 1, "warehouse access"),
@@ -280,7 +266,7 @@ def test_source_binding_prefers_the_synced_entry(runner: CliRunner, repo: str, e
     assert recorder.params_for("broken_tests")["source_id"] == expected
 
 
-def test_unknown_repo_names_what_the_key_can_read(runner: CliRunner) -> None:
+def test_unknown_repo_names_what_the_caller_can_read(runner: CliRunner) -> None:
     result = _invoke(runner, ["--repo", "PostHog/nope"], _Recorder())
     assert result.exit_code == 1
     assert "PostHog/posthog" in result.output
