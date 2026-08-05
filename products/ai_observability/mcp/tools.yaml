@@ -579,10 +579,10 @@ tools:
             Test Hog evaluation source code against a sample of recent data without saving. Set target to match how the
             evaluation runs: 'generation' samples individual $ai_generation events, 'trace' samples whole traces and
             runs against trace-level globals, 'session' samples whole sessions that have gone quiet and runs against
-            session-level globals. For trace previews, pass target_config.window_seconds to match the saved
-            evaluation's aggregation window; for session previews, pass target_config.quiet_period_seconds to match its
-            quiet period. Returns per-sample results (pass/fail/N/A), reasoning, and input/output previews. Use this to
-            validate Hog code before creating or updating a 'hog' type evaluation.
+            session-level globals. For trace previews, pass target_config.window_seconds to match the saved evaluation's
+            aggregation window; for session previews, pass target_config.quiet_period_seconds to match its quiet period.
+            Returns per-sample results (pass/fail/N/A), reasoning, and input/output previews. Use this to validate Hog
+            code before creating or updating a 'hog' type evaluation.
     llma-evaluation-update:
         operation: evaluations_partial_update
         enabled: true
