@@ -45,6 +45,7 @@ export interface JourneyGridRibbon {
 export interface JourneyGridModel {
     columns: JourneyGridColumn[]
     ribbons: JourneyGridRibbon[]
+    maxRibbonCount: number
     /** Card keys of the named rows the grid actually renders, so a hover chain can be restricted to
      * items the user can see. Items beyond the top rows per step live in the other row instead. */
     displayedItemKeys: Set<string>
@@ -119,7 +120,7 @@ export function journeyItemLabel(item: PathsV2Item): string {
 
 export function buildJourneyGridModel(results: PathsV2Results | null): JourneyGridModel {
     if (!results || results.steps.length === 0) {
-        return { columns: [], ribbons: [], displayedItemKeys: new Set() }
+        return { columns: [], ribbons: [], maxRibbonCount: 0, displayedItemKeys: new Set() }
     }
 
     const steps = [...results.steps].sort((a, b) => a.stepIndex - b.stepIndex)
@@ -197,7 +198,9 @@ export function buildJourneyGridModel(results: PathsV2Results | null): JourneyGr
         })
     }
 
-    return { columns, ribbons, displayedItemKeys }
+    const maxRibbonCount = ribbons.reduce((max, ribbon) => Math.max(max, ribbon.count), 0)
+
+    return { columns, ribbons, maxRibbonCount, displayedItemKeys }
 }
 
 /** A closed band from the source card's right edge to the target card's left edge. */
