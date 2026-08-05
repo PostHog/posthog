@@ -65,6 +65,7 @@ Examples:
 
 **Required:** Before creating any PR, read `.github/pull_request_template.md` and use its exact section structure.
 Do not invent a different format.
+**Shape:** invoke `/writing-pr-descriptions` before writing the body. Cut to the facts a reviewer needs, then one fact per bullet, sentences under 25 words, active voice, no idioms. A description that got longer as bullets was not cut.
 Always fill the `## 🤖 Agent context` section when creating PRs.
 NEVER share sensitive information in a PR description. Users may share sensitive data in an agent session, but those should never surface to a PR description, or comments.
 
@@ -96,6 +97,10 @@ GitHub cannot filter a label trigger by name, so every unrelated label re-runs t
 Guarding it inside the workflow is worse: skipping the gate job cascades to the `if: always()` aggregator, which counts a skipped dependency as success and posts a green required check with no tests behind it.
 
 #### Stacked PRs
+
+GitHub's native stacked PRs are enabled on this repo — use the `gh stack` CLI and the `/stacking-prs` skill instead of hand-managing branch chains.
+A stack lands bottom-first: merge the layer based on `master` the usual way (see "Merging PRs" below), then `gh stack sync --prune` and repeat.
+Never `gh stack merge` — it merges the whole chain straight through GitHub's API, so the bottom layer reaches `master` outside that path.
 
 Restacking force-pushes every branch, and each push triggers a full CI fan-out.
 Never restack while any branch in the stack is sitting in the merge queue — the force-push removes it from the queue.
@@ -231,10 +236,12 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/writing-tests` — adding or substantially changing any test (pytest, Jest, or Playwright)
 - `/writing-user-facing-copy` — writing or editing any text a user reads (UI labels, tooltips, empty/error states, notifications, docs, support replies), or any code change that adds or changes a visible string
 - `/writing-code-comments` — writing or editing a code comment in any language, or reviewing a diff that adds comments
+- `/writing-pr-descriptions` — writing or editing any PR body, before `gh pr create` or `gh pr edit --body`
 
 **Invoke when in the area:**
 
 - `/merging-prs` — merging a PR, or babysitting one through the Trunk merge queue
+- `/stacking-prs` — creating, restacking, adopting, or landing a stack of PRs (`gh stack`)
 - `/implementing-mcp-tools` — adding/modifying endpoints or `tools.yaml`
 - `/modifying-taxonomic-filter` — any TaxonomicFilter change
 - `/sending-notifications` — adding notification support

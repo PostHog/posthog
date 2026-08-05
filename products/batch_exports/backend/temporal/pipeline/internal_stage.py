@@ -49,25 +49,26 @@ from products.batch_exports.backend.service import (
 )
 from products.batch_exports.backend.temporal.batch_exports import default_fields
 from products.batch_exports.backend.temporal.metrics import log_query_duration
-from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
+from products.batch_exports.backend.temporal.record_batch_model import RecordBatchModel, resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
-    RecordBatchModel,
     compose_filters_clause,
     generate_query_ranges,
     is_5_min_batch_export,
     use_distributed_events_recent_table,
     wait_for_delta_past_data_interval_end,
 )
-from products.batch_exports.backend.temporal.sql import (
+from products.batch_exports.backend.temporal.sql.common import get_s3_function_call
+from products.batch_exports.backend.temporal.sql.events import (
     EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT,
     EXPORT_TO_S3_FROM_EVENTS,
     EXPORT_TO_S3_FROM_EVENTS_BACKFILL,
     EXPORT_TO_S3_FROM_EVENTS_RECENT,
     EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED,
     EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
+)
+from products.batch_exports.backend.temporal.sql.persons import (
     EXPORT_TO_S3_FROM_PERSONS,
     EXPORT_TO_S3_FROM_PERSONS_BACKFILL,
-    get_s3_function_call,
 )
 from products.batch_exports.backend.temporal.utils import set_status_to_running_task
 
@@ -601,6 +602,9 @@ async def _write_batch_export_record_batches_to_internal_stage(
         min_insert_block_size_bytes=settings.BATCH_EXPORTS_CLICKHOUSE_MAX_INSERT_BLOCK_SIZE_BYTES,
         # Disable all of these so only the bytes limits counts.
         min_insert_block_size_rows=0,
+        # TEMPORARY: pin batch export queries to ClickHouse 26.6 semantics to ensure compatibility
+        # after upgrade
+        compatibility="26.6",
     ) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")

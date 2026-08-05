@@ -32,7 +32,6 @@ FACADE_MODULES = [
     "products.tasks.backend.facade.temporal",
     "products.tasks.backend.facade.max_tools",
     "products.tasks.backend.facade.webhooks",
-    "products.tasks.backend.facade.file_system",
 ]
 
 
@@ -550,6 +549,67 @@ class TestFacadeReadsAndMappers(TestCase):
         env.refresh_from_db()
         self.assertFalse(env.private)
 
+    def test_upsert_internal_sandbox_env_never_adopts_user_created_row(self):
+        # Users can create environments with arbitrary names through the sandbox environment
+        # API. Adopting a same-named user row would carry its custom image / env vars into an
+        # internal run holding the run's tokens — so provisioning must create its own internal
+        # row alongside and leave the user's row untouched (not deleted, not converted).
+        user_env = SandboxEnvironment.objects.create(
+            team=self.team,
+            name="SIGNALS_X",
+            internal=False,
+            environment_variables={"EXFIL_TARGET": "https://attacker.example"},
+        )
+
+        env_id = facade.upsert_internal_sandbox_env(self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.FULL)
+
+        self.assertNotEqual(str(env_id), str(user_env.id))
+        env = SandboxEnvironment.objects.get(id=env_id)
+        self.assertTrue(env.internal)
+        # The encrypted JSON field round-trips an empty dict as None; either way, no env vars.
+        self.assertFalse(env.environment_variables)
+        user_env.refresh_from_db()
+        self.assertFalse(user_env.internal)
+        self.assertEqual(user_env.environment_variables, {"EXFIL_TARGET": "https://attacker.example"})
+
+    def test_upsert_internal_sandbox_env_dedupes_only_internal_duplicates(self):
+        # Concurrent upserts can double-insert (no unique constraint on (team, name)). The
+        # dedupe must keep the oldest INTERNAL row, reassert policy on it, and never treat a
+        # same-named user-created row as a duplicate to delete.
+        user_env = SandboxEnvironment.objects.create(team=self.team, name="SIGNALS_X", internal=False)
+        first = SandboxEnvironment.objects.create(team=self.team, name="SIGNALS_X", internal=True)
+        second = SandboxEnvironment.objects.create(team=self.team, name="SIGNALS_X", internal=True)
+        # Pin an unambiguous creation order so keeper selection is deterministic.
+        SandboxEnvironment.objects.filter(id=first.id).update(created_at=django_timezone.now() - timedelta(minutes=1))
+
+        env_id = facade.upsert_internal_sandbox_env(self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.FULL)
+
+        self.assertEqual(str(env_id), str(first.id))
+        self.assertFalse(SandboxEnvironment.objects.filter(id=second.id).exists())
+        self.assertTrue(SandboxEnvironment.objects.filter(id=user_env.id).exists())
+        first.refresh_from_db()
+        self.assertEqual(first.network_access_level, SandboxEnvironment.NetworkAccessLevel.FULL.value)
+
+    def test_upsert_internal_sandbox_env_scrubs_execution_fields(self):
+        # Reasserting policy must cover the whole execution surface: env vars / repositories
+        # set on the internal row between calls (however they got there) are cleared, so they
+        # can never ride into the next internally provisioned run.
+        env_id = facade.upsert_internal_sandbox_env(self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.TRUSTED)
+        env = SandboxEnvironment.objects.get(id=env_id)
+        env.environment_variables = {"INJECTED": "value"}
+        env.repositories = ["attacker/repo"]
+        env.save(update_fields=["environment_variables", "repositories"])
+
+        env_id_2 = facade.upsert_internal_sandbox_env(
+            self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.TRUSTED
+        )
+
+        self.assertEqual(env_id_2, env_id)
+        env.refresh_from_db()
+        # The encrypted JSON field round-trips an empty dict as None; either way, no env vars.
+        self.assertFalse(env.environment_variables)
+        self.assertEqual(env.repositories, [])
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_task_returns_contract(self, _mock_workflow):
         Integration.objects.create(team=self.team, kind="github", config={})
@@ -765,3 +825,211 @@ class TestRecentWizardCloudRunTimes(TestCase):
         times = facade.recent_wizard_cloud_run_times(self.user.id, since)
         self.assertEqual(len(times), 2)
         self.assertEqual(times, sorted(times))
+
+
+class TestSelfDrivingQuotaFacadeGates(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Quota Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Quota Team")
+        cls.user = User.objects.create(email="quota-facade@test.com", distinct_id="quota-facade-distinct")
+
+    def _enforced_gate(self):
+        from products.signals.backend.quota import SelfDrivingQuotaGate
+
+        return patch(
+            "products.signals.backend.quota.self_driving_quota_gate",
+            return_value=SelfDrivingQuotaGate(limited=True, enforced=True),
+        )
+
+    def test_create_and_run_task_blocked_for_self_driving_origin_when_enforced(self):
+        # The implementation task is the step that leads to the billable PR; over-quota teams
+        # must not get one through the facade regardless of caller.
+        from posthog.exceptions import QuotaLimitExceeded
+
+        with (
+            self._enforced_gate(),
+            patch("products.signals.backend.quota.capture_signal_report_quota_paused") as capture_mock,
+            self.assertRaises(QuotaLimitExceeded),
+        ):
+            facade.create_and_run_task(
+                team=self.team,
+                title="Implementation: t",
+                description="d",
+                origin_product=facade.TaskOriginProduct.SIGNAL_REPORT,
+                user_id=self.user.id,
+                repository="posthog/posthog",
+            )
+        self.assertFalse(Task.objects.filter(team=self.team).exists())
+        # The facade gate keeps its own stage: its main caller is the auto-start pipeline, whose
+        # over-quota hits must not pollute the manual-path (`manual_create`) telemetry bucket.
+        self.assertEqual(capture_mock.call_args.kwargs["stage"], "task_create")
+        self.assertTrue(capture_mock.call_args.kwargs["enforced"])
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_task_allows_non_pr_sessions_when_enforced(self, _mock_workflow):
+        # Research / repo-selection sessions create SIGNAL_REPORT tasks with create_pr=False;
+        # they can never open the billable PR, and blocking them would hard-fail the pipeline
+        # mid-run instead of letting the summary gates pause it.
+        Integration.objects.create(team=self.team, kind="github", config={})
+        with self._enforced_gate():
+            created = facade.create_and_run_task(
+                team=self.team,
+                title="Research: t",
+                description="d",
+                origin_product=facade.TaskOriginProduct.SIGNAL_REPORT,
+                user_id=self.user.id,
+                repository="posthog/posthog",
+                create_pr=False,
+            )
+        self.assertTrue(Task.objects.filter(id=created.task_id).exists())
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_task_dark_launch_emits_without_blocking(self, _mock_workflow):
+        # Limited without enforcement must create the task and still emit the would-block
+        # event, or the manual gate is invisible during the dark launch.
+        from products.signals.backend.quota import SelfDrivingQuotaGate
+
+        Integration.objects.create(team=self.team, kind="github", config={})
+        with (
+            patch(
+                "products.signals.backend.quota.self_driving_quota_gate",
+                return_value=SelfDrivingQuotaGate(limited=True, enforced=False),
+            ),
+            patch("products.signals.backend.quota.capture_signal_report_quota_paused") as capture_mock,
+        ):
+            created = facade.create_and_run_task(
+                team=self.team,
+                title="Implementation: t",
+                description="d",
+                origin_product=facade.TaskOriginProduct.SIGNAL_REPORT,
+                user_id=self.user.id,
+                repository="posthog/posthog",
+            )
+        self.assertTrue(Task.objects.filter(id=created.task_id).exists())
+        self.assertEqual(capture_mock.call_args.kwargs["stage"], "task_create")
+        self.assertFalse(capture_mock.call_args.kwargs["enforced"])
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_task_unaffected_for_other_origins_when_enforced(self, _mock_workflow):
+        # The self-driving PR limit must never block user-created tasks.
+        Integration.objects.create(team=self.team, kind="github", config={})
+        with self._enforced_gate():
+            created = facade.create_and_run_task(
+                team=self.team,
+                title="User task",
+                description="d",
+                origin_product=facade.TaskOriginProduct.USER_CREATED,
+                user_id=self.user.id,
+                repository="posthog/posthog",
+            )
+        self.assertTrue(Task.objects.filter(id=created.task_id).exists())
+
+    @parameterized.expand([(None,), ("implementation",), ("discussion",)])
+    def test_create_task_blocked_for_manual_report_creation_when_enforced(self, relationship):
+        # The inbox "start work from report" path (write serializer binds `signal_report`).
+        # Every relationship label is gated: the label is client-selected and manual tasks run
+        # PR-capable by default, so a "discussion" label must not dodge the limit.
+        from django.apps import apps
+
+        from posthog.exceptions import QuotaLimitExceeded
+
+        SignalReport = apps.get_model("signals", "SignalReport")
+        report = SignalReport.objects.create(team=self.team, status="ready", title="t", summary="s")
+        with (
+            self._enforced_gate(),
+            patch("products.signals.backend.quota.capture_signal_report_quota_paused") as capture_mock,
+            self.assertRaises(QuotaLimitExceeded),
+        ):
+            facade.create_task(
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "title": "Implementation: t",
+                    "description": "d",
+                    "origin_product": Task.OriginProduct.SIGNAL_REPORT,
+                    "signal_report": report,
+                    "signal_report_task_relationship": relationship,
+                },
+            )
+        self.assertFalse(Task.objects.filter(team=self.team).exists())
+        # Genuinely manual creations keep the `manual_create` stage, distinct from the facade
+        # backstop's `task_create`.
+        self.assertEqual(capture_mock.call_args.kwargs["stage"], "manual_create")
+
+
+class TestSelfDrivingQuotaRefreshDispatch(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Refresh Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Refresh Team")
+        cls.user = User.objects.create(email="refresh@test.com", distinct_id="refresh-distinct")
+
+    def _self_driving_run(self) -> TaskRun:
+        task = Task.objects.create(
+            team=self.team,
+            title="Implementation: t",
+            description="d",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            created_by=self.user,
+        )
+        return TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+    @parameterized.expand(
+        [
+            # First PR URL on a self-driving-origin run is the billable moment: re-evaluate now.
+            ("first_pr_dispatches", None, {"pr_url": "https://github.com/x/y/pull/1"}, True),
+            # A repeat write for the same PR must not spam the quota task.
+            (
+                "repeat_write_skipped",
+                "https://github.com/x/y/pull/1",
+                {"pr_url": "https://github.com/x/y/pull/1"},
+                False,
+            ),
+            # No PR in the output: nothing billable happened.
+            ("no_pr_skipped", None, {"summary": "wip"}, False),
+            # Billing only counts GitHub PR URLs; anything else must not enqueue a refresh.
+            ("non_github_pr_url_skipped", None, {"pr_url": "https://evil.example/pr/1"}, False),
+        ]
+    )
+    @patch("ee.tasks.quota_limiting.refresh_org_self_driving_quota_task")
+    def test_refresh_dispatch_on_first_pr(self, _name, old_pr_url, output, expect_dispatch, task_mock):
+        run = self._self_driving_run()
+        run.output = output
+        run.save(update_fields=["output"])
+        with self.captureOnCommitCallbacks(execute=True):
+            facade._refresh_self_driving_quota_for_pr(run, old_pr_url)
+        self.assertEqual(task_mock.delay.call_count, 1 if expect_dispatch else 0)
+        if expect_dispatch:
+            self.assertEqual(task_mock.delay.call_args.args, (str(self.organization.id),))
+
+    @patch("ee.tasks.quota_limiting.refresh_org_self_driving_quota_task")
+    def test_refresh_swallows_lookup_failure(self, task_mock):
+        # The refresh is best-effort (the quota cron is the backstop): a transient DB fault must
+        # not propagate, or it would 500 an already-committed run write and abort the completion
+        # signaling that follows at both call sites.
+        run = self._self_driving_run()
+        run.output = {"pr_url": "https://github.com/x/y/pull/1"}
+        run.save(update_fields=["output"])
+        with patch("products.tasks.backend.facade.api.Team.objects.filter", side_effect=RuntimeError("db down")):
+            facade._refresh_self_driving_quota_for_pr(run, None)
+        task_mock.delay.assert_not_called()
+
+    @patch("ee.tasks.quota_limiting.refresh_org_self_driving_quota_task")
+    def test_refresh_dispatch_skipped_for_other_origins(self, task_mock):
+        run = self._self_driving_run()
+        run.task.origin_product = Task.OriginProduct.USER_CREATED
+        run.task.save(update_fields=["origin_product"])
+        run.output = {"pr_url": "https://github.com/x/y/pull/1"}
+        run.save(update_fields=["output"])
+        with self.captureOnCommitCallbacks(execute=True):
+            facade._refresh_self_driving_quota_for_pr(run, None)
+        task_mock.delay.assert_not_called()

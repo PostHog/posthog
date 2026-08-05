@@ -29,6 +29,7 @@ type TaskResponseDTO = Partial<
   json_schema?: unknown | null;
   latest_run?: Record<string, unknown> | null;
   runtime?: unknown;
+  repositories?: string[];
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -109,7 +110,11 @@ function normalizeTaskRunArtifact(
     ...(artifact.id === undefined ? {} : { id: artifact.id }),
     name: artifact.name,
     type: normalizeArtifactType(artifact.type),
-    ...(artifact.source === undefined ? {} : { source: artifact.source }),
+    ...(artifact.source === "agent_output" ||
+    artifact.source === "user_attachment" ||
+    artifact.source === "posthog_code_skill"
+      ? { source: artifact.source }
+      : {}),
     ...(artifact.size === undefined ? {} : { size: artifact.size }),
     ...(artifact.content_type === undefined
       ? {}

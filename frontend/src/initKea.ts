@@ -145,6 +145,10 @@ export function initKea({
                     const isTwoFactorError =
                         error.code === 'two_factor_setup_required' || error.code === 'two_factor_verification_required'
                     const isSensitiveActionError = error.code === 'sensitive_action_required_reauth'
+                    // Only the 403 access-block gets the dedicated toast in apiStatusLogic; a 400
+                    // with this code is form validation (e.g. inviting an outside-domain email)
+                    // and must keep the generic error toast.
+                    const isVerifiedDomainError = error.code === 'verified_domain_required' && error.status === 403
 
                     if (!errorMessage && error.status === 404) {
                         errorMessage = 'URL not found'
@@ -157,7 +161,8 @@ export function initKea({
                     ) {
                         errorMessage = `Rate limit exceeded. Please try again ${error.formattedRetryAfter}.`
                     }
-                    if (isTwoFactorError || isSensitiveActionError) {
+                    if (isTwoFactorError || isSensitiveActionError || isVerifiedDomainError) {
+                        // These get their own dedicated toast in apiStatusLogic.
                         errorMessage = null
                     }
                     if (errorMessage) {

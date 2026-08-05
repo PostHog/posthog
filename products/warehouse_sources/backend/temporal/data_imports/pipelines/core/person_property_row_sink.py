@@ -89,7 +89,7 @@ class PersonPropertyRowSink:
             self._projection_resolved = True
         return self._projection
 
-    async def should_stage(self) -> bool:
+    async def should_run(self) -> bool:
         return bool(await self._get_projection())
 
     async def stage_chunk(self, chunk: int, table: pa.Table) -> None:
@@ -120,7 +120,7 @@ class PersonPropertyRowSink:
             use_dictionary=True,
         )
 
-    async def clear_chunks(self) -> None:
+    async def clear(self) -> None:
         """Drop this job's own staged files (full refresh only), plus sibling job prefixes
         abandoned long enough.
 

@@ -42,7 +42,8 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     insert_into_internal_stage_activity,
 )
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
-from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
+from products.batch_exports.backend.temporal.spmc import RecordBatchQueue
+from products.batch_exports.backend.tests.temporal.utils.clickhouse_test_producer import ClickHouseTestProducer
 from products.batch_exports.backend.tests.temporal.utils.records import get_record_batch_from_queue
 from products.batch_exports.backend.tests.temporal.utils.s3 import assert_file_in_s3, assert_no_files_in_s3
 
@@ -260,9 +261,9 @@ async def assert_clickhouse_records_in_s3(
 
     queue = RecordBatchQueue()
     if model_name == "sessions":
-        producer = Producer(model=SessionsRecordBatchModel(team_id))
+        producer = ClickHouseTestProducer(model=SessionsRecordBatchModel(team_id))
     else:
-        producer = Producer()
+        producer = ClickHouseTestProducer()
     producer_task = await producer.start(
         queue=queue,
         model_name=model_name,

@@ -380,6 +380,7 @@ export class AgentServer {
   private suppressAdapterTurnComplete = false;
   private runUsage = new RunUsageAccumulator();
   private detectedPrUrl: string | null = null;
+  private taskRepositories: string[] = [];
   // Reset per session. `evaluatedPrUrls` dedupes per URL; `prAttributionChain` serializes
   // attributions so the most recently created PR in a run wins.
   private readonly evaluatedPrUrls = new Set<string>();
@@ -1574,6 +1575,7 @@ export class AgentServer {
         return null;
       }),
     ]);
+    this.taskRepositories = preTask?.repository ? [preTask.repository] : [];
 
     this.prewarmedRun =
       (preTaskRun?.state as Record<string, unknown> | undefined)?.prewarmed ===
@@ -1741,6 +1743,10 @@ export class AgentServer {
         )
       : [];
     const sessionCwd = this.config.repositoryPath ?? "/tmp/workspace";
+    // Only a run with no repository at all gets the discover-and-clone tools;
+    // a multi-repository workspace already has its repos on disk.
+    const channelMode =
+      !this.config.repositoryPath && this.taskRepositories.length === 0;
     const sessionMeta = {
       sessionId: payload.run_id,
       taskRunId: payload.run_id,
@@ -1752,6 +1758,7 @@ export class AgentServer {
       allowedDomains: this.config.allowedDomains,
       jsonSchema: preTask?.json_schema ?? null,
       permissionMode: initialPermissionMode,
+      ...(channelMode && { channelMode: true }),
       posthogExecPermissionRegex: this.posthogExecPermissionRegexSource,
       ...(this.config.baseBranch && { baseBranch: this.config.baseBranch }),
       ...(runtimeAdapter === "claude" &&
@@ -3557,6 +3564,13 @@ You are replying in a Slack thread. Slack readers want short, skimmable answers 
 - Do not narrate your thinking or list every step you took; report what matters and the result.
 - This is a default, not a hard rule. If the user (or their saved memory) asks for more depth or a specific format, follow that instead.
 
+# PostHog products first
+PostHog is a product suite, not just analytics — session replay, feature flags, experiments, surveys, error tracking, logs, data warehouse, CDP, messaging, and customer support all ship as PostHog products.
+- When someone asks how to set up, enable, configure, or use a capability, assume they mean PostHog's version of it and answer about that.
+- Search our docs with the \`docs-search\` tool before you answer, and ground the answer in what it returns rather than in what you remember. The product changes faster than your training data.
+- Never send the user to a third-party product for something PostHog does. If you are unsure whether we cover it, search the docs before concluding we don't — and if we genuinely don't, say so plainly instead of recommending a competitor. Pointing at a third party we integrate with, as a source or destination, is fine.
+- When a request could mean either a PostHog feature or something in the user's own codebase, ask which they mean instead of guessing.
+
 # Mentioning users
 To ping a Slack user, reuse a \`<@U…|displayname>\` token that already appears in the message context — copy it verbatim, including the \`U…\` ID. Do NOT construct a mention token from a name, and do NOT substitute the display name (or any other string) for the \`U…\` ID — \`<@Jane|Jane Doe>\` is not a valid mention; only the form with the real ID like \`<@U01ABCDEF23|Jane Doe>\` is. If the person you want to refer to has no \`<@U…|displayname>\` token anywhere in the thread context, write their name as plain text instead of inventing one. These \`<@U…>\` tokens are Slack-only: never carry one — or a name or handle derived from it — into a GitHub PR, commit message, or review request as an \`@\`-mention. A Slack display name or handle is NOT a GitHub username; see the pull-request instructions below.
 
@@ -3643,6 +3657,13 @@ When you create a non-code file the user should be able to download (such as a r
       : inboxReportUrl
         ? `*${createdWith} from an [inbox report](${inboxReportUrl})*`
         : `*${createdWith}*`;
+    const repositoryWorkspaceInstructions =
+      this.taskRepositories.length > 1
+        ? `The task workspace contains these repositories:
+${this.taskRepositories.map((repository) => `- ${repository}: /tmp/workspace/repos/${repository.toLowerCase()}`).join("\n")}
+
+Apply the repository workflow below separately in every repository you change. Keep branches, commits, diffs, and pull requests repository-specific.`
+        : "";
 
     if (prUrl) {
       if (!shouldAutoCreatePr) {
@@ -3681,18 +3702,23 @@ ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${
 `;
     }
 
-    if (!this.config.repositoryPath) {
+    if (!this.config.repositoryPath && this.taskRepositories.length === 0) {
+      const repositoryInstructions = `
+When the task requires a GitHub repository:
+- If the repository is not specified, call \`list_repos\` and use the task context to choose it. If multiple repositories remain plausible, ask the user.
+- Call \`clone_repo\` with the chosen \`owner/repo\` and optional branch. It creates a shallow clone under \`/tmp/workspace/repos/<owner>/<repo>\` and returns the path.
+- Work from inside the returned path for all code changes.
+- The clone starts with one commit. If older history is genuinely needed, fetch it in bounded steps with \`git fetch --deepen=50 origin <branch>\`, then \`git fetch --deepen=200 origin <branch>\`. Use \`git fetch --unshallow\` only when the task explicitly requires full history, such as a long-range blame or bisect.
+`;
       const publishInstructions =
         this.config.createPr === false
           ? `
 When the user asks for code changes:
-- You may clone a repository and make local edits in that clone
+- You may make local edits in a repository cloned with \`clone_repo\`
 - Do NOT create branches, commits, push changes, or open pull requests in this run`
           : shouldAutoCreatePr
             ? `
-When the user asks to clone or work in a GitHub repository:
-- Clone the repository into /tmp/workspace/repos/<owner>/<repo> using \`gh repo clone <owner>/<repo> /tmp/workspace/repos/<owner>/<repo>\`
-- Work from inside that cloned repository for follow-up code changes
+When the user asks for code changes in a GitHub repository:
 - After completing code changes in a cloned repository, create a branch, stage your changes with \`git add\` and commit them with the \`git_signed_commit\` tool (do NOT use \`git commit\`/\`git push\` — they are blocked), and open a draft pull request from inside the clone without waiting to be asked. Before opening the PR, check the cloned repo for a PR template at \`.github/pull_request_template.md\` (or variants; fall back to the org's \`.github\` repo via \`gh api\`) and use it as the body structure, and search for matching open issues with \`gh issue list --search\` to include \`Closes #<n>\` / \`Refs #<n>\` links.
 - Keep the PR description brief overall. Summarize only the most important changes — do NOT enumerate every change you made. A few sentences or bullets is plenty.
 ${whyContextInstruction.trimStart()}
@@ -3701,9 +3727,7 @@ ${prMentionSafetyInstruction.trimStart()}
 - End the PR description with a horizontal rule followed by this footer line: ${prFooter}
 - Always create the PR as a draft. Do not ask for confirmation before publishing completed code changes`
             : `
-When the user explicitly asks to clone or work in a GitHub repository:
-- Clone the repository into /tmp/workspace/repos/<owner>/<repo> using \`gh repo clone <owner>/<repo> /tmp/workspace/repos/<owner>/<repo>\`
-- Work from inside that cloned repository for follow-up code changes
+When the user explicitly asks for code changes in a GitHub repository:
 - If the user explicitly asks you to open or update a pull request, create a branch, stage your changes with \`git add\` and commit them with the \`git_signed_commit\` tool (do NOT use \`git commit\`/\`git push\` — they are blocked), and open a draft pull request from inside the clone. Before opening the PR, check the cloned repo for a PR template at \`.github/pull_request_template.md\` (or variants; fall back to the org's \`.github\` repo via \`gh api\`) and use it as the body structure, and search for matching open issues with \`gh issue list --search\` to include \`Closes #<n>\` / \`Refs #<n>\` links.
 - Keep the PR description brief overall. Summarize only the most important changes — do NOT enumerate every change you made. A few sentences or bullets is plenty.
 ${whyContextInstruction.trimStart()}
@@ -3723,9 +3747,8 @@ When the user asks about analytics, data, metrics, events, funnels, dashboards, 
 - Use tools like insight-query, query-run, event-definitions-list, and others to answer questions directly
 
 When the user asks for code changes or software engineering tasks:
-- Let them know you can help but don't have a repository connected for this session
-- If they have not specified a repository to clone, offer to write code snippets, scripts, or provide guidance
-${publishInstructions}
+- Choose and clone a repository only when the task requires one. For questions and analysis, answer without cloning when possible.
+${repositoryInstructions}${publishInstructions}
 
 Important:
 - Prefer using MCP tools to answer questions with real data over giving generic advice.
@@ -3736,6 +3759,8 @@ ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${
     if (!shouldAutoCreatePr) {
       return `${identityInstructions}
 # Cloud Task Execution
+
+${repositoryWorkspaceInstructions}
 
 Do the requested work, but stop with local changes ready for review.
 
@@ -3753,6 +3778,8 @@ ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${
 
     return `${identityInstructions}
 # Cloud Task Execution
+
+${repositoryWorkspaceInstructions}
 
 If the work you are being asked to do already has an open pull request — for example, the inbox report you fetched links an implementation PR (its \`implementation_pr_url\`), or this same thread already produced a PR that you are now being asked to revise — do NOT open a second PR. Check that PR out with \`gh pr checkout <url>\`, continue on its branch, and commit your changes to it with the \`git_signed_commit\` tool (if the branch is behind its base, call \`git_signed_merge\` first). A PR is only the one to continue if it is for this same request; if the thread merely mentions an unrelated or older PR, ignore it. Only open a new, separate PR when the change is genuinely distinct from the existing one.
 
@@ -4677,7 +4704,7 @@ ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${
   private async captureCheckpointState(
     localGitState?: HandoffLocalGitState,
   ): Promise<void> {
-    if (!this.session || !this.config.repositoryPath) {
+    if (!this.session) {
       return;
     }
     if (!this.posthogAPI) {
@@ -4686,38 +4713,57 @@ ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${
       );
       return;
     }
+    const session = this.session;
 
-    const tracker = new HandoffCheckpointTracker({
-      repositoryPath: this.config.repositoryPath ?? "/tmp/workspace",
-      taskId: this.session.payload.task_id,
-      runId: this.session.payload.run_id,
-      apiClient: this.posthogAPI,
-      logger: this.logger.child("HandoffCheckpoint"),
-    });
+    const repositories =
+      this.taskRepositories.length > 1
+        ? this.taskRepositories.map((repository) => ({
+            repository,
+            path: `/tmp/workspace/repos/${repository.toLowerCase()}`,
+          }))
+        : this.config.repositoryPath
+          ? [
+              {
+                repository: this.taskRepositories[0],
+                path: this.config.repositoryPath,
+              },
+            ]
+          : [];
 
-    const checkpoint = await tracker.captureForHandoff(localGitState);
-    if (!checkpoint) return;
+    await Promise.all(
+      repositories.map(async ({ repository, path }) => {
+        const tracker = new HandoffCheckpointTracker({
+          repositoryPath: path,
+          taskId: session.payload.task_id,
+          runId: session.payload.run_id,
+          apiClient: this.posthogAPI,
+          logger: this.logger.child("HandoffCheckpoint"),
+        });
+        const checkpoint = await tracker.captureForHandoff(
+          repositories.length === 1 ? localGitState : undefined,
+        );
+        if (!checkpoint) return;
 
-    const checkpointWithDevice: GitCheckpointEvent = {
-      ...checkpoint,
-      device: this.session.deviceInfo,
-    };
-
-    const notification = {
-      jsonrpc: "2.0" as const,
-      method: POSTHOG_NOTIFICATIONS.GIT_CHECKPOINT,
-      params: checkpointWithDevice,
-    };
-
-    this.broadcastEvent({
-      type: "notification",
-      timestamp: new Date().toISOString(),
-      notification,
-    });
-
-    this.session.logWriter.appendRawLine(
-      this.session.payload.run_id,
-      JSON.stringify(notification),
+        const checkpointWithDevice: GitCheckpointEvent = {
+          ...checkpoint,
+          repository,
+          device: session.deviceInfo,
+        };
+        const notification = {
+          jsonrpc: "2.0" as const,
+          method: POSTHOG_NOTIFICATIONS.GIT_CHECKPOINT,
+          params: checkpointWithDevice,
+        };
+        this.broadcastEvent({
+          type: "notification",
+          timestamp: new Date().toISOString(),
+          notification,
+        });
+        session.logWriter.appendRawLine(
+          session.payload.run_id,
+          JSON.stringify(notification),
+        );
+      }),
     );
   }
 

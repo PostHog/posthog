@@ -341,6 +341,33 @@ describe("ReasoningLevelSelector", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("switches to Pi from the harness submenu", async () => {
+    const onHarnessChange = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption()}
+          modelOption={claudeModelOption("claude-sonnet-5")}
+          adapter="claude"
+          includePiHarness
+          onHarnessChange={onHarnessChange}
+        />
+      </Theme>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /Model and reasoning/ }),
+    );
+    await user.click(await screen.findByRole("button", { name: "Advanced" }));
+    await openSub(user, /^Harness/);
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Pi" }));
+
+    await pollUntil(() => onHarnessChange.mock.calls.length > 0);
+    expect(onHarnessChange).toHaveBeenCalledWith("pi");
+    expect(onHarnessChange).toHaveBeenCalledTimes(1);
+  });
+
   it("changes the model from its advanced submenu", async () => {
     const onModelChange = vi.fn();
     const user = userEvent.setup({ pointerEventsCheck: 0 });

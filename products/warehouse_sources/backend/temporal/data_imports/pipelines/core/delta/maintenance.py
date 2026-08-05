@@ -21,9 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
-        DeltaTableHelper,
-    )
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 
 # A defensive compact fires when EITHER threshold is exceeded.
 #
@@ -51,21 +49,26 @@ DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
 class DeltaMaintenance:
     """Compaction, vacuuming, and the vacuum-watermark cadence for one schema's Delta table.
 
-    Stateless over a `DeltaTableHelper`, which holds the cached table handle — construct one at the
+    Stateless over a `DeltaTableRef`, which holds the cached table handle — construct one at the
     call site whenever maintenance is needed. `run_scheduled` is the policy entry point shared by
     the pre-write defensive pass (both pipelines, so a sync that arrived at a fragmented table
     cleans up before adding to the pile) and the CDC post-load pass; `compact_table` is the
     unconditional post-load compaction for non-CDC syncs.
     """
 
-    def __init__(self, table: "DeltaTableHelper") -> None:
+    def __init__(self, table: "DeltaTableRef") -> None:
         self._table = table
         self._logger = table.logger
 
     async def _vacuum(self, table: deltalake.DeltaTable) -> None:
         await self._logger.adebug("Vacuuming table...")
-        vacuum_stats = await asyncio.to_thread(
-            table.vacuum, retention_hours=24, enforce_retention_duration=False, dry_run=False
+        # vacuum() commits a REMOVE of tombstoned files, so it's just as subject to delta-rs's
+        # conflict checker as merge/optimize.compact — see execute_with_conflict_retry.
+        vacuum_stats = await execute_with_conflict_retry(
+            table,
+            lambda: table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False),
+            "vacuum_table",
+            self._logger,
         )
         await self._logger.adebug(json.dumps(vacuum_stats))
 

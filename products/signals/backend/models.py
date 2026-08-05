@@ -304,6 +304,14 @@ class SignalReport(UUIDModel):
                 self.run_count += 1
                 updated_fields.update(["last_run_at", "signals_at_run", "run_count"])
 
+            # A summary run paused mid-workflow by the self-driving credits quota gate returns to
+            # CANDIDATE, so the report re-promotes on the next matching signal instead of sticking
+            # in IN_PROGRESS (which no promotion rule ever picks up). No side effects: promoted_at
+            # is still accurate, and run_count / signals_at_run keep the values the aborted run
+            # advanced them to (run_count feeds Temporal workflow IDs and must never roll back).
+            case (S.IN_PROGRESS, S.CANDIDATE):
+                pass
+
             case (S.IN_PROGRESS, S.READY):
                 if title is None or summary is None:
                     raise ValueError("title and summary are required for in_progress -> ready")
@@ -1126,6 +1134,19 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         IGNORED = "ignored", "Ignored"
         REPEATED_FAILURES = "repeated_failures", "Repeated failures"
 
+    class NetworkAccess(models.TextChoices):
+        """What the scout's sandbox can reach over the network during a run.
+
+        `trusted` maps to the Tasks sandbox `TRUSTED` level (the platform's default
+        trusted-domain allowlist); `full` maps to `FULL` (unrestricted egress). Room is
+        deliberately left for a `custom` choice carrying a user-supplied domain allowlist
+        later — mirror the Tasks `SandboxEnvironment.NetworkAccessLevel` vocabulary when
+        adding it so the mapping in the runner stays one-to-one.
+        """
+
+        TRUSTED = "trusted", "Trusted domains only"
+        FULL = "full", "Full"
+
     # The `status` side of the `enabled` dual-write: a scout in one of these statuses is
     # scheduled by the coordinator. `pending_pause` still runs; the warning is not a pause.
     RUNNABLE_STATUSES = (Status.ACTIVE, Status.PENDING_PAUSE)
@@ -1229,6 +1250,19 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         default=1440,
         db_default=1440,
         validators=[MinValueValidator(30), MaxValueValidator(43200)],
+    )
+    # What the scout's sandbox can reach over the network. The runner maps this to the Tasks
+    # sandbox environment the run is provisioned into: `trusted` (default) keeps runs on the
+    # platform's trusted-domain allowlist, `full` lifts the restriction for scouts whose skill
+    # needs arbitrary external reads (docs, papers, status pages). Deliberately NOT excluded
+    # from activity logging — flipping a scout to full network is a security-relevant change.
+    # `db_default` alongside `default` keeps the AddField non-blocking and the column
+    # populated for writers that don't know about it yet.
+    network_access = models.CharField(
+        max_length=20,
+        choices=NetworkAccess.choices,
+        default=NetworkAccess.TRUSTED,
+        db_default=NetworkAccess.TRUSTED,
     )
     # Optional destinations for each finding or report this scout emits. Kept as a typed JSON object at
     # the API boundary so adding another destination does not require another pair of nullable
@@ -1718,14 +1752,20 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
       `discussion_notes.py`. The question otherwise lives only on the ephemeral discussion task, which
       is in no scout's run context, so this note is its sole carrier and the full gate applies —
       `llm_skill:write` and `signal_scout:write` included.
+    - `REPORT_FEEDBACK` — rating a report useful/not useful with a note, see `feedback_notes.py`. Like
+      a discussion the note is the only path the text takes to a scout (the rating otherwise lands only
+      on a product-analytics event), so the full gate applies too. Forwarded only for a report with a
+      resolvable authoring scout, since the feedback is a verdict on that scout's own report.
     `origin` keeps the kinds apart so the run prompt can frame a dismissal as one reviewer's verdict
-    on one report, and a discussion as a question to weigh rather than fleet-level steering.
+    on one report, a discussion as a question to weigh, and feedback as a reader's rating — rather than
+    fleet-level steering.
     """
 
     class Origin(models.TextChoices):
         HUMAN = "human", "Left directly"
         REPORT_DISMISSAL = "report_dismissal", "Derived from inbox dismissal feedback"
         REPORT_DISCUSSION = "report_discussion", "Derived from inbox discussion feedback"
+        REPORT_FEEDBACK = "report_feedback", "Derived from inbox report feedback"
 
     # See SignalScoutConfig.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012

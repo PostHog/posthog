@@ -53,7 +53,7 @@ import {
   taskDot,
 } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
-import { type ReactNode, useCallback, useState } from "react";
+import { type DragEvent, type ReactNode, useCallback, useState } from "react";
 
 /**
  * What a row can do. One object per channel rather than closures per item, so
@@ -204,6 +204,15 @@ export function ChannelItemRow({
   const closeCard = useCallback(() => setCardOpen(false), []);
   const statusLabel = runStatusLabel(item.rawStatus);
   const author = authorLabel(item);
+  const handleDragStart = useCallback(
+    (event: DragEvent) => {
+      if (item.kind !== "task") return;
+
+      event.dataTransfer.setData("text/x-task-id", item.id);
+      event.dataTransfer.effectAllowed = "copy";
+    },
+    [item.id, item.kind],
+  );
   // The row's leading mark is always the task-list state vocabulary. Canvases
   // have no live run, so they use the quiet dot and move their glyph to the
   // right-side identity stack — except while one is being deleted, which is the
@@ -270,6 +279,8 @@ export function ChannelItemRow({
               // A non-string label opts out of SidebarItem's truncation tooltip.
               label={<span>{item.title}</span>}
               isActive={isActive}
+              draggable={item.kind === "task"}
+              onDragStart={handleDragStart}
               onClick={() => actions.open(item)}
               endContent={
                 <span className={TRAILING_CLASS}>
