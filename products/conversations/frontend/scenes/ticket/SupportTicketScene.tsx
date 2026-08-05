@@ -352,15 +352,29 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 </div>
                             )}
                             {ticket?.channel_source && (
-                                <div className="flex justify-between">
-                                    <span className="text-muted-alt">Channel</span>
-                                    <span className="capitalize">
-                                        <ChannelsTag
-                                            channel={ticket.channel_source}
-                                            detail={ticket.channel_detail}
-                                            to={getChannelThreadUrl(ticket)}
-                                        />
+                                <div className="flex justify-between items-start gap-2">
+                                    <span className="text-muted-alt shrink-0">
+                                        {mergedTickets.length > 0 ? 'Channels' : 'Channel'}
                                     </span>
+                                    <div className="flex flex-col items-end gap-1">
+                                        <span className="capitalize">
+                                            <ChannelsTag
+                                                channel={ticket.channel_source}
+                                                detail={ticket.channel_detail}
+                                                to={getChannelThreadUrl(ticket)}
+                                            />
+                                        </span>
+                                        {/* Merged tickets carry their own source channel; label each so it's clear
+                                            which merged ticket a reply would reach. */}
+                                        {mergedTickets.map((merged) => (
+                                            <span key={merged.id} className="capitalize flex items-center gap-1">
+                                                <span className="text-muted-alt text-xs normal-case">
+                                                    #{merged.ticket_number}
+                                                </span>
+                                                <ChannelsTag channel={merged.channel_source} />
+                                            </span>
+                                        ))}
+                                    </div>
                                 </div>
                             )}
                             {ticket?.channel_source === 'email' && ticket?.email_subject && (

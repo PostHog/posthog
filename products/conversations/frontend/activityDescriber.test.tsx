@@ -129,4 +129,56 @@ describe('ticketActivityDescriber', () => {
         expect(text).toContain('snooze expired')
         expect(text).not.toContain('reopened')
     })
+
+    it('describes the merged ticket as "merged #2043 into #99"', () => {
+        const result = ticketActivityDescriber(
+            ticketLogItem({
+                activity: 'merged',
+                detail: {
+                    merge: null,
+                    trigger: null,
+                    name: 'Ticket #2043',
+                    changes: [
+                        {
+                            type: ActivityScope.TICKET,
+                            action: 'created',
+                            field: 'merged_into',
+                            before: null,
+                            after: 99,
+                        },
+                    ],
+                },
+            })
+        )
+        const text = getTextContent(result)
+        expect(text).toContain('merged')
+        expect(text).toContain('#2043')
+        expect(text).toContain('#99')
+    })
+
+    it('describes the target ticket as "merged #2043 into #99" from the receiving side', () => {
+        const result = ticketActivityDescriber(
+            ticketLogItem({
+                activity: 'merged',
+                item_id: 'target-uuid',
+                detail: {
+                    merge: null,
+                    trigger: null,
+                    name: 'Ticket #99',
+                    changes: [
+                        {
+                            type: ActivityScope.TICKET,
+                            action: 'created',
+                            field: 'merged_ticket',
+                            before: null,
+                            after: 2043,
+                        },
+                    ],
+                },
+            })
+        )
+        const text = getTextContent(result)
+        expect(text).toContain('#2043')
+        expect(text).toContain('#99')
+    })
 })

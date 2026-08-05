@@ -184,6 +184,9 @@ export interface MergedTicketSummary {
     id: string
     ticket_number: number
     status: TicketStatus
+    channel_source: TicketChannel
+    email_subject: string | null
+    last_message_text: string | null
     merged_at: string | null
 }
 

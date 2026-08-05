@@ -198,6 +198,32 @@ export function ticketActivityDescriber(logItem: ActivityLogItem, asNotification
         }
     }
 
+    if (logItem.activity === 'merged') {
+        const changes = logItem.detail.changes || []
+        const mergedInto = changes.find((c) => c.field === 'merged_into')
+        const mergedTicket = changes.find((c) => c.field === 'merged_ticket')
+        if (mergedInto?.after != null) {
+            const targetNumber = String(mergedInto.after)
+            return {
+                description: (
+                    <>
+                        {actor} merged {ticketLink} into {nameOrLinkToTicket(targetNumber, null)}
+                    </>
+                ),
+            }
+        }
+        if (mergedTicket?.after != null) {
+            const sourceNumber = String(mergedTicket.after)
+            return {
+                description: (
+                    <>
+                        {actor} merged {nameOrLinkToTicket(sourceNumber, null)} into {ticketLink}
+                    </>
+                ),
+            }
+        }
+    }
+
     if (logItem.activity === 'updated') {
         const allChanges: Description[] = []
 
