@@ -478,7 +478,8 @@ export interface supportTicketSceneLogicMeta {
                 ticket: Ticket
             }[],
             ticketColorById: Record<string, string>,
-            showSourcePills: boolean
+            showSourcePills: boolean,
+            visibleMergedTicketIds: string[]
         ) => ChatMessage[]
         eventsQuery: (ticket: Ticket | null) => DataTableNode | null
         exceptionsQuery: (ticket: Ticket | null) => DataTableNode | null
@@ -1000,13 +1001,21 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             (visibleMergedTicketIds: string[]): boolean => visibleMergedTicketIds.length > 0,
         ],
         chatMessages: [
-            (s) => [s.messages, s.ticket, s.mergedConversations, s.ticketColorById, s.showSourcePills],
+            (s) => [
+                s.messages,
+                s.ticket,
+                s.mergedConversations,
+                s.ticketColorById,
+                s.showSourcePills,
+                s.visibleMergedTicketIds,
+            ],
             (
                 messages: CommentType[],
                 ticket: Ticket | null,
                 mergedConversations: { ticket: Ticket; messages: CommentType[] }[],
                 ticketColorById: Record<string, string>,
-                showSourcePills: boolean
+                showSourcePills: boolean,
+                visibleMergedTicketIds: string[]
             ): ChatMessage[] => {
                 const tagSource = (t: Ticket): { ticketId: string; ticketNumber: number; color: string } | undefined =>
                     showSourcePills
@@ -1017,9 +1026,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 // only interleaved merged-ticket messages get tagged.
                 const base = messages.map((m) => commentToChatMessage(m, ticket))
 
-                const merged = mergedConversations.flatMap(({ ticket: mergedTicket, messages: mergedMessages }) =>
-                    mergedMessages.map((m) => commentToChatMessage(m, mergedTicket, tagSource(mergedTicket)))
-                )
+                // Filter by the current toggle state so the displayed merged messages always match
+                // the pills, even if the loader still holds a previously-toggled ticket's messages.
+                const visible = new Set(visibleMergedTicketIds)
+                const merged = mergedConversations
+                    .filter(({ ticket: mergedTicket }) => visible.has(mergedTicket.id))
+                    .flatMap(({ ticket: mergedTicket, messages: mergedMessages }) =>
+                        mergedMessages.map((m) => commentToChatMessage(m, mergedTicket, tagSource(mergedTicket)))
+                    )
 
                 return [...base, ...merged].sort(
                     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
@@ -1078,9 +1092,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 const ticket = await api.conversationsTickets.get(props.id.toString())
 
                 // A merged ticket resolves to its root: opening A (merged into B) opens B, where B's
-                // view lists A and can interleave its messages.
+                // view lists A and can interleave its messages. Carry A's id so the root can show A's
+                // messages by default (vs. opening the root directly, which shows none).
                 if (ticket.merged_into_id && ticket.merged_into_ticket_number) {
-                    router.actions.replace(urls.supportTicketDetail(ticket.merged_into_ticket_number))
+                    router.actions.replace(urls.supportTicketDetail(ticket.merged_into_ticket_number), {
+                        show_merged: ticket.id,
+                    })
                     return
                 }
 
@@ -1093,6 +1110,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
 
                 actions.setTicket(ticket)
                 actions.loadMessages()
+
+                // If we arrived here by opening a merged ticket, pre-show that ticket's messages;
+                // opening the master directly leaves all merged messages hidden.
+                const showMerged = router.values.searchParams?.show_merged
+                if (showMerged && (ticket.merged_tickets || []).some((t: MergedTicketSummary) => t.id === showMerged)) {
+                    actions.setVisibleMergedTicketIds([showMerged])
+                }
 
                 impersonationNoticeLogic.findMounted()?.actions.setTicketContext({
                     ticketId: ticket.id,
