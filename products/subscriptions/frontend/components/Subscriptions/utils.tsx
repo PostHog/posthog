@@ -76,9 +76,9 @@ export const frequencyOptionsPlural: LemonSelectOption<FrequencyOptionValue>[] =
     { value: 'monthly', label: 'months' },
 ]
 
-export const weekdayOptions: LemonSelectOptionLeaf<
-    'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
->[] = [
+type Weekday = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
+
+export const weekdayOptions = [
     { value: 'monday', label: 'Monday' },
     { value: 'tuesday', label: 'Tuesday' },
     { value: 'wednesday', label: 'Wednesday' },
@@ -86,13 +86,13 @@ export const weekdayOptions: LemonSelectOptionLeaf<
     { value: 'friday', label: 'Friday' },
     { value: 'saturday', label: 'Saturday' },
     { value: 'sunday', label: 'Sunday' },
-]
+] satisfies LemonSelectOptionLeaf<Weekday>[]
 
 export const ALL_DAYS = weekdayOptions.map(({ value }) => value)
 export const weekdayInputOptions = weekdayOptions.map(({ value, label }) => ({
     key: value,
     value,
-    label: typeof label === 'string' ? label : value,
+    label,
 }))
 
 export const WEEKDAYS: Set<string> = new Set(['monday', 'tuesday', 'wednesday', 'thursday', 'friday'])

@@ -30,6 +30,22 @@ from products.product_analytics.backend.models.insight import Insight
 
 
 class TestSubscriptionScheduling:
+    def test_weekly_schedule_ignores_stale_monthly_position(self) -> None:
+        subscription = Subscription(
+            frequency=Subscription.SubscriptionFrequency.WEEKLY,
+            interval=1,
+            start_date=datetime(2026, 8, 3, 9, tzinfo=ZoneInfo("UTC")),
+            byweekday=["monday", "wednesday", "friday"],
+            bysetpos=1,
+        )
+
+        assert subscription.summary == "sent every week on Monday, Wednesday and Friday"
+        assert list(subscription.rrule[:3]) == [
+            datetime(2026, 8, 3, 9, tzinfo=ZoneInfo("UTC")),
+            datetime(2026, 8, 5, 9, tzinfo=ZoneInfo("UTC")),
+            datetime(2026, 8, 7, 9, tzinfo=ZoneInfo("UTC")),
+        ]
+
     @parameterized.expand(
         [
             (
