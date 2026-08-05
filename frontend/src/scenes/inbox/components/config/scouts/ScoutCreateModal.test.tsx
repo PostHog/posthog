@@ -17,7 +17,7 @@ describe('ScoutCreateModal', () => {
 
     afterEach(cleanup)
 
-    it('includes a Slack destination in the create form', async () => {
+    it('includes tags and a Slack destination in the create form', async () => {
         const { findByText } = render(
             <ScoutCreateModal
                 isOpen
@@ -32,5 +32,6 @@ describe('ScoutCreateModal', () => {
 
         expect(await findByText('Slack destination')).toBeTruthy()
         expect(await findByText('Connect a Slack workspace')).toBeTruthy()
+        expect(await findByText('Tags')).toBeTruthy()
     })
 })

@@ -324,6 +324,7 @@ class TestCheckProductAccess:
             "gpt-5.3-codex",
             "gpt-5.2",
             "gpt-5-mini",
+            "gpt-5.6-sol",
         ],
     )
     def test_background_agents_allows_configured_models(self, model: str):

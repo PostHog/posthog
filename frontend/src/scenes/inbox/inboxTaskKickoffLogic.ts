@@ -65,7 +65,7 @@ function buildCreatePrReportPrompt(report: SignalReport, feedback?: string): str
 function buildDiscussReportPrompt(reportUrl: string, question: string): string {
     // The task is already linked to the report, but including the URL lets the agent open and read
     // the full report itself. The user's question follows after a blank line for clear separation.
-    return `Let's discuss this PostHog Inbox report: ${reportUrl}\n\n${question.trim()}`
+    return `Answer this question about the PostHog Inbox report at ${reportUrl}:\n\n${question.trim()}`
 }
 
 async function createReportTask(
@@ -222,13 +222,13 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     report,
                     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
                     buildDiscussReportPrompt(reportUrl, question),
-                    'Discuss report',
+                    'Ask AI about report',
                     DISCUSS_RUNTIME
                 )
                 captureInboxReportActionCompleted({ report, actionType: 'discuss', outcome: 'success' })
                 actions.discussReportSuccess()
             } catch (error: any) {
-                lemonToast.error(error?.detail || error?.message || 'Failed to start discussion')
+                lemonToast.error(error?.detail || error?.message || "Couldn't ask AI about this report. Try again.")
                 captureInboxReportActionCompleted({ report, actionType: 'discuss', outcome: 'failure' })
                 actions.discussReportFailure()
             }

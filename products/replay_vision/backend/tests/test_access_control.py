@@ -147,6 +147,31 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         allowed = self.client.post(bulk_url, data={"session_ids": ["s1"]}, format="json")
         self.assertEqual(allowed.status_code, 202, allowed.json())
 
+    @patch("products.replay_vision.backend.api.trigger.sync_connect")
+    @patch("products.replay_vision.backend.api.trigger.async_to_sync")
+    def test_inline_scan_requires_resource_level_editor(
+        self, mock_async_to_sync: MagicMock, mock_sync_connect: MagicMock
+    ) -> None:
+        # inline_scan takes no scanner id, so an object-level grant can't narrow it the way it does for
+        # bulk_observe above. Without a resource-level check, editor on any one scanner would let a
+        # user run arbitrary configs and spend the org's credits.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+        scanner = self._create_scanner()
+        self._set_resource_default("replay_scanner", "viewer")
+        inline_url = f"{self.scanners_url}inline_scan/"
+        body = {"session_ids": ["s1"], "prompt": "did the user rage click?"}
+
+        self.client.force_login(self.other_user)
+        self.assertEqual(self.client.post(inline_url, data=body, format="json").status_code, 403)
+
+        # Editor on one specific scanner is what gets bulk_observe through; it must not be enough here.
+        self._grant_object_access(self.other_user, "replay_scanner", str(scanner.id), "editor")
+        self.assertEqual(self.client.post(inline_url, data=body, format="json").status_code, 403)
+
+        self._set_resource_default("replay_scanner", "editor")
+        self.assertEqual(self.client.post(inline_url, data=body, format="json").status_code, 202)
+
     def test_estimate_treats_denied_scanner_as_not_found(self) -> None:
         # A scanner_id the caller can't view must be rejected the same way as one that doesn't exist —
         # otherwise comparing responses (with/without the id) leaks whether it exists and its credit usage.

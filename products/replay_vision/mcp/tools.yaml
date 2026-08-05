@@ -209,6 +209,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: '{session_id}'
         list: true
         title: List a session's replay vision observations
         description: >
@@ -219,7 +220,14 @@ tools:
             it, the observation `status` (pending/running/succeeded/failed/ineligible), the `error_reason` for terminal
             non-success statuses, and the `scanner_result` (LLM output) on success. To list observations for one
             specific scanner over time instead, use `vision-scanners-observations-list`.
+        agent_note: >
+            Each observation's `_posthogUrl` opens the recording it analysed.
+            `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's
+            `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>`
+            (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to
+            someone, deep-link the one or two moments it turns on rather than only describing them.
         feature_flag: replay-vision
+        url_prefix: /replay
     vision-observations-retrieve:
         operation: vision_observations_retrieve
         enabled: true
@@ -230,12 +238,20 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: '{session_id}'
         title: Get a session's replay vision observation
         description: >
             Get a single replay vision observation by ID, scoped to the scanners the caller can read. Returns the full
             `scanner_snapshot` (the scanner's configuration at run time) and `scanner_result` (the LLM output, with any
             event citations). Use `vision-observations-list` to find observation IDs for a session first.
+        agent_note: >
+            `_posthogUrl` opens the recording this observation analysed.
+            `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's
+            `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>`
+            (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to
+            someone, deep-link the one or two moments it turns on rather than only describing them.
         feature_flag: replay-vision
+        url_prefix: /replay
     vision-observations-retry-create:
         operation: vision_observations_retry_create
         enabled: false
@@ -304,7 +320,9 @@ tools:
             monthly credit spend and `vision-quota-retrieve` to check the org's remaining budget — an enabled scanner
             sweeps matching recordings every 5 minutes, and creation itself does not check quota, so a too-broad scanner
             can exhaust the monthly budget on its first sweeps. To get notified about what the scanner finds (a Slack
-            alert or a scheduled summary), create a vision action bound to it with `vision-actions-create`.
+            alert or a scheduled summary), create a vision action bound to it with `vision-actions-create`. For a
+            scanner scoped to one experiment's exposed sessions, load the `scanning-experiments-with-replay-vision`
+            skill first — it derives the query from the experiment's exposure criteria.
         exclude_params:
             - id
             - scanner_version
@@ -387,6 +405,32 @@ tools:
             `min_score` and/or `max_score`. `sessions_without_user` reports affected sessions that carried no distinct
             ID, so the user count reads honestly against the session count.
         feature_flag: replay-vision
+    vision-scanners-inline-scan-create:
+        operation: vision_scanners_inline_scan_create
+        enabled: true
+        scopes:
+            - replay_scanner:write
+            - session_recording:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Scan sessions against a prompt
+        description: >
+            Answer a one-off question about session recordings you already have in hand, without creating a scanner
+            first. Pass the `session_ids` and a `prompt`; nothing is saved and nothing runs on a schedule. Prefer this
+            over `vision-scanners-create` whenever you have specific sessions and a question about them — a scanner is
+            for a standing watch over future recordings, and creating one to answer a single question leaves a scheduled
+            sweep behind. `scanner_type` defaults to `monitor` (open-ended); pass `classifier`, `scorer`, or
+            `summarizer` with the matching `scanner_config` (`tags`, `scale`, optional `length`) when you want
+            structured output. Results are not returned inline: the response gives a `scan_id`, and you read the
+            observations from `vision-observations-list` with that scanner id, polling until each session's observation
+            leaves `pending`/`running`. Asking the same question again returns the same `scan_id` and reuses the answers
+            it already has, so re-asking is cheap and sessions already scanned come back as `already_scanned` rather
+            than being charged twice. Scans cost credits per session at the same rate a scanner does; check
+            `vision-quota-retrieve` first if the batch is large, since sessions past the monthly limit come back as
+            `skipped_quota` instead of failing the call.
+        feature_flag: replay-vision
     vision-scanners-list:
         operation: vision_scanners_list
         enabled: true
@@ -418,6 +462,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: '{session_id}'
         title: Get scanner observation
         description: >
             Get a single scanner observation by ID. Returns the full `scanner_snapshot` (the scanner's configuration as
@@ -425,7 +470,14 @@ tools:
             including any event citations linking the LLM output back to specific events in the originating session.
             Pair with the session-recording MCP tools or the investigating-replay skill to inspect the underlying
             recording.
+        agent_note: >
+            `_posthogUrl` opens the recording this observation analysed.
+            `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's
+            `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>`
+            (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to
+            someone, deep-link the one or two moments it turns on rather than only describing them.
         feature_flag: replay-vision
+        url_prefix: /replay
     vision-scanners-observations-label-create:
         operation: vision_scanners_observations_label_create
         enabled: false
@@ -442,6 +494,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: '{session_id}'
         list: true
         title: List scanner observations
         description: >
@@ -452,7 +505,14 @@ tools:
             `workflow_id`, the `scanner_result` (the LLM output validated against the scanner's response schema for that
             scanner_type), and the `session_id` of the recording it analysed. Use this to inspect what a scanner has
             found over time; to see every scanner's observations for one session, use `vision-observations-list`.
+        agent_note: >
+            Each observation's `_posthogUrl` opens the recording it analysed.
+            `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's
+            `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>`
+            (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to
+            someone, deep-link the one or two moments it turns on rather than only describing them.
         feature_flag: replay-vision
+        url_prefix: /replay
     vision-scanners-observations-retry-create:
         operation: vision_scanners_observations_retry_create
         enabled: false

@@ -170,11 +170,6 @@ export function useDashboardMutations() {
   const setPinned = useMutation(
     trpc.dashboards.setPinned.mutationOptions({ onSuccess: invalidate }),
   );
-  const ensureHome = useMutation(
-    trpc.dashboards.ensureHomeCanvas.mutationOptions({
-      onSuccess: invalidate,
-    }),
-  );
 
   return {
     // Refresh the canvas queries after a mutation that didn't go through this
@@ -205,57 +200,11 @@ export function useDashboardMutations() {
     // shows in the channel's Pinned menu for every member.
     setPinned: (id: string, pinned: boolean) =>
       setPinned.mutateAsync({ id, pinned }),
-    // Ensure a channel has its home canvas (creating + seeding it if absent).
-    // Idempotent server-side; returns the home canvas record.
-    ensureHomeCanvas: (channelId: string) =>
-      ensureHome.mutateAsync({ channelId }),
     isCreating: create.isPending,
     isDeleting: remove.isPending,
     isSavingContext: saveContext.isPending,
     isReverting: revertToVersion.isPending,
   };
-}
-
-/**
- * Open a channel's home canvas in the main content pane. The home canvas is
- * resolved (and created on first open) by the dashboards service, which is
- * idempotent server-side.
- */
-export function useOpenHomeCanvas(): (channel: {
-  id: string;
-}) => Promise<void> {
-  const navigate = useNavigate();
-  const trpc = useHostTRPC();
-  const queryClient = useQueryClient();
-  const { ensureHomeCanvas } = useDashboardMutations();
-
-  return useCallback(
-    async (channel) => {
-      try {
-        // The channel's dashboards list is usually already cached; a seeded
-        // home canvas found there can be opened without a server round trip.
-        // Only when none exists (or it's unseeded) does the idempotent
-        // ensureHomeCanvas create/seed it.
-        const cachedHome = queryClient
-          .getQueryData<DashboardRecord[]>(
-            trpc.dashboards.list.queryKey({ channelId: channel.id }),
-          )
-          ?.find((d) => d.isHome && d.currentVersionId);
-        const dashboardId =
-          cachedHome?.id ?? (await ensureHomeCanvas(channel.id)).id;
-        await navigate({
-          to: "/website/$channelId/dashboards/$dashboardId",
-          params: { channelId: channel.id, dashboardId },
-        });
-      } catch (error) {
-        log.error("Failed to open home canvas", { error });
-        toast.error("Couldn't open channel home", {
-          description: error instanceof Error ? error.message : String(error),
-        });
-      }
-    },
-    [navigate, ensureHomeCanvas, queryClient, trpc],
-  );
 }
 
 /**
