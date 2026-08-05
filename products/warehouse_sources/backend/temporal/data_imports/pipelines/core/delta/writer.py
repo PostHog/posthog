@@ -14,6 +14,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    MissingPrimaryKeysException,
     align_incoming_decimals_to_delta,
     first_per_pk_table,
     normalize_column_name,
@@ -25,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     delta_merge_spill_kwargs,
     execute_with_conflict_retry,
 )
+from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_buffer_bytes, report_phase
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
@@ -276,6 +278,15 @@ class DeltaWriter:
         progress_callback: Callable[[], None] | None = None,
         commit_metadata: dict[str, str] | None = None,
     ) -> deltalake.DeltaTable:
+        # `.nbytes` rather than the slice-accurate accounting: tables reaching the writer are
+        # materialised chunks, not zero-copy slices, and the merge working set scales with the full
+        # buffers delta-rs will read anyway. This reports the merge *input* only — the decompressed
+        # target-partition working set lives inside delta-rs/DataFusion where we can't observe it,
+        # and under deltalite the memory governor bounds it; the input batch is the per-activity
+        # share we can actually attribute.
+        report_phase("merge")
+        report_buffer_bytes(data.nbytes)
+
         # Guard against delta-rs aborting the worker on misaligned decimal buffers (see
         # realign_decimal_buffers). Sub-tables derived below via filter()/take() are
         # freshly allocated by pyarrow and so inherit safe alignment.
@@ -320,7 +331,7 @@ class DeltaWriter:
 
         if write_type == "incremental" and delta_table is not None and not is_first_sync:
             if not primary_keys or len(primary_keys) == 0:
-                raise Exception("Primary key required for incremental syncs")
+                raise MissingPrimaryKeysException()
 
             # The merge casts every source column to its stored column type; a scale-heavy decimal
             # column (e.g. decimal128(38, 32)) overflows that cast on larger values. Align to the

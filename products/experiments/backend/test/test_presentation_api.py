@@ -17,7 +17,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.models import Organization, Team
+from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -49,6 +49,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag, get_
 
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+from ee.models.rbac.access_control import AccessControl
 
 
 def _make(cls, **attrs):
@@ -5958,9 +5959,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @parameterized.expand(
         [
-            # (name, stored_repository, cached_repos, expected_body)
+            # (name, stored_repository, team_default, cached_repos, expected_body)
             (
                 "no_integration",
+                None,
                 None,
                 None,
                 {"repository": None, "source": "no_integration", "candidates": []},
@@ -5968,11 +5970,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             (
                 "single_repo",
                 None,
+                None,
                 [{"full_name": "acme/web"}],
                 {"repository": "acme/web", "source": "single_repo", "candidates": ["acme/web"]},
             ),
             (
                 "ambiguous",
+                None,
                 None,
                 [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
                 {"repository": None, "source": "ambiguous", "candidates": ["acme/api", "acme/web"]},
@@ -5980,31 +5984,52 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             (
                 "explicit",
                 "acme/api",
+                None,
                 [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
                 {"repository": "acme/api", "source": "explicit", "candidates": ["acme/api", "acme/web"]},
             ),
             (
                 "stale_explicit_needs_a_new_choice",
                 "gone/repo",
+                None,
                 [{"full_name": "acme/web"}],
                 {"repository": None, "source": "ambiguous", "candidates": ["acme/web"]},
             ),
             (
                 "stale_explicit_with_empty_cache",
                 "gone/repo",
+                None,
                 [],
                 {"repository": None, "source": "no_integration", "candidates": []},
+            ),
+            (
+                "team_default",
+                None,
+                "acme/api",
+                [{"full_name": "acme/web"}, {"full_name": "Acme/API"}],
+                {"repository": "Acme/API", "source": "team_default", "candidates": ["Acme/API", "acme/web"]},
+            ),
+            (
+                "stale_team_default_falls_through",
+                None,
+                "gone/repo",
+                [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
+                {"repository": None, "source": "ambiguous", "candidates": ["acme/api", "acme/web"]},
             ),
         ]
     )
     @patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True)
     @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
     def test_flag_cleanup_target_endpoint(
-        self, _name, stored_repository, cached_repos, expected_body, mock_resolve_github, _mock_access
+        self, _name, stored_repository, team_default, cached_repos, expected_body, mock_resolve_github, _mock_access
     ):
         exp_id = self._create_running_experiment(name="Cleanup Target", flag_key="cleanup-target-flag")["id"]
         if stored_repository:
             Experiment.objects.filter(id=exp_id).update(repository=stored_repository)
+        if team_default:
+            config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+            config.flag_cleanup_repository = team_default
+            config.save()
         if cached_repos is None:
             mock_resolve_github.return_value = None
         else:
@@ -6075,6 +6100,48 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
         self.assertEqual(mock_create_task.call_args.kwargs["repository"], "Acme/Web")
         self.assertEqual(Experiment.objects.get(id=exp_id).repository, "acme/web")
+
+    @patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True)
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
+    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    def test_set_repository_as_team_default_requires_project_admin(
+        self, mock_resolve_github, mock_create_task, _mock_flag, _mock_report, _mock_access
+    ):
+        mock_resolve_github.return_value = SimpleNamespace(
+            list_all_cached_repositories=lambda max_repos: [{"full_name": "acme/web"}, {"full_name": "acme/api"}]
+        )
+        mock_create_task.return_value = SimpleNamespace(task_id=uuid4())
+        exp_member = self._create_running_experiment(name="Default Deny", flag_key="team-default-deny-flag")["id"]
+        exp_admin = self._create_running_experiment(name="Default Allow", flag_key="team-default-allow-flag")["id"]
+        body = {
+            "conclusion": "won",
+            "open_cleanup_pr": True,
+            "repository": "acme/web",
+            "set_repository_as_team_default": True,
+        }
+
+        # A team-wide default is environment configuration, admin-gated like experiments_config.
+        # Without an access-control row every member is effectively admin, so pin the project's
+        # default access to member to exercise the deny path.
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=self.team.id, access_level="member"
+        )
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        resp = self.client.post(f"/api/projects/{self.team.id}/experiments/{exp_member}/end/", body, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+        self.assertIsNone(get_or_create_team_extension(self.team, TeamExperimentsConfig).flag_cleanup_repository)
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self.client.post(f"/api/projects/{self.team.id}/experiments/{exp_admin}/end/", body, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(
+            get_or_create_team_extension(self.team, TeamExperimentsConfig).flag_cleanup_repository, "acme/web"
+        )
 
     def test_ship_variant_endpoint_default_preserves_groups(self):
         data = self._create_running_experiment(name="Ship Endpoint", flag_key="ship-endpoint-flag")
