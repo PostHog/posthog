@@ -20,6 +20,10 @@ export type CommentThread = {
   resolved: boolean;
 };
 
+function bySentAt(a: ResourceComment, b: ResourceComment): number {
+  return a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
+}
+
 export function buildCommentThreads(
   comments: ResourceComment[],
 ): CommentThread[] {
@@ -34,14 +38,12 @@ export function buildCommentThreads(
     replies.push(comment);
     repliesByRoot.set(comment.source_comment, replies);
   }
-  return roots
-    .sort((a, b) => a.created_at.localeCompare(b.created_at))
-    .map((root) => {
-      const replies = repliesByRoot.get(root.id) ?? [];
-      return {
-        root,
-        replies,
-        resolved: isThreadResolved(root, replies),
-      };
-    });
+  return roots.sort(bySentAt).map((root) => {
+    const replies = (repliesByRoot.get(root.id) ?? []).sort(bySentAt);
+    return {
+      root,
+      replies,
+      resolved: isThreadResolved(root, replies),
+    };
+  });
 }
