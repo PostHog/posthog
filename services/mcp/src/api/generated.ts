@@ -73128,6 +73128,21 @@ export namespace Schemas {
       pending_user_artifact_ids?: string[];
     }
 
+    export interface TaskRunTerminalTokenDTO {
+      terminal_id: string;
+      token: string;
+      /** @nullable */
+      terminal_url?: string | null;
+    }
+
+    export interface TaskRunTerminalTokenRequest {
+      /**
+         * Optional caller-chosen terminal session id. A new id is generated when omitted.
+         * @pattern ^[A-Za-z0-9_.:-]{1,120}$
+         */
+      terminal_id?: string;
+    }
+
     export interface TaskSessionResponse {
       /** Task session identifier */
       id: string;

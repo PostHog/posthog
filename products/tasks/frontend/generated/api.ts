@@ -108,6 +108,8 @@ import type {
     TaskRunRelayMessageRequestApi,
     TaskRunRelayMessageResponseApi,
     TaskRunStartRequestApi,
+    TaskRunTerminalTokenDTOApi,
+    TaskRunTerminalTokenRequestApi,
     TaskSessionResponseApi,
     TaskSessionSyncResponseApi,
     TaskStagedArtifactsFinalizeUploadRequestApi,
@@ -2082,6 +2084,29 @@ export const tasksRunsTaskSessionSyncCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/octet-stream', ...options?.headers },
         body: tasksRunsTaskSessionSyncCreateBody,
+    })
+}
+
+export const getTasksRunsTerminalTokenCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/terminal_token/`
+}
+
+/**
+ * Generate a short-lived token for opening an interactive terminal in a live cloud task sandbox.
+ * @summary Get task run terminal token
+ */
+export const tasksRunsTerminalTokenCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunTerminalTokenRequestApi?: TaskRunTerminalTokenRequestApi,
+    options?: RequestInit
+): Promise<TaskRunTerminalTokenDTOApi> => {
+    return apiMutator<TaskRunTerminalTokenDTOApi>(getTasksRunsTerminalTokenCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunTerminalTokenRequestApi),
     })
 }
 

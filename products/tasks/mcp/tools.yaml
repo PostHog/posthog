@@ -580,6 +580,9 @@ tools:
     tasks-runs-task-session-sync-create:
         operation: tasks_runs_task_session_sync_create
         enabled: false
+    tasks-runs-terminal-token-create:
+        operation: tasks_runs_terminal_token_create
+        enabled: false
     tasks-slack-thread-context-retrieve:
         operation: tasks_slack_thread_context_retrieve
         enabled: false

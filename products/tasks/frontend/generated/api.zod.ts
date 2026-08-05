@@ -2825,6 +2825,20 @@ export const TasksRunsStartCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Generate a short-lived token for opening an interactive terminal in a live cloud task sandbox.
+ * @summary Get task run terminal token
+ */
+export const tasksRunsTerminalTokenCreateBodyTerminalIdRegExp = new RegExp('^[A-Za-z0-9_.:-]{1,120}$')
+
+export const TasksRunsTerminalTokenCreateBody = /* @__PURE__ */ zod.object({
+    terminal_id: zod
+        .string()
+        .regex(tasksRunsTerminalTokenCreateBodyTerminalIdRegExp)
+        .optional()
+        .describe('Optional caller-chosen terminal session id. A new id is generated when omitted.'),
+})
+
+/**
  * Create a stable, editable artifact handle from direct markdown/text content or an existing run artifact. Slack adapters deliver into the mapped Slack thread; document artifacts use external connector storage when available.
  * @summary Create a living artifact for a task run
  */

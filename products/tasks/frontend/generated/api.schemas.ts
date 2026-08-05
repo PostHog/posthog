@@ -3176,6 +3176,21 @@ export interface TaskSessionSyncResponseApi {
     content_sha256: string
 }
 
+export interface TaskRunTerminalTokenRequestApi {
+    /**
+     * Optional caller-chosen terminal session id. A new id is generated when omitted.
+     * @pattern ^[A-Za-z0-9_.:-]{1,120}$
+     */
+    terminal_id?: string
+}
+
+export interface TaskRunTerminalTokenDTOApi {
+    terminal_id: string
+    token: string
+    /** @nullable */
+    terminal_url?: string | null
+}
+
 /**
  * * `slack_message` - slack_message
  * * `slack_canvas` - slack_canvas
