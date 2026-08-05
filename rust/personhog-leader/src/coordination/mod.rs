@@ -10,7 +10,7 @@ use tracing::{error, info};
 
 use crate::cache::{DirtyIndex, PartitionedCache};
 use crate::emitted::EmittedVersions;
-use crate::fencing::{heal_fence, FenceGuard, FencedChangelogProducers};
+use crate::fencing::{heal_fence, FenceGuard, FencedChangelogProducers, HealOutcome};
 use crate::inflight::InflightTracker;
 use crate::warming::{warm_from_kafka, WarmClientPools, WarmingConfig};
 
@@ -247,7 +247,7 @@ impl HandoffHandler for LeaderHandoffHandler {
             // because the attempt was torn down by a lost lease — the
             // guard gives the epoch back rather than leaving this
             // process holding a partition it does not own.
-            Some(FenceGuard::new(Arc::clone(fenced), partition))
+            Some(FenceGuard::new(Arc::clone(fenced), partition, "warm"))
         } else {
             None
         };
@@ -275,11 +275,30 @@ impl HandoffHandler for LeaderHandoffHandler {
     /// actually write to it. A fence lost to a broker rejection or a
     /// failed abort has no other way back — convergence sees the
     /// partition warmed and unfenced and would otherwise do nothing.
-    async fn verify_serving(&self, partition: u32) -> Result<()> {
-        if let Some(fenced) = &self.fenced {
-            heal_fence(fenced, &self.inflight, self.authority.as_deref(), partition).await;
+    ///
+    /// A heal that cannot acquire is reported through the
+    /// partition-labeled failure counter and the error log, not by
+    /// failing the run. Failing the run would escalate through the
+    /// convergence budgets to process death — trading one partition's
+    /// writes for every partition's reads — while the reconcile tick
+    /// already retries this every pass. A heal that succeeds counts as
+    /// applied work, so a repairing pod's budgets reset like any other
+    /// progress.
+    async fn verify_serving(&self, partition: u32) -> Result<bool> {
+        let Some(fenced) = &self.fenced else {
+            return Ok(false);
+        };
+        match heal_fence(fenced, &self.inflight, self.authority.as_deref(), partition).await {
+            Ok(HealOutcome::Healed) => {
+                // The epoch just moved. Mark it like every other
+                // acquisition site, so the resume step of this same
+                // convergence trusts this fence instead of bumping
+                // the epoch out from under the writes it re-admits.
+                self.freshly_fenced.insert(partition);
+                Ok(true)
+            }
+            Ok(_) | Err(_) => Ok(false),
         }
-        Ok(())
     }
 
     async fn release_partition(&self, partition: u32) -> Result<()> {

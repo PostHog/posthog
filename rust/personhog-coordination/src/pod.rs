@@ -141,8 +141,10 @@ pub trait HandoffHandler: Send + Sync {
     ///
     /// Idempotent and cheap when nothing is missing, since it runs
     /// per-partition on every tick.
-    async fn verify_serving(&self, _partition: u32) -> Result<()> {
-        Ok(())
+    /// Returns whether repair work was applied, so the convergence can
+    /// count it as progress.
+    async fn verify_serving(&self, _partition: u32) -> Result<bool> {
+        Ok(false)
     }
 
     /// Old owner: release the partition from this pod's local state (drop cache,
@@ -601,6 +603,21 @@ impl PodHandle {
                         "local self-fence failed; refusing in-place recovery"
                     );
                 }
+                // Usually the lease is already dead here and this is a
+                // dropped error. The registration watch also lands on
+                // this branch when the key was deleted out from under a
+                // live lease (an operator `del`, not a revoke) — without
+                // this, that lease would sit alive and unreferenced for
+                // its full TTL while the next session grants a second
+                // one. Strictly after the self-fence and bounded: this
+                // is cleanup, an unhealthy etcd is the usual reason for
+                // being on this branch, and the store has no request
+                // timeouts of its own — unbounded it could hold up the
+                // fence or the next session for as long as the outage.
+                drop(
+                    tokio::time::timeout(Duration::from_secs(5), self.store.revoke_lease(lease_id))
+                        .await,
+                );
             }
 
             if let Some(e) = fatal {
@@ -1038,6 +1055,13 @@ impl PodHandle {
                         .insert(partition, WarmProvenance::Serving);
                     did_work = true;
                 }
+                // Whatever the branch above did, the pod is meant to be
+                // serving this partition now — so let the handler repair
+                // anything it needs and no longer has. Repair applied is
+                // progress like any other applied work.
+                if self.handler.verify_serving(partition).await? {
+                    did_work = true;
+                }
                 // Resume any local fence regardless of which branch ran:
                 // a crash-restart inside the TTL can leave a partition
                 // fenced but unwarmed (re-fenced through the Drained arm
@@ -1046,10 +1070,7 @@ impl PodHandle {
                 // admission depend on an undocumented handler side
                 // effect. Resuming after a warm that already unfenced is
                 // an idempotent no-op.
-                // Whatever the branch above did, the pod is meant to be
-                // serving this partition now — so let the handler repair
-                // anything it needs and no longer has.
-                self.handler.verify_serving(partition).await?;
+                //
                 // Clear the local record only once the handler has
                 // actually resumed: `resume_partition` can fail (it may
                 // re-take broker-side state), and forgetting the fence
@@ -1451,20 +1472,31 @@ async fn watch_own_registration(
     end_session: CancellationToken,
     cancel: CancellationToken,
 ) {
-    let revision = match store.current_revision().await {
-        Ok(revision) => revision,
-        Err(e) => {
-            tracing::warn!(pod = %pod_name, error = %e, "registration watch unavailable");
-            return;
-        }
+    // Establishment is raced against the token just like the stream
+    // reads below: the session teardown joins this task, so an etcd call
+    // stalling here would otherwise hold up the join — and behind it the
+    // self-fence — for as long as the stall lasts.
+    let revision = tokio::select! {
+        _ = cancel.cancelled() => return,
+        revision = store.current_revision() => match revision {
+            Ok(revision) => revision,
+            Err(e) => {
+                tracing::warn!(pod = %pod_name, error = %e, "registration watch unavailable");
+                return;
+            }
+        },
     };
-    let mut stream = match store.watch_pods_from(revision + 1).await {
-        Ok(stream) => stream,
-        Err(e) => {
-            tracing::warn!(pod = %pod_name, error = %e, "registration watch unavailable");
-            return;
-        }
+    let mut stream = tokio::select! {
+        _ = cancel.cancelled() => return,
+        stream = store.watch_pods_from(revision + 1) => match stream {
+            Ok(stream) => stream,
+            Err(e) => {
+                tracing::warn!(pod = %pod_name, error = %e, "registration watch unavailable");
+                return;
+            }
+        },
     };
+    let registration_key = store.pod_registration_key(&pod_name);
     loop {
         let message = tokio::select! {
             _ = cancel.cancelled() => return,
@@ -1475,10 +1507,14 @@ async fn watch_own_registration(
             if event.event_type() != EventType::Delete {
                 continue;
             }
+            // Exactly the key `register` writes — this is a prefix
+            // watch, and matching anything looser (say, a final path
+            // segment) would let an unrelated deletion under the prefix
+            // cost this pod its session.
             let deleted_us = event
                 .kv()
                 .and_then(|kv| from_utf8(kv.key()).ok())
-                .is_some_and(|key| key.rsplit('/').next() == Some(pod_name.as_str()));
+                .is_some_and(|key| key == registration_key);
             if deleted_us {
                 counter!("personhog_coordination_registration_deleted_total").increment(1);
                 tracing::error!(

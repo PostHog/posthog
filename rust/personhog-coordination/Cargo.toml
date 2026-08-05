@@ -19,10 +19,12 @@ tokio-util = { version = "0.7", features = ["rt"] }
 tracing = { workspace = true }
 uuid = { workspace = true }
 
+
 [features]
 # States the tests need to construct but that no production caller may
 # reach — an authority clock whose renewals stopped long enough ago to
 # have lapsed, which otherwise takes a real wait to reproduce.
+# Consumed by personhog-leader's dev-dependency on this crate.
 test-support = []
 
 [dev-dependencies]

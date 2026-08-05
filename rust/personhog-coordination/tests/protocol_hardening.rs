@@ -3397,6 +3397,159 @@ async fn a_deleted_registration_starts_a_new_session() {
     cancel.cancel();
 }
 
+/// The watch is a prefix watch, so it sees every deletion under
+/// `pods/`. Only the pod's own registration key may cost it the session
+/// — matching anything looser (say, a final path segment) would let an
+/// unrelated key deletion release and re-warm every partition the pod
+/// holds.
+#[tokio::test]
+async fn a_foreign_deletion_under_the_pods_prefix_does_not_cost_the_session() {
+    let prefix = format!("/test-registration-foreign-{}/", uuid::Uuid::new_v4());
+    let store = store_at(ETCD_ENDPOINT, &prefix).await;
+
+    let cancel = CancellationToken::new();
+    let (handler, events) = MockHandoffHandler::new();
+    let authority = Arc::new(AuthorityClock::unclaimed());
+    let pod = personhog_coordination::pod::PodHandle::new(
+        Arc::clone(&store),
+        personhog_coordination::pod::PodConfig {
+            pod_name: "exact-pod".to_string(),
+            lease_ttl: 60,
+            // Long enough that only the watch could be reacting.
+            heartbeat_interval: Duration::from_secs(20),
+            reconcile_interval: Duration::from_secs(86_400),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+        Arc::clone(&authority),
+    );
+    let token = cancel.child_token();
+    tokio::spawn(async move { pod.run(token).await });
+
+    put_handoff(&store, 0, None, "exact-pod", HandoffPhase::Warming).await;
+    wait_for_event(&events, HandoffEvent::Warmed(0)).await;
+
+    // A key under the prefix whose final segment matches the pod's name,
+    // but which is not its registration.
+    let mut raw = etcd_client::Client::connect([common::ETCD_ENDPOINT], None)
+        .await
+        .expect("connect raw etcd client");
+    let decoy = format!("{prefix}pods/decoy/exact-pod");
+    raw.put(decoy.as_str(), "{}", None)
+        .await
+        .expect("put decoy");
+    raw.delete(decoy.as_str(), None)
+        .await
+        .expect("delete decoy");
+
+    // The deletion must pass through the watch without costing the
+    // session: no release, and the claim stays standing. The window is a
+    // bounded observation, long enough for the watch to have delivered
+    // the decoy event many times over.
+    let observe_until = std::time::Instant::now() + Duration::from_millis(1_500);
+    while std::time::Instant::now() < observe_until {
+        assert!(
+            authority.is_valid(),
+            "an unrelated deletion under the prefix must not surrender the claim"
+        );
+        assert!(
+            !events.lock().await.contains(&HandoffEvent::Released(0)),
+            "an unrelated deletion under the prefix must not end the session"
+        );
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+
+    // And the watch must still be live and exact: deleting the real
+    // registration ends the session.
+    raw.delete(format!("{prefix}pods/exact-pod").as_str(), None)
+        .await
+        .expect("delete the registration");
+    wait_for_event(&events, HandoffEvent::Released(0)).await;
+
+    cancel.cancel();
+}
+
+/// A registration deleted out from under a live lease (an operator
+/// `del`, not a revoke) lands the pod on the lease-loss branch with the
+/// lease still standing. The branch must revoke it: otherwise the next
+/// session grants a second lease while the first sits alive and
+/// unreferenced for its full TTL.
+#[tokio::test]
+async fn an_operator_delete_of_a_live_registration_revokes_its_lease() {
+    let prefix = format!("/test-registration-operator-del-{}/", uuid::Uuid::new_v4());
+    let store = store_at(ETCD_ENDPOINT, &prefix).await;
+
+    let cancel = CancellationToken::new();
+    let (handler, events) = MockHandoffHandler::new();
+    let authority = Arc::new(AuthorityClock::unclaimed());
+    let pod = personhog_coordination::pod::PodHandle::new(
+        Arc::clone(&store),
+        personhog_coordination::pod::PodConfig {
+            pod_name: "operator-del-pod".to_string(),
+            // Long enough that an unrevoked lease would outlive the test
+            // by a wide margin — the assertion below can only pass
+            // because the branch revoked it.
+            lease_ttl: 60,
+            heartbeat_interval: Duration::from_secs(20),
+            reconcile_interval: Duration::from_secs(86_400),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+        Arc::clone(&authority),
+    );
+    let token = cancel.child_token();
+    tokio::spawn(async move { pod.run(token).await });
+
+    put_handoff(&store, 0, None, "operator-del-pod", HandoffPhase::Warming).await;
+    wait_for_event(&events, HandoffEvent::Warmed(0)).await;
+
+    let key = format!("{prefix}pods/operator-del-pod");
+    let mut raw = etcd_client::Client::connect([common::ETCD_ENDPOINT], None)
+        .await
+        .expect("connect raw etcd client");
+    let resp = raw.get(key.as_str(), None).await.expect("get registration");
+    let orphaned_lease = resp.kvs().first().expect("registration exists").lease();
+    assert_ne!(orphaned_lease, 0, "the registration is lease-backed");
+
+    // The operator's `del`: the key goes, the lease stays.
+    raw.delete(key.as_str(), None)
+        .await
+        .expect("delete the registration");
+
+    // The pod notices via the watch, takes the lease-loss branch, and
+    // must revoke the now-orphaned lease on its way to a new session.
+    wait_for_condition(Duration::from_secs(15), POLL_INTERVAL, || {
+        let mut raw = raw.clone();
+        async move {
+            raw.lease_time_to_live(orphaned_lease, None)
+                .await
+                .map(|resp| resp.ttl() <= 0)
+                .unwrap_or(false)
+        }
+    })
+    .await;
+
+    // And the new session is live on a fresh lease.
+    let check = Arc::clone(&store);
+    wait_for_condition(Duration::from_secs(20), POLL_INTERVAL, || {
+        let store = Arc::clone(&check);
+        let authority = Arc::clone(&authority);
+        async move {
+            let registered = store
+                .list_pods()
+                .await
+                .map(|pods| pods.iter().any(|p| p.pod_name == "operator-del-pod"))
+                .unwrap_or(false);
+            registered && authority.is_valid()
+        }
+    })
+    .await;
+
+    cancel.cancel();
+}
+
 /// A drain that cannot quiesce must not keep the pod serving everything
 /// else it no longer owns.
 ///

@@ -86,9 +86,10 @@ pub(crate) fn note_run_failure(
 /// must fence *now* so the fence completes inside the final third,
 /// before the coordinator can possibly treat the lease as expired.
 /// Retrying past the margin would win availability on a coin flip and
-/// split-brain on the other face. The margin clock starts at response
-/// receipt — strictly after the server reset its own countdown — so the
-/// local measurement is conservative, and every await in the loop is
+/// split-brain on the other face. The margin clock is anchored at each
+/// renewal's *send* — the server restarts its countdown only after
+/// that, when it processes the request — so the local measurement never
+/// overstates how much lease is left, and every await in the loop is
 /// bounded by the time left so a hang can never defer the verdict past
 /// the moment the fence must begin.
 #[allow(clippy::too_many_arguments)]
@@ -167,6 +168,12 @@ pub async fn run_lease_keepalive(
             if left.is_zero() {
                 return Err(margin_exhausted());
             }
+            // The renewal is anchored at its send: etcd restarts the
+            // lease countdown when it processes the request, which can
+            // only be after this instant, so measuring age from here
+            // never overstates how much lease is left. Anchoring at the
+            // response would credit the round-trip delay to the lease.
+            let sent = Instant::now();
             let round = async {
                 keeper.keep_alive().await?;
                 match stream.message().await? {
@@ -198,9 +205,9 @@ pub async fn run_lease_keepalive(
                         "component" => component
                     )
                     .record(last_renewed.elapsed().as_secs_f64() * 1000.0);
-                    last_renewed = Instant::now();
+                    last_renewed = sent;
                     if let Some(authority) = &authority {
-                        authority.confirm();
+                        authority.confirm(sent);
                     }
                 }
                 // Authoritative: the lease is gone, no margin applies.

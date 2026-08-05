@@ -15,10 +15,13 @@
 //! the component whose failure it exists to survive.
 //!
 //! The margin is the same two thirds of the TTL the keepalive uses to
-//! declare loss, which places the refusal strictly before the moment the
-//! coordinator could treat the lease as expired and hand the partition
-//! to someone else. Requests are therefore refused while ownership is
-//! still merely *doubtful*, ahead of it becoming wrong.
+//! declare loss, and stamps are anchored at the instant the renewal was
+//! *sent* — before etcd could have restarted its countdown — so the
+//! stamp always ages faster than the lease. Together those place the
+//! refusal strictly before the moment the coordinator could treat the
+//! lease as expired and hand the partition to someone else. Requests
+//! are therefore refused while ownership is still merely *doubtful*,
+//! ahead of it becoming wrong.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -76,11 +79,18 @@ impl AuthorityClock {
     /// registration took. Anchoring on it rather than on now keeps a slow
     /// registration from silently extending the first window — the same
     /// reasoning the keepalive applies to its own first deadline.
+    ///
+    /// The stores are ordered so every torn view fails closed: until the
+    /// final `surrendered` flip a reader refuses outright, and the
+    /// Release/Acquire pair on that flag makes the margin and stamp
+    /// written above visible to any reader that observes it cleared —
+    /// so no interleaving can pair the new claim with the old session's
+    /// numbers.
     pub fn begin_session(&self, margin: Duration, granted_at: Instant) {
         self.margin_ms
             .store(margin.as_millis() as u64, Ordering::Relaxed);
         self.confirm_at(granted_at);
-        self.surrendered.store(false, Ordering::Relaxed);
+        self.surrendered.store(false, Ordering::Release);
     }
 
     /// The keepalive's renewal margin for a lease TTL: two thirds,
@@ -99,8 +109,15 @@ impl AuthorityClock {
     /// Record a confirmed renewal. Called by the keepalive, and only by
     /// the keepalive: a renewal is the one event that proves the lease
     /// was alive at a known instant.
-    pub fn confirm(&self) {
-        self.confirm_at(Instant::now());
+    ///
+    /// `at` is when the renewal was *sent*, not when the response
+    /// arrived. etcd restarts the lease countdown when it processes the
+    /// request, which is after the send and before the receipt — so the
+    /// send instant is the latest moment guaranteed not to overstate how
+    /// much lease is left. Stamping receipt would let a slow round keep
+    /// the claim valid past the lease's actual expiry.
+    pub fn confirm(&self, at: Instant) {
+        self.confirm_at(at);
     }
 
     /// Record a renewal confirmed at a known instant.
@@ -118,8 +135,14 @@ impl AuthorityClock {
     }
 
     /// Whether this pod may still act as the partition owner.
+    ///
+    /// The Acquire pairs with `begin_session`'s Release: a reader that
+    /// sees the surrender cleared also sees that session's margin and
+    /// stamp. The remaining Relaxed loads are safe because every stale
+    /// view they can produce — an old stamp, a zero margin — reads as
+    /// invalid.
     pub fn is_valid(&self) -> bool {
-        if self.surrendered.load(Ordering::Relaxed) {
+        if self.surrendered.load(Ordering::Acquire) {
             return false;
         }
         self.since_confirmed() < self.margin()
@@ -206,6 +229,30 @@ mod tests {
         assert!(clock.is_valid());
     }
 
+    /// The stamp honors the instant the caller anchors it at — the
+    /// renewal's send — rather than when the confirmation call happens.
+    /// Stamping at the call would credit the round-trip delay to the
+    /// lease and keep the claim valid past the lease's actual expiry.
+    #[test]
+    fn a_confirmation_is_anchored_at_its_send_not_its_receipt() {
+        let margin = Duration::from_secs(8);
+        let clock = AuthorityClock::stale_for(margin, Duration::from_secs(20));
+        // A renewal whose response only just arrived, but which was sent
+        // ten seconds ago — longer than the margin. Anchoring at the
+        // call instead of the send would revalidate the claim here.
+        let sent = Instant::now()
+            .checked_sub(Duration::from_secs(10))
+            .expect("test instants are boot-relative");
+        clock.confirm(sent);
+        assert!(
+            !clock.is_valid(),
+            "a renewal sent 10s ago must not back an 8s margin, however \
+             recently its response arrived"
+        );
+        clock.confirm(Instant::now());
+        assert!(clock.is_valid(), "a fresh send backs the margin");
+    }
+
     /// The point of the clock: authority lapses on its own once renewals
     /// stop, with nothing running to notice they have.
     ///
@@ -227,7 +274,7 @@ mod tests {
         let clock = AuthorityClock::stale_for(margin, margin + Duration::from_secs(1));
         assert!(!clock.is_valid(), "stale before the renewal");
 
-        clock.confirm();
+        clock.confirm(Instant::now());
         assert!(clock.is_valid(), "the renewal should have moved the stamp");
     }
 
@@ -238,7 +285,7 @@ mod tests {
     fn surrendered_authority_never_returns() {
         let clock = granted(Duration::from_secs(20));
         clock.surrender();
-        clock.confirm();
+        clock.confirm(Instant::now());
         assert!(!clock.is_valid());
     }
 }

@@ -837,18 +837,15 @@ impl PersonHogLeader for PersonHogLeaderService {
                     // initialized the transactional id, not that this pod
                     // lost the partition: a zombie waking inside its
                     // lease window re-acquires on the way to noticing it
-                    // is dead, which fences the legitimate owner. Giving
-                    // up the partition here takes it out of service with
-                    // nothing to put it back — convergence sees it warmed
-                    // and unfenced, so no branch re-warms it. On this
-                    // branch that leaves writes bouncing until a restart
-                    // or a handoff moves the partition; the stacked
-                    // lease-validity branch closes it with a serving-side
-                    // re-acquisition, gated on the authority stamp that
-                    // gives a pod the standing to bump the epoch. Reads
-                    // stay served until the lease machinery settles
-                    // ownership; refusing them needs a lease-validity
-                    // check on the read path, closed on the same branch.
+                    // is dead, which fences the legitimate owner. So the
+                    // fence is given up here as unusable and nothing
+                    // more; `heal_fence`, on the next convergence to
+                    // Serving, re-takes the epoch once the authority
+                    // stamp confirms this pod's standing. Reads stay
+                    // served meanwhile under the same stamp — the
+                    // `check_authority` calls at admission and before
+                    // answering are what refuse them once the claim
+                    // lapses.
                     return Err(Status::failed_precondition(format!(
                         "partition ownership fenced: {e}"
                     )));
@@ -1080,24 +1077,28 @@ mod tests {
     /// wedged is exactly the case the lease machinery cannot cover.
     #[tokio::test]
     async fn a_pod_whose_renewals_stopped_refuses_to_serve() {
-        let clock = Arc::new(AuthorityClock::unclaimed());
-        clock.begin_session(Duration::from_millis(40), Instant::now());
+        // A clock whose renewals stopped longer ago than the margin —
+        // constructed stale rather than aged by sleeping, so no runner
+        // pace can blur which side of the margin the test is on.
+        let margin = Duration::from_secs(20);
+        let clock = Arc::new(AuthorityClock::stale_for(
+            margin,
+            margin + Duration::from_secs(1),
+        ));
         let service = PersonHogLeaderService {
             authority: Some(Arc::clone(&clock)),
             ..make_test_service().await
         };
 
-        service
-            .check_authority(0)
-            .expect("a freshly renewed lease serves");
-
-        // No renewal arrives, and nothing runs to observe that.
-        tokio::time::sleep(Duration::from_millis(60)).await;
-
         let err = service
             .check_authority(0)
             .expect_err("a lapsed lease must not serve");
         assert_eq!(err.code(), Code::FailedPrecondition);
+
+        clock.confirm(Instant::now());
+        service
+            .check_authority(0)
+            .expect("a confirmed renewal restores service");
     }
 
     /// Losing the lease is decided immediately, not after the margin:
@@ -1129,8 +1130,11 @@ mod tests {
     /// refuses_to_answer` is what pins the second.
     #[tokio::test]
     async fn get_person_refuses_once_authority_lapses() {
-        let clock = Arc::new(AuthorityClock::unclaimed());
-        clock.begin_session(Duration::from_millis(40), Instant::now());
+        let margin = Duration::from_secs(20);
+        let clock = Arc::new(AuthorityClock::stale_for(
+            margin,
+            margin + Duration::from_secs(1),
+        ));
         let service = PersonHogLeaderService {
             authority: Some(Arc::clone(&clock)),
             ..make_test_service().await
@@ -1165,18 +1169,17 @@ mod tests {
             request
         };
 
-        service
-            .get_person(request())
-            .await
-            .expect("a renewed lease serves the read");
-
-        tokio::time::sleep(Duration::from_millis(60)).await;
-
         let err = service
             .get_person(request())
             .await
             .expect_err("a lapsed lease must refuse the read");
         assert_eq!(err.code(), Code::FailedPrecondition);
+
+        clock.confirm(Instant::now());
+        service
+            .get_person(request())
+            .await
+            .expect("a confirmed renewal serves the read");
     }
 
     /// A write is serving too, and the lease-loss path surrenders before

@@ -14,6 +14,7 @@ use personhog_coordination::authority::AuthorityClock;
 use personhog_coordination::pod::HandoffHandler;
 use personhog_leader::fencing::{
     heal_fence, FenceGuard, FencedChangelogProducers, FencedProduceError, FencedProducerConfig,
+    HealOutcome,
 };
 use personhog_leader::inflight::InflightTracker;
 use personhog_proto::personhog::types::v1::Person;
@@ -347,7 +348,7 @@ async fn a_fence_taken_for_an_unfinished_warm_is_given_back() {
 
     {
         producers.acquire(0).await.expect("acquire");
-        let _guard = FenceGuard::new(Arc::clone(&producers), 0);
+        let _guard = FenceGuard::new(Arc::clone(&producers), 0, "warm");
         // The warm ends here without returning, as a torn-down attempt
         // does.
     }
@@ -365,7 +366,7 @@ async fn a_completed_warm_keeps_its_fence() {
     let producers = Arc::new(fenced_producers(&topic));
 
     producers.acquire(0).await.expect("acquire");
-    FenceGuard::new(Arc::clone(&producers), 0).keep();
+    FenceGuard::new(Arc::clone(&producers), 0, "warm").keep();
 
     producers
         .produce(0, &test_person(1))
@@ -423,7 +424,7 @@ async fn an_abandoned_guard_does_not_evict_its_replacement() {
     producers.acquire(0).await.expect("first acquire");
 
     // A warm takes the fence, then never finishes.
-    let stale = FenceGuard::new(Arc::clone(&producers), 0);
+    let stale = FenceGuard::new(Arc::clone(&producers), 0, "warm");
 
     // Meanwhile the partition is released and taken again, so what is
     // installed is no longer what the guard is answerable for.
@@ -451,7 +452,12 @@ async fn healing_retakes_a_fence_for_a_served_partition() {
     let clock = AuthorityClock::unclaimed();
     clock.begin_session(Duration::from_secs(30), std::time::Instant::now());
 
-    heal_fence(&producers, &inflight, Some(&clock), 0).await;
+    let outcome = heal_fence(&producers, &inflight, Some(&clock), 0).await;
+    assert_eq!(
+        outcome,
+        Ok(HealOutcome::Healed),
+        "the caller marks the partition freshly fenced on this answer"
+    );
 
     producers
         .produce(0, &test_person(1))
@@ -487,7 +493,8 @@ async fn healing_without_standing_does_not_steal_the_epoch() {
     let lapsed = AuthorityClock::unclaimed();
     lapsed.begin_session(Duration::from_secs(30), std::time::Instant::now());
     lapsed.surrender();
-    heal_fence(&zombie, &inflight, Some(&lapsed), 0).await;
+    let outcome = heal_fence(&zombie, &inflight, Some(&lapsed), 0).await;
+    assert_eq!(outcome, Ok(HealOutcome::Intact));
 
     owner
         .produce(0, &test_person(2))
@@ -509,7 +516,8 @@ async fn healing_skips_a_partition_under_handoff() {
     let valid = AuthorityClock::unclaimed();
     valid.begin_session(Duration::from_secs(30), std::time::Instant::now());
     inflight.fence(0);
-    heal_fence(&other, &inflight, Some(&valid), 0).await;
+    let outcome = heal_fence(&other, &inflight, Some(&valid), 0).await;
+    assert_eq!(outcome, Ok(HealOutcome::Intact));
 
     owner
         .produce(0, &test_person(1))
@@ -536,7 +544,12 @@ async fn healing_gives_back_a_fence_it_lost_standing_for() {
         losing.surrender();
     });
 
-    heal_fence(&producers, &inflight, Some(&clock), 0).await;
+    let outcome = heal_fence(&producers, &inflight, Some(&clock), 0).await;
+    assert_ne!(
+        outcome,
+        Ok(HealOutcome::Healed),
+        "a fence taken while standing lapsed must not be reported serving"
+    );
     lease_loss.await.unwrap();
 
     match producers.produce(0, &test_person(1)).await {
@@ -608,7 +621,8 @@ async fn healing_leaves_a_fence_it_already_holds_alone() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     // A reconcile tick with everything healthy.
-    heal_fence(&producers, &inflight, Some(&clock), 0).await;
+    let outcome = heal_fence(&producers, &inflight, Some(&clock), 0).await;
+    assert_eq!(outcome, Ok(HealOutcome::Intact));
 
     let result = writing.await.expect("the write task must not panic");
     assert!(
@@ -1197,14 +1211,91 @@ async fn verifying_a_served_partition_retakes_a_condemned_fence() {
         "a condemned producer must not still claim the partition"
     );
 
-    handler
+    let repaired = handler
         .verify_serving(0)
         .await
         .expect("verifying a served partition must not fail");
+    assert!(
+        repaired,
+        "a heal that re-took the epoch is applied work, and must count as progress"
+    );
 
     assert!(
         producers.holds(0),
         "a served partition whose fence was condemned must be healed back into service"
+    );
+}
+
+/// A heal that cannot acquire must not fail the convergence run: the
+/// run's failure budgets escalate to process death, which would trade
+/// one partition's writes for every partition's reads. The wedge stays
+/// visible through the partition-labeled failure counter and stays
+/// retried by the reconcile tick — and the partition must still answer
+/// as unfenced, never as quietly repaired.
+#[tokio::test]
+async fn a_heal_that_cannot_acquire_does_not_fail_the_run() {
+    let topic = format!("fence_heal_err_{}", uuid::Uuid::new_v4().simple());
+    let mut kafka = test_kafka_config();
+    // Nothing listens here: the acquire's init round trip must fail.
+    kafka.kafka_hosts = "127.0.0.1:1".to_string();
+    let producers = Arc::new(FencedChangelogProducers::new(FencedProducerConfig {
+        kafka,
+        topic: topic.clone(),
+        init_timeout: Duration::from_secs(2),
+        commit_timeout: Duration::from_secs(2),
+        broker_txn_timeout: BROKER_TXN_TIMEOUT,
+        window: Duration::from_millis(5),
+        settle_budget: Duration::from_secs(1),
+    }));
+    let handler = common::test_handoff_handler(&topic, Arc::clone(&producers));
+
+    let outcome = handler.verify_serving(0).await;
+    assert!(
+        !outcome.expect("a wedged heal must not fail the run"),
+        "an unhealed partition is not applied work"
+    );
+    assert!(
+        !producers.holds(0),
+        "a partition that could not be healed must still answer as unfenced"
+    );
+}
+
+/// A heal is an acquisition like any other: the same convergence's
+/// resume step must trust its fence rather than bump the epoch again.
+/// Re-acquiring on resume would fence the very window the heal just made
+/// writable — the double-acquire the fresh-fence mark exists to prevent.
+#[tokio::test]
+async fn a_healed_fence_is_not_reacquired_by_the_same_convergences_resume() {
+    let topic = format!("fence_heal_mark_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers_with_window(
+        &topic,
+        Duration::from_millis(600),
+    ));
+    let handler = common::test_handoff_handler(&topic, Arc::clone(&producers));
+
+    // A served partition with no usable fence — the state heal repairs.
+    handler
+        .verify_serving(0)
+        .await
+        .expect("healing a served partition must succeed");
+
+    // In flight: the healed fence's window is open and uncommitted.
+    let writing = {
+        let p = Arc::clone(&producers);
+        tokio::spawn(async move { p.produce(0, &test_person(1)).await })
+    };
+    sleep(Duration::from_millis(100)).await;
+
+    handler
+        .resume_partition(0)
+        .await
+        .expect("resuming a served partition must succeed");
+
+    let result = writing.await.expect("the write task must not panic");
+    assert!(
+        result.is_ok(),
+        "a resume in the same convergence must trust the healed fence, \
+         not fence the window it is filling, got {result:?}"
     );
 }
 

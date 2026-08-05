@@ -342,6 +342,27 @@ mod tests {
         assert!(leased(10, 2).validate_lease_timescales().is_ok());
     }
 
+    /// The coordinator election lease runs the same keepalive on its own
+    /// pair of knobs; a misconfigured pair reproduces the same
+    /// self-fencing loop, stalling every handoff behind the coordinator.
+    #[test]
+    fn a_coordinator_keepalive_the_lease_cannot_fit_is_refused() {
+        let mut config = leased(10, 2);
+        config.coordinator_lease_ttl = 10;
+        config.coordinator_keepalive_secs = 30;
+        assert!(config.validate_lease_timescales().is_err());
+        config.coordinator_keepalive_secs = 0;
+        assert!(config.validate_lease_timescales().is_err());
+        config.coordinator_keepalive_secs = 2;
+        assert!(config.validate_lease_timescales().is_ok());
+
+        // A disabled coordinator never reads these knobs, so they must
+        // not be able to refuse startup.
+        config.coordinator_keepalive_secs = 0;
+        config.coordinator_enabled = false;
+        assert!(config.validate_lease_timescales().is_ok());
+    }
+
     // ── ReplicaDiscoveryMode ──────────────────────────────────────────────────
 
     #[test]
@@ -507,32 +528,59 @@ impl Config {
 
     /// Refuse a heartbeat the lease cannot survive.
     ///
-    /// The router holds an etcd lease, publishes an authority stamp, and
-    /// votes in the freeze quorum, all on the same keepalive the leader
-    /// runs — which uses this interval as the timeout for each renewal
-    /// round. A zero one times out instantly and a slow one sleeps
-    /// through the margin, and either exhausts the lease against healthy
-    /// etcd. The router then deregisters and starts over for as long as
-    /// it runs, and every handoff that needs its freeze ack waits on a
-    /// participant that keeps leaving.
+    /// The router holds an etcd lease and votes in the freeze quorum,
+    /// on the same keepalive the leader runs — which uses this interval
+    /// as the timeout for each renewal round. A zero one times out
+    /// instantly and a slow one sleeps through the margin, and either
+    /// exhausts the lease against healthy etcd. The router then
+    /// deregisters and starts over for as long as it runs, and every
+    /// handoff that needs its freeze ack waits on a participant that
+    /// keeps leaving.
+    ///
+    /// The coordinator election lease runs the same keepalive with its
+    /// own pair of knobs, so it gets the same refusal: a coordinator
+    /// that keeps fencing itself stalls every handoff behind it.
     pub fn validate_lease_timescales(&self) -> Result<(), String> {
-        let margin = AuthorityClock::renewal_margin(self.lease_ttl);
-        let heartbeat = self.heartbeat_interval();
-        if heartbeat.is_zero() {
-            return Err(
-                "HEARTBEAT_INTERVAL_SECS must be greater than zero: the keepalive uses it as \
-                 the timeout for each renewal round, so a zero interval fences the router \
-                 against healthy etcd in a loop it cannot leave"
-                    .to_string(),
-            );
+        Self::validate_keepalive_pair(
+            "HEARTBEAT_INTERVAL_SECS",
+            self.heartbeat_interval(),
+            "LEASE_TTL",
+            self.lease_ttl,
+        )?;
+        // Only where a coordinator can actually run: refusing startup
+        // over knobs a disabled coordinator never reads would turn dead
+        // config into an outage.
+        if !self.coordinator_enabled {
+            return Ok(());
         }
-        if heartbeat >= margin {
+        Self::validate_keepalive_pair(
+            "COORDINATOR_KEEPALIVE_SECS",
+            self.coordinator_keepalive_interval(),
+            "COORDINATOR_LEASE_TTL",
+            self.coordinator_lease_ttl,
+        )
+    }
+
+    fn validate_keepalive_pair(
+        interval_name: &str,
+        interval: Duration,
+        ttl_name: &str,
+        ttl: i64,
+    ) -> Result<(), String> {
+        let margin = AuthorityClock::renewal_margin(ttl);
+        if interval.is_zero() {
             return Err(format!(
-                "HEARTBEAT_INTERVAL_SECS ({heartbeat:?}) must be well under the keepalive \
-                 renewal margin ({margin:?} = 2/3 of LEASE_TTL {}s): the sleep between \
-                 renewals would exhaust the margin on its own, and the router would fence \
-                 itself against healthy etcd",
-                self.lease_ttl
+                "{interval_name} must be greater than zero: the keepalive uses it as the \
+                 timeout for each renewal round, so a zero interval fences the holder \
+                 against healthy etcd in a loop it cannot leave"
+            ));
+        }
+        if interval >= margin {
+            return Err(format!(
+                "{interval_name} ({interval:?}) must be well under the keepalive renewal \
+                 margin ({margin:?} = 2/3 of {ttl_name} {ttl}s): the sleep between renewals \
+                 would exhaust the margin on its own, and the holder would fence itself \
+                 against healthy etcd"
             ));
         }
         Ok(())
