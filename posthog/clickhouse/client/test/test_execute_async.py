@@ -23,6 +23,7 @@ from posthog.clickhouse.client import (
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, execute_process_query
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
 from posthog.models import Organization, Team
@@ -186,15 +187,16 @@ class TestExecuteProcessQuery(TestCase):
 
     @parameterized.expand(
         [
-            ("live", {}, True),
-            ("disabled", {"enabled": False}, False),
-            ("expired", {"expires_at": datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC)}, False),
+            ("live", {}, True, True),
+            ("disabled", {"enabled": False}, True, False),
+            ("expired", {"expires_at": datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC)}, True, False),
+            ("org_disallows_public_sharing", {}, False, False),
         ]
     )
     @patch("posthog.clickhouse.client.execute_async.redis.get_client")
     @patch("posthog.api.services.query.process_query_dict")
     def test_shared_link_run_rebuilds_the_viewer_while_the_share_is_live(
-        self, _name, overrides, expect_viewer, mock_process_query_dict, mock_redis_client
+        self, _name, overrides, org_allows_sharing, expect_viewer, mock_process_query_dict, mock_redis_client
     ):
         mock_redis = MagicMock()
         mock_redis.get.return_value = json.dumps(
@@ -203,6 +205,12 @@ class TestExecuteProcessQuery(TestCase):
         mock_redis_client.return_value = mock_redis
         mock_process_query_dict.return_value = []
         sharing_configuration = SharingConfiguration.objects.create(team=self.team, **{"enabled": True, **overrides})
+        if not org_allows_sharing:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS, "name": "Organization security settings"}
+            ]
+            self.organization.allow_publicly_shared_resources = False
+            self.organization.save()
 
         execute_process_query(
             self.team.id,

@@ -18,6 +18,7 @@ from posthog import celery, redis
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
+from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
@@ -179,15 +180,25 @@ class QueryStatusManager:
         self.redis_client.hdel(self.running_queries_key, cache_key)
 
 
-def _shared_link_user_for(sharing_configuration_id: int, team_id: int) -> Optional["User"]:
+def _shared_link_user_for(sharing_configuration_id: int, team: "Team") -> Optional["User"]:
     """Rebuild the anonymous viewer of a public share so an async recalculation runs as the same
-    principal the request did. None if the share was disabled, expired, or deleted in the meantime -
-    the query then runs userless and is denied, which is the correct outcome for a revoked share."""
+    principal the request did. None if the share was disabled, expired, or deleted, or the
+    organization turned off public sharing, in the meantime - the query then runs userless and is
+    denied, which is the correct outcome for a revoked share."""
     from posthog.models.sharing_configuration import SharingConfiguration  # noqa: PLC0415
     from posthog.shared_link_user import SharedLinkUser  # noqa: PLC0415
 
+    # Same predicate as SharingViewerPageViewSet._is_blocked_by_public_sharing_setting: the org-level
+    # kill switch must also cover recalculations enqueued just before it was flipped.
+    organization = team.organization
+    if (
+        organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
+        and not organization.allow_publicly_shared_resources
+    ):
+        return None
+
     sharing_configuration = SharingConfiguration.objects.filter(
-        SharingConfiguration.tokens_active_q(), pk=sharing_configuration_id, team_id=team_id
+        SharingConfiguration.tokens_active_q(), pk=sharing_configuration_id, team_id=team.id
     ).first()
     if sharing_configuration is None:
         return None
@@ -225,7 +236,7 @@ def execute_process_query(
         # came in on. Without it the run is userless, which fails closed on every warehouse table
         # ("You don't have access to table `X`.") and fingerprints the cache differently than the
         # request that enqueued it.
-        user = _shared_link_user_for(sharing_configuration_id, team_id)
+        user = _shared_link_user_for(sharing_configuration_id, team)
 
     query_status = manager.get_query_status()
 
@@ -390,6 +401,10 @@ def enqueue_process_query_task(
     from posthog.tasks.tasks import process_query_task  # noqa: PLC0415
 
     limit_context = LimitContext.POSTHOG_AI if is_posthog_ai else LimitContext.QUERY_ASYNC
+    # Attached only when set: during a rolling deploy a worker still on the old task signature
+    # rejects unknown kwargs, so an always-present kwarg would fail every async query, not just
+    # shared-link ones.
+    shared_kwargs = {"sharing_configuration_id": sharing_configuration_id} if sharing_configuration_id else {}
     task_signature = process_query_task.si(
         team.id,
         user_id,
@@ -399,7 +414,7 @@ def enqueue_process_query_task(
         is_query_service,
         limit_context,
         analytics_props=analytics_props,
-        sharing_configuration_id=sharing_configuration_id,
+        **shared_kwargs,
     )
 
     if _test_only_bypass_celery:
