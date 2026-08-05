@@ -2062,6 +2062,20 @@ class TestMySQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw pymysql str(error) form the import/sync path classifies.
+            str(pymysql.err.OperationalError(1105, "not_found: branch is missing or sleeping: aaaaaaaaaaaa")),
+            # Temporal-wrapped str(e.cause) form — different branch id, same stable phrase.
+            "OperationalError: (1105, 'not_found: branch is missing or sleeping: bbbbbbbbbbbb')",
+        ],
+    )
+    def test_planetscale_branch_sleeping_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"PlanetScale sleeping/missing branch error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # A genuine transient connection drop (no SSL signature) must stay retryable.
             "OperationalError: (2013, 'Lost connection to MySQL server during query')",
             "Lost connection to MySQL server during query",
