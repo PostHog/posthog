@@ -227,10 +227,7 @@ mod tests {
     #[case(Output::ErrorTrackingMain, "error_tracking_events")]
     #[case(Output::AiMain, "ai_events")]
     #[case(Output::AiOverflow, "ai_events_overflow")]
-    fn topic_for_resolves_registered_outputs(
-        #[case] output: Output,
-        #[case] expected: &str,
-    ) {
+    fn topic_for_resolves_registered_outputs(#[case] output: Output, #[case] expected: &str) {
         assert_eq!(test_topics().topic_for(&output), expected);
     }
 

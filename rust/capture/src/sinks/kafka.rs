@@ -20,7 +20,7 @@
 use crate::api::CaptureError;
 use crate::config::{EnvelopeCompression, KafkaConfig};
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
-use crate::sinks::registry::{OutputRegistry, Output};
+use crate::sinks::registry::{Output, OutputRegistry};
 use crate::sinks::Event;
 use crate::v0_request::{DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata};
 use async_trait::async_trait;
@@ -31,7 +31,7 @@ use rdkafka::ClientConfig;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::task::JoinSet;
-use tracing::log::{debug, error, info, warn};
+use tracing::log::{debug, error, info};
 use tracing::{info_span, instrument, Instrument};
 
 use super::producer::RdKafkaProducer;
@@ -207,7 +207,7 @@ enum OrderingGuarantee {
     /// later in the pipeline.
     PerDistinctId,
     /// Ordering preserved per replay session: partitions on the raw
-    /// `session_id`, no token prefix (missing id is a sink-level reject).
+    /// `session_id`, no token prefix (a missing id is rejected by `route()`).
     PerSession,
     /// No guarantee — no partition key, round-robin; ordering is
     /// intentionally dropped to spread load.
@@ -244,23 +244,28 @@ fn person_ordering(skip_person_processing: bool) -> OrderingGuarantee {
 /// take priority over per-datatype and overflow routing. Consulted by the
 /// sink, which resolves the target to a topic string and the ordering
 /// guarantee to a partition key, and applies the target-implied side effects.
-fn route(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> Route {
+/// A replay event with no session id is rejected here, so every returned
+/// `Route` is realizable by the sink.
+fn route(
+    metadata: &ProcessedEventMetadata,
+    ai_events_overflow_armed: bool,
+) -> Result<Route, CaptureError> {
     // redirect_to_dlq takes priority over all other routing.
     if metadata.redirect_to_dlq {
-        return Route {
+        return Ok(Route {
             target: Output::Dlq,
             ordering: OrderingGuarantee::PerDistinctId,
-        };
+        });
     }
 
     if let Some(ref topic) = metadata.redirect_to_topic {
-        return Route {
+        return Ok(Route {
             target: Output::Custom(topic.clone()),
             ordering: OrderingGuarantee::PerDistinctId,
-        };
+        });
     }
 
-    match metadata.data_type {
+    Ok(match metadata.data_type {
         DataType::AnalyticsHistorical => Route {
             // Historical events never overflow — force_overflow and
             // overflow_reason are deliberately ignored here.
@@ -366,7 +371,11 @@ fn route(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> R
             // Precedence: force_overflow (restrictions) -> overflow_reason
             // (pipeline-stamped ReplayLimited) -> default main-topic routing.
             // Partition key is always session_id for replay to keep per-session
-            // ordering on the overflow topic.
+            // ordering on the overflow topic; a missing id makes the decision
+            // unrealizable, so it is rejected as part of the decision.
+            if metadata.session_id.is_none() {
+                return Err(CaptureError::MissingSessionId);
+            }
             let target = if metadata.force_overflow
                 || matches!(
                     metadata.overflow_reason,
@@ -381,7 +390,7 @@ fn route(metadata: &ProcessedEventMetadata, ai_events_overflow_armed: bool) -> R
                 ordering: OrderingGuarantee::PerSession,
             }
         }
-    }
+    })
 }
 
 #[cfg(test)]
@@ -413,7 +422,7 @@ mod route_tests {
         m.redirect_to_topic = Some("custom".to_string());
         m.force_overflow = true;
         assert_eq!(
-            route(&m, false),
+            route(&m, false).unwrap(),
             Route {
                 target: Output::Dlq,
                 ordering: OrderingGuarantee::PerDistinctId,
@@ -428,7 +437,7 @@ mod route_tests {
         m.redirect_to_topic = Some("my_topic".to_string());
         m.force_overflow = true;
         assert_eq!(
-            route(&m, false),
+            route(&m, false).unwrap(),
             Route {
                 target: Output::Custom("my_topic".to_string()),
                 ordering: OrderingGuarantee::PerDistinctId,
@@ -441,17 +450,14 @@ mod route_tests {
         for (dt, target) in [
             (DataType::AnalyticsMain, Output::AnalyticsMain),
             (DataType::AnalyticsHistorical, Output::AnalyticsHistorical),
-            (
-                DataType::ClientIngestionWarning,
-                Output::ClientWarningsMain,
-            ),
+            (DataType::ClientIngestionWarning, Output::ClientWarningsMain),
             (DataType::HeatmapMain, Output::HeatmapsMain),
             (DataType::ExceptionErrorTracking, Output::ErrorTrackingMain),
             (DataType::AiEvents, Output::AiMain),
             (DataType::SnapshotMain, Output::SessionReplayMain),
         ] {
             let m = meta(dt);
-            let r = route(&m, false);
+            let r = route(&m, false).unwrap();
             assert_eq!(r.target, target, "wrong target for {dt:?}");
         }
     }
@@ -461,10 +467,13 @@ mod route_tests {
         // force_overflow -> overflow topic; key policy follows skip_person.
         let mut m = meta(DataType::AnalyticsMain);
         m.force_overflow = true;
-        assert_eq!(route(&m, false).ordering, OrderingGuarantee::PerDistinctId);
+        assert_eq!(
+            route(&m, false).unwrap().ordering,
+            OrderingGuarantee::PerDistinctId
+        );
         m.skip_person_processing = true;
-        assert_eq!(route(&m, false).ordering, OrderingGuarantee::None);
-        assert_eq!(route(&m, false).target, Output::AnalyticsOverflow);
+        assert_eq!(route(&m, false).unwrap().ordering, OrderingGuarantee::None);
+        assert_eq!(route(&m, false).unwrap().target, Output::AnalyticsOverflow);
     }
 
     #[test]
@@ -474,7 +483,7 @@ mod route_tests {
         let mut force_limited = base.clone();
         force_limited.overflow_reason = Some(OverflowReason::ForceLimited);
         assert_eq!(
-            route(&force_limited, false),
+            route(&force_limited, false).unwrap(),
             Route {
                 target: Output::AnalyticsOverflow,
                 ordering: OrderingGuarantee::None,
@@ -486,18 +495,24 @@ mod route_tests {
             preserve_locality: true,
         });
         assert_eq!(
-            route(&preserve, false).ordering,
+            route(&preserve, false).unwrap().ordering,
             OrderingGuarantee::PerDistinctId
         );
-        assert_eq!(route(&preserve, false).target, Output::AnalyticsOverflow);
+        assert_eq!(
+            route(&preserve, false).unwrap().target,
+            Output::AnalyticsOverflow
+        );
 
         let mut no_preserve = base.clone();
         no_preserve.overflow_reason = Some(OverflowReason::RateLimited {
             preserve_locality: false,
         });
-        assert_eq!(route(&no_preserve, false).ordering, OrderingGuarantee::None);
         assert_eq!(
-            route(&no_preserve, false).target,
+            route(&no_preserve, false).unwrap().ordering,
+            OrderingGuarantee::None
+        );
+        assert_eq!(
+            route(&no_preserve, false).unwrap().target,
             Output::AnalyticsOverflow
         );
 
@@ -506,7 +521,7 @@ mod route_tests {
         // treated as unstamped.
         let mut replay = base;
         replay.overflow_reason = Some(OverflowReason::ReplayLimited);
-        assert_eq!(route(&replay, false).target, Output::AnalyticsMain);
+        assert_eq!(route(&replay, false).unwrap().target, Output::AnalyticsMain);
     }
 
     #[test]
@@ -516,7 +531,7 @@ mod route_tests {
         let mut m = meta(DataType::AiEvents);
         m.force_overflow = true;
         assert_eq!(
-            route(&m, false),
+            route(&m, false).unwrap(),
             Route {
                 target: Output::AiMain,
                 ordering: OrderingGuarantee::PerDistinctId,
@@ -524,21 +539,24 @@ mod route_tests {
         );
 
         // Valve armed: mirrors the analytics main lane's overflow handling.
-        assert_eq!(route(&m, true).target, Output::AiOverflow);
-        assert_eq!(route(&m, true).ordering, OrderingGuarantee::PerDistinctId);
+        assert_eq!(route(&m, true).unwrap().target, Output::AiOverflow);
+        assert_eq!(
+            route(&m, true).unwrap().ordering,
+            OrderingGuarantee::PerDistinctId
+        );
         m.skip_person_processing = true;
-        assert_eq!(route(&m, true).ordering, OrderingGuarantee::None);
+        assert_eq!(route(&m, true).unwrap().ordering, OrderingGuarantee::None);
 
         let mut force_limited = meta(DataType::AiEvents);
         force_limited.overflow_reason = Some(OverflowReason::ForceLimited);
         assert_eq!(
-            route(&force_limited, true),
+            route(&force_limited, true).unwrap(),
             Route {
                 target: Output::AiOverflow,
                 ordering: OrderingGuarantee::None,
             }
         );
-        assert_eq!(route(&force_limited, false).target, Output::AiMain);
+        assert_eq!(route(&force_limited, false).unwrap().target, Output::AiMain);
     }
 
     #[test]
@@ -549,7 +567,7 @@ mod route_tests {
         m.skip_person_processing = true;
         for armed in [false, true] {
             assert_eq!(
-                route(&m, armed),
+                route(&m, armed).unwrap(),
                 Route {
                     target: Output::AiMain,
                     ordering: OrderingGuarantee::PerDistinctId,
@@ -563,7 +581,7 @@ mod route_tests {
     fn snapshot_routing_uses_session_id_key() {
         let mut m = meta(DataType::SnapshotMain);
         assert_eq!(
-            route(&m, false),
+            route(&m, false).unwrap(),
             Route {
                 target: Output::SessionReplayMain,
                 ordering: OrderingGuarantee::PerSession,
@@ -571,12 +589,39 @@ mod route_tests {
         );
 
         m.force_overflow = true;
-        assert_eq!(route(&m, false).target, Output::SessionReplayOverflow);
-        assert_eq!(route(&m, false).ordering, OrderingGuarantee::PerSession);
+        assert_eq!(
+            route(&m, false).unwrap().target,
+            Output::SessionReplayOverflow
+        );
+        assert_eq!(
+            route(&m, false).unwrap().ordering,
+            OrderingGuarantee::PerSession
+        );
 
         m.force_overflow = false;
         m.overflow_reason = Some(OverflowReason::ReplayLimited);
-        assert_eq!(route(&m, false).target, Output::SessionReplayOverflow);
+        assert_eq!(
+            route(&m, false).unwrap().target,
+            Output::SessionReplayOverflow
+        );
+    }
+
+    /// A replay event with no session id has no realizable route — the
+    /// decision itself rejects, rather than handing the sink a `PerSession`
+    /// guarantee it cannot key.
+    #[test]
+    fn snapshot_without_session_id_is_rejected() {
+        let mut m = meta(DataType::SnapshotMain);
+        m.session_id = None;
+        assert!(matches!(
+            route(&m, false),
+            Err(CaptureError::MissingSessionId)
+        ));
+
+        // A dlq redirect keys on the event key, so it stays realizable
+        // without a session id.
+        m.redirect_to_dlq = true;
+        assert_eq!(route(&m, false).unwrap().target, Output::Dlq);
     }
 }
 
@@ -815,13 +860,15 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         // The routing decision is pure metadata policy; the sink resolves the
         // target against its topic config, the key policy against the values
         // it owns, and applies the target-implied side effects.
-        let route = route(&metadata, self.topics.ai_events_overflow_armed());
+        let decision = route(&metadata, self.topics.ai_events_overflow_armed())?;
 
-        let topic: &str = self.topics.topic_for(&route.target);
+        let topic: &str = self.topics.topic_for(&decision.target);
 
-        let partition_key: Option<&str> = match route.ordering {
+        let partition_key: Option<&str> = match decision.ordering {
             OrderingGuarantee::PerDistinctId => Some(event_key.as_str()),
             OrderingGuarantee::None => None,
+            // route() rejects replay events without a session id, so the id
+            // is present whenever PerSession is decided.
             OrderingGuarantee::PerSession => Some(
                 metadata
                     .session_id
@@ -832,7 +879,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
 
         // Output-implied side effects: the dlq output's contract includes the
         // dlq header set, and both redirect outputs count their reroutes.
-        match route.target {
+        match decision.target {
             Output::Dlq => {
                 counter!(
                     "capture_events_rerouted_dlq",
