@@ -9,6 +9,8 @@ import { formatResponse } from '@/lib/response'
 
 import type { ExecHelpCatalog } from './exec-help'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
+import { GATEWAY_TOOL_SEPARATOR } from '@/lib/gateway-tools'
+
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import type { ScopeGatedTool } from './toolDefinitions'
 import {
@@ -23,6 +25,23 @@ import {
 /** Upper bound on a `search` regex pattern — keeps a pathological pattern from
  *  forcing catastrophic backtracking against tool metadata. */
 const MAX_SEARCH_PATTERN_LENGTH = 400
+
+/** One line telling the agent third-party tools exist and how to find them, for the
+ *  `tools` listing. Returns undefined when nothing is connected. */
+async function resolveConnectedSummary(
+    resolveTools: () => Promise<Tool<ZodObjectAny>[]>,
+    posthogToolCount: number
+): Promise<string | undefined> {
+    const combined = await resolveTools()
+    const extra = combined.length - posthogToolCount
+    if (extra <= 0) {
+        return undefined
+    }
+    const servers = new Set(
+        combined.slice(posthogToolCount).map((tool) => tool.name.split(GATEWAY_TOOL_SEPARATOR)[0] ?? '')
+    )
+    return `${extra} tool${extra === 1 ? '' : 's'} from ${servers.size} connected MCP server${servers.size === 1 ? '' : 's'} (${[...servers].sort().join(', ')}) are also callable — find them with "search <what you need>".`
+}
 
 /** Ranked (plain-word) search can match loosely on a common token like
  *  "create"; cap the returned names so a vague query can't dump the catalog. */
@@ -69,6 +88,13 @@ export interface ExecToolOptions {
      * re-homed onto `_meta`. Computed from the client profile at the call site.
      */
     isInlineExecUiHost?: boolean
+    /**
+     * Resolves the caller's third-party MCP tools (see `lib/gateway-tools.ts`). Awaited
+     * lazily by the commands that need a tool roster, so a session that never reaches for
+     * a connected server pays nothing for having one. Must not throw: a failing gateway
+     * degrades to "no third-party tools", never to a broken `exec`.
+     */
+    gatewayToolsProvider?: () => Promise<Tool<ZodObjectAny>[]>
 }
 
 function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
@@ -335,6 +361,20 @@ export function createExecTool(
         handler: async (_context: Context, params: z.infer<ExecSchema>) => {
             const { verb, rest } = parseCommand(params.command)
 
+            let gatewayTools: Tool<ZodObjectAny>[] | undefined
+            /** PostHog's tools plus any third-party tools the caller has connected.
+             *  Resolved at most once per command, and only for commands that need a
+             *  roster — `learn` never touches the gateway. */
+            const resolveTools = async (): Promise<Tool<ZodObjectAny>[]> => {
+                if (!options.gatewayToolsProvider) {
+                    return allTools
+                }
+                if (gatewayTools === undefined) {
+                    gatewayTools = await options.gatewayToolsProvider()
+                }
+                return gatewayTools.length > 0 ? [...allTools, ...gatewayTools] : allTools
+            }
+
             switch (verb) {
                 case 'learn': {
                     const helpCatalog = options.helpCatalog
@@ -371,7 +411,15 @@ export function createExecTool(
                 }
 
                 case 'tools': {
-                    return JSON.stringify(allTools.map((t) => t.name))
+                    const names = allTools.map((t) => t.name)
+                    const connected = await resolveConnectedSummary(resolveTools, allTools.length)
+                    if (!connected) {
+                        return JSON.stringify(names)
+                    }
+                    // Summarize rather than list: a user with several connected servers can
+                    // have hundreds of third-party tools, and dumping them all here would
+                    // cost more context than `search` ever does.
+                    return JSON.stringify({ tools: names, connected_servers: connected })
                 }
 
                 case 'search': {
@@ -391,18 +439,19 @@ export function createExecTool(
                     // (e.g. `query-`, `feature-flag`) keeps the original regex
                     // predicate; plain words — including multi-word, natural-
                     // language queries — use forgiving token ranking.
+                    const searchableTools = await resolveTools()
                     let matches: string[]
                     let gatedMatches: ScopeGatedTool[]
                     let truncatedFrom = 0
                     if (isRegexPattern(rest)) {
                         try {
-                            matches = searchToolsRegex(allTools, rest).map((t) => t.name)
+                            matches = searchToolsRegex(searchableTools, rest).map((t) => t.name)
                             gatedMatches = searchToolsRegex(scopeGatedTools, rest)
                         } catch {
                             throw new ExecCommandError(`Invalid regex pattern: "${rest}"`, 'invalid_regex')
                         }
                     } else {
-                        const ranked = searchToolsRanked(allTools, rest)
+                        const ranked = searchToolsRanked(searchableTools, rest)
                         truncatedFrom = ranked.length > MAX_RANKED_SEARCH_RESULTS ? ranked.length : 0
                         matches = ranked.slice(0, MAX_RANKED_SEARCH_RESULTS).map((r) => r.name)
                         // Preserve ranked order for gated matches too, then map
@@ -451,14 +500,16 @@ export function createExecTool(
                     if (!infoArgs) {
                         throw new ExecCommandError('Usage: info [--json] <tool_name>', 'usage')
                     }
-                    const tool = findTool(allTools, scopeGatedTools, infoArgs)
+                    const tool = findTool(await resolveTools(), scopeGatedTools, infoArgs)
                     // `io: 'input'` mirrors the advertised `tools/list` schema and the executor's
                     // validation: fields with a Zod `.default()` (e.g. a query `kind` discriminator)
                     // are optional and auto-filled. The default `io: 'output'` would list them as
                     // required, misrepresenting them as mandatory input the caller must supply.
-                    const fullSchema = stripOutputFormatProperty(
-                        z.toJSONSchema(tool.schema, { io: 'input' }) as Record<string, unknown>
-                    )
+                    const fullSchema =
+                        tool.rawInputSchema ??
+                        stripOutputFormatProperty(
+                            z.toJSONSchema(tool.schema, { io: 'input' }) as Record<string, unknown>
+                        )
                     // YAML for the top shape, but inputSchema stays as a JSON
                     // string dumped inside the YAML — JSON Schema is conventionally
                     // JSON and converting it to YAML obscures `$ref`, `oneOf`, etc.
@@ -494,12 +545,14 @@ export function createExecTool(
                         throw new ExecCommandError('Usage: schema <tool_name> [field_path]', 'usage')
                     }
                     const { verb: schemaToolName, rest: fieldPath } = parseCommand(rest)
-                    const schemaTool = findTool(allTools, scopeGatedTools, schemaToolName)
+                    const schemaTool = findTool(await resolveTools(), scopeGatedTools, schemaToolName)
                     // See the `info` command: `io: 'input'` keeps this in sync with the advertised
                     // schema and validation, so `.default()` fields aren't shown as required.
-                    const fullJsonSchema = stripOutputFormatProperty(
-                        z.toJSONSchema(schemaTool.schema, { io: 'input' }) as Record<string, unknown>
-                    )
+                    const fullJsonSchema =
+                        schemaTool.rawInputSchema ??
+                        stripOutputFormatProperty(
+                            z.toJSONSchema(schemaTool.schema, { io: 'input' }) as Record<string, unknown>
+                        )
 
                     if (!fieldPath) {
                         // The bare `schema <tool>` view is always a summary. Any
@@ -549,7 +602,7 @@ export function createExecTool(
                         throw new ExecCommandError('Usage: call [--json] [--confirm] <tool_name> <json_input>', 'usage')
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
-                    const tool = findTool(allTools, scopeGatedTools, toolName)
+                    const tool = findTool(await resolveTools(), scopeGatedTools, toolName)
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
                         throw new ExecCommandError(
                             `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`,

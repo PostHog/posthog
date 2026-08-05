@@ -18,11 +18,12 @@ import {
     findRecoverableApiError,
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
+import { resolveGatewayTools } from '@/lib/gateway-tools'
 import { getPostHogClient } from '@/lib/posthog'
 import { createExecTool, formatInputValidationError, type ExecInnerCallTracker } from '@/tools/exec'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
-import type { Context, ZodObjectAny } from '@/tools/types'
+import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 import {
     trackExecuteSqlGeneration,
@@ -392,6 +393,24 @@ export class ToolExecutor {
         }
     }
 
+    /**
+     * Third-party MCP tools for this caller, or none if the gateway can't be reached.
+     * Swallows failures on purpose: a connected server having a bad day must not stop
+     * PostHog's own tools from working.
+     */
+    private async gatewayToolsFor(state: ResolvedState): Promise<Tool<ZodObjectAny>[]> {
+        const projectId = await state.context.stateManager.getProjectId().catch(() => undefined)
+        if (!projectId) {
+            return []
+        }
+        try {
+            return await resolveGatewayTools(state.context, projectId)
+        } catch (error) {
+            console.warn('[gateway-tools] failed to resolve connected MCP tools', error)
+            return []
+        }
+    }
+
     private resolveExecTool(
         state: ResolvedState,
         execMetrics: ExecMetricState,
@@ -460,6 +479,7 @@ export class ToolExecutor {
             {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
                 helpCatalog: this.instructionsBuilder.buildExecHelpCatalog(state),
+                ...(state.gatewayToolsEnabled ? { gatewayToolsProvider: () => this.gatewayToolsFor(state) } : {}),
             }
         )
 

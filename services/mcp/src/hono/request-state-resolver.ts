@@ -1,7 +1,7 @@
 import type { GroupType } from '@/api/client'
 import { hasScope } from '@/lib/api'
 import { MCPClientProfile } from '@/lib/client-detection'
-import { isCloudApi, isLocalApi, PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
+import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG, PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -39,6 +39,16 @@ export interface ResolvedState {
     sessionContext: MCPSessionContext | null
     allTools: Tool<ZodObjectAny>[]
     scopeGatedTools: ScopeGatedTool[]
+    /**
+     * Whether the caller's team may reach third-party MCP tools through `exec`.
+     * Gated on the same flag as the gateway UI — the tools are the gateway's payoff,
+     * so they roll out together.
+     *
+     * Deliberately not folded into `allTools`: `instructions.ts` looks every entry up in
+     * the static tool-definition registry (which throws on an unknown name) and renders
+     * the full roster into the instructions payload.
+     */
+    gatewayToolsEnabled: boolean
     distinctId: string
     renderUiEnabled: boolean
     // Active project/user environment prompt and group types. Rendered into the
@@ -127,9 +137,10 @@ export class RequestStateResolver {
         ])
         const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
 
-        // PRODUCT_DATA_CATALOG_FLAG gates instructions content (the metric-discovery prompt
-        // section), not a tool, so the tool-definition scan can't discover it.
-        const allFlagKeys = [...new Set([...getRequiredFeatureFlags(), PRODUCT_DATA_CATALOG_FLAG])]
+        // Neither of these gates a catalog tool, so the tool-definition scan can't discover
+        // them: PRODUCT_DATA_CATALOG_FLAG gates instructions content (the metric-discovery
+        // prompt section), MCP_GATEWAY_FLAG gates the third-party tools `exec` resolves.
+        const allFlagKeys = [...new Set([...getRequiredFeatureFlags(), PRODUCT_DATA_CATALOG_FLAG, MCP_GATEWAY_FLAG])]
 
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
@@ -222,6 +233,7 @@ export class RequestStateResolver {
             sessionContext,
             allTools,
             scopeGatedTools,
+            gatewayToolsEnabled: useSingleExec && mergedFlags[MCP_GATEWAY_FLAG] === true,
             distinctId,
             renderUiEnabled,
             metadata,
