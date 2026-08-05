@@ -788,8 +788,8 @@ tools:
             `subject`, and schema-validated `payload`, so a measuring scout's series ("all grouping-quality judgments
             this week") is one call. Pass `skill_name` to scope to one scout, `subject` to follow one judged entity
             across runs, and `date_from` / `date_to` (half-open window on `created_at`) to bound the window. To page
-            past the cap, pass the response's `next_cursor` back as `cursor` with the same filters — lossless even
-            when records share a boundary timestamp. Capped at 500 rows per page (default 100). Strictly team-scoped.
+            past the cap, pass the response's `next_cursor` back as `cursor` with the same filters — lossless even when
+            records share a boundary timestamp. Capped at 500 rows per page (default 100). Strictly team-scoped.
     scout-runs-retrieve:
         operation: signals_scout_runs_retrieve
         enabled: true
