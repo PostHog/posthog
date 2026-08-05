@@ -69,7 +69,6 @@ import {
 } from './services/hogflows/batch-resolver.types'
 import { HogFlowBatchPersonQueryService } from './services/hogflows/hogflow-batch-person-query.service'
 import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
-import { CyclotronJobQueuePostgres } from './services/job-queue/job-queue-postgres'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobQueueRateLimitedPostgresV2 } from './services/job-queue/job-queue-rate-limited-postgres-v2'
 import { JobQueue } from './services/job-queue/job-queue.interface'
@@ -103,7 +102,7 @@ const CYCLOTRON_NODE_DB_URL =
 const CYCLOTRON_DB_URL =
     process.env.CYCLOTRON_DATABASE_URL ?? 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
 
-describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)', (mode) => {
+describe.each(['postgres-v2' as const])('Workflows E2E (%s)', (mode) => {
     jest.setTimeout(30000)
 
     let eventsConsumer: CdpEventsConsumer
@@ -177,12 +176,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
         const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
 
-        // Build the hogflow queue for the current mode
-        if (mode === 'postgres-v2') {
-            hogflowQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
-        } else {
-            hogflowQueue = new CyclotronJobQueuePostgres(hub.CONSUMER_BATCH_SIZE, hub)
-        }
+        hogflowQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
 
         // Events consumer — only start as producer (skip Kafka consumer connection).
         // We call processBatch() directly so the Kafka consumer is not needed.
