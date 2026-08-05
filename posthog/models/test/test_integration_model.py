@@ -3,7 +3,7 @@ import time
 import base64
 import hashlib
 from datetime import UTC, datetime, timedelta
-from typing import Optional
+from typing import Optional, cast
 from urllib.parse import parse_qs, urlencode
 
 import pytest
@@ -28,6 +28,7 @@ from posthog.egress.github.transport import (
     raise_if_github_rate_limited,
 )
 from posthog.egress.limiter.policies import Priority
+from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import GITHUB_BRANCH_CACHE_TTL_SECONDS, GITHUB_REPOSITORY_CACHE_TTL_SECONDS
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import (
@@ -60,6 +61,7 @@ from posthog.models.integration import (
     invalidate_github_repository_caches_for_installation,
     oauth_refresh_failure_reason,
     oauth_refresh_terminal_counter,
+    refresh_backoff_active,
 )
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -141,6 +143,24 @@ class TestIntegrationModel(BaseTest):
     @parameterized.expand([("access_token",), ("refresh_token",)])
     def test_oauth_token_property_passes_through_decrypted_value(self, field_name: str) -> None:
         integration = Integration(team=self.team, kind="stripe", sensitive_config={field_name: "a-real-token"})
+        assert getattr(integration, field_name) == "a-real-token"
+
+    @parameterized.expand([("access_token",), ("refresh_token",)])
+    def test_oauth_token_property_recovers_an_over_encrypted_value(self, field_name: str) -> None:
+        # Saving an integration whose secret failed to decrypt re-encrypts the ciphertext, so the
+        # stored value ends up with an extra layer and one decrypt still leaves ciphertext behind.
+        # The secret is intact underneath, so the connection must keep working.
+        integration = self.create_integration("stripe", sensitive_config={field_name: "a-real-token"})
+        field = cast(EncryptedJSONField, Integration._meta.get_field("sensitive_config"))  # type: ignore[misc]
+        stored = json.loads(get_db_field_value("sensitive_config", integration.id))
+        update_db_field_value(
+            "sensitive_config",
+            integration.id,
+            json.dumps({**stored, field_name: field.encrypt(stored[field_name])}),
+        )
+
+        integration.refresh_from_db()
+
         assert getattr(integration, field_name) == "a-real-token"
 
     def test_slack_integration_config(self):
@@ -632,6 +652,41 @@ class TestOauthIntegrationModel(BaseTest):
         assert integration.errors == "TOKEN_REFRESH_FAILED"
 
         mock_reload.assert_not_called()
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_failed_refresh_leaves_stored_secrets_byte_identical(self, mock_post, mock_reload):
+        # A failed refresh has no new secrets to store, and rewriting the ones already there is how
+        # a secret that couldn't be decrypted (handed back as raw ciphertext by
+        # `ignore_decrypt_errors`) gains a permanent extra encryption layer.
+        mock_post.return_value.status_code = 401
+        mock_post.return_value.json.return_value = {"error": "BROKEN"}
+
+        integration = self.create_integration(kind="hubspot", config={"expires_in": 1000})
+        stored_before = get_db_field_value("sensitive_config", integration.id)
+
+        with self.settings(**self.mock_settings):
+            OauthIntegration(integration).refresh_access_token()
+
+        assert get_db_field_value("sensitive_config", integration.id) == stored_before
+        assert integration.errors == "TOKEN_REFRESH_FAILED"
+
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_with_unreadable_secret_goes_terminal_without_calling_the_provider(self, mock_post):
+        # Posting ciphertext as the refresh token just earns an invalid_grant every minute forever.
+        # Nothing about the stored secret can change, so the sweep must stop and the reconnect
+        # prompt must show instead.
+        integration = self.create_integration(kind="hubspot", sensitive_config={"refresh_token": "gAAAAAleftover=="})
+
+        with self.settings(**self.mock_settings):
+            OauthIntegration(integration).refresh_access_token()
+
+        mock_post.assert_not_called()
+        assert integration.errors == "TOKEN_REFRESH_FAILED"
+        assert refresh_backoff_active(integration) is True
+
+        integration.refresh_from_db()
+        assert integration.config["refresh_terminal"] is True
 
     def _mock_token_response(self, status_code: int, token: Optional[str]) -> MagicMock:
         response = MagicMock()

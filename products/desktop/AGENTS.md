@@ -219,15 +219,6 @@ await boot(container);
 - `pnpm --filter code package|make`: package the Electron app.
 - `node scripts/check-host-boundaries.mjs`: verify host boundary allowlist.
 
-## Merging PRs
-
-All merges into `main` go through the Trunk merge queue. Never run `gh pr merge` or click the GitHub merge button -- both are blocked by branch ruleset.
-
-- Enqueue: `gh pr comment <number> --body "/trunk merge"`. Cancel: `gh pr comment <number> --body "/trunk cancel"`.
-- After enqueueing, babysit the PR until it merges or fails -- follow [`.claude/skills/merging-prs/SKILL.md`](./.claude/skills/merging-prs/SKILL.md) for the preflight, poll, and failure-handling loop.
-- Queue progress is the `Trunk Merge Queue (main)` check run on the PR's head commit. On failure the Trunk bot comments with links to the failing workflows; fix, push, and re-enqueue.
-- Never force-push a branch while it is in the queue -- it removes the PR from the queue.
-
 ## UI Components
 
 **Radix is banned. Do not add a `@radix-ui/*` import to any file, ever.** That covers

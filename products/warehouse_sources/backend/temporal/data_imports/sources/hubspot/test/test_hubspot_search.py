@@ -11,7 +11,6 @@ from requests.exceptions import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot import (
-    HubspotPathologicalWindowError,
     HubspotResumeConfig,
     _backfill_associations_into_results,
     _batch_read_associations,
@@ -25,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.se
     HUBSPOT_API_VERSION_2026_03,
     HUBSPOT_API_VERSION_V3,
     HUBSPOT_ENDPOINTS,
+    HUBSPOT_METADATA_ENDPOINTS,
     SEARCH_PAGE_SIZE,
     SEARCH_RESULT_CAP,
 )
@@ -212,6 +212,43 @@ class TestResolveSearchProperties:
         assert "custom_field" in props  # non-hs_ custom prop discovered and appended
         assert "hs_internal_only" not in props  # hs_ props are not auto-added
         assert get_names_mock.call_args.kwargs["api_version"] == HUBSPOT_API_VERSION_2026_03
+
+    @pytest.mark.parametrize(
+        "endpoint,object_type,discover_all,expect_hs_prop",
+        [
+            # Engagement and commerce objects keep almost everything behind hs_-prefixed
+            # properties, so without discovery they sync only the two seeded columns.
+            ("calls", "calls", True, True),
+            ("line_items", "line_items", True, True),
+            # The original objects ship hand-written default lists; auto-adding every hs_ property
+            # would widen every existing customer's table.
+            ("deals", "deal", False, False),
+        ],
+    )
+    def test_discover_all_properties_controls_hs_prefixed_props(
+        self, endpoint: str, object_type: str, discover_all: bool, expect_hs_prop: bool
+    ) -> None:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot._get_property_names",
+            return_value=["hs_call_duration", "custom_field"],
+        ):
+            props, _ = _resolve_search_properties(
+                api_key="k",
+                refresh_token="r",
+                endpoint=endpoint,
+                object_type=object_type,
+                selected_properties=None,
+                include_custom_props=True,
+                required_props=["hs_lastmodifieddate", "hs_object_id"],
+                logger=MagicMock(),
+                source_id=None,
+                api_version=HUBSPOT_API_VERSION_2026_03,
+                discover_all_properties=discover_all,
+            )
+
+        assert ("hs_call_duration" in props) is expect_hs_prop
+        assert "custom_field" in props
+        assert HUBSPOT_ENDPOINTS[endpoint].discover_all_properties is discover_all
 
     def test_invalid_selected_ignored(self) -> None:
         logger = MagicMock()
@@ -722,8 +759,10 @@ class TestGetRowsViaSearch:
         assert subslice_lower > first_lower
         assert subslice_lower == cursor_base + SEARCH_RESULT_CAP - 1
 
-    def test_pathological_window_raises(self) -> None:
-        # SEARCH_RESULT_CAP records all with the same cursor_ms → can't sub-divide.
+    def test_pathological_window_subdivides_by_hs_object_id(self) -> None:
+        # SEARCH_RESULT_CAP records all share one cursor_ms (e.g. a bulk import stamping a
+        # whole batch with the same lastmodifieddate) → can't sub-divide by cursor value, so
+        # this must fall back to hs_object_id-based sub-slicing instead of dropping the sync.
         identical_cursor = 1_799_000_000_000
         pages_in_cap = SEARCH_RESULT_CAP // SEARCH_PAGE_SIZE
         pages = []
@@ -732,7 +771,17 @@ class TestGetRowsViaSearch:
             is_last = i == pages_in_cap - 1
             pages.append(_search_page(batch, after=None if is_last else f"c{i}"))
 
-        side_effect, _ = _setup_search_post([_make_response(200, p) for p in pages])
+        # Only reachable once the id-anchored query subdivides past the cursor-sort cap.
+        tail_id = str(SEARCH_RESULT_CAP + 1)
+        tail = [_result(tail_id, identical_cursor)]
+
+        responses = (
+            [_make_response(200, p) for p in pages]
+            + [_make_response(200, _search_page(tail))]  # id-drain page: the extra tied record
+            + [_make_response(200, _search_page([]))]  # id-drain page: confirms exhaustion
+            + [_make_response(200, _search_page([]))]  # window resumes past the tied cursor
+        )
+        side_effect, captured = _setup_search_post(responses)
         manager = _make_manager()
         logger = MagicMock()
 
@@ -740,21 +789,172 @@ class TestGetRowsViaSearch:
             "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
             new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})(),
         ):
-            with pytest.raises(HubspotPathologicalWindowError):
-                # Force a narrow sync window so the identical cursors trigger the cap check.
-                list(
-                    get_rows_via_search(
-                        api_key="k",
-                        refresh_token="r",
-                        endpoint="deals",
-                        logger=logger,
-                        resumable_source_manager=manager,
-                        db_incremental_field_last_value=str(identical_cursor - 1),
-                        include_custom_props=False,
-                        now_ms=identical_cursor + 1_000,
-                        api_version=HUBSPOT_API_VERSION_V3,
-                    )
+            # Force a narrow sync window so the identical cursors trigger the cap check.
+            tables = list(
+                get_rows_via_search(
+                    api_key="k",
+                    refresh_token="r",
+                    endpoint="deals",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                    db_incremental_field_last_value=str(identical_cursor - 1),
+                    include_custom_props=False,
+                    now_ms=identical_cursor + 1_000,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
+            )
+
+        # Every record is delivered, including the one only reachable past the cap.
+        assert sum(t.num_rows for t in tables) == SEARCH_RESULT_CAP + 1
+
+        drain_request = captured[pages_in_cap]["json"]
+        assert drain_request["sorts"] == [{"propertyName": "hs_object_id", "direction": "ASCENDING"}]
+        drain_filters = drain_request["filterGroups"][0]["filters"]
+        assert {
+            "propertyName": "hs_lastmodifieddate",
+            "operator": "EQ",
+            "value": str(identical_cursor),
+        } in drain_filters
+        assert {"propertyName": "hs_object_id", "operator": "GT", "value": "-1"} in drain_filters
+
+        # The next id-drain query is anchored past the tail record just seen.
+        second_drain_request = captured[pages_in_cap + 1]["json"]
+        assert {
+            "propertyName": "hs_object_id",
+            "operator": "GT",
+            "value": tail_id,
+        } in second_drain_request["filterGroups"][0]["filters"]
+
+    def test_pathological_window_drain_paginates_within_one_anchor_and_backfills_associations(
+        self,
+    ) -> None:
+        # Regression: continuing a drain query via its `after` token must keep the same
+        # hs_object_id GT anchor (HubSpot's `after` cursor is scoped to the filters it was
+        # issued with) — only a *new* query after `after` runs out may advance the anchor.
+        # Also covers contacts, the object type that actually hit this cap, to prove
+        # association backfill still runs for records only reachable via the drain.
+        identical_cursor = 1_799_000_000_000
+        pages_in_cap = SEARCH_RESULT_CAP // SEARCH_PAGE_SIZE
+        pages = []
+        for i in range(pages_in_cap):
+            batch = [
+                _result(str(i * SEARCH_PAGE_SIZE + j), identical_cursor, cursor_prop="lastmodifieddate")
+                for j in range(SEARCH_PAGE_SIZE)
+            ]
+            is_last = i == pages_in_cap - 1
+            pages.append(_search_page(batch, after=None if is_last else f"c{i}"))
+
+        drain_id_1 = str(SEARCH_RESULT_CAP + 1)
+        drain_id_2 = str(SEARCH_RESULT_CAP + 2)
+        drain_page_1 = [_result(drain_id_1, identical_cursor, cursor_prop="lastmodifieddate")]
+        drain_page_2 = [_result(drain_id_2, identical_cursor, cursor_prop="lastmodifieddate")]
+
+        responses = (
+            [_make_response(200, p) for p in pages]
+            + [_make_response(200, _search_page(drain_page_1, after="drain-1"))]  # anchor -1, page 1
+            + [_make_response(200, _search_page(drain_page_2))]  # anchor -1, page 2 via `after`
+            + [_make_response(200, _search_page([]))]  # fresh query, advanced anchor: exhausted
+            + [_make_response(200, _search_page([]))]  # window resumes past the tied cursor
+        )
+        side_effect, captured = _setup_search_post(responses)
+        manager = _make_manager()
+        logger = MagicMock()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+                new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})(),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot._batch_read_associations",
+                return_value={},
+            ) as mock_batch,
+        ):
+            tables = list(
+                get_rows_via_search(
+                    api_key="k",
+                    refresh_token="r",
+                    endpoint="contacts",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                    db_incremental_field_last_value=str(identical_cursor - 1),
+                    include_custom_props=False,
+                    now_ms=identical_cursor + 1_000,
+                    api_version=HUBSPOT_API_VERSION_V3,
+                )
+            )
+
+        assert sum(t.num_rows for t in tables) == SEARCH_RESULT_CAP + 2
+
+        # Second page of the first drain query: continues via `after`, anchor unchanged.
+        continued_request = captured[pages_in_cap + 1]["json"]
+        assert continued_request.get("after") == "drain-1"
+        assert {"propertyName": "hs_object_id", "operator": "GT", "value": "-1"} in (
+            continued_request["filterGroups"][0]["filters"]
+        )
+
+        # Once that query's `after` pages run out, a fresh query advances the anchor.
+        restart_request = captured[pages_in_cap + 2]["json"]
+        assert "after" not in restart_request
+        assert {"propertyName": "hs_object_id", "operator": "GT", "value": drain_id_2} in (
+            restart_request["filterGroups"][0]["filters"]
+        )
+
+        # Records only reachable via the drain still get their associations backfilled.
+        assoc_ids_seen = {i for call in mock_batch.call_args_list for i in call.kwargs["ids"]}
+        assert {drain_id_1, drain_id_2} <= assoc_ids_seen
+
+    def test_drain_tied_cursor_skips_records_with_non_numeric_id(self) -> None:
+        # Defensive: a record with a missing/non-numeric id must not crash the drain — it's
+        # still batched, just excluded from the id-anchor advance for that record.
+        identical_cursor = 1_799_000_000_000
+        pages_in_cap = SEARCH_RESULT_CAP // SEARCH_PAGE_SIZE
+        pages = []
+        for i in range(pages_in_cap):
+            batch = [_result(str(i * SEARCH_PAGE_SIZE + j), identical_cursor) for j in range(SEARCH_PAGE_SIZE)]
+            is_last = i == pages_in_cap - 1
+            pages.append(_search_page(batch, after=None if is_last else f"c{i}"))
+
+        bad_id_record = _result("not-a-number", identical_cursor)
+        good_id_record = _result(str(SEARCH_RESULT_CAP + 1), identical_cursor)
+
+        responses = (
+            [_make_response(200, p) for p in pages]
+            + [_make_response(200, _search_page([bad_id_record, good_id_record]))]
+            + [_make_response(200, _search_page([]))]  # restart anchored past the good id
+            + [_make_response(200, _search_page([]))]  # window resumes past the tied cursor
+        )
+        side_effect, captured = _setup_search_post(responses)
+        manager = _make_manager()
+        logger = MagicMock()
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})(),
+        ):
+            tables = list(
+                get_rows_via_search(
+                    api_key="k",
+                    refresh_token="r",
+                    endpoint="deals",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                    db_incremental_field_last_value=str(identical_cursor - 1),
+                    include_custom_props=False,
+                    now_ms=identical_cursor + 1_000,
+                    api_version=HUBSPOT_API_VERSION_V3,
+                )
+            )
+
+        # The bad-id record is still delivered; it just doesn't drive the anchor forward.
+        assert sum(t.num_rows for t in tables) == SEARCH_RESULT_CAP + 2
+
+        restart_request = captured[pages_in_cap + 1]["json"]
+        assert {
+            "propertyName": "hs_object_id",
+            "operator": "GT",
+            "value": str(SEARCH_RESULT_CAP + 1),
+        } in restart_request["filterGroups"][0]["filters"]
 
     def test_saves_progress_at_window_boundaries(self) -> None:
         manager = _make_manager()
@@ -987,6 +1187,25 @@ class TestHubspotSourceRouting:
             api_version=HUBSPOT_API_VERSION_V3,
         )
         assert resp.name == "deals"
+
+    @pytest.mark.parametrize("endpoint", list(HUBSPOT_METADATA_ENDPOINTS))
+    def test_lookup_tables_bypass_the_crm_paths(self, endpoint: str) -> None:
+        # Lookup tables aren't in HUBSPOT_ENDPOINTS, so routing them through the CRM paths raises
+        # KeyError. Their keys are also composite: falling back to ["id"] would let the deals and
+        # tickets "default" pipelines overwrite each other on merge.
+        resp = hubspot_source(
+            api_key="k",
+            refresh_token="r",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+            use_search_path=False,
+            api_version=HUBSPOT_API_VERSION_V3,
+        )
+
+        assert resp.name == endpoint
+        assert resp.primary_keys == HUBSPOT_METADATA_ENDPOINTS[endpoint].primary_keys
+        assert resp.partition_mode is None
 
 
 class TestGetRowsFullRefresh:

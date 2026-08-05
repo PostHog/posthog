@@ -7,13 +7,25 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import botocore.exceptions
 from parameterized import parameterized
 
+from posthog.temporal.common.errors import NonReportableError
+
 from products.warehouse_sources.backend.temporal.data_imports import util as util_module
 from products.warehouse_sources.backend.temporal.data_imports.util import (
+    NonRetryableException,
     _is_transient_s3_connection_error,
     prepare_s3_files_for_querying,
 )
 
 _UTIL_MODULE = "products.warehouse_sources.backend.temporal.data_imports.util"
+
+
+def test_non_retryable_exception_is_non_reportable_error():
+    # Every NonRetryableException raise site (handle_non_retryable_error, custom-source config
+    # errors, CDC failure classification) already vetted the error as a known customer/upstream
+    # condition before raising it. Subclassing NonReportableError is what keeps that already-known
+    # condition out of error tracking; without it, the activity interceptor reports a fresh
+    # "bug" for every occurrence of an error a source already classified as non-retryable.
+    assert issubclass(NonRetryableException, NonReportableError)
 
 
 def _fake_s3(**kwargs):

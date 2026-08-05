@@ -1,9 +1,11 @@
+import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconBug, IconCursorClick, IconGlobe, IconKeyboard } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import type { LemonTagType } from '@posthog/lemon-ui'
 
+import { sessionRecordingInfoLogic } from 'lib/components/ViewRecordingButton/sessionRecordingInfoLogic'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -109,6 +111,10 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
 
     const segmentSeekTime = recordingSeekTime(extra.session_start_time ?? undefined, extra.start_time)
 
+    const { getRecordingExists, isRecordingExistsLoading } = useValues(sessionRecordingInfoLogic)
+    const recordingExists = getRecordingExists(extra.session_id)
+    const recordingExistsLoading = isRecordingExistsLoading(extra.session_id)
+
     const events = extra.event_history ?? []
     const visibleEvents = showAllEvents ? events : events.slice(0, TIMELINE_PREVIEW_COUNT)
 
@@ -145,14 +151,18 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
                 type="secondary"
                 size="small"
                 className="mb-2"
+                loading={recordingExistsLoading}
             />
+            {recordingExists === false && (
+                <p className="text-xs text-tertiary mb-2">This recording is no longer available.</p>
+            )}
 
             {/* Dot-separated meta line: affected user, segment window, active/total duration. */}
             <div className="flex items-center gap-1.5 flex-wrap text-xs text-tertiary mb-2">
                 <span className="font-mono">{extra.distinct_id.slice(0, 10)}…</span>
                 <span>·</span>
                 <span className="font-mono">
-                    {extra.start_time} – {extra.end_time}
+                    {extra.start_time} to {extra.end_time}
                 </span>
                 {(activeDuration || totalDuration) && (
                     <>

@@ -2,7 +2,6 @@ import json
 import uuid
 import asyncio
 import datetime as dt
-import dataclasses
 from collections.abc import Callable, Coroutine
 from typing import Any
 
@@ -28,6 +27,7 @@ from products.exports.backend.temporal.subscriptions.activities import (
     create_delivery_record,
     create_export_assets,
     deliver_subscription,
+    deliver_subscription_v2,
     fetch_due_subscriptions_activity,
     update_delivery_record,
     validate_subscription_for_delivery,
@@ -63,7 +63,12 @@ from products.exports.backend.temporal.subscriptions.types import (
 
 def _to_recipient_dicts(recipient_results: list[RecipientResult]) -> list[dict]:
     return [
-        {"recipient": r.recipient, "status": r.status, **({"error": r.error} if r.error else {})}
+        {
+            "recipient": r.recipient,
+            "status": r.status,
+            **({"error": r.error} if r.error else {}),
+            **({"human_readable_error": r.human_readable_error} if r.human_readable_error else {}),
+        }
         for r in recipient_results
     ]
 
@@ -245,7 +250,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             if abort_info is not None:
                 # Just-disabled → FAILED with reason. Already-disabled (no failed_recipient) → SKIPPED default.
                 if abort_info.failed_recipient is not None:
-                    delivery_recipient_results = [dataclasses.asdict(abort_info.failed_recipient)]
+                    delivery_recipient_results = _to_recipient_dicts([abort_info.failed_recipient])
                     final_status = DeliveryStatus.FAILED
                 return
 
@@ -372,8 +377,13 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             # a "failed to generate" placeholder in the email/Slack message)
             delivery_asset_ids = prepare_result.exported_asset_ids
 
+            delivery_activity = (
+                deliver_subscription_v2
+                if temporalio.workflow.patched("subscription-delivery-campaign-v2")
+                else deliver_subscription
+            )
             deliver_result: DeliverSubscriptionResult = await temporalio.workflow.execute_activity(
-                deliver_subscription,
+                delivery_activity,
                 DeliverSubscriptionInputs(
                     subscription_id=inputs.subscription_id,
                     exported_asset_ids=delivery_asset_ids,
@@ -387,6 +397,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     invite_message=inputs.invite_message,
                     change_summary=change_summary,
                     summary_skipped_over_budget=summary_skipped_over_budget,
+                    delivery_id=delivery_id,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=SUBSCRIPTION_DELIVER_RETRY_POLICY,
@@ -522,7 +533,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                 # Just-disabled → FAILED with reason. Already-disabled (no failed_recipient)
                 # → SKIPPED default (idempotency redispatch). Matches ProcessSubscriptionWorkflow.
                 if abort_info.failed_recipient is not None:
-                    delivery_recipient_results = [dataclasses.asdict(abort_info.failed_recipient)]
+                    delivery_recipient_results = _to_recipient_dicts([abort_info.failed_recipient])
                     final_status = DeliveryStatus.FAILED
                 return
 
@@ -553,8 +564,13 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                 return
 
             # Phase 2: ship the persisted report.
+            delivery_activity = (
+                deliver_subscription_v2
+                if temporalio.workflow.patched("subscription-delivery-campaign-v2")
+                else deliver_subscription
+            )
             deliver_result = await temporalio.workflow.execute_activity(
-                deliver_subscription,
+                delivery_activity,
                 DeliverSubscriptionInputs(
                     subscription_id=inputs.subscription_id,
                     exported_asset_ids=[],

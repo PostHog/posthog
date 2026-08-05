@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-03 11:03:36 UTC
+// Generated at: 2026-08-05 10:49:48 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -14,7 +14,6 @@ export type CanonicalProvider =
     | 'amazon-bedrock-claude-on-aws'
     | 'amazon-bedrock-eu-west-1'
     | 'amazon-bedrock-global'
-    | 'amazon-bedrock-us'
     | 'amazon-bedrock-us-east-1'
     | 'amazon-bedrock-us-east-2'
     | 'ambient-fp4'
@@ -40,6 +39,7 @@ export type CanonicalProvider =
     | 'chutes-fp4'
     | 'chutes-fp8'
     | 'chutes-int4'
+    | 'chutes-mxfp4'
     | 'claude-on-aws'
     | 'cloudflare'
     | 'cloudflare-fast'
@@ -149,6 +149,7 @@ export type CanonicalProvider =
     | 'reka-fp8'
     | 'relace-bf16'
     | 'relace-fp8'
+    | 'sail-research-fp4'
     | 'sail-research-fp8'
     | 'sail-research-int4'
     | 'sakana'
