@@ -9,17 +9,17 @@
 // `$ai_gateway*` namespace stripped so a forged marker can't survive.
 
 use axum::http::HeaderMap;
-use chrono::{DateTime, Duration, Utc};
-use hmac::{Hmac, Mac};
+use chrono::{DateTime, Utc};
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
-use sha2::Sha256;
+
+use crate::gateway_provenance as shared;
+
+pub use crate::gateway_provenance::Provenance;
 
 use super::constants::{
     POSTHOG_AI_GATEWAY_REQUEST_ID, POSTHOG_AI_GATEWAY_SIGNATURE, POSTHOG_AI_GATEWAY_SIGNED_AT,
 };
-
-type HmacSha256 = Hmac<Sha256>;
 
 const GATEWAY_PREFIX: &str = "$ai_gateway";
 pub const VERIFIED_PROPERTY: &str = "$ai_gateway_verified";
@@ -52,7 +52,7 @@ const _: () = assert!(
 
 /// How far `signed_at` may sit from capture's receive time. Capture stamps the
 /// event (no ingestion lag), so the window only absorbs gateway/capture clock skew.
-pub const FRESHNESS_WINDOW_SECS: i64 = 5 * 60;
+pub use shared::FRESHNESS_WINDOW_SECS;
 
 /// The provenance signature carried on the request headers.
 #[derive(Debug, Clone)]
@@ -66,27 +66,10 @@ pub struct GatewaySignature {
 /// present; `request_id` defaults to empty when absent (untrusted downstream).
 pub fn parse_signature(headers: &HeaderMap) -> Option<GatewaySignature> {
     Some(GatewaySignature {
-        signature: header_str(headers, POSTHOG_AI_GATEWAY_SIGNATURE)?,
-        signed_at: header_str(headers, POSTHOG_AI_GATEWAY_SIGNED_AT)?,
-        request_id: header_str(headers, POSTHOG_AI_GATEWAY_REQUEST_ID).unwrap_or_default(),
+        signature: shared::header_str(headers, POSTHOG_AI_GATEWAY_SIGNATURE)?,
+        signed_at: shared::header_str(headers, POSTHOG_AI_GATEWAY_SIGNED_AT)?,
+        request_id: shared::header_str(headers, POSTHOG_AI_GATEWAY_REQUEST_ID).unwrap_or_default(),
     })
-}
-
-fn header_str(headers: &HeaderMap, name: &str) -> Option<String> {
-    headers.get(name)?.to_str().ok().map(str::to_owned)
-}
-
-/// Outcome of checking a gateway signature, so callers can tell a forgery
-/// (`Invalid`) from clock skew (`Stale`) for metrics. Only `Verified` is trusted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Provenance {
-    /// Valid HMAC, signed within the freshness window.
-    Verified,
-    /// Valid HMAC, but `signed_at` is outside the freshness window (clock skew, or
-    /// a signature replayed past its lifetime).
-    Stale,
-    /// HMAC mismatch, unparseable signature, or no signature at all.
-    Invalid,
 }
 
 /// Verifies the HMAC over the gateway's canonical tuple, then checks freshness.
@@ -97,48 +80,8 @@ pub fn verify(
     sig: &GatewaySignature,
     now: DateTime<Utc>,
 ) -> Provenance {
-    let message = canonical(&[token, distinct_id, &sig.request_id, &sig.signed_at]);
-    if !verify_hmac(secret, &message, &sig.signature) {
-        return Provenance::Invalid;
-    }
-    if is_fresh(&sig.signed_at, now) {
-        Provenance::Verified
-    } else {
-        Provenance::Stale
-    }
-}
-
-// Length-prefixed encoding: each field is its big-endian u32 length then its bytes.
-// distinct_id is customer-controlled, so a delimiter wouldn't be injective;
-// length-prefixing stops any field's content from shifting another's boundary. Must
-// match the gateway signer byte-for-byte (ai-gateway internal/emitter/signer.go).
-fn canonical(fields: &[&str]) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(fields.iter().map(|f| f.len() + 4).sum());
-    for f in fields {
-        buf.extend_from_slice(&(f.len() as u32).to_be_bytes());
-        buf.extend_from_slice(f.as_bytes());
-    }
-    buf
-}
-
-// HMAC-SHA256 over the canonical message, signature as lowercase hex. Compared
-// in constant time via `verify_slice`.
-fn verify_hmac(secret: &[u8], message: &[u8], signature_hex: &str) -> bool {
-    let Ok(expected) = hex::decode(signature_hex) else {
-        return false;
-    };
-    let Ok(mut mac) = HmacSha256::new_from_slice(secret) else {
-        return false;
-    };
-    mac.update(message);
-    mac.verify_slice(&expected).is_ok()
-}
-
-fn is_fresh(signed_at: &str, now: DateTime<Utc>) -> bool {
-    match DateTime::parse_from_rfc3339(signed_at) {
-        Ok(t) => (now - t.with_timezone(&Utc)).abs() <= Duration::seconds(FRESHNESS_WINDOW_SECS),
-        Err(_) => false,
-    }
+    let message = shared::canonical(&[token, distinct_id, &sig.request_id, &sig.signed_at]);
+    shared::verify(secret, &message, &sig.signature, &sig.signed_at, now)
 }
 
 /// Stamps the trusted marker and the signed request_id, overwriting client values.
@@ -322,9 +265,7 @@ pub fn sign_for_test(
     request_id: &str,
     signed_at: &str,
 ) -> String {
-    let mut mac = HmacSha256::new_from_slice(secret).expect("hmac accepts any key length");
-    mac.update(&canonical(&[token, distinct_id, request_id, signed_at]));
-    hex::encode(mac.finalize().into_bytes())
+    shared::sign(secret, &[token, distinct_id, request_id, signed_at])
 }
 
 #[cfg(test)]
@@ -407,10 +348,8 @@ mod tests {
     #[test]
     fn rejects_a_wrong_secret() {
         let signed_at = "2026-05-28T10:00:00Z".to_string();
-        let mut mac = HmacSha256::new_from_slice(b"other-secret").unwrap();
-        mac.update(&canonical(&[TOKEN, DISTINCT_ID, "req-1", &signed_at]));
         let sig = GatewaySignature {
-            signature: hex::encode(mac.finalize().into_bytes()),
+            signature: shared::sign(b"other-secret", &[TOKEN, DISTINCT_ID, "req-1", &signed_at]),
             signed_at,
             request_id: "req-1".to_string(),
         };
