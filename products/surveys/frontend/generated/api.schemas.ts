@@ -93,6 +93,7 @@ export interface MinimalFeatureFlagApi {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -105,6 +106,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -408,6 +410,10 @@ export const PropertyGroupTypeEnumApi = {
  * * `is_not` - is_not
  * * `icontains` - icontains
  * * `not_icontains` - not_icontains
+ * * `starts_with` - starts_with
+ * * `not_starts_with` - not_starts_with
+ * * `ends_with` - ends_with
+ * * `not_ends_with` - not_ends_with
  * * `regex` - regex
  * * `not_regex` - not_regex
  * * `gt` - gt
@@ -423,6 +429,10 @@ export const FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi = {
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
     Regex: 'regex',
     NotRegex: 'not_regex',
     Gt: 'gt',
@@ -458,6 +468,10 @@ export interface FeatureFlagFilterPropertyGenericSchemaApi {
      * * `is_not` - is_not
      * * `icontains` - icontains
      * * `not_icontains` - not_icontains
+     * * `starts_with` - starts_with
+     * * `not_starts_with` - not_starts_with
+     * * `ends_with` - ends_with
+     * * `not_ends_with` - not_ends_with
      * * `regex` - regex
      * * `not_regex` - not_regex
      * * `gt` - gt
@@ -1109,22 +1123,22 @@ export type SurveyQuestionInputSchemaApi =
     | SurveyMultipleChoiceQuestionSchemaApi
 
 /**
+ * * `regex` - regex
+ * * `not_regex` - not_regex
  * * `exact` - exact
  * * `is_not` - is_not
  * * `icontains` - icontains
  * * `not_icontains` - not_icontains
- * * `regex` - regex
- * * `not_regex` - not_regex
  */
-export type StringMatchOperatorEnumApi = (typeof StringMatchOperatorEnumApi)[keyof typeof StringMatchOperatorEnumApi]
+export type SurveyMatchTypeEnumApi = (typeof SurveyMatchTypeEnumApi)[keyof typeof SurveyMatchTypeEnumApi]
 
-export const StringMatchOperatorEnumApi = {
+export const SurveyMatchTypeEnumApi = {
+    Regex: 'regex',
+    NotRegex: 'not_regex',
     Exact: 'exact',
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
-    Regex: 'regex',
-    NotRegex: 'not_regex',
 } as const
 
 export interface SurveyConditionEventValueSchemaApi {
@@ -1168,7 +1182,7 @@ export interface SurveyConditionsSchemaApi {
      * * `is_not` - is_not
      * * `icontains` - icontains
      * * `not_icontains` - not_icontains */
-    urlMatchType?: StringMatchOperatorEnumApi
+    urlMatchType?: SurveyMatchTypeEnumApi
     events?: SurveyEventsConditionSchemaApi
     /** Device types that should match for this survey to be shown. */
     deviceTypes?: DeviceTypesEnumApi[]
@@ -1180,7 +1194,7 @@ export interface SurveyConditionsSchemaApi {
      * * `is_not` - is_not
      * * `icontains` - icontains
      * * `not_icontains` - not_icontains */
-    deviceTypesMatchType?: StringMatchOperatorEnumApi
+    deviceTypesMatchType?: SurveyMatchTypeEnumApi
     /** The variant of the feature flag linked to this survey. */
     linkedFlagVariant?: string
 }

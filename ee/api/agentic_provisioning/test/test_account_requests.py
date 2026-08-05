@@ -16,7 +16,7 @@ from posthog.models.user import User
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
-from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import ProvisioningTestBase, provisioning_config
 
 ACCOUNT_REQUESTS_URL = "/api/agentic/provisioning/account_requests"
 VALID_CODE_CHALLENGE = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
@@ -79,8 +79,7 @@ class TestAccountRequests(ProvisioningTestBase):
     def test_existing_user_requires_consent_even_for_skip_consent_partner(self):
         # No partner may silently link a pre-existing account. A verified client secret proves
         # the partner controls itself, never that it controls this email.
-        self.partner.provisioning_skip_existing_user_consent = True
-        self.partner.save(update_fields=["provisioning_skip_existing_user_consent"])
+        self.partner.update_provisioning(skip_existing_user_consent=True)
 
         payload = self._account_request_payload(email=self.user.email, code_challenge=VALID_CODE_CHALLENGE)
         res = self._post_account_request(payload)
@@ -108,7 +107,7 @@ class TestAccountRequests(ProvisioningTestBase):
     @parameterized.expand(
         [
             ("with_name", {"region": "US", "organization_name": "Acme Corp"}, "Acme Corp"),
-            ("without_name", {"region": "US"}, "Test_partner (orgname@example.com)"),
+            ("without_name", {"region": "US"}, "Test Provisioning Partner (orgname@example.com)"),
         ]
     )
     def test_new_user_organization_name(self, _name, config, expected_org_name):
@@ -191,10 +190,9 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
             algorithm="RS256",
             is_first_party=True,
             is_provisioning_partner=True,
-            provisioning_partner_type="test_partner",
-            provisioning_active=True,
-            provisioning_can_create_accounts=True,
-            provisioning_can_provision_resources=True,
+            _provisioning_config=provisioning_config(
+                active=True, can_create_accounts=True, can_provision_resources=True
+            ),
         )
 
     def _post_as_pkce_partner(self, data: dict):
@@ -300,7 +298,7 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
         # A public PKCE caller is identified only by a client_id anyone can send, so even with
         # skip_existing_user_consent it must not silently mint for an existing account — it has
         # no proof it controls the partner or the account.
-        self.pkce_partner.provisioning_skip_existing_user_consent = True
+        self.pkce_partner.update_provisioning(skip_existing_user_consent=True)
         self.pkce_partner.save()
         User.objects.create_and_join(
             organization=self.organization, email="existing@example.com", password="testpass", first_name="Existing"
@@ -339,28 +337,21 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
 
 
 class TestCaptureProvisioningEvent(ProvisioningTestBase):
-    def _make_partner(self, partner_type: str = "test_partner") -> OAuthApplication:
+    def _make_partner(self) -> OAuthApplication:
         return OAuthApplication.objects.create(
-            client_id=f"attribution-test-{partner_type or 'untyped'}",
+            client_id="attribution-test",
             name="Attribution Test Client",
             client_secret="",
             client_type=OAuthApplication.CLIENT_PUBLIC,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://partner.example.com/callback",
             algorithm="RS256",
-            provisioning_partner_type=partner_type,
         )
 
-    @parameterized.expand(
-        [
-            ("typed_partner", "test_partner", True, "test_partner"),
-            ("untyped_partner", "", True, None),
-            ("no_partner", None, False, None),
-        ]
-    )
+    @parameterized.expand([("with_partner", True), ("no_partner", False)])
     @patch("ee.api.agentic_provisioning.analytics.posthoganalytics.capture")
-    def test_partner_attribution(self, _name, partner_type, expects_client, expected_partner_type, mock_capture):
-        partner = None if partner_type is None else self._make_partner(partner_type=partner_type)
+    def test_partner_attribution(self, _name, expects_client, mock_capture):
+        partner = self._make_partner() if expects_client else None
         capture_provisioning_event("account_request", "new_user", partner=partner, team_id=42)
 
         props = mock_capture.call_args.kwargs["properties"]
@@ -371,7 +362,3 @@ class TestCaptureProvisioningEvent(ProvisioningTestBase):
         else:
             assert "client_name" not in props
             assert "partner_id" not in props
-        if expected_partner_type is None:
-            assert "partner_type" not in props
-        else:
-            assert props["partner_type"] == expected_partner_type

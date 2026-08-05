@@ -1,1 +1,1 @@
-0074_signalreport_charts
+0086_signalscoutconfig_structured_output_schema

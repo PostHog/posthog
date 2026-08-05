@@ -1,4 +1,6 @@
-import { buildHistoryDisplay } from './AccountsHogQLTable'
+import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+
+import { buildHistoryDisplay, getCanonicalPropertyTab } from './AccountsHogQLTable'
 
 const DAY = 24 * 60 * 60
 const NOW_MS = 1_800_000_000_000
@@ -40,5 +42,22 @@ describe('buildHistoryDisplay', () => {
 
     it('returns empty state for no history', () => {
         expect(buildHistoryDisplay([], 7, NOW_MS)).toEqual({ latest: null, baseline: null, chartPoints: [] })
+    })
+})
+
+describe('getCanonicalPropertyTab', () => {
+    const definition = (name: string, isCanonical: boolean): CustomPropertyDefinitionApi =>
+        ({ name, is_canonical: isCanonical }) as CustomPropertyDefinitionApi
+
+    it('routes the last Slack message to the channel summaries', () => {
+        expect(getCanonicalPropertyTab(definition('Last Slack message at', true))).toBe('summaries')
+    })
+
+    it('does not link an ordinary property a user happened to name the same', () => {
+        expect(getCanonicalPropertyTab(definition('Last Slack message at', false))).toBeUndefined()
+    })
+
+    it('does not link a canonical property with no tab of its own', () => {
+        expect(getCanonicalPropertyTab(definition('Some future canonical property', true))).toBeUndefined()
     })
 })

@@ -7,7 +7,8 @@ import { isUUIDLike } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
 
 import { INBOX_PRIORITY_OPTIONS, INBOX_SORT_OPTIONS, INBOX_SOURCE_OPTIONS } from '../filterOptions'
-import { INBOX_SCOPE_FOR_YOU, InboxScope, SignalReportPriority } from '../types'
+import { captureInboxQueryChanged, InboxQueryChange } from '../inboxAnalytics'
+import { INBOX_SCOPE_FOR_YOU, INBOX_TAB_KEYS, InboxScope, SignalReportPriority } from '../types'
 
 /** A teammate who can be scoped to / suggested as a reviewer. Matches the `available_reviewers` API row. */
 export interface InboxReviewerOption {
@@ -95,6 +96,18 @@ export function parseFilterSearchParams(searchParams: Record<string, any>): Inbo
     }
 }
 
+/**
+ * The inbox tab in the current URL, or null off a tab route (the scout panels, or a bare `/inbox`).
+ * Read from the router rather than connected from `inboxSceneLogic`, which already connects this
+ * logic — the reverse edge would be a cycle.
+ */
+function currentInboxTab(): string | null {
+    const segments = router.values.location.pathname.split('/').filter(Boolean)
+    const inboxIndex = segments.indexOf('inbox')
+    const candidate = inboxIndex === -1 ? undefined : segments[inboxIndex + 1]
+    return candidate && (INBOX_TAB_KEYS as string[]).includes(candidate) ? candidate : null
+}
+
 function sameSet(a: string[], b: string[]): boolean {
     return a.length === b.length && [...a].sort().join(',') === [...b].sort().join(',')
 }
@@ -180,6 +193,9 @@ export interface inboxFiltersLogicActions {
         scope: InboxScope
     }
     clearFilters: () => {
+        value: true
+    }
+    clearScoutFilter: () => {
         value: true
     }
     loadAvailableReviewers: ({ query }?: { query?: string }) => {
@@ -287,6 +303,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         setSort: (field: InboxSortField, direction: InboxSortDirection) => ({ field, direction }),
         toggleSourceProduct: (source: string) => ({ source }),
         toggleScout: (scout: string) => ({ scout }),
+        clearScoutFilter: true,
         togglePriority: (priority: SignalReportPriority) => ({ priority }),
         // Atomically apply a full filter set. Used when hydrating from a shared URL so the whole view
         // is restored in one action — one list refresh, no fan-out race between partial states.
@@ -310,12 +327,44 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         ],
     }),
 
-    listeners(({ actions }) => ({
-        searchAvailableReviewers: async ({ query }, breakpoint) => {
-            await breakpoint(300)
-            actions.loadAvailableReviewers({ query: query.trim() || undefined })
-        },
-    })),
+    listeners(({ actions, values }) => {
+        // Listeners run after reducers, so `values` is already the query the user landed on.
+        const captureQueryChange = (change: InboxQueryChange): void =>
+            captureInboxQueryChanged({
+                change,
+                tab: currentInboxTab(),
+                scope: values.scope,
+                sortField: values.sortField,
+                sortDirection: values.sortDirection,
+                sourceProductFilter: values.sourceProductFilter,
+                scoutFilter: values.scoutFilter,
+                priorityFilter: values.priorityFilter,
+                searchQuery: values.searchQuery,
+                hasActiveFilters: values.hasActiveFilters,
+            })
+
+        return {
+            searchAvailableReviewers: async ({ query }, breakpoint) => {
+                await breakpoint(300)
+                actions.loadAvailableReviewers({ query: query.trim() || undefined })
+            },
+            // `applyDefaultScope` is deliberately absent — it's the empty-inbox auto-default, not a
+            // user choice, and counting it as engagement is exactly the inflation we're trying to avoid.
+            setScope: () => captureQueryChange('scope'),
+            setSort: () => captureQueryChange('sort'),
+            toggleSourceProduct: () => captureQueryChange('source_product'),
+            toggleScout: () => captureQueryChange('scout'),
+            clearScoutFilter: () => captureQueryChange('scout'),
+            togglePriority: () => captureQueryChange('priority'),
+            clearFilters: () => captureQueryChange('clear'),
+            setFilters: () => captureQueryChange('url'),
+            // The search box fires per keystroke; settle first so a typed phrase is one event.
+            setSearchQuery: async (_, breakpoint) => {
+                await breakpoint(600)
+                captureQueryChange('search')
+            },
+        }
+    }),
 
     reducers({
         scope: [
@@ -382,6 +431,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             {
                 toggleScout: (state, { scout }) =>
                     state.includes(scout) ? state.filter((s) => s !== scout) : [...state, scout],
+                clearScoutFilter: () => [],
                 setFilters: (_, { filters }) => filters.scoutFilter,
                 clearFilters: () => [],
             },
@@ -427,6 +477,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             setSort: toUrl,
             toggleSourceProduct: toUrl,
             toggleScout: toUrl,
+            clearScoutFilter: toUrl,
             togglePriority: toUrl,
             setSearchQuery: toUrl,
             clearFilters: toUrl,

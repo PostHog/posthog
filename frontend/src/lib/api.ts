@@ -120,8 +120,6 @@ import {
     DataWarehouseTable,
     DataWarehouseViewLink,
     DataWarehouseViewLinkValidation,
-    Dataset,
-    DatasetItem,
     EarlyAccessFeatureType,
     EmailSenderDomainStatus,
     EndpointType,
@@ -237,6 +235,7 @@ import type {
     GitHubReposResponseApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
+import type { BulkAddOptOutsResultApi, BulkOptOutEntryApi } from 'products/messaging/frontend/generated/api.schemas'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 import type {
@@ -2001,6 +2000,20 @@ export class ApiRequest {
         return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('add_opt_out')
     }
 
+    public messagingPreferencesExportOptOutsCsv(): ApiRequest {
+        return this.environments()
+            .current()
+            .addPathComponent('messaging_preferences')
+            .addPathComponent('export_opt_outs_csv')
+    }
+
+    public messagingPreferencesBulkAddOptOuts(): ApiRequest {
+        return this.environments()
+            .current()
+            .addPathComponent('messaging_preferences')
+            .addPathComponent('bulk_add_opt_outs')
+    }
+
     public hogFlows(): ApiRequest {
         return this.environments().current().addPathComponent('hog_flows')
     }
@@ -2019,22 +2032,6 @@ export class ApiRequest {
 
     public wizard(): ApiRequest {
         return this.addPathComponent('wizard')
-    }
-
-    public datasets(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('datasets')
-    }
-
-    public dataset(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('datasets').addPathComponent(id)
-    }
-
-    public datasetItems(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('dataset_items')
-    }
-
-    public datasetItem(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('dataset_items').addPathComponent(id)
     }
 
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
@@ -2245,6 +2242,9 @@ function captureLivestream401Debug(url: string, authHeader: string | undefined, 
         })
     }
 }
+
+/** `?basic=true` response: the serializer drops these fields (see CohortSerializer.__init__). */
+export type BasicCohortType = Omit<CohortType, 'groups' | 'experiment_set' | 'last_error_message'>
 
 const api = {
     cspReporting: {
@@ -3435,6 +3435,20 @@ const api = {
         ): Promise<CountedPaginatedResponse<CohortType>> {
             return await new ApiRequest().cohorts().withQueryString(toParams(params)).get()
         },
+        async listBasic(
+            params: {
+                limit?: number
+                offset?: number
+                search?: string
+            } = {}
+        ): Promise<CountedPaginatedResponse<BasicCohortType>> {
+            // `?basic=true` returns a trimmed payload — the narrowed BasicCohortType return type
+            // keeps callers from reading a field the serializer dropped (see CohortSerializer).
+            return await new ApiRequest()
+                .cohorts()
+                .withQueryString(toParams({ ...params, basic: true }))
+                .get()
+        },
         async getCohortPersons(cohortId: CohortType['id']): Promise<PaginatedResponse<PersonType>> {
             return await new ApiRequest()
                 .cohortsDetailPersons(cohortId)
@@ -3551,8 +3565,11 @@ const api = {
                             // If we can't read the response, just use the status
                         }
 
-                        // For any error, call onError and abort to prevent retries
-                        onError(new Error(errorMessage))
+                        // Carry the real HTTP status so callers can classify the failure by status code
+                        // rather than string-matching the message (which misfires on transient/stream errors).
+                        const error = new Error(errorMessage) as Error & { status?: number }
+                        error.status = response.status
+                        onError(error)
                         abortController.abort()
                         return
                     }
@@ -4938,6 +4955,8 @@ const api = {
                 refs?: Record<string, { node_id: string; kind: 'hogql' | 'local' }>
                 node_type?: 'hogql' | 'python'
                 output_name?: string
+                connection_id?: string | null
+                send_raw_query?: boolean
             }
         ): Promise<{ run_id: string }> {
             return await new ApiRequest().notebook(notebookId).withAction('sql_v2/run').create({ data })
@@ -5213,6 +5232,10 @@ const api = {
             has_implementation_pr?: 'true' | 'false'
             /** Comma-separated reviewer user UUIDs (For-you / teammate scope). */
             suggested_reviewers?: string
+            /** Comma-separated scout skill_name slugs. */
+            scout?: string
+            /** Scout skill_name prefix — matches every scout in the family. */
+            scout_prefix?: string
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
         },
@@ -6256,8 +6279,8 @@ const api = {
         async get(id: IntegrationType['id']): Promise<IntegrationType> {
             return await new ApiRequest().integration(id).get()
         },
-        async create(data: Partial<IntegrationType> | FormData): Promise<IntegrationType> {
-            return await new ApiRequest().integrations().create({ data })
+        async create(data: Partial<IntegrationType> | FormData, teamId?: TeamType['id']): Promise<IntegrationType> {
+            return await new ApiRequest().integrations(teamId).create({ data })
         },
         async delete(integrationId: IntegrationType['id']): Promise<IntegrationType> {
             return await new ApiRequest().integration(integrationId).delete()
@@ -6265,8 +6288,16 @@ const api = {
         async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest().integrations().get()
         },
-        authorizeUrl(params: { kind: string; next?: string }): string {
-            return new ApiRequest().integrations().withAction('authorize').withQueryString(params).assembleFullUrl(true)
+        authorizeUrl(params: { kind: string; next?: string; extraParams?: Record<string, string> }): string {
+            // `kind` and `next` are common to every integration; anything kind-specific (e.g. the
+            // posthog connection's `region`/`scopes`) rides along in `extraParams` rather than
+            // bloating this shared signature.
+            const { extraParams, ...common } = params
+            return new ApiRequest()
+                .integrations()
+                .withAction('authorize')
+                .withQueryString({ ...common, ...extraParams })
+                .assembleFullUrl(true)
         },
         async slackChannels(
             id: IntegrationType['id'],
@@ -6668,6 +6699,18 @@ const api = {
                 data: { identifier, category_key: categoryKey },
             })
         },
+        async exportOptOutsCsv(categoryKey?: string): Promise<Blob> {
+            const response = await new ApiRequest()
+                .messagingPreferencesExportOptOutsCsv()
+                .withQueryString({ category_key: categoryKey })
+                .getResponse()
+            return await response.blob()
+        },
+        async bulkAddOptOuts(optOuts: BulkOptOutEntryApi[], categoryKey?: string): Promise<BulkAddOptOutsResultApi> {
+            return await new ApiRequest().messagingPreferencesBulkAddOptOuts().create({
+                data: { opt_outs: optOuts, category_key: categoryKey },
+            })
+        },
     },
     hogFlows: {
         async getHogFlows(params?: {
@@ -7020,39 +7063,6 @@ const api = {
         },
     },
 
-    datasets: {
-        list({
-            ids,
-            ...params
-        }: {
-            search?: string
-            order_by?: string
-            offset?: number
-            limit?: number
-            ids?: string[]
-        }): Promise<CountedPaginatedResponse<Dataset>> {
-            return new ApiRequest()
-                .datasets()
-                .withQueryString({
-                    ...params,
-                    id__in: ids?.join(','),
-                })
-                .get()
-        },
-
-        get(datasetId: string): Promise<Dataset> {
-            return new ApiRequest().dataset(datasetId).get()
-        },
-
-        async create(data: Omit<Partial<Dataset>, 'created_by' | 'team'>): Promise<Dataset> {
-            return await new ApiRequest().datasets().create({ data })
-        },
-
-        async update(datasetId: string, data: Omit<Partial<Dataset>, 'created_by' | 'team'>): Promise<Dataset> {
-            return await new ApiRequest().dataset(datasetId).update({ data })
-        },
-    },
-
     evaluationRuns: {
         async create(data: {
             evaluation_id: string
@@ -7067,24 +7077,6 @@ const api = {
             target_event_id: string
         }> {
             return await new ApiRequest().evaluationRuns().create({ data })
-        },
-    },
-
-    datasetItems: {
-        list(data: {
-            dataset: string
-            limit?: number
-            offset?: number
-        }): Promise<CountedPaginatedResponse<DatasetItem>> {
-            return new ApiRequest().datasetItems().withQueryString(data).get()
-        },
-
-        async create(data: Partial<DatasetItem>): Promise<DatasetItem> {
-            return await new ApiRequest().datasetItems().create({ data })
-        },
-
-        async update(datasetItemId: string, data: Partial<DatasetItem>): Promise<DatasetItem> {
-            return await new ApiRequest().datasetItem(datasetItemId).update({ data })
         },
     },
 

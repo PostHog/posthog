@@ -1,5 +1,7 @@
 """GitHub source and warehouse-table fixtures shared across this product's test files."""
 
+import json
+import zlib
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -11,6 +13,7 @@ import pandas as pd
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.logic.sources import (
+    ISSUE_EVENTS_SCHEMA,
     PULL_REQUESTS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
     GitHubTables,
@@ -67,19 +70,50 @@ def create_warehouse_table_row(
 
 
 def connect_github_source_without_data(
-    team: Team, *, prefix: str = GITHUB_SOURCE_PREFIX, repository: str = ""
+    team: Team, *, prefix: str = GITHUB_SOURCE_PREFIX, repository: str = "", include_issue_events: bool = False
 ) -> GitHubTables:
     """A GitHub source with pull_requests/workflow_runs schemas over empty ORM tables.
 
     The resolver finds these without touching object storage; pair with a mocked query
-    when only resolution (not real warehouse data) matters.
+    when only resolution (not real warehouse data) matters. ``include_issue_events``
+    links the optional issue-events schema too, activating the transition reads.
     """
     source = create_github_source(team, prefix=prefix, repository=repository)
     pr_table = create_warehouse_table_row(team, name=f"{prefix}github_pull_requests", source=source)
     run_table = create_warehouse_table_row(team, name=f"{prefix}github_workflow_runs", source=source)
     link_schema(team, source, name=PULL_REQUESTS_SCHEMA, table=pr_table)
     link_schema(team, source, name=WORKFLOW_RUNS_SCHEMA, table=run_table)
-    return GitHubTables(pull_requests=pr_table.name, workflow_runs=run_table.name, repository=repository)
+    issue_events_table = None
+    if include_issue_events:
+        events_table = create_warehouse_table_row(team, name=f"{prefix}github_issue_events", source=source)
+        link_schema(team, source, name=ISSUE_EVENTS_SCHEMA, table=events_table)
+        issue_events_table = events_table.name
+    return GitHubTables(
+        pull_requests=pr_table.name,
+        workflow_runs=run_table.name,
+        issue_events=issue_events_table,
+        repository=repository,
+    )
+
+
+def repo_id(full_name: str) -> int:
+    """A stable synthetic GitHub repo id for a fixture repo — distinct per ``owner/name``."""
+    return zlib.crc32(full_name.encode())
+
+
+def pr_association_entry(number: int, *, base_repo: str = "PostHog/posthog") -> dict[str, Any]:
+    """One entry of a run's ``pull_requests`` association, shaped like the real webhook payload.
+
+    ``base.repo.id`` is what the curated builder matches against the run's own ``repository.id`` to
+    ignore the fork network's PRs. Pass ``base_repo`` to forge an entry based in a *different* repo —
+    that's what a default-branch push really lands, and the builder must skip it.
+    """
+    return {"number": number, "base": {"repo": {"id": repo_id(base_repo)}}}
+
+
+def pr_association(*numbers: int, base_repo: str = "PostHog/posthog") -> str:
+    """A run's ``pull_requests`` association over one base repo, serialized as the column lands it."""
+    return json.dumps([pr_association_entry(number, base_repo=base_repo) for number in numbers])
 
 
 def _user(login: str) -> str:
@@ -105,6 +139,7 @@ def _pr_row(
     created_at: str,
     *,
     merged_at: str | None = None,
+    merge_commit_sha: str | None = None,
     head_sha: str = "",
     head_ref: str = "",
     base_ref: str = "",
@@ -122,10 +157,28 @@ def _pr_row(
         "updated_at": merged_at or created_at,
         "merged_at": merged_at,
         "closed_at": merged_at,
+        "merge_commit_sha": merge_commit_sha,
         "user": _user(login),
         "head": f'{{"sha": "{head_sha}", "ref": "{head_ref}"}}',
         "base": _base(full_name, base_ref, default_branch),
         "labels": _labels(*labels),
+    }
+
+
+def _issue_event_row(
+    event_id: int,
+    event: str,
+    pr_number: int,
+    created_at: str,
+    *,
+    login: str = "alice",
+) -> dict[str, Any]:
+    return {
+        "id": event_id,
+        "event": event,
+        "actor": _user(login),
+        "issue": f'{{"number": {pr_number}}}',
+        "created_at": created_at,
     }
 
 
@@ -142,6 +195,8 @@ def _run_row(
     run_attempt: int = 1,
     pr_number: int | None = None,
     head_branch: str = "main",
+    commit_message: str | None = None,
+    actor: str = "alice",
 ) -> dict[str, Any]:
     return {
         "id": run_id,
@@ -156,8 +211,10 @@ def _run_row(
         "run_attempt": run_attempt,
         # Mirror the real Nullable(String) column: an unassociated run lands NULL, not "[]",
         # so the builder's ifNull(pull_requests, '[]') guard is exercised on the real path.
-        "pull_requests": f'[{{"number": {pr_number}}}]' if pr_number is not None else None,
-        "repository": f'{{"full_name": "{full_name}"}}',
+        "pull_requests": pr_association(pr_number, base_repo=full_name) if pr_number is not None else None,
+        "repository": json.dumps({"full_name": full_name, "id": repo_id(full_name)}),
+        "head_commit": json.dumps({"message": commit_message}) if commit_message is not None else None,
+        "actor": json.dumps({"login": actor}),
     }
 
 
