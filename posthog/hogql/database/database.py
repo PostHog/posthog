@@ -176,6 +176,7 @@ if TYPE_CHECKING:
     from posthog.shared_link_user import SharedLinkUser
 
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+    from products.data_tools.backend.models.expression import DataWarehouseExpression
     from products.data_tools.backend.models.join import DataWarehouseJoin
     from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
     from products.warehouse_sources.backend.facade.models import (
@@ -225,6 +226,7 @@ class HogQLDatabaseSources:
     revenue_views: list[RevenueAnalyticsBaseView]
     warehouse_tables: list[DataWarehouseTable]  # filtered to what build needs, schemas preloaded
     data_warehouse_joins: list[DataWarehouseJoin]
+    data_warehouse_expressions: list[DataWarehouseExpression]
     # dataWarehouseEventsModifiers path: saved query per modifier table name (None if no matching row).
     event_modifier_saved_queries: dict[str, Optional[DataWarehouseSavedQuery]]
     # Dual-mode: a synced (warehouse) source queried live via connection_id. Its physical rows are
@@ -1205,6 +1207,7 @@ class Database(BaseModel):
         from posthog.shared_link_user import SharedLinkUser  # noqa: PLC0415
 
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
+        from products.data_tools.backend.models.expression import DataWarehouseExpression  # noqa: PLC0415
         from products.data_tools.backend.models.join import DataWarehouseJoin  # noqa: PLC0415
         from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415
             DataWarehouseTable,
@@ -1439,6 +1442,9 @@ class Database(BaseModel):
         with timings.measure("data_warehouse_joins", emit_span=True):
             data_warehouse_joins = list(DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True))
 
+        with timings.measure("data_warehouse_expressions", emit_span=True):
+            data_warehouse_expressions = list(DataWarehouseExpression.objects.for_team(team.pk).exclude(deleted=True))
+
         with timings.measure("attach_credentials", emit_span=True):
             # Tables and view-backing tables share the credential pool; attach across all of them.
             credentialed_tables: list[DataWarehouseTable] = [*warehouse_tables]
@@ -1491,6 +1497,7 @@ class Database(BaseModel):
             revenue_views=revenue_views,
             warehouse_tables=warehouse_tables,
             data_warehouse_joins=data_warehouse_joins,
+            data_warehouse_expressions=data_warehouse_expressions,
             event_modifier_saved_queries=event_modifier_saved_queries,
             virtual_source=virtual_source,
             virtual_schemas=virtual_schemas,
@@ -2116,6 +2123,25 @@ class Database(BaseModel):
                 except Exception as e:
                     capture_exception(e)
 
+        # After joins, so a saved expression can never shadow a join field either.
+        with timings.measure("data_warehouse_expressions", emit_span=True):
+            for saved_expression in sources.data_warehouse_expressions:
+                if not database.has_table(saved_expression.table_name):
+                    continue
+                try:
+                    expression_table = database.get_table(saved_expression.table_name)
+                    # Expressions must never override existing fields; first-come-first-served on the
+                    # off chance duplicates exist.
+                    if saved_expression.field_name in expression_table.fields:
+                        continue
+                    expression_table.fields[saved_expression.field_name] = ExpressionField(
+                        name=saved_expression.field_name,
+                        expr=parse_expr(saved_expression.expression),
+                        isolate_scope=True,
+                    )
+                except Exception as e:
+                    capture_exception(e)
+
         database.apply_schema_scope()
 
         return database
@@ -2713,11 +2739,16 @@ def serialize_fields(
                     )
                 )
             elif isinstance(field, ExpressionField):
-                field_expr = resolve_types_from_table(field.expr, table_chain, context, "hogql")
-                assert field_expr.type is not None
-                constant_type = field_expr.type.resolve_constant_type(context)
-
-                field_type = _constant_type_to_serialized_field_type(constant_type)
+                # A stale expression (e.g. a saved expression whose referenced column was since
+                # removed) must degrade to a generic "expression" field instead of failing the
+                # whole schema serialization.
+                try:
+                    field_expr = resolve_types_from_table(field.expr, table_chain, context, "hogql")
+                    assert field_expr.type is not None
+                    constant_type = field_expr.type.resolve_constant_type(context)
+                    field_type = _constant_type_to_serialized_field_type(constant_type)
+                except Exception:
+                    field_type = None
                 if field_type is None:
                     field_type = DatabaseSerializedFieldType.EXPRESSION
 

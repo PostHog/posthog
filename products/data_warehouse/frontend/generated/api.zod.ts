@@ -274,6 +274,87 @@ export const WarehouseColumnAnnotationsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Create, read, update and delete saved HogQL expressions that appear as virtual fields on tables.
+ */
+export const warehouseExpressionsCreateBodyTableNameMax = 400
+
+export const warehouseExpressionsCreateBodyFieldNameMax = 400
+
+export const WarehouseExpressionsCreateBody = /* @__PURE__ */ zod.object({
+    deleted: zod.boolean().nullish().describe('Whether this expression has been soft-deleted.'),
+    table_name: zod
+        .string()
+        .max(warehouseExpressionsCreateBodyTableNameMax)
+        .describe('Name of the table the expression field is added to, for example events.'),
+    field_name: zod
+        .string()
+        .max(warehouseExpressionsCreateBodyFieldNameMax)
+        .describe(
+            'Name of the virtual field the expression is exposed as. Must not clash with an existing field on the table.'
+        ),
+    expression: zod
+        .string()
+        .describe(
+            'HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email).'
+        ),
+})
+
+/**
+ * Create, read, update and delete saved HogQL expressions that appear as virtual fields on tables.
+ */
+export const warehouseExpressionsUpdateBodyTableNameMax = 400
+
+export const warehouseExpressionsUpdateBodyFieldNameMax = 400
+
+export const WarehouseExpressionsUpdateBody = /* @__PURE__ */ zod.object({
+    deleted: zod.boolean().nullish().describe('Whether this expression has been soft-deleted.'),
+    table_name: zod
+        .string()
+        .max(warehouseExpressionsUpdateBodyTableNameMax)
+        .describe('Name of the table the expression field is added to, for example events.'),
+    field_name: zod
+        .string()
+        .max(warehouseExpressionsUpdateBodyFieldNameMax)
+        .describe(
+            'Name of the virtual field the expression is exposed as. Must not clash with an existing field on the table.'
+        ),
+    expression: zod
+        .string()
+        .describe(
+            'HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email).'
+        ),
+})
+
+/**
+ * Create, read, update and delete saved HogQL expressions that appear as virtual fields on tables.
+ */
+export const warehouseExpressionsPartialUpdateBodyTableNameMax = 400
+
+export const warehouseExpressionsPartialUpdateBodyFieldNameMax = 400
+
+export const WarehouseExpressionsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    deleted: zod.boolean().nullish().describe('Whether this expression has been soft-deleted.'),
+    table_name: zod
+        .string()
+        .max(warehouseExpressionsPartialUpdateBodyTableNameMax)
+        .optional()
+        .describe('Name of the table the expression field is added to, for example events.'),
+    field_name: zod
+        .string()
+        .max(warehouseExpressionsPartialUpdateBodyFieldNameMax)
+        .optional()
+        .describe(
+            'Name of the virtual field the expression is exposed as. Must not clash with an existing field on the table.'
+        ),
+    expression: zod
+        .string()
+        .optional()
+        .describe(
+            'HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email).'
+        ),
+})
+
+/**
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export const warehouseSavedQueriesCreateBodyNameMax = 128

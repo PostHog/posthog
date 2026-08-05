@@ -992,6 +992,7 @@ export type ActivityLogListParams = {
      * * `Team` - Team
      * * `Project` - Project
      * * `ErrorTrackingIssue` - ErrorTrackingIssue
+     * * `DataWarehouseExpression` - DataWarehouseExpression
      * * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
@@ -1083,6 +1084,7 @@ export const ActivityLogListScope = {
     Team: 'Team',
     Project: 'Project',
     ErrorTrackingIssue: 'ErrorTrackingIssue',
+    DataWarehouseExpression: 'DataWarehouseExpression',
     DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',
@@ -1161,6 +1163,7 @@ export const ActivityLogListScope = {
  * * `Team` - Team
  * * `Project` - Project
  * * `ErrorTrackingIssue` - ErrorTrackingIssue
+ * * `DataWarehouseExpression` - DataWarehouseExpression
  * * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
  * * `LegalDocument` - LegalDocument
  * * `Organization` - Organization
@@ -1240,6 +1243,7 @@ export const ActivityLogListScopesItem = {
     Team: 'Team',
     Project: 'Project',
     ErrorTrackingIssue: 'ErrorTrackingIssue',
+    DataWarehouseExpression: 'DataWarehouseExpression',
     DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',

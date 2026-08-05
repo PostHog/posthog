@@ -1,0 +1,175 @@
+from typing import Any, Optional, cast
+
+from rest_framework import filters, response, serializers, viewsets
+
+from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import ExpressionField
+from posthog.hogql.errors import BaseHogQLError, ExposedHogQLError
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.printer import prepare_and_print_ast
+
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import UserBasicSerializer
+from posthog.models.user import User
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+
+from products.data_tools.backend.facade.models import DataWarehouseExpression
+
+
+class DataWarehouseExpressionSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+
+    class Meta:
+        model = DataWarehouseExpression
+        fields = [
+            "id",
+            "deleted",
+            "created_by",
+            "created_at",
+            "table_name",
+            "field_name",
+            "expression",
+        ]
+        read_only_fields = ["id", "created_by", "created_at"]
+        extra_kwargs = {
+            "deleted": {"help_text": "Whether this expression has been soft-deleted."},
+            "table_name": {"help_text": "Name of the table the expression field is added to, for example events."},
+            "field_name": {
+                "help_text": "Name of the virtual field the expression is exposed as. Must not clash with an existing field on the table."
+            },
+            "expression": {
+                "help_text": "HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email)."
+            },
+        }
+
+    def _database(self) -> Database:
+        database = self.context.get("database")
+        if not database:
+            database = Database.create_for(
+                team_id=self.context["team_id"],
+                user=cast(User, self.context["request"].user),
+            )
+            # Cache on the shared context so a list response builds the database at most once.
+            self.context["database"] = database
+        return database
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        instance = cast(Optional[DataWarehouseExpression], self.instance)
+        table_name = attrs.get("table_name", instance.table_name if instance else None)
+        field_name = attrs.get("field_name", instance.field_name if instance else None)
+        expression = attrs.get("expression", instance.expression if instance else None)
+        team_id = self.context["team_id"]
+
+        if not table_name:
+            raise serializers.ValidationError({"table_name": ["Table name must not be empty."]})
+        if not field_name:
+            raise serializers.ValidationError({"field_name": ["Field name must not be empty."]})
+        if "." in field_name:
+            raise serializers.ValidationError({"field_name": ["Field name must not contain a period: '.'"]})
+        if not expression:
+            raise serializers.ValidationError({"expression": ["Expression must not be empty."]})
+
+        database = self._database()
+        try:
+            table = database.get_table(table_name)
+        except Exception:
+            raise serializers.ValidationError({"table_name": [f"Invalid table: {table_name}"]})
+
+        # The field this instance already contributes to the built database is the one name it may keep.
+        is_own_field = (
+            instance is not None
+            and not instance.deleted
+            and instance.table_name == table_name
+            and instance.field_name == field_name
+        )
+        if not is_own_field and table.fields.get(field_name) is not None:
+            raise serializers.ValidationError(
+                {
+                    "field_name": [
+                        f'Field "{field_name}" already exists on table "{table_name}". Expressions can\'t override existing fields.'
+                    ]
+                }
+            )
+
+        duplicates = DataWarehouseExpression.objects.for_team(team_id).filter(
+            table_name=table_name, field_name=field_name, deleted=False
+        )
+        if instance is not None:
+            duplicates = duplicates.exclude(id=instance.id)
+        if duplicates.exists():
+            raise serializers.ValidationError(
+                {"field_name": [f'An expression named "{field_name}" already exists on table "{table_name}".']}
+            )
+
+        try:
+            expr_node = parse_expr(expression)
+        except ExposedHogQLError as e:
+            raise serializers.ValidationError({"expression": [str(e)]})
+
+        # Print a probe query with the new field present on the table. Printing (unlike type
+        # resolution) fully expands expression fields, so an unknown column or a recursive
+        # expression fails here instead of breaking every later query against the table.
+        previous_field = table.fields.get(field_name)
+        table.fields[field_name] = ExpressionField(name=field_name, expr=expr_node, isolate_scope=True)
+        try:
+            context = HogQLContext(team_id=team_id, database=database, enable_select_queries=True)
+            probe_query = ast.SelectQuery(
+                select=[ast.Field(chain=[field_name])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=cast(list[str | int], table_name.split(".")))),
+            )
+            prepare_and_print_ast(probe_query, context, "clickhouse")
+        except ExposedHogQLError as e:
+            raise serializers.ValidationError({"expression": [str(e)]})
+        except RecursionError:
+            raise serializers.ValidationError(
+                {"expression": ["Expression can't reference itself, directly or through another expression."]}
+            )
+        except BaseHogQLError:
+            raise serializers.ValidationError(
+                {"expression": [f'This expression can\'t be used on table "{table_name}".']}
+            )
+        finally:
+            if previous_field is None:
+                table.fields.pop(field_name, None)
+            else:
+                table.fields[field_name] = previous_field
+
+        return attrs
+
+    def create(self, validated_data: dict[str, Any]) -> DataWarehouseExpression:
+        validated_data["team_id"] = self.context["team_id"]
+        validated_data["created_by"] = self.context["request"].user
+        return DataWarehouseExpression.objects.create(**validated_data)
+
+
+class DataWarehouseExpressionViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
+    """
+    Create, read, update and delete saved HogQL expressions that appear as virtual fields on tables.
+    """
+
+    scope_object = "warehouse_view"
+    # `.unscoped()` avoids the fail-closed manager raising at import (no team context yet);
+    # `safely_get_queryset` re-scopes every real query to the team.
+    queryset = DataWarehouseExpression.objects.unscoped()
+    serializer_class = DataWarehouseExpressionSerializer
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["field_name", "table_name"]
+    ordering = "-created_at"
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(team_id=self.team_id).prefetch_related("created_by").order_by(self.ordering)
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset().exclude(deleted=True))
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return response.Response(serializer.data)
+
+    def perform_destroy(self, instance: DataWarehouseExpression) -> None:
+        instance.soft_delete()

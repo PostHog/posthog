@@ -53,6 +53,7 @@ ActivityScope = Literal[
     "Team",
     "Project",
     "ErrorTrackingIssue",
+    "DataWarehouseExpression",
     "DataWarehouseSavedQuery",
     "LegalDocument",
     "Organization",
@@ -629,6 +630,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "_old_api_token",
     ],
     "Project": ["id", "created_at"],
+    "DataWarehouseExpression": ["deleted_at"],
     "DataWarehouseSavedQuery": [
         "name",
         "columns",

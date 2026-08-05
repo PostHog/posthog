@@ -6014,6 +6014,7 @@ export enum ActivityScope {
     OAUTH_APPLICATION = 'OAuthApplication',
     LEGAL_DOCUMENT = 'LegalDocument',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
+    DATA_WAREHOUSE_EXPRESSION = 'DataWarehouseExpression',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
     USER_INTERVIEW = 'UserInterview',
     TAG = 'Tag',
