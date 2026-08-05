@@ -1,9 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { initKeaTests } from '~/test/init'
 import { OrganizationBasicType, Region, SidePanelTab, TeamPublicType } from '~/types'
@@ -101,8 +98,7 @@ describe('supportLogic', () => {
         })
     })
 
-    describe('submitSupportTicket routing', () => {
-        const ZENDESK_URL = 'https://posthoghelp.zendesk.com/api/v2/requests.json'
+    describe('submitSupportTicket', () => {
         const FORM_FIELDS: SupportFormFields = {
             name: 'Max',
             email: 'max@example.com',
@@ -113,33 +109,18 @@ describe('supportLogic', () => {
         }
 
         let logic: ReturnType<typeof supportLogic.build>
-        const savedFetch = global.fetch
-        let fetchMock: jest.Mock
 
-        const zendeskCalls = (): unknown[][] => fetchMock.mock.calls.filter(([url]) => url === ZENDESK_URL)
+        const conversationsMock = (sendMessage: jest.Mock): void => {
+            ;(posthog as any).conversations = { isAvailable: () => true, sendMessage }
+        }
 
         const aiTicketCaptures = (): unknown[][] =>
             (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === 'posthog_ai_support_ticket_created')
 
-        const enableConversationsFlag = (): void => {
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL]: true })
-        }
-
-        // Flag state leaks between tests through the window app context, so flag-off tests must
-        // disable explicitly rather than rely on the default
-        const disableConversationsFlag = (): void => {
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL]: false })
-        }
+        const sendFailures = (): unknown[][] =>
+            (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === 'support ticket send failed')
 
         beforeEach(() => {
-            fetchMock = jest.fn(() =>
-                Promise.resolve({
-                    ok: true,
-                    json: () => Promise.resolve({ request: { id: 123 } }),
-                    text: () => Promise.resolve(''),
-                } as unknown as Response)
-            )
-            global.fetch = fetchMock
             ;(posthog.capture as jest.Mock).mockClear()
             initKeaTests()
             logic = supportLogic.build()
@@ -149,80 +130,35 @@ describe('supportLogic', () => {
         afterEach(() => {
             logic?.unmount()
             delete (posthog as any).conversations
-            global.fetch = savedFetch
         })
 
-        it('creates a conversations ticket instead of a Zendesk one when the flag is on', async () => {
+        it('sends the message through the conversations widget and records the ticket id', async () => {
             const sendMessage = jest.fn().mockResolvedValue({ ticket_id: 't1' })
-            ;(posthog as any).conversations = { isAvailable: () => true, sendMessage }
-            enableConversationsFlag()
+            conversationsMock(sendMessage)
 
             await logic.asyncActions.submitSupportTicket(FORM_FIELDS)
 
             expect(sendMessage).toHaveBeenCalledTimes(1)
             expect(sendMessage).toHaveBeenCalledWith('Help!', { name: 'Max', email: 'max@example.com' }, true)
-            expect(zendeskCalls()).toHaveLength(0)
             expect(logic.values.lastSubmittedTicketId).toBe('t1')
         })
 
-        it.each([
-            ['the flag is off', false, { isAvailable: () => true, sendMessage: jest.fn() }],
-            [
-                'sendMessage reports unavailable without sending',
-                true,
-                { isAvailable: () => true, sendMessage: jest.fn().mockResolvedValue(null) },
-            ],
-        ])('files exactly one Zendesk ticket when %s', async (_case, flagOn, conversations) => {
-            ;(posthog as any).conversations = conversations
-            if (flagOn) {
-                enableConversationsFlag()
-            }
-
-            await expectLogic(logic, () => {
-                logic.actions.submitSupportTicket(FORM_FIELDS)
-            }).toFinishAllListeners()
-
-            expect(zendeskCalls()).toHaveLength(1)
-        })
-
-        it('waits for the lazily-loaded extension before falling back to Zendesk', async () => {
-            ;(posthog as any).conversations = undefined
-            enableConversationsFlag()
-
-            jest.useFakeTimers()
-            try {
-                const promise = (logic.asyncActions as any).submitSupportTicket(FORM_FIELDS)
-                // No Zendesk request yet — the submit is still waiting for the extension
-                expect(zendeskCalls()).toHaveLength(0)
-                await jest.runAllTimersAsync()
-                await promise
-            } finally {
-                jest.useRealTimers()
-            }
-
-            expect(zendeskCalls()).toHaveLength(1)
-        })
-
-        it('preserves exception context on the conversations ticket message', async () => {
+        it('appends exception context to the message so it survives on the ticket', async () => {
             const sendMessage = jest.fn().mockResolvedValue({ ticket_id: 't1' })
-            ;(posthog as any).conversations = { isAvailable: () => true, sendMessage }
-            enableConversationsFlag()
+            conversationsMock(sendMessage)
 
-            await expectLogic(logic, () => {
-                logic.actions.submitSupportTicket({
-                    ...FORM_FIELDS,
-                    exception_event: { uuid: 'exc-1', event: '$exception' },
-                })
-            }).toFinishAllListeners()
+            await logic.asyncActions.submitSupportTicket({
+                ...FORM_FIELDS,
+                exception_event: { uuid: 'exc-1', event: '$exception' },
+            })
 
             expect(sendMessage.mock.calls[0][0]).toContain('Help!')
             expect(sendMessage.mock.calls[0][0]).toContain('Exception:')
         })
 
-        it('accepts a form submission without severity or topic when the flag is on, as those fields are hidden', async () => {
+        it('accepts a submission with no topic or severity, since the form no longer collects them', async () => {
             const sendMessage = jest.fn().mockResolvedValue({ ticket_id: 't1' })
-            ;(posthog as any).conversations = { isAvailable: () => true, sendMessage }
-            enableConversationsFlag()
+            conversationsMock(sendMessage)
 
             await expectLogic(logic, () => {
                 logic.actions.setSendSupportRequestValue('message', 'Just a message')
@@ -233,43 +169,55 @@ describe('supportLogic', () => {
             expect(sendMessage.mock.calls[0][0]).toBe('Just a message')
         })
 
-        it('blocks an over-limit message client-side without sending or falling back to Zendesk', async () => {
+        it('blocks an over-limit message before it reaches the widget', async () => {
             const sendMessage = jest.fn().mockResolvedValue({ ticket_id: 't1' })
-            ;(posthog as any).conversations = { isAvailable: () => true, sendMessage }
-            enableConversationsFlag()
+            conversationsMock(sendMessage)
 
             await logic.asyncActions.submitSupportTicket({
                 ...FORM_FIELDS,
                 message: 'a'.repeat(CONVERSATIONS_MESSAGE_MAX_LENGTH + 1),
             })
 
-            // Guarded before it leaves the browser: no widget send, and no Zendesk double-file
             expect(sendMessage).not.toHaveBeenCalled()
-            expect(zendeskCalls()).toHaveLength(0)
             expect(logic.values.lastSubmittedTicketId).toBeNull()
         })
 
-        it('does not fall back to Zendesk when sendMessage throws, to avoid double-filing', async () => {
-            ;(posthog as any).conversations = {
-                isAvailable: () => true,
-                sendMessage: jest.fn().mockRejectedValue(new Error('network down')),
-            }
-            enableConversationsFlag()
+        // lastSubmittedTicketId staying null is how every caller detects failure, and there is no
+        // second channel to retry on, so each of these must report rather than silently drop
+        it.each([
+            ['the widget declines to send', jest.fn().mockResolvedValue(null)],
+            ['the send throws', jest.fn().mockRejectedValue(new Error('network down'))],
+        ])('reports a failure and files no ticket when %s', async (_case, sendMessage) => {
+            conversationsMock(sendMessage)
 
             await logic.asyncActions.submitSupportTicket(FORM_FIELDS)
 
-            // lastSubmittedTicketId stays null on failure — callers use this to detect the failure
-            expect(zendeskCalls()).toHaveLength(0)
+            expect(logic.values.lastSubmittedTicketId).toBeNull()
+            expect(sendFailures()).toHaveLength(1)
+        })
+
+        it('waits for the lazily-loaded extension, then reports a failure if it never arrives', async () => {
+            ;(posthog as any).conversations = undefined
+
+            jest.useFakeTimers()
+            try {
+                const promise = logic.asyncActions.submitSupportTicket(FORM_FIELDS)
+                // Still waiting on the extension, so nothing is reported yet
+                expect(sendFailures()).toHaveLength(0)
+                await jest.runAllTimersAsync()
+                await promise
+            } finally {
+                jest.useRealTimers()
+            }
+
+            expect(sendFailures()).toHaveLength(1)
             expect(logic.values.lastSubmittedTicketId).toBeNull()
         })
 
-        // Regression guard: the AI /ticket handover event must fire from supportLogic once the ticket id
-        // resolves. It previously lived in a component effect that raced the async conversations
-        // round-trip and silently dropped the event once submissions were routed to conversations.
-        it('captures posthog_ai_support_ticket_created once on the conversations path when AI context is present', async () => {
-            const sendMessage = jest.fn().mockResolvedValue({ ticket_id: 't1' })
-            ;(posthog as any).conversations = { isAvailable: () => true, sendMessage }
-            enableConversationsFlag()
+        // Regression guard: this event used to live in a component effect that raced the async
+        // conversations round-trip and silently dropped it. It belongs here, where the ticket id lands.
+        it('captures the AI ticket event once when the submission carries AI context', async () => {
+            conversationsMock(jest.fn().mockResolvedValue({ ticket_id: 't1' }))
 
             await logic.asyncActions.submitSupportTicket({
                 ...FORM_FIELDS,
@@ -292,32 +240,8 @@ describe('supportLogic', () => {
             ])
         })
 
-        it('captures posthog_ai_support_ticket_created on the Zendesk fallback path with the zendesk ticket id', async () => {
-            // Flag off and no conversations extension → Zendesk path; fetchMock returns request id 123
-            disableConversationsFlag()
-            await logic.asyncActions.submitSupportTicket({
-                ...FORM_FIELDS,
-                ai_conversation_id: 'conv-2',
-                ai_trace_id: null,
-            })
-
-            expect(aiTicketCaptures()).toEqual([
-                [
-                    'posthog_ai_support_ticket_created',
-                    {
-                        $ai_conversation_id: 'conv-2',
-                        $ai_session_id: 'conv-2',
-                        $ai_trace_id: null,
-                        $ai_support_ticket_id: '123',
-                    },
-                ],
-            ])
-        })
-
-        it('does not capture the AI ticket event for a regular (non-AI) submission', async () => {
-            const sendMessage = jest.fn().mockResolvedValue({ ticket_id: 't1' })
-            ;(posthog as any).conversations = { isAvailable: () => true, sendMessage }
-            enableConversationsFlag()
+        it('does not capture the AI ticket event for a regular submission', async () => {
+            conversationsMock(jest.fn().mockResolvedValue({ ticket_id: 't1' }))
 
             await logic.asyncActions.submitSupportTicket(FORM_FIELDS)
 

@@ -2,8 +2,6 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { CONVERSATIONS_MESSAGE_MAX_LENGTH, supportLogic } from 'lib/components/Support/supportLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -29,8 +27,6 @@ describe('sidepanelTicketsLogic', () => {
                 .fn()
                 .mockResolvedValue({ ticket_id: 't1', ticket_status: 'open', created_at: '2026-07-21T00:00:00Z' }),
         }
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL]: true })
         supportLogic.mount()
         billingLogic.mount()
         // Tickets can be created unless a test drops the plan; set it up front, since the async

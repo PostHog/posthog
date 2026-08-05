@@ -5,32 +5,22 @@ import posthog from 'posthog-js'
 
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { EMAIL_SUPPORT_BUTTON, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { preflightLogic } from 'lib/logic/preflightLogic'
-import { uuid } from 'lib/utils/dom'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import {
-    AvailableFeature,
     BillingPlan,
     BillingPlanType,
     OrganizationBasicType,
     Region,
     SidePanelTab,
-    StartupProgramLabel,
     TeamPublicType,
     UserType,
 } from '~/types'
 
-import type { BillingType, PreflightStatus } from '../../../types'
-import type { FeatureFlagsSet } from '../../logic/featureFlagLogic'
+import type { BillingType } from '../../../types'
 import { parseExceptionEvent } from './exceptionUtils'
 import { openSupportModal } from './SupportModal'
 import { getSupportResponseTime } from './supportResponseTime'
@@ -75,68 +65,14 @@ function getSessionReplayLink(): string {
     return `\nSession: http://go/session/${sessionId}${queryAndHash ?? ''}`
 }
 
-function getErrorTrackingLink(uuid?: string): string {
-    const values = [
-        {
-            key: '$session_id',
-            value: [posthog.get_session_id()],
-            operator: 'exact',
-            type: 'event',
-        },
-    ]
-
-    if (uuid) {
-        values.push({
-            type: 'hogql',
-            key: `uuid = '${uuid}'`,
-            value: null,
-        } as any)
-    }
-
-    const filterGroup = encodeURIComponent(
-        JSON.stringify({
-            type: 'AND',
-            values: [
-                {
-                    type: 'AND',
-                    values,
-                },
-            ],
-        })
-    )
-
-    return `\nExceptions: https://us.posthog.com/project/2/error_tracking?filterGroup=${filterGroup}`
-}
-
-function getDjangoAdminLink(
-    user: UserType | null,
-    cloudRegion: Region | null | undefined,
-    currentOrganization: OrganizationBasicType | null,
-    currentTeam: TeamPublicType | null
-): string {
-    if (!user || !cloudRegion) {
-        return ''
-    }
-    const link = `https://${cloudRegion.toLowerCase()}.posthog.com/admin/posthog/user/${user.id}/change/`
-    return `\nAdmin (internal): ${link} (organization ID ${currentOrganization?.id}: ${currentOrganization?.name}, project ID ${currentTeam?.id}: ${currentTeam?.name})`
-}
-
-function getBillingAdminLink(currentOrganization: OrganizationBasicType | null): string {
-    if (!currentOrganization) {
-        return ''
-    }
-    return `\nBilling admin (internal): http://go/billing/${currentOrganization.id}`
-}
-
 const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
     support: 'Contact support',
     feedback: 'Give feedback',
     bug: 'Report a bug',
 }
 
-// The conversations extension loads lazily; poll briefly before deciding how to route so a fast
-// submit right after page load doesn't miss it and fall back to Zendesk. Resolves as soon as it's
-// available, or after the timeout.
+// The conversations extension loads lazily; poll briefly before sending so a fast submit right
+// after page load doesn't miss it. Resolves as soon as it's available, or after the timeout.
 async function waitForConversations(timeoutMs = 5000): Promise<boolean> {
     const intervalMs = 250
     for (let waited = 0; waited < timeoutMs; waited += intervalMs) {
@@ -454,16 +390,6 @@ export const SUPPORT_TICKET_TEMPLATES = {
         "Please explain as fully as possible what you're aiming to do, and what you'd like help with.\n\nIf your question involves an existing insight or dashboard, please include a link to it.",
 }
 
-const SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS = {
-    severity: 22084126888475,
-    distinct_id: 22129191462555,
-    target_area: 27242745654043,
-    organization_id: 27031528411291,
-    support_type: 26073267652251,
-    account_owner: 37742340880411,
-    exception_event: 39967113285659,
-} as const
-
 export function getURLPathToTargetArea(pathname: string): SupportTicketTargetArea | null {
     const pathParts = pathname.split('/')
 
@@ -493,7 +419,6 @@ export type SupportFormFields = {
     message: string
     exception_event?: SupportTicketExceptionEvent
     isEmailFormOpen?: boolean | 'true' | 'false'
-    tags?: string[]
     // Set when the ticket originates from a PostHog AI (/ticket, feedback) handover, so the created
     // ticket can be attributed back to the conversation regardless of which submit path files it.
     ai_conversation_id?: string | null
@@ -506,13 +431,8 @@ export interface supportLogicValues {
     billing: BillingType | null // billingLogic
     billingPlan: BillingPlan | null // billingLogic
     supportPlans: BillingPlanType[] // billingLogic
-    featureFlags: FeatureFlagsSet // featureFlagLogic
-    isCurrentOrganizationNew: boolean // organizationLogic
-    preflight: PreflightStatus | null // preflightLogic
     sidePanelAvailable: boolean // sidePanelStateLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
     user: UserType | null // userLogic
-    conversationsFlagEnabled: boolean
     isEmailFormOpen: boolean
     isSendSupportRequestSubmitting: boolean
     isSendSupportRequestValid: boolean
@@ -557,9 +477,6 @@ export interface supportLogicActions {
         value: true
     }
     closeSupportForm: () => {
-        value: true
-    }
-    ensureZendeskOrganization: () => {
         value: true
     }
     openEmailForm: () => {
@@ -628,7 +545,6 @@ export interface supportLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         title: (arg: SupportFormFields) => string
         targetArea: (sendSupportRequest: SupportFormFields) => SupportTicketTargetArea | null
-        conversationsFlagEnabled: (featureFlags: FeatureFlagsSet) => boolean
         supportResponseTime: (
             billing: BillingType | null,
             billingPlan: BillingPlan | null,
@@ -652,18 +568,10 @@ export const supportLogic = kea<supportLogicType>([
         values: [
             userLogic,
             ['user'],
-            preflightLogic,
-            ['preflight'],
-            userLogic,
-            ['hasAvailableFeature'],
             billingLogic,
             ['billing', 'billingPlan', 'supportPlans'],
-            organizationLogic,
-            ['isCurrentOrganizationNew'],
             sidePanelStateLogic,
             ['sidePanelAvailable'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [sidePanelStateLogic, ['openSidePanel', 'setSidePanelOptions']],
     })),
@@ -671,7 +579,6 @@ export const supportLogic = kea<supportLogicType>([
         closeSupportForm: true,
         openSupportForm: (values: Partial<SupportFormFields> & { target?: 'modal' | 'sidePanel' }) => values,
         submitSupportTicket: (form: SupportFormFields) => form,
-        ensureZendeskOrganization: true,
         updateUrlParams: true,
         openEmailForm: true,
         closeEmailForm: true,
@@ -721,21 +628,14 @@ export const supportLogic = kea<supportLogicType>([
                 target_area: null,
                 message: '',
             } as SupportFormFields,
-            errors: ({ name, email, message, kind, target_area, severity_level }) => {
-                // Conversations tickets are just a message, like the side panel composer — the
-                // triage fields only exist on the Zendesk form
-                const requiresTriageFields = !values.conversationsFlagEnabled
+            errors: ({ name, email, message }) => {
                 return {
                     name: !values.user && !name ? 'Please enter your name' : undefined,
                     email: !values.user && !email ? 'Please enter your email' : undefined,
                     message: !message ? 'Please enter a message' : undefined,
-                    kind: requiresTriageFields && !kind ? 'Please choose' : undefined,
-                    severity_level: requiresTriageFields && !severity_level ? 'Please choose' : undefined,
-                    target_area: requiresTriageFields && !target_area ? 'Please choose' : undefined,
                 }
             },
             submit: async (formValues) => {
-                // name must be present for zendesk to accept the ticket
                 formValues.name = values.user?.first_name ?? formValues.name ?? 'name not set'
                 formValues.email = values.user?.email ?? formValues.email ?? ''
                 await supportLogic.asyncActions.submitSupportTicket(formValues)
@@ -753,11 +653,6 @@ export const supportLogic = kea<supportLogicType>([
         targetArea: [
             (s) => [s.sendSupportRequest],
             (sendSupportRequest: SupportFormFields) => sendSupportRequest.target_area,
-        ],
-        conversationsFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
-                !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL],
         ],
         supportResponseTime: [
             (s) => [s.billing, s.billingPlan, s.supportPlans, s.user],
@@ -833,12 +728,12 @@ export const supportLogic = kea<supportLogicType>([
             actions.updateUrlParams()
         },
         submitSupportTicket: async (formValues: SupportFormFields) => {
-            const { name, email, kind, target_area, severity_level, message, exception_event, tags } = formValues
+            const { name, email, kind, target_area, message, exception_event } = formValues
             const { ai_conversation_id, ai_trace_id, ai_feedback_rating } = formValues
 
             // Attribute PostHog AI (/ticket, feedback) handovers to the conversation. The ticket id
-            // only exists once a submit path resolves — capturing from here means it fires no matter
-            // which path files the ticket, instead of relying on a component effect that races the
+            // only exists once the send resolves — capturing from here means it fires no matter which
+            // caller triggered the submit, instead of relying on a component effect that races the
             // async conversations round-trip and silently drops the event.
             const captureAiSupportTicket = (ticketId: string | number): void => {
                 if (!ai_conversation_id) {
@@ -853,337 +748,73 @@ export const supportLogic = kea<supportLogicType>([
                 })
             }
 
-            // Conversations is where support is headed, so wait for the extension rather than racing
-            // it to the (temporary) Zendesk fallback
-            if (values.conversationsFlagEnabled && (await waitForConversations())) {
-                // Measure the full outgoing payload (message plus any appended exception) so the
-                // guard matches what the widget endpoint actually receives and rejects
-                const outgoingMessage = appendExceptionToMessage(message, exception_event)
-                if (warnIfMessageTooLong(outgoingMessage)) {
-                    return
-                }
-                try {
-                    const response = await posthog.conversations!.sendMessage(
-                        outgoingMessage,
-                        { name: name || undefined, email: email || undefined },
-                        true // every form submission starts a new ticket
-                    )
-                    if (response) {
-                        // No support_ticket capture here: the backend fires $conversation_ticket_created
-                        // for every new ticket, so a client-side event would double-count
-                        actions.setLastSubmittedTicketId(response.ticket_id)
-                        captureAiSupportTicket(response.ticket_id)
-                        lemonToast.success(
-                            values.sidePanelAvailable
-                                ? 'Got the message! You can view replies from our support engineers in the support panel.'
-                                : "Got the message! Our support engineers will follow up by email if there's more to share.",
-                            values.sidePanelAvailable
-                                ? {
-                                      button: {
-                                          label: 'View',
-                                          action: () =>
-                                              actions.viewConversationsTicket({
-                                                  id: response.ticket_id,
-                                                  status: response.ticket_status,
-                                                  created_at: response.created_at,
-                                              }),
-                                      },
-                                  }
-                                : undefined
-                        )
-                        actions.closeEmailForm()
-                        actions.closeSupportForm()
-                        actions.resetSendSupportRequest()
-                        return
-                    }
-                    // null means the extension declined to send (not available) — nothing left the
-                    // browser, so falling through to Zendesk cannot double-file the ticket
-                } catch (e) {
-                    // The request may have reached the server even though the response failed, so
-                    // don't fall back to Zendesk here — that could file the ticket twice
-                    posthog.captureException(e)
-                    posthog.capture('support ticket send failed', {
-                        channel: 'conversations',
-                        error: e instanceof Error ? e.message : String(e),
-                        kind,
-                        target_area,
-                        message_length: message?.length,
-                        current_url_length: window.location.href.length,
-                    })
-                    lemonToast.error("Oops, the message couldn't be sent. Please try again in a moment.", {
-                        button: EMAIL_SUPPORT_BUTTON,
-                    })
-                    return
-                }
-            }
-
-            // Fallback path: conversations flag off, or the extension never loaded. Tag flag-on
-            // fallbacks so the (rare) volume is visible while Zendesk is being retired.
-            const conversationsFallback = values.conversationsFlagEnabled
-            const zendesk_ticket_uuid = uuid()
-            const subject =
-                SUPPORT_KIND_TO_SUBJECT[kind ?? 'support'] +
-                ': ' +
-                (target_area
-                    ? (getLabelBasedOnTargetArea(target_area) ?? `${target_area} (feature preview)`)
-                    : 'General') +
-                ' (' +
-                zendesk_ticket_uuid +
-                ')'
-            const cloudRegion = preflightLogic.values.preflight?.region
-
-            const billing = billingLogic.values.billing
-            const billingPlan = billingLogic.values.billingPlan
-
-            let planLevelTag = 'plan_free'
-
-            const knownEnterpriseOrgIds = ['018713f3-8d56-0000-32fa-75ce97e6662f']
-            const isKnownEnterpriseOrg = knownEnterpriseOrgIds.includes(userLogic?.values?.user?.organization?.id || '')
-
-            const isNewOrganization = values.isCurrentOrganizationNew
-
-            const hasBoostTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'boost'
-            const hasScaleTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'scale'
-            const hasEnterpriseTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'enterprise'
-
-            if (isKnownEnterpriseOrg || hasEnterpriseTrial || billingPlan === BillingPlan.Enterprise) {
-                planLevelTag = 'plan_enterprise'
-            } else if (isNewOrganization) {
-                planLevelTag = 'plan_onboarding'
-            } else if (hasScaleTrial) {
-                planLevelTag = 'plan_scale'
-            } else if (hasBoostTrial) {
-                planLevelTag = 'plan_boost'
-            } else if (billingPlan) {
-                switch (billingPlan) {
-                    case BillingPlan.Scale:
-                        planLevelTag = 'plan_scale'
-                        break
-                    case BillingPlan.Boost:
-                        planLevelTag = 'plan_boost'
-                        break
-                    case BillingPlan.Teams:
-                        planLevelTag = 'plan_teams_legacy'
-                        break
-                    case BillingPlan.Paid:
-                        const projectedAmount = parseFloat(billing?.projected_total_amount_usd_with_limit || '0')
-                        const shouldMarkAsFree = projectedAmount === 0
-
-                        planLevelTag = shouldMarkAsFree ? 'plan_pay-as-you-go_free' : 'plan_pay-as-you-go_paying'
-                        break
-                    case BillingPlan.Free:
-                        planLevelTag = 'plan_free'
-                        break
-                }
-            }
-
-            const startupProgramLabel = billing?.startup_program_label
-            if (startupProgramLabel === StartupProgramLabel.YC) {
-                planLevelTag = 'plan_yc'
-            } else if (startupProgramLabel === StartupProgramLabel.Startup) {
-                planLevelTag = 'plan_startup'
-            }
-
-            const { accountOwner } = billingLogic.values
-
-            const ownerName = accountOwner?.name?.toLowerCase().replace(/[^a-z0-9]/g, '_') || 'unassigned'
-            const accountOwnerTag = `owner_${ownerName}`
-
-            const payload = {
-                request: {
-                    requester: { name: name, email: email },
-                    subject: subject,
-                    tags: [
-                        planLevelTag,
-                        accountOwnerTag,
-                        ...(conversationsFallback ? ['conversations_fallback'] : []),
-                        ...(tags || []),
-                    ],
-                    custom_fields: [
-                        {
-                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.severity,
-                            value: severity_level,
-                        },
-                        {
-                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.distinct_id,
-                            value: posthog.get_distinct_id(),
-                        },
-                        {
-                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.target_area,
-                            value: target_area ?? '',
-                        },
-                        {
-                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.organization_id,
-                            value: userLogic?.values?.user?.organization?.id ?? '',
-                        },
-                        {
-                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.support_type,
-                            value: values.hasAvailableFeature(AvailableFeature.PRIORITY_SUPPORT)
-                                ? 'priority_support'
-                                : values.hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT)
-                                  ? 'email_support'
-                                  : 'free_support',
-                        },
-                        {
-                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.account_owner,
-                            value: accountOwner?.name || 'unassigned',
-                        },
-                        {
-                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.exception_event,
-                            value: exception_event ? parseExceptionEvent(exception_event) : '',
-                        },
-                    ],
-                    comment: {
-                        body:
-                            message +
-                            `\n\n-----` +
-                            `\nKind: ${kind ?? 'support'}` +
-                            `\nTarget area: ${target_area ?? 'General'}` +
-                            `\nReport event: http://go/ticketByUUID/${zendesk_ticket_uuid}` +
-                            getSessionReplayLink() +
-                            getErrorTrackingLink(exception_event?.uuid) +
-                            getCurrentLocationLink() +
-                            getDjangoAdminLink(
-                                userLogic.values.user,
-                                cloudRegion,
-                                organizationLogic.values.currentOrganization,
-                                teamLogic.values.currentTeam
-                            ) +
-                            (target_area === 'billing' || target_area === 'login' || target_area === 'onboarding'
-                                ? getBillingAdminLink(organizationLogic.values.currentOrganization)
-                                : '') +
-                            (cloudRegion && teamLogic.values.currentTeam
-                                ? '\nPersons-on-events mode for project: ' +
-                                  (teamLogic.values.currentTeam.modifiers?.personsOnEventsMode ??
-                                      teamLogic.values.currentTeam.default_modifiers?.personsOnEventsMode ??
-                                      'unknown')
-                                : ''),
-                    },
-                },
-            }
-
-            try {
-                const zendeskRequestBody = JSON.stringify(payload, undefined, 4)
-
-                // First attempt with standard fetch (unchanged from original)
-                const response = await fetch('https://posthoghelp.zendesk.com/api/v2/requests.json', {
-                    method: 'POST',
-                    body: zendeskRequestBody,
-                    headers: { 'Content-Type': 'application/json' },
-                })
-
-                // If the fetch request fails, try the Beacon API as a fallback
-                if (!response.ok) {
-                    console.warn('Fetch attempt to submit support ticket failed, trying Beacon API as fallback')
-
-                    // Detect Firefox
-                    const isFirefox = navigator.userAgent.toLowerCase().indexOf('firefox') > -1
-
-                    // Try Beacon API
-                    const beaconSuccess = navigator.sendBeacon(
-                        'https://posthoghelp.zendesk.com/api/v2/requests.json',
-                        zendeskRequestBody
-                    )
-
-                    if (beaconSuccess) {
-                        // Track success
-                        const properties = {
-                            zendesk_ticket_uuid,
-                            kind,
-                            target_area,
-                            message,
-                            submission_method: 'beacon',
-                            browser: isFirefox ? 'firefox' : 'other',
-                        }
-                        posthog.capture('support_ticket', properties)
-                        lemonToast.success(
-                            "Got the message! If we have follow-up information for you, we'll reply via email."
-                        )
-                        // The beacon response is opaque, so the Zendesk ticket id is unknown here;
-                        // the client-generated uuid (also embedded in the subject) marks success for
-                        // callers watching lastSubmittedTicketId
-                        actions.setLastSubmittedTicketId(zendesk_ticket_uuid)
-                        // Only close and reset the form on success
-                        actions.closeSupportForm()
-                        actions.resetSendSupportRequest()
-                        return
-                    }
-
-                    // If both fetch and beacon fail, show the original error message
-                    const error = new Error(`There was an error creating the support ticket with zendesk.`)
-                    const extra: Record<string, any> = { zendeskBody: zendeskRequestBody }
-                    Object.entries(payload).forEach(([key, value]) => {
-                        extra[`payload_${key}`] = value
-                    })
-                    const body = await response.text()
-                    const contexts = {
-                        response: {
-                            status_code: response.status,
-                            data: body,
-                            body_size: body?.length,
-                        },
-                    }
-                    posthog.captureException(error, {
-                        ...extra,
-                        ...contexts,
-                    })
-                    posthog.capture('support ticket send failed', {
-                        channel: 'zendesk',
-                        error: error.message,
-                        status_code: response.status,
-                        kind,
-                        target_area,
-                        message_length: message?.length,
-                        current_url_length: window.location.href.length,
-                    })
-                    lemonToast.error(
-                        `Oops, the message couldn't be sent. Please change your browser's privacy level to the standard or default level, then try again. (E.g. In Firefox: Settings > Privacy & Security > Standard)`,
-                        { button: EMAIL_SUPPORT_BUTTON }
-                    )
-                    // Don't close the form or reset the data so user can try again
-                    return
-                }
-
-                const json = await response.json()
-
-                const zendesk_ticket_id = json.request.id
-                const zendesk_ticket_link = `https://posthoghelp.zendesk.com/agent/tickets/${zendesk_ticket_id}`
-                const properties = {
-                    zendesk_ticket_uuid,
-                    kind,
-                    target_area,
-                    message,
-                    zendesk_ticket_id,
-                    zendesk_ticket_link,
-                }
-                posthog.capture('support_ticket', properties)
-                lemonToast.success("Got the message! If we have follow-up information for you, we'll reply via email.")
-
-                actions.ensureZendeskOrganization()
-                actions.setLastSubmittedTicketId(zendesk_ticket_id)
-                captureAiSupportTicket(zendesk_ticket_id)
-
-                // Only close and reset the form on success
-                actions.closeSupportForm()
-                actions.resetSendSupportRequest()
-            } catch (e) {
-                posthog.captureException(e)
+            const sendFailed = (error?: unknown): void => {
                 posthog.capture('support ticket send failed', {
-                    channel: 'zendesk',
-                    error: e instanceof Error ? e.message : String(e),
+                    channel: 'conversations',
+                    error: error !== undefined ? (error instanceof Error ? error.message : String(error)) : undefined,
                     kind,
                     target_area,
                     message_length: message?.length,
                     current_url_length: window.location.href.length,
                 })
+                lemonToast.error("Oops, the message couldn't be sent. Please try again in a moment.", {
+                    button: EMAIL_SUPPORT_BUTTON,
+                })
+            }
 
-                // More helpful error message
-                // Use the same error message regardless of browser
-                lemonToast.error(
-                    `Oops, the message couldn't be sent. Please change your browser's privacy level to the standard or default level, then try again. (E.g. In Firefox: Settings > Privacy & Security > Standard)`,
-                    { button: EMAIL_SUPPORT_BUTTON }
+            if (!(await waitForConversations())) {
+                sendFailed()
+                return
+            }
+
+            // Measure the full outgoing payload (message plus any appended exception) so the guard
+            // matches what the widget endpoint actually receives and rejects
+            const outgoingMessage = appendExceptionToMessage(message, exception_event)
+            if (warnIfMessageTooLong(outgoingMessage)) {
+                return
+            }
+            try {
+                const response = await posthog.conversations!.sendMessage(
+                    outgoingMessage,
+                    { name: name || undefined, email: email || undefined },
+                    true // every form submission starts a new ticket
                 )
-                // Don't close the form or reset the data so user can try again
+                if (!response) {
+                    // The extension declined to send (e.g. it became unavailable between the wait
+                    // above and this call) — nothing left the browser
+                    sendFailed()
+                    return
+                }
+                // No support_ticket capture here: the backend fires $conversation_ticket_created for
+                // every new ticket, so a client-side event would double-count
+                actions.setLastSubmittedTicketId(response.ticket_id)
+                captureAiSupportTicket(response.ticket_id)
+                lemonToast.success(
+                    values.sidePanelAvailable
+                        ? 'Got the message! You can view replies from our support engineers in the support panel.'
+                        : "Got the message! Our support engineers will follow up by email if there's more to share.",
+                    values.sidePanelAvailable
+                        ? {
+                              button: {
+                                  label: 'View',
+                                  action: () =>
+                                      actions.viewConversationsTicket({
+                                          id: response.ticket_id,
+                                          status: response.ticket_status,
+                                          created_at: response.created_at,
+                                      }),
+                              },
+                          }
+                        : undefined
+                )
+                actions.closeEmailForm()
+                actions.closeSupportForm()
+                actions.resetSendSupportRequest()
+            } catch (e) {
+                // The request may have reached the server even though the response failed, so don't
+                // retry here — that could file the ticket twice
+                posthog.captureException(e)
+                sendFailed(e)
             }
         },
 
@@ -1203,27 +834,5 @@ export const supportLogic = kea<supportLogicType>([
             }
         },
 
-        ensureZendeskOrganization: async () => {
-            try {
-                const currentOrganization = organizationLogic.values.currentOrganization
-
-                if (!currentOrganization?.id || !currentOrganization?.name) {
-                    return
-                }
-
-                await api.create('/api/support/ensure-zendesk-organization', {
-                    organization_id: currentOrganization.id,
-                    organization_name: currentOrganization.name,
-                })
-            } catch (error) {
-                posthog.captureException(error, {
-                    context: 'zendesk_organization_creation',
-                    organization_id: organizationLogic.values.currentOrganization?.id,
-                    organization_name: organizationLogic.values.currentOrganization?.name,
-                    error_message: error instanceof Error ? error.message : String(error),
-                    error_status: error && typeof error === 'object' && 'status' in error ? error.status : undefined,
-                })
-            }
-        },
     })),
 ])
