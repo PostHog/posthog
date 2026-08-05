@@ -457,7 +457,7 @@ async def _all_signals_recently_seen(team_id: int, signals: list[WaitForClickHou
     except Exception:
         metrics.increment_recently_seen_lookup("error")
         logger.warning(
-            "Recently-seen lookup failed, falling back to ClickHouse polling",
+            "Recently-seen lookup failed; scheduled ClickHouse fallback remains active",
             team_id=team_id,
             exc_info=True,
         )
