@@ -13,8 +13,8 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { urls } from 'scenes/urls'
 
-import { sessionRecordingsPlaylistLogic } from '../../playlist/sessionRecordingsPlaylistLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { useBoundSessionRecordingsPlaylistLogic } from '../useBoundSessionRecordingsPlaylistLogic'
 import { playlistPopoverLogic } from './playlistPopoverLogic'
 
 export function PlaylistPopoverButton({
@@ -22,9 +22,8 @@ export function PlaylistPopoverButton({
     ...buttonProps
 }: { setPinnedInCurrentPlaylist?: (pinned: boolean) => void } & LemonButtonProps): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
-    const {
-        logicProps: { logicKey: currentPlaylistId },
-    } = useValues(sessionRecordingsPlaylistLogic)
+    const { logicProps: boundPlaylistLogicProps } = useValues(useBoundSessionRecordingsPlaylistLogic())
+    const currentPlaylistId = boundPlaylistLogicProps?.logicKey
 
     const logic = playlistPopoverLogic(logicProps)
     const {

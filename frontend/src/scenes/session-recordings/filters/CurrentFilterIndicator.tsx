@@ -4,14 +4,15 @@ import { useActions, useValues } from 'kea'
 import { IconFilter } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
-import { sessionRecordingsPlaylistLogic } from '../playlist/sessionRecordingsPlaylistLogic'
+import { useBoundSessionRecordingsPlaylistLogic } from '../player/useBoundSessionRecordingsPlaylistLogic'
 import { sessionRecordingSavedFiltersLogic } from './sessionRecordingSavedFiltersLogic'
 
 export function CurrentFilterIndicator(): JSX.Element | null {
     const { appliedSavedFilter } = useValues(sessionRecordingSavedFiltersLogic)
     const { setAppliedSavedFilter } = useActions(sessionRecordingSavedFiltersLogic)
-    const { resetFilters } = useActions(sessionRecordingsPlaylistLogic)
-    const { filters: currentFilters } = useValues(sessionRecordingsPlaylistLogic)
+    const boundPlaylistLogic = useBoundSessionRecordingsPlaylistLogic()
+    const { resetFilters } = useActions(boundPlaylistLogic)
+    const { filters: currentFilters } = useValues(boundPlaylistLogic)
 
     // Only show indicator when there's a named/saved filter applied
     if (!appliedSavedFilter) {

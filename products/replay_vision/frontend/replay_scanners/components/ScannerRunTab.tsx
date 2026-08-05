@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconEye, IconPlay } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
@@ -23,6 +23,7 @@ import { ObservationStatusTag } from '../../components/ObservationCard'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { IN_PROGRESS_STATUSES, scannerRunTabLogic } from '../scannerRunTabLogic'
+import type { ReplayScanner } from '../types'
 
 /** Manual entry: scan one session by pasting its recording ID. */
 function ScanBySessionId({ scannerId }: { scannerId: string }): JSX.Element {
@@ -82,7 +83,13 @@ function ScanBySessionId({ scannerId }: { scannerId: string }): JSX.Element {
     )
 }
 
-function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
+function RecordingsList({
+    scannerId,
+    originalScanner,
+}: {
+    scannerId: string
+    originalScanner: ReplayScanner | null
+}): JSX.Element {
     const { filters, totalFiltersCount, sessionRecordings, sessionRecordingsResponseLoading, hasNext } =
         useValues(sessionRecordingsPlaylistLogic)
     const { setFilters, resetFilters, maybeLoadSessionRecordings } = useActions(sessionRecordingsPlaylistLogic)
@@ -98,6 +105,25 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
     useEffect(() => {
         setVisibleSessionIds(visibleIdsKey ? visibleIdsKey.split(',') : [])
     }, [visibleIdsKey, setVisibleSessionIds])
+
+    // The playlist logic only reads its `filters` prop at mount, and the binding above is seeded with
+    // generic defaults so it never has to unmount/remount as originalScanner loads (see ScanFromRecordings).
+    // Once the scanner's own triggers arrive, apply them once via an action instead.
+    const appliedScannerTriggers = useRef(false)
+    useEffect(() => {
+        if (originalScanner && !appliedScannerTriggers.current) {
+            appliedScannerTriggers.current = true
+            setFilters({ ...getDefaultFilters(), ...recordingsQueryToUniversalFilters(originalScanner.query) })
+        }
+    }, [originalScanner, setFilters])
+
+    if (!originalScanner) {
+        return (
+            <div className="flex items-center text-muted text-sm">
+                <Spinner className="mr-1" /> Loading recordings…
+            </div>
+        )
+    }
 
     const columns: LemonTableColumns<SessionRecordingType> = [
         {
@@ -259,19 +285,22 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
 
 /** Browse and filter recordings, then fire this scanner against any of them. */
 function ScanFromRecordings({ scannerId }: { scannerId: string }): JSX.Element {
-    // Seed the picker from the scanner's saved triggers so it opens scoped to the sessions this scanner cares about.
-    // originalScanner is null until loaded, and the playlist logic reads filters only at mount, so gate on it.
+    // Seed the picker from the scanner's saved triggers so it opens scoped to the sessions this scanner cares
+    // about. originalScanner is null until loaded, and it can flip back to null on a later reload — so the
+    // logicKey/BindLogic binding below stays stable across that and RecordingsList applies the real triggers
+    // once they arrive (see its effect), rather than the binding itself unmounting and remounting.
     const { originalScanner } = useValues(replayScannerLogic({ id: scannerId }))
 
     // Date range and sort come from the recordings defaults (the scanner query stores no date window); the filter
-    // group, duration, and test-account setting come from the scanner's triggers.
-    const logicProps: SessionRecordingPlaylistLogicProps | null = originalScanner
-        ? {
-              logicKey: `vision-run-${scannerId}`,
-              updateSearchParams: false,
-              filters: { ...getDefaultFilters(), ...recordingsQueryToUniversalFilters(originalScanner.query) },
-          }
-        : null
+    // group, duration, and test-account setting come from the scanner's triggers, applied once loaded.
+    const logicProps: SessionRecordingPlaylistLogicProps = useMemo(
+        () => ({
+            logicKey: `vision-run-${scannerId}`,
+            updateSearchParams: false,
+            filters: getDefaultFilters(),
+        }),
+        [scannerId]
+    )
 
     return (
         <div className="border rounded p-4 bg-surface-primary space-y-3">
@@ -283,15 +312,9 @@ function ScanFromRecordings({ scannerId }: { scannerId: string }): JSX.Element {
                     observation.
                 </p>
             </div>
-            {logicProps ? (
-                <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
-                    <RecordingsList scannerId={scannerId} />
-                </BindLogic>
-            ) : (
-                <div className="flex items-center text-muted text-sm">
-                    <Spinner className="mr-1" /> Loading recordings…
-                </div>
-            )}
+            <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
+                <RecordingsList scannerId={scannerId} originalScanner={originalScanner} />
+            </BindLogic>
         </div>
     )
 }

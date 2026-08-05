@@ -13,8 +13,8 @@ import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/pl
 import { PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import { OverviewGrid, OverviewGridItem } from '../../components/OverviewGrid'
-import { sessionRecordingsPlaylistLogic } from '../../playlist/sessionRecordingsPlaylistLogic'
 import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { useBoundSessionRecordingsPlaylistLogic } from '../useBoundSessionRecordingsPlaylistLogic'
 import { PlayerSidebarEditPinnedPropertiesPopover } from './PlayerSidebarEditPinnedPropertiesPopover'
 
 const SNAPSHOT_SCOPE: string[] = [
@@ -81,8 +81,9 @@ export function PlayerSidebarOverviewGrid({
     const logicProps = logicPropsOverride || contextLogicProps
     const { displayOverviewItems, loading, isPropertyPopoverOpen, snapshotAt } = useValues(playerMetaLogic(logicProps))
     const { setIsPropertyPopoverOpen } = useActions(playerMetaLogic(logicProps))
-    const { togglePropertyFilter } = useActions(sessionRecordingsPlaylistLogic)
-    const { filters } = useValues(sessionRecordingsPlaylistLogic)
+    const boundPlaylistLogic = useBoundSessionRecordingsPlaylistLogic()
+    const { togglePropertyFilter } = useActions(boundPlaylistLogic)
+    const { filters } = useValues(boundPlaylistLogic)
 
     return (
         <>
@@ -110,7 +111,9 @@ export function PlayerSidebarOverviewGrid({
                             </LemonButton>
                         </Popover>
                         {displayOverviewItems.map((item) => {
+                            // No bound playlist (e.g. the standalone player) means there's nothing to filter onto.
                             const isFilterable =
+                                Boolean(filters) &&
                                 item.type === 'property' &&
                                 item.value !== undefined &&
                                 item.value !== null &&
@@ -121,7 +124,7 @@ export function PlayerSidebarOverviewGrid({
                                     : undefined
 
                             const filterState =
-                                item.type === 'property' && isFilterable
+                                item.type === 'property' && isFilterable && filters
                                     ? getFilterState(filters.filter_group, item.property, item.value)
                                     : 'inactive'
 
@@ -133,7 +136,9 @@ export function PlayerSidebarOverviewGrid({
                                     icon={item.icon}
                                     itemKeyTooltip={item.keyTooltip}
                                     fadeLabel
-                                    showFilter={item.type === 'property' && item.value !== undefined}
+                                    showFilter={
+                                        Boolean(filters) && item.type === 'property' && item.value !== undefined
+                                    }
                                     filterDisabledReason={filterDisabledReason}
                                     filterState={filterState}
                                     onFilterClick={
