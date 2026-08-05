@@ -32,6 +32,7 @@ from axes.exceptions import AxesBackendPermissionDenied
 from axes.handlers.proxy import AxesProxyHandler
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice
+from django_otp.plugins.otp_totp.models import TOTPDevice
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session, restore_original_login
 from rest_framework import mixins, permissions, serializers, status, viewsets
@@ -815,25 +816,45 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             ValidationError: If token verification fails
         """
         with transaction.atomic():
-            # First try TOTP device
-            totp_device = default_device(user)
-            if totp_device:
-                is_allowed = totp_device.verify_is_allowed()
-                if not is_allowed[0]:
-                    raise serializers.ValidationError(detail="Too many attempts.", code="2fa_too_many_attempts")
-                if totp_device.verify_token(token):
-                    return self._token_is_valid(request, user, totp_device)
-                totp_device.throttle_increment()
-
-            # Then try backup codes
             # Backup codes are in place in case a user's device is lost or unavailable.
-            # They can be consumed in any order; each token will be removed from the
-            # database as soon as it is used.
+            # They can be consumed in any order and are checked first: a valid backup
+            # code proves the user controls the account, so it shouldn't be rejected by
+            # an unrelated TOTP throttle, nor counted as a failed TOTP attempt. Each
+            # token is removed from the database as soon as it's used.
             static_device = StaticDevice.objects.filter(user=user).first()
             if static_device and static_device.verify_token(token):
+                # A successful login proves the user controls the account, so a stale
+                # TOTP throttle counter (e.g. from earlier rejected TOTP attempts)
+                # shouldn't carry over and lock out the next real TOTP login.
+                for totp_device in TOTPDevice.objects.filter(user=user, confirmed=True):
+                    totp_device.throttle_reset()
                 # Send email notification when backup code is used
                 send_two_factor_auth_backup_code_used_email.delay(user.id)
                 return self._token_is_valid(request, user, static_device)
+
+            # A user can end up with more than one confirmed TOTP device (e.g. after
+            # completing setup twice), so every confirmed device gets a chance to
+            # verify the token rather than only the oldest one.
+            retry_after_seconds = 0
+            for totp_device in TOTPDevice.objects.filter(user=user, confirmed=True):
+                is_allowed, throttle_data = totp_device.verify_is_allowed()
+                if not is_allowed:
+                    locked_until = throttle_data.get("locked_until") if throttle_data else None
+                    if locked_until:
+                        remaining = max(1, int((locked_until - timezone.now()).total_seconds()))
+                        retry_after_seconds = max(retry_after_seconds, remaining)
+                    continue
+                if totp_device.verify_token(token):
+                    return self._token_is_valid(request, user, totp_device)
+
+            if retry_after_seconds > 0:
+                raise serializers.ValidationError(
+                    detail=(
+                        f"Too many attempts. Try again in {retry_after_seconds} seconds, "
+                        "or contact your administrator to reset your two-factor authentication."
+                    ),
+                    code="2fa_too_many_attempts",
+                )
 
         raise serializers.ValidationError(detail="Invalid authentication code", code="2fa_invalid")
 

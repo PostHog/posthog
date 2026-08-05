@@ -19,11 +19,13 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.text import slugify
 
+from django_otp.oath import totp
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
+from two_factor.utils import totp_digits
 
 from posthog.api.email_verification import email_verification_token_generator
 from posthog.api.oauth.toolbar_service import ToolbarOAuthState, build_toolbar_oauth_state, new_state_nonce
@@ -2986,6 +2988,25 @@ class TestUserTwoFactor(APIBaseTest):
                 "attr": None,
             },
         )
+
+    def _complete_totp_setup(self):
+        self.client.get("/api/users/@me/two_factor_start_setup/")
+        hex_key = self.client.session["django_two_factor-hex"]
+        token = str(totp(bytes.fromhex(hex_key))).zfill(totp_digits())
+        return self.client.post("/api/users/@me/two_factor_validate/", {"token": token})
+
+    def test_two_factor_setup_replaces_existing_device(self):
+        # Completing setup twice (e.g. a user re-scanning the QR code) previously left two
+        # confirmed TOTPDevices, and login only ever checked the first one, permanently
+        # invalidating whichever authenticator app the user finished setting up last.
+        first_response = self._complete_totp_setup()
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+
+        second_response = self._complete_totp_setup()
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+
+        confirmed_devices = TOTPDevice.objects.filter(user=self.user, confirmed=True)
+        self.assertEqual(confirmed_devices.count(), 1)
 
     def test_two_factor_status_when_disabled(self):
         response = self.client.get(f"/api/users/@me/two_factor_status/")

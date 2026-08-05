@@ -1390,7 +1390,13 @@ class UserViewSet(
         )
         if not form.is_valid():
             raise serializers.ValidationError("Token is not valid", code="token_invalid")
-        form.save()
+
+        with transaction.atomic():
+            # Completing setup twice must replace the existing device, not stack a
+            # second confirmed one: login only ever needs the latest authenticator.
+            TOTPDevice.objects.filter(user=request.user).delete()
+            form.save()
+
         otp_login(request, default_device(request.user))
         set_two_factor_verified_in_session(request)
 

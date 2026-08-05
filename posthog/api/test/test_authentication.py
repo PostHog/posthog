@@ -1002,6 +1002,56 @@ class TestTwoFactorAPI(APIBaseTest):
         # Verify email was triggered
         mock_send_email.delay.assert_called_once_with(self.user.id)
 
+    def test_login_verifies_against_every_confirmed_totp_device(self):
+        # A user who completes 2FA setup twice ends up with two confirmed TOTPDevices.
+        # Login previously only checked the first (oldest) one, so the newer authenticator
+        # app would never produce a working code.
+        self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
+        newer_device = self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
+
+        self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        response = self.client.post("/api/login/token", {"token": totp_str(newer_device.bin_key)})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @patch("posthog.api.authentication.send_two_factor_auth_backup_code_used_email")
+    def test_backup_code_login_resets_totp_throttle(self, mock_send_email):
+        # A backup code login used to leave the TOTP device's throttle counter climbing,
+        # so a stale count from earlier rejected TOTP attempts could lock out the very
+        # next real TOTP login.
+        device = self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
+        static_device = StaticDevice.objects.create(user=self.user, name="backup")
+        static_device.token_set.create(token="123456")
+
+        self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        # Trigger TOTP throttling with an invalid attempt.
+        self.client.post("/api/login/token", {"token": "000000"})
+        device.refresh_from_db()
+        self.assertGreater(device.throttling_failure_count, 0)
+
+        response = self.client.post("/api/login/token", {"token": "123456"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        device.refresh_from_db()
+        self.assertEqual(device.throttling_failure_count, 0)
+
+    @patch("posthog.api.authentication.send_two_factor_auth_backup_code_used_email")
+    def test_backup_code_works_immediately_while_totp_is_throttled(self, mock_send_email):
+        # A throttled TOTP device previously blocked the whole 2FA request, including a
+        # correct backup code, before the backup device was ever checked.
+        self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
+        static_device = StaticDevice.objects.create(user=self.user, name="backup")
+        static_device.token_set.create(token="123456")
+
+        self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        # First rejected attempt throttles the TOTP device for the next few seconds.
+        self.client.post("/api/login/token", {"token": "000000"})
+
+        response = self.client.post("/api/login/token", {"token": "123456"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def test_passkey_2fa_begin_requires_pending_session(self):
         """Test that passkey 2FA begin requires a pending login session"""
         from posthog.models.webauthn_credential import WebauthnCredential
