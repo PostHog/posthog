@@ -32,6 +32,7 @@ You just spent an hour inside the mechanism, so the mechanism comes out first. P
   - A fix: what breaks, and for whom.
   - A feature or an improvement: what someone could not do, and now can.
   - A refactor, a chore or an enabling change: who is blocked today, what it costs them, or what class of failure it removes.
+  - A follow-up or a layer in a stack: what the earlier PR left undone, and what this one adds. Link that PR and assume nobody read it.
 
   A feature lead reads like this: "The SQL editor lets users join tables, but there is no way to attach a computed field to a table." It names what a person cannot do before it names anything in the code.
 
@@ -83,6 +84,8 @@ No PR needs every form. Reach for one because it makes review faster, never as d
 ### Screenshots
 
 Upload with `hogli pr:upload-image <file>` and paste the markdown it prints. The first run only warns; re-run with `--yes`. The assets are public forever, so never upload customer data, customer names, secrets, or internal info.
+
+Touching UI code without a visible change is common, and the mandate has to be dischargeable. When nothing looks different, say so in one line. A reviewer cannot tell that case from a missing screenshot, and silence reads as the second.
 
 ### Mermaid
 
