@@ -294,9 +294,9 @@ class ErrorTrackingQueryBuilder:
                     ),
                 )
             )
-            # Resolving person_id adds a full person-distinct-id override join before
-            # aggregation. event_person_id avoids that join and is already nullable for
-            # personless events, where distinct_id remains the fallback.
+            # Same HLL tradeoff as `sessions`. Input semantics preserved
+            # (resolved person_id with distinct_id fallback) so the user
+            # population is unchanged — only the counting algorithm changed.
             exprs.append(
                 ast.Alias(
                     alias="users_state",
@@ -310,9 +310,7 @@ class ErrorTrackingQueryBuilder:
                                         ast.Call(
                                             name="nullIf",
                                             args=[
-                                                ast.Call(
-                                                    name="toString", args=[ast.Field(chain=["e", "event_person_id"])]
-                                                ),
+                                                ast.Call(name="toString", args=[ast.Field(chain=["e", "person_id"])]),
                                                 ast.Constant(value="00000000-0000-0000-0000-000000000000"),
                                             ],
                                         ),
