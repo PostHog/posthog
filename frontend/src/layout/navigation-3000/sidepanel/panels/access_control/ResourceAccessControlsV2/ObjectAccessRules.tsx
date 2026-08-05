@@ -173,7 +173,7 @@ function AddObjectRuleModal({
     subjectId: string
 }): JSX.Element {
     const logic = addObjectOverrideModalLogic({ projectId, scopeType, subjectId })
-    const { isOpen, resource, objectId, level, objectOptions, objectOptionsLoading } = useValues(logic)
+    const { isOpen, resource, objectId, level, displayObjectOptions, objectOptionsLoading } = useValues(logic)
     const { closeModal, setResource, setSearch, setObjectId, setLevel, submitRule } = useActions(logic)
 
     return (
@@ -222,7 +222,7 @@ function AddObjectRuleModal({
                         onChange={(values) => setObjectId(values[0] ?? null)}
                         onInputChange={setSearch}
                         loading={objectOptionsLoading}
-                        options={objectOptions.map((o) => ({ key: o.id, label: o.name }))}
+                        options={displayObjectOptions.map((o) => ({ key: o.id, label: o.name }))}
                         placeholder="Search by name…"
                     />
                 </div>

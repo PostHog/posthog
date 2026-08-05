@@ -134,7 +134,7 @@ function AddPropertyRuleModal({
     subjectId: string
 }): JSX.Element {
     const logic = addPropertyRestrictionModalLogic({ projectId, scopeType, subjectId })
-    const { isOpen, propertyType, propertyId, level, propertyOptions, propertyOptionsLoading } = useValues(logic)
+    const { isOpen, propertyType, propertyId, level, displayPropertyOptions, propertyOptionsLoading } = useValues(logic)
     const { closeModal, setPropertyType, setSearch, setPropertyId, setLevel, submitRule } = useActions(logic)
 
     return (
@@ -183,7 +183,7 @@ function AddPropertyRuleModal({
                         onChange={(values) => setPropertyId(values[0] ?? null)}
                         onInputChange={setSearch}
                         loading={propertyOptionsLoading}
-                        options={propertyOptions.map((o) => ({ key: o.id, label: o.name }))}
+                        options={displayPropertyOptions.map((o) => ({ key: o.id, label: o.name }))}
                         placeholder="Search by name…"
                     />
                 </div>
