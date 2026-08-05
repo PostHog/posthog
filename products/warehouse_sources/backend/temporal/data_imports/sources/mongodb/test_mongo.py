@@ -768,7 +768,8 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
 
         assert [row["_id"] for row in rows] == ["1", "2", "3"]
         assert collection.find_queries[-1] == {"_id": {"$gt": "2"}}
-        assert collection.cursors[1].sorted_by == ["_id", 1]
+        # cursors[2] is the read reopened after CursorNotFound; assert it resumes _id-ordered.
+        assert collection.cursors[2].sorted_by == ["_id", 1]
 
     def test_fallback_cursor_that_expires_without_progress_is_not_retried_forever(self):
         # Resuming re-runs the same query, so a cursor that dies before yielding anything would
