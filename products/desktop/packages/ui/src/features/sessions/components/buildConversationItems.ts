@@ -710,6 +710,7 @@ function handleNotification(
 
   if (isNotification(msg.method, POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED)) {
     ensureImplicitTurn(b, ts);
+    markRuntimeStatusComplete(b, "clearing");
     pushItem(b, { sessionUpdate: "conversation_cleared" });
     return;
   }
