@@ -19536,6 +19536,7 @@ export namespace Schemas {
      * * `Raisely` - Raisely
      * * `WindsorAi` - WindsorAi
      * * `Wix` - Wix
+     * * `Sevalla` - Sevalla
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -20821,6 +20822,7 @@ export namespace Schemas {
       Raisely: 'Raisely',
       WindsorAi: 'WindsorAi',
       Wix: 'Wix',
+      Sevalla: 'Sevalla',
     } as const;
 
     /**
@@ -22119,7 +22121,8 @@ export namespace Schemas {
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
        * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix */
+       * * `Wix` - Wix
+       * * `Sevalla` - Sevalla */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -24031,7 +24034,8 @@ export namespace Schemas {
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
        * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix */
+       * * `Wix` - Wix
+       * * `Sevalla` - Sevalla */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -31451,7 +31455,8 @@ export namespace Schemas {
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
        * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix */
+       * * `Wix` - Wix
+       * * `Sevalla` - Sevalla */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -32768,7 +32773,8 @@ export namespace Schemas {
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
        * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix */
+       * * `Wix` - Wix
+       * * `Sevalla` - Sevalla */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -43615,6 +43621,13 @@ export namespace Schemas {
       output_name?: string;
       /** Available upstream nodes, keyed by dataframe name. A SQL node inlines referenced hogql refs as CTEs — unless it references a local ref, which reroutes the run to the sandbox's DuckDB; a python node materializes the hogql refs its code reads as pandas frames. */
       refs?: NotebookSQLV2RunRequestRefs;
+      /**
+         * SQL nodes only: id of a direct-query-capable external data source to run against instead of PostHog's ClickHouse. Omit to query PostHog.
+         * @nullable
+         */
+      connection_id?: string | null;
+      /** Send the code to the selected connection verbatim instead of compiling it from HogQL first. Ignored without connection_id, and incompatible with references to other cells. */
+      send_raw_query?: boolean;
     }
 
     export interface NotebookSQLV2RunResponse {
@@ -68245,7 +68258,8 @@ export namespace Schemas {
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
        * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix */
+       * * `Wix` - Wix
+       * * `Sevalla` - Sevalla */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -69570,7 +69584,8 @@ export namespace Schemas {
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
        * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix */
+       * * `Wix` - Wix
+       * * `Sevalla` - Sevalla */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -70887,7 +70902,8 @@ export namespace Schemas {
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
        * * `WindsorAi` - WindsorAi
-       * * `Wix` - Wix */
+       * * `Wix` - Wix
+       * * `Sevalla` - Sevalla */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
