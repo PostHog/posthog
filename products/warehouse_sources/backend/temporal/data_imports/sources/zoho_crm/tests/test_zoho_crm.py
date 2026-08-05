@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.z
     ZohoCRMAuthError,
     ZohoCRMClient,
     ZohoCRMResumeConfig,
+    ZohoCRMThrottleError,
     chunk_fields,
     discover_columns,
     field_projection,
@@ -164,12 +165,26 @@ class TestZohoCRMClient:
 
         assert client.api_domain == "https://www.zohoapis.eu"
 
+    @pytest.mark.parametrize(
+        "error_body,expected_exception",
+        [
+            # A revoked or malformed token is the user's to fix — non-retryable by classification.
+            ("invalid_code", ZohoCRMAuthError),
+            # Zoho reports a throttled token endpoint the same way (HTTP 200 + error body), but the
+            # cap is per rolling window: classifying it as a rejected token permanently pauses a
+            # healthy schema with "reconnect" advice, so it must raise a distinct, retryable type.
+            ("Access Denied", ZohoCRMThrottleError),
+            ("too many requests", ZohoCRMThrottleError),
+        ],
+    )
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_error_body_on_a_200_raises_auth_error(self, make_session: mock.MagicMock) -> None:
-        make_session.return_value = _session([], post_responses=[_response(200, {"error": "invalid_code"})])
+    def test_error_body_on_a_200_raises_typed_error(
+        self, make_session: mock.MagicMock, error_body: str, expected_exception: type[Exception]
+    ) -> None:
+        make_session.return_value = _session([], post_responses=[_response(200, {"error": error_body})])
         client = _client()
 
-        with pytest.raises(ZohoCRMAuthError, match="invalid_code"):
+        with pytest.raises(expected_exception, match=error_body):
             client.mint_access_token()
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
@@ -210,7 +225,11 @@ class TestZohoCRMClient:
 
         ZohoCRMClient("us", "cid", "secret-value", "refresh-value")
 
-        assert make_session.call_args.kwargs == {"redact_values": ("secret-value", "refresh-value"), "capture": False}
+        assert make_session.call_args.kwargs == {
+            "retry": None,
+            "redact_values": ("secret-value", "refresh-value"),
+            "capture": False,
+        }
 
 
 class TestReadableFields:
@@ -301,6 +320,25 @@ class TestDiscoverColumns:
 
         assert session.post.call_count == 1
 
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_a_token_revoked_mid_loop_propagates_instead_of_emptying_the_catalog(
+        self, make_session: mock.MagicMock
+    ) -> None:
+        # Auth is global, not per-module: swallowing it per endpoint would burn a doomed
+        # 401 + re-mint round-trip per remaining module and report an empty catalog as success.
+        session = _session(
+            [_response(200, {"fields": [{"api_name": "Last_Name"}]}), _response(401)],
+            post_responses=[_token_response(), _response(200, {"error": "invalid_client"})],
+        )
+        make_session.return_value = session
+
+        with pytest.raises(ZohoCRMAuthError):
+            discover_columns(
+                _client(), "v8", [ZOHO_CRM_ENDPOINTS["Leads"], ZOHO_CRM_ENDPOINTS["Deals"]], mock.MagicMock()
+            )
+
+        assert session.post.call_count == 2
+
 
 class TestFieldProjection:
     @pytest.mark.parametrize(
@@ -311,6 +349,9 @@ class TestFieldProjection:
             ("Leads", [], {"id", "modified_time", "created_time"}),
             ("Leads", ["Last_Name"], {"id", "last_name", "modified_time", "created_time"}),
             ("Users", ["email"], {"id", "email", "created_time"}),
+            # dlt-normalized fold, not casefold: `OrderID` must land on `order_id` — the namespace
+            # legacy selections were stored in — or a kept selection silently stops matching.
+            ("Leads", ["OrderID"], {"id", "order_id", "modified_time", "created_time"}),
         ],
     )
     def test_always_retains_the_columns_the_pipeline_needs(
@@ -548,6 +589,41 @@ class TestGetRows:
         assert batches == [[{"id": "1", "Last_Name": "Ada", "Modified_Time": "t1", "Created_Time": "t0"}]]
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_a_legacy_normalized_selection_still_reaches_the_fields_param(self, make_session: mock.MagicMock) -> None:
+        # Selections stored before discovery existed are dlt-normalized (`order_id`), while the
+        # readable fields carry raw Zoho names (`OrderID`). A casefold-only match ("orderid")
+        # silently drops exactly these columns from the fetch while the reconcile prune keeps
+        # vouching for them.
+        session = _session(
+            [
+                _response(
+                    200,
+                    {
+                        "fields": [
+                            {"api_name": "OrderID"},
+                            {"api_name": "Last_Name"},
+                            {"api_name": "Modified_Time"},
+                            {"api_name": "Created_Time"},
+                        ]
+                    },
+                ),
+                _records_response([{"id": "1", "OrderID": 7, "Modified_Time": "t1", "Created_Time": "t0"}]),
+            ]
+        )
+        make_session.return_value = session
+
+        batches = list(
+            get_rows(_client(), "v8", "Leads", FakeResumeManager(), mock.MagicMock(), enabled_columns=["order_id"])
+        )
+
+        assert sorted(_get_params(session, 1)["fields"].split(",")) == [
+            "Created_Time",
+            "Modified_Time",
+            "OrderID",
+        ]
+        assert batches == [[{"id": "1", "OrderID": 7, "Modified_Time": "t1", "Created_Time": "t0"}]]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_selection_is_enforced_on_endpoints_that_take_no_fields_param(self, make_session: mock.MagicMock) -> None:
         session = _session([_records_response([{"id": "u1", "email": "a@b.c", "phone": "123"}], data_key="users")])
         make_session.return_value = session
@@ -559,13 +635,38 @@ class TestGetRows:
         assert batches == [[{"id": "u1", "email": "a@b.c"}]]
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_stale_selection_on_a_no_fields_endpoint_syncs_whole_rows(self, make_session: mock.MagicMock) -> None:
+        # There is no readable-fields list to validate against here, so the first page stands in:
+        # a selection no returned record carries would otherwise silently strip every row to
+        # id + partition key.
+        session = _session([_records_response([{"id": "u1", "email": "a@b.c", "phone": "123"}], data_key="users")])
+        make_session.return_value = session
+
+        batches = list(
+            get_rows(_client(), "v8", "Users", FakeResumeManager(), mock.MagicMock(), enabled_columns=["ghost"])
+        )
+
+        assert batches == [[{"id": "u1", "email": "a@b.c", "phone": "123"}]]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_selection_matching_no_readable_field_falls_back_to_all_fields(self, make_session: mock.MagicMock) -> None:
-        # A selection that intersects no readable field (namespace drift, or a selection pruned to a
-        # ghost name) must not degrade to an id-only sync. It falls back to the full readable field
-        # set — every discovered field requested, and each row kept whole rather than stripped to id.
+        # A selection whose user-chosen columns all went stale (namespace drift, or pruned to a
+        # ghost name) must not degrade to an id + cursor-only sync. The cursor and partition key
+        # always match the readable fields, so the check has to ignore them — real metadata always
+        # lists Modified_Time/Created_Time — and fall back to the full readable field set.
         session = _session(
             [
-                _response(200, {"fields": [{"api_name": "Last_Name"}, {"api_name": "First_Name"}]}),
+                _response(
+                    200,
+                    {
+                        "fields": [
+                            {"api_name": "Last_Name"},
+                            {"api_name": "First_Name"},
+                            {"api_name": "Modified_Time"},
+                            {"api_name": "Created_Time"},
+                        ]
+                    },
+                ),
                 _records_response([{"id": "1", "Last_Name": "Ada", "First_Name": "Augusta"}]),
             ]
         )
@@ -582,7 +683,12 @@ class TestGetRows:
             )
         )
 
-        assert sorted(_get_params(session, 1)["fields"].split(",")) == ["First_Name", "Last_Name"]
+        assert sorted(_get_params(session, 1)["fields"].split(",")) == [
+            "Created_Time",
+            "First_Name",
+            "Last_Name",
+            "Modified_Time",
+        ]
         assert batches == [[{"id": "1", "Last_Name": "Ada", "First_Name": "Augusta"}]]
 
 
@@ -610,6 +716,18 @@ class TestValidateCredentials:
         assert is_valid is False
         assert error == REFRESH_TOKEN_REJECTED_MESSAGE
         assert "invalid_client" not in (error or "")
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_a_throttled_token_mint_does_not_claim_the_token_is_bad(self, make_session: mock.MagicMock) -> None:
+        # Telling a user with a healthy but rate-limited token to regenerate it sends them in
+        # circles; the throttle needs its own wait-and-retry copy.
+        make_session.return_value = _session([], post_responses=[_response(200, {"error": "Access Denied"})])
+
+        is_valid, error = validate_credentials("us", "cid", "secret", "refresh")
+
+        assert is_valid is False
+        assert error is not None and "rate limiting" in error
+        assert error != REFRESH_TOKEN_REJECTED_MESSAGE
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_http_failure_is_not_valid(self, make_session: mock.MagicMock) -> None:

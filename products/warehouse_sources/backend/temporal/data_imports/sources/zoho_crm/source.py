@@ -1,5 +1,7 @@
 from typing import TYPE_CHECKING, Optional, cast
 
+from urllib3.util.retry import Retry
+
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -180,6 +182,10 @@ In the [Zoho API console](https://api-console.zoho.com), create a **Self Client*
                 client_id=config.client_id,
                 client_secret=config.client_secret,
                 refresh_token=config.refresh_token,
+                # Discovery runs inside synchronous requests bounded by a time budget; the
+                # default session retry policy could hold one call for minutes, and a skipped
+                # module already degrades gracefully, so retry at most once.
+                retry=Retry(total=1, backoff_factor=0.5, status_forcelist=(429, 500, 502, 503, 504)),
             ),
             self.resolve_api_version(api_version),
             endpoints=[ZOHO_CRM_ENDPOINTS[schema.name] for schema in schemas],

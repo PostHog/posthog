@@ -144,10 +144,13 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # generated s3() structure miss it and the query fails to resolve the field.
     has_managed_hogql_schema: bool = False
 
-    # Opt-in: set `True` only on sources whose `get_schemas` iterates a static endpoint
-    # catalog with NO I/O — no network, no DB, no credentials. Those sources surface their
-    # table list in public docs (see `get_documented_tables`). Left `False` for SQL / file /
-    # API sources that discover schemas over a live connection, since calling their
+    # Opt-in: set `True` only on sources whose `get_schemas` serves the credential-free
+    # public-docs path (`get_documented_tables`, called with `_placeholder_config`) with NO
+    # I/O — either a purely static endpoint catalog, or network enrichment that is provably
+    # gated off when credentials are absent (Zoho CRM guards its column discovery behind a
+    # has-credentials check, with a regression test pinning that the docs path makes no
+    # request; that guard is load-bearing, not optional). Left `False` for SQL / file / API
+    # sources that discover schemas over a live connection, since calling their
     # `get_schemas` with a placeholder config could connect, hang, or close the DB session.
     lists_tables_without_credentials: bool = False
 

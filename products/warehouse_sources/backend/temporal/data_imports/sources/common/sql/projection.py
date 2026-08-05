@@ -30,7 +30,7 @@ def _identity(name: str) -> str:
     return name
 
 
-def _normalize_for_match(name: str) -> str:
+def normalize_for_match(name: str) -> str:
     """Fold a column name into the dlt-normalized namespace for comparison.
 
     `enabled_columns` / primary keys / incremental fields arrive in the source
@@ -114,7 +114,7 @@ def filter_dwh_columns_by_enabled_columns(
     namespace. `columns` keys differ by caller, which `normalize` selects between:
 
     - `normalize=True` (warehouse tables): keys are dlt-normalized (snake_cased +
-      lowercased), so both sides are folded through `_normalize_for_match` to line up.
+      lowercased), so both sides are folded through `normalize_for_match` to line up.
       A raw set-membership test silently drops every column when source names aren't
       already lowercase (e.g. Snowflake's uppercase identifiers).
     - `normalize=False` (direct-postgres callers): keys are raw, case-sensitive source
@@ -131,7 +131,7 @@ def filter_dwh_columns_by_enabled_columns(
     """
     if enabled_columns is None:
         return columns
-    fold = _normalize_for_match if normalize else _identity
+    fold = normalize_for_match if normalize else _identity
     retained: set[str] = {fold(name) for name in enabled_columns}
     for pk in primary_keys or []:
         retained.add(fold(pk))
@@ -181,22 +181,29 @@ def prune_enabled_columns(
     `enabled_columns` and discovered names share one namespace (and where Postgres can hold
     `"Foo"` and `"foo"` as distinct columns, so folding would collapse them).
 
-    `normalize=True`: fold both sides through `_normalize_for_match` before comparing, for
+    `normalize=True`: fold both sides through `normalize_for_match` before comparing, for
     sources whose discovery writes raw vendor names (Zoho's `Last_Name`) while an
     `enabled_columns` selection made before discovery existed was stored dlt-normalized
     (`last_name`). Matching raw there prunes the whole selection to `[]`, which the source
-    then reads as "sync id + cursor only" and silently drops every chosen column. Original
-    casing is preserved in `kept`.
+    then reads as "sync id + cursor only" and silently drops every chosen column. Kept
+    entries are rewritten to the discovered spelling, so one reconcile migrates a legacy
+    selection into the raw namespace that the column picker, the `enabled_columns` PATCH
+    validation, and the sync-time projection all match against.
     """
     if enabled_columns is None:
         return None, []
-    fold = _normalize_for_match if normalize else _identity
-    available = {fold(name) for name in available_column_names}
+    fold = normalize_for_match if normalize else _identity
+    # Sorted so a fold collision (two source columns sharing one normalized form) resolves
+    # deterministically instead of by set iteration order.
+    available = {fold(name): name for name in sorted(available_column_names)}
     kept: list[str] = []
     removed: list[str] = []
     for column in enabled_columns:
-        if fold(column) in available:
-            kept.append(column)
-        else:
+        raw = available.get(fold(column))
+        if raw is None:
             removed.append(column)
+            continue
+        entry = raw if normalize else column
+        if entry not in kept:
+            kept.append(entry)
     return kept, removed

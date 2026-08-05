@@ -231,15 +231,26 @@ class TestPruneEnabledColumns:
         assert kept == []
         assert removed == ["last_name"]
 
-    def test_normalize_true_matches_across_namespaces_keeping_stored_casing(self) -> None:
+    def test_normalize_true_migrates_kept_entries_to_the_discovered_spelling(self) -> None:
+        # A legacy dlt-normalized selection is vouched for AND rewritten to the raw name, so the
+        # column picker, the enabled_columns PATCH validation, and the sync-time projection all
+        # compare within one namespace. Keeping the stored spelling instead renders the picker
+        # unchecked and 400s schema PATCHes against the raw catalog.
         kept, removed = prune_enabled_columns(["last_name"], {"Last_Name", "First_Name"}, normalize=True)
-        assert kept == ["last_name"]
+        assert kept == ["Last_Name"]
         assert removed == []
 
     def test_normalize_true_still_drops_genuinely_absent_columns(self) -> None:
         kept, removed = prune_enabled_columns(["last_name", "ghost"], {"Last_Name"}, normalize=True)
-        assert kept == ["last_name"]
+        assert kept == ["Last_Name"]
         assert removed == ["ghost"]
+
+    def test_normalize_true_collapses_duplicate_spellings_of_one_column(self) -> None:
+        # A selection carrying both the legacy and the raw spelling folds to a single entry
+        # instead of persisting a duplicate.
+        kept, removed = prune_enabled_columns(["last_name", "Last_Name"], {"Last_Name"}, normalize=True)
+        assert kept == ["Last_Name"]
+        assert removed == []
 
 
 class TestProjectArrowColumns:

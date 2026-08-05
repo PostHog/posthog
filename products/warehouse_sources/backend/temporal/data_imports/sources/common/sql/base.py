@@ -211,14 +211,17 @@ def reconcile_source_schema_metadata(
             row.enabled_columns, available_names, normalize=normalize_enabled_columns
         )
         update_fields = ["sync_type_config", "updated_at"]
-        if removed_columns:
-            log.info(
-                "sql_source.reconcile_schema_metadata.pruned_enabled_columns",
-                source_id=str(source.id),
-                schema_id=str(row.id),
-                schema_name=row.name,
-                removed_columns=removed_columns,
-            )
+        # Compare, don't just check `removed_columns`: the normalized prune can also rewrite
+        # kept entries to the discovered spelling, and that migration must persist.
+        if pruned_enabled_columns != row.enabled_columns:
+            if removed_columns:
+                log.info(
+                    "sql_source.reconcile_schema_metadata.pruned_enabled_columns",
+                    source_id=str(source.id),
+                    schema_id=str(row.id),
+                    schema_name=row.name,
+                    removed_columns=removed_columns,
+                )
             row.enabled_columns = pruned_enabled_columns
             update_fields.append("enabled_columns")
 

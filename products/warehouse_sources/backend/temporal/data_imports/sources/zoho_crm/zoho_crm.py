@@ -6,12 +6,14 @@ from typing import Any, Optional
 import requests
 import structlog
 from structlog.types import FilteringBoundLogger
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
     coerce_datetime_to_utc,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import normalize_for_match
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.settings import (
     MODIFIED_TIME_FIELD,
@@ -72,6 +74,14 @@ class ZohoCRMAuthError(Exception):
     pass
 
 
+class ZohoCRMThrottleError(Exception):
+    """Zoho throttled access-token generation for this refresh token.
+
+    Transient by definition (the cap is per rolling window), so it must never match the
+    non-retryable "token refresh failed" classification that tells users to reconnect.
+    """
+
+
 @dataclasses.dataclass(frozen=True)
 class ZohoField:
     """One entry of a module's fields metadata, as the column picker needs it."""
@@ -124,6 +134,7 @@ class ZohoCRMClient:
         client_id: str,
         client_secret: str,
         refresh_token: str,
+        retry: Retry | None = None,
     ) -> None:
         hosts = resolve_hosts(region)
         self._accounts_host = hosts.accounts_host
@@ -137,14 +148,14 @@ class ZohoCRMClient:
         # capture: Zoho responses carry raw CRM records (contacts, notes, emails, phone numbers,
         # free-text) and the token exchange returns the access token in a bare `access_token`
         # field — content the name-based scrubbers can't reliably redact.
-        self._session = make_tracked_session(redact_values=(client_secret, refresh_token), capture=False)
+        self._session = make_tracked_session(retry=retry, redact_values=(client_secret, refresh_token), capture=False)
         self._access_token: Optional[str] = None
 
     @property
     def api_domain(self) -> str:
         return self._api_domain
 
-    def mint_access_token(self) -> str:
+    def mint_access_token(self, timeout: float | None = None) -> str:
         response = self._session.post(
             f"{self._accounts_host}/oauth/v2/token",
             data={
@@ -153,15 +164,20 @@ class ZohoCRMClient:
                 "client_id": self._client_id,
                 "client_secret": self._client_secret,
             },
-            timeout=REQUEST_TIMEOUT_SECONDS,
+            timeout=timeout if timeout is not None else REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
         body = response.json()
 
         access_token = body.get("access_token")
         if not access_token:
-            # Zoho answers a revoked or malformed refresh token with HTTP 200 and an `error` key.
-            raise ZohoCRMAuthError(f"Zoho CRM token refresh failed: {body.get('error') or 'no access token returned'}")
+            # Zoho answers a revoked or malformed refresh token with HTTP 200 and an `error` key —
+            # but also reports a throttled token endpoint the same way. The throttle is transient,
+            # so it must raise a different type (and message) than the non-retryable rejection.
+            error = str(body.get("error") or "no access token returned")
+            if "access denied" in error.casefold() or "too many requests" in error.casefold():
+                raise ZohoCRMThrottleError(f"Zoho CRM throttled access-token generation: {error}")
+            raise ZohoCRMAuthError(f"Zoho CRM token refresh failed: {error}")
 
         api_domain = body.get("api_domain")
         if api_domain:
@@ -176,6 +192,7 @@ class ZohoCRMClient:
         path: str,
         params: Optional[dict[str, str]] = None,
         headers: Optional[dict[str, str]] = None,
+        timeout: float | None = None,
     ) -> requests.Response:
         if self._access_token is None:
             self.mint_access_token()
@@ -188,7 +205,7 @@ class ZohoCRMClient:
                 f"{self._api_domain}{path}",
                 params=params,
                 headers=request_headers,
-                timeout=REQUEST_TIMEOUT_SECONDS,
+                timeout=timeout if timeout is not None else REQUEST_TIMEOUT_SECONDS,
             )
 
         response = _send()
@@ -203,9 +220,11 @@ class ZohoCRMClient:
         return response
 
 
-def readable_fields(client: ZohoCRMClient, api_version: str, module: str) -> list[ZohoField]:
+def readable_fields(
+    client: ZohoCRMClient, api_version: str, module: str, timeout: float | None = None
+) -> list[ZohoField]:
     """Fields Get Records can project for `module`, from the fields metadata API."""
-    response = client.get(f"/crm/{api_version}/settings/fields", params={"module": module})
+    response = client.get(f"/crm/{api_version}/settings/fields", params={"module": module}, timeout=timeout)
     if response.status_code == 204:
         return []
 
@@ -246,24 +265,32 @@ def discover_columns(
     Lets the column picker list a module's fields before the first sync ever runs, so a sync that
     a single incompatible field breaks can still be narrowed down to the fields the user wants.
 
-    Auth failures propagate, because a revoked refresh token is the user's to fix and every caller
-    either validates credentials first or already handles a failed discovery. Per-endpoint failures
-    don't: a module the org's edition never enabled answers with INVALID_MODULE, and losing its
-    columns must not cost the rest of the catalog.
-    """
-    # Mint up front so a revoked token surfaces once instead of being swallowed per endpoint.
-    client.mint_access_token()
+    Auth failures propagate — including mid-loop, where each remaining call would just re-mint and
+    fail the same way — because a revoked refresh token is the user's to fix and callers handle a
+    failed discovery. Other per-endpoint failures don't: a module the org's edition never enabled
+    answers with INVALID_MODULE, and losing its columns must not cost the rest of the catalog.
 
+    The time budget covers the token mint and shrinks each call's timeout to what remains, so a
+    slow Zoho keeps the enclosing synchronous request under its gateway timeout; session-level
+    retries can still overshoot modestly, which is why callers should pass a low-retry client.
+    Undiscovered modules fall back to synced-table columns in the picker.
+    """
     deadline = time.monotonic() + DISCOVERY_TIME_BUDGET_SECONDS
+    # Mint up front so a revoked token surfaces once instead of being swallowed per endpoint.
+    client.mint_access_token(timeout=DISCOVERY_TIME_BUDGET_SECONDS)
+
     columns: dict[str, list[tuple[str, str, bool]]] = {}
     for config in endpoints:
-        if time.monotonic() >= deadline:
-            # Out of budget: stop before another 60s-capable call can push the request past its
-            # gateway timeout. Undiscovered modules fall back to synced-table columns in the picker.
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
             logger.warning("Zoho CRM column discovery hit its time budget; skipping remaining modules")
             break
         try:
-            fields = readable_fields(client, api_version, config.metadata_module)
+            fields = readable_fields(
+                client, api_version, config.metadata_module, timeout=min(REQUEST_TIMEOUT_SECONDS, remaining)
+            )
+        except (ZohoCRMAuthError, ZohoCRMThrottleError):
+            raise
         except Exception as e:
             logger.warning("Could not read Zoho CRM field metadata", endpoint=config.name, error=str(e))
             continue
@@ -281,12 +308,14 @@ def field_projection(
     enabled_columns: Optional[list[str]],
     incremental_field: Optional[str],
 ) -> Optional[set[str]]:
-    """Case-folded field names to sync, or `None` to sync every field.
+    """Folded field names to sync, or `None` to sync every field.
 
     The record id, the incremental cursor and the partition key are always retained: the pipeline
     merges, watermarks and partitions on them, so a selection that dropped them would break the
-    write rather than narrow it. Folded because API callers send whatever casing they like, while
-    Zoho's field API names are mixed-case.
+    write rather than narrow it. Folded through `normalize_for_match` — the same fold the
+    reconcile prune vouches selections with — because a stored selection can hold raw Zoho names
+    (`Last_Name`), legacy dlt-normalized names (`last_name`, where `casefold` would diverge on
+    camelCase like `OrderID` → `order_id`), or arbitrary API-caller casing.
     """
     if enabled_columns is None:
         return None
@@ -295,7 +324,7 @@ def field_projection(
         retained.add(incremental_field or MODIFIED_TIME_FIELD)
     if config.partition_key:
         retained.add(config.partition_key)
-    return {name.casefold() for name in retained}
+    return {normalize_for_match(name) for name in retained}
 
 
 def _fetch_page(
@@ -361,20 +390,21 @@ def get_rows(
     base_params.update(_sort_params(config, should_use_incremental_field, incremental_field))
 
     effective_projection = projection
+    user_folds = {normalize_for_match(name) for name in enabled_columns} if enabled_columns else set()
     field_slices: list[list[str]] = [[]]
     if config.is_module:
         names = readable_field_names(client, api_version, config.path)
         if projection is not None:
             # Push the selection into Get Records so a deselected field never leaves Zoho, which is
             # the only way to get past a field whose values break the import.
-            selected = [name for name in names if name.casefold() in projection]
-            if names and not selected:
-                # A selection that intersects no readable field (namespace drift, a stale name after
-                # a source rename, or every field deselected) would otherwise leave `names` empty,
-                # which `chunk_fields` reads as "no projection" — Zoho then returns every field and
-                # the post-fetch filter strips each row down to id. Fall back to the full field set,
-                # mirroring the empty-projection fallback the SQL projection helpers use, so the table
-                # stays complete rather than silently syncing id only.
+            selected = [name for name in names if normalize_for_match(name) in projection]
+            if names and user_folds and not any(normalize_for_match(name) in user_folds for name in names):
+                # None of the *user-chosen* columns exist among the readable fields (namespace
+                # drift, or every chosen name went stale). The cursor and partition key always
+                # match, so checking `selected` alone would pass here and silently sync an
+                # id + cursor-only table. Fall back to the full field set, mirroring the
+                # empty-projection fallback the SQL projection helpers use, so the table stays
+                # complete rather than silently narrowing.
                 logger.warning(
                     "Zoho CRM column selection matched no readable field; syncing all fields",
                     endpoint=endpoint,
@@ -421,11 +451,25 @@ def get_rows(
             next_tokens.append(str(slice_info.get("next_page_token") or ""))
 
         page_rows = [rows[key] for key in order]
+        if effective_projection is not None and not config.is_module and user_folds and page_rows:
+            # Endpoints without a `fields` param have no readable-fields list to validate the
+            # selection against, so validate it against the first page instead: if no returned
+            # record carries any user-chosen column, the selection is stale and filtering would
+            # silently strip every row to id + cursor.
+            returned_folds = {normalize_for_match(key) for row in page_rows for key in row}
+            if not user_folds & returned_folds:
+                logger.warning(
+                    "Zoho CRM column selection matched no returned field; syncing all fields",
+                    endpoint=endpoint,
+                    enabled_columns=enabled_columns,
+                )
+                effective_projection = None
+            user_folds = set()
         if effective_projection is not None:
             # Zoho answers with system fields the metadata API never lists (and the endpoints that
             # take no `fields` param with everything), so the selection is also enforced here.
             page_rows = [
-                {key: value for key, value in row.items() if key.casefold() in effective_projection}
+                {key: value for key, value in row.items() if normalize_for_match(key) in effective_projection}
                 for row in page_rows
             ]
         if page_rows:
@@ -467,6 +511,8 @@ def validate_credentials(
         client.get(f"/crm/{api_version}/settings/modules")
     except ZohoCRMAuthError:
         return False, REFRESH_TOKEN_REJECTED_MESSAGE
+    except ZohoCRMThrottleError:
+        return False, "Zoho CRM is rate limiting token requests for this client. Wait a minute and try again."
     except Exception:
         return False, None
     return True, None
