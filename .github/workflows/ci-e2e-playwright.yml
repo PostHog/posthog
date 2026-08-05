@@ -102,8 +102,9 @@ jobs:
             # and the per-blob credential lookup intermittently fails with "could not
             # read Username for github.com" (e.g. #59779 on 2026-05-23, blocked merge
             # until the job was retried). Materializing only the files this job reads
-            # (plus the local paths-filter action, which must exist on disk to run)
-            # collapses the lazy fetch to a handful of blobs.
+            # (plus the repo-local code it executes, which must exist on disk to run:
+            # the paths-filter action and the schema cache key script) collapses the
+            # lazy fetch to a handful of blobs.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1000
@@ -112,6 +113,7 @@ jobs:
                   sparse-checkout: |
                       .github/actions/paths-filter
                       .github/clickhouse-versions.json
+                      bin/ci-schema-cache-key
                       docker-compose.base.yml
                   sparse-checkout-cone-mode: false
 
@@ -296,7 +298,9 @@ jobs:
                       # The consumers replay the routed labels from the checked-out copy, so a PR
                       # that edits any of them matches no master dump, the merge-base one included:
                       # drop both keys and let migrations run from scratch.
-                      if [ "$(bin/ci-schema-cache-key --routing "$MERGE_BASE")" != "$(bin/ci-schema-cache-key --routing HEAD)" ]; then
+                      ROUTING_BASE=$(bin/ci-schema-cache-key --routing "$MERGE_BASE")
+                      ROUTING_HEAD=$(bin/ci-schema-cache-key --routing HEAD)
+                      if [ "$ROUTING_BASE" != "$ROUTING_HEAD" ]; then
                           echo "key=" >> $GITHUB_OUTPUT
                           echo "migrations_key=" >> $GITHUB_OUTPUT
                           echo "::notice::db routing config or router differs from the merge base, so the schema cache is skipped"

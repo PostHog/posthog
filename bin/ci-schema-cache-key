@@ -46,8 +46,12 @@ if [ -z "$MIG_FILES" ]; then
     exit 0
 fi
 
+# Best effort, and deliberately so: a blobless checkout fetches this file lazily and the
+# fetch can fail. Dropping the server version from the key costs a coarser key, while
+# failing here would take down every job that computes one. MIG_FILES is tolerated above
+# for the same reason, so pipefail must not turn either into a hard error.
 PG_IMAGE=$(git show "${REF}:docker-compose.base.yml" 2>/dev/null \
-    | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
+    | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]') || true
 
 MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$(routing_inputs "$REF")" \
     | sha256sum | cut -c1-40)
