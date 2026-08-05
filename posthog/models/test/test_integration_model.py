@@ -18,7 +18,7 @@ from django.utils import timezone
 
 import requests
 from disposable_email_domains import blocklist as disposable_email_domains_list
-from parameterized import parameterized
+from parameterized import parameterized, parameterized_class
 from prometheus_client import REGISTRY
 from rest_framework.exceptions import ValidationError
 
@@ -56,6 +56,7 @@ from posthog.models.integration import (
     LinearIntegration,
     OauthIntegration,
     PostgreSQLIntegration,
+    RedshiftIntegration,
     S3CompatibleIntegration,
     SlackIntegration,
     SnowflakeIntegration,
@@ -4375,6 +4376,18 @@ class TestGitLabIntegrationSSRFProtection:
         mock_post.assert_not_called()
 
 
+@parameterized_class(
+    [
+        {
+            "integration_cls": PostgreSQLIntegration,
+            "integration_kind": Integration.IntegrationKind.POSTGRESQL,
+        },
+        {
+            "integration_cls": RedshiftIntegration,
+            "integration_kind": Integration.IntegrationKind.AWS_REDSHIFT,
+        },
+    ]
+)
 class TestPostgreSQLIntegrationModel(BaseTest):
     @parameterized.expand(
         [
@@ -4419,13 +4432,13 @@ class TestPostgreSQLIntegrationModel(BaseTest):
 
         integration = Integration.objects.create(
             team=self.team,
-            kind=Integration.IntegrationKind.POSTGRESQL,
+            kind=self.integration_kind,
             integration_id=f"{self.team.pk}-db.example.com-5432-exporter",
             config=config,
             sensitive_config=sensitive_config,
         )
 
-        pq = PostgreSQLIntegration(integration)
+        pq = self.integration_cls(integration)
         assert pq.tls() == expected_tls
 
     @parameterized.expand(
@@ -4457,8 +4470,8 @@ class TestPostgreSQLIntegrationModel(BaseTest):
         }
         kwargs.update(overrides)
 
-        integration = PostgreSQLIntegration.integration_from_config(**kwargs)  # type: ignore
-        pq = PostgreSQLIntegration(integration)
+        integration = self.integration_cls.integration_from_config(**kwargs)  # type: ignore
+        pq = self.integration_cls(integration)
 
         assert pq.authority() == Authority(host="localhost", port=5432)
         assert pq.credentials() == Credentials(user="exporter", password="super-secret")
@@ -4467,6 +4480,7 @@ class TestPostgreSQLIntegrationModel(BaseTest):
         assert "password" not in integration.config
 
         assert integration.sensitive_config["password"] == "super-secret"
+        assert pq.integration_kind == self.integration_kind
 
 
 def _make_resend_jwt(payload: dict) -> str:
