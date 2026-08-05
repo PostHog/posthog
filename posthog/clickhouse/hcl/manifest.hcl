@@ -62,9 +62,9 @@ role "ai_events" {
 # kafka_hog_invocation_results); prod carries the WarpStream variant. prod-us adds the
 # ingestion_warnings tables. prod goldens are dump-baselined (not live-verifiable here).
 role "aux" {
-  env "local-multi"   { layers = ["roles/shared", "roles/auxiliary/shared", "roles/auxiliary/local"] }
-  env "prod-us" { layers = ["roles/shared", "roles/auxiliary/shared", "roles/auxiliary/prod", "roles/auxiliary/prod-us"] }
-  env "prod-eu" { layers = ["roles/shared", "roles/auxiliary/shared", "roles/auxiliary/prod", "roles/auxiliary/prod-eu"] }
+  env "local-multi"   { layers = ["roles/shared", "roles/coshared/aux_data", "roles/auxiliary/shared", "roles/auxiliary/local"] }
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/aux_data", "roles/auxiliary/shared", "roles/auxiliary/prod", "roles/auxiliary/prod-us"] }
+  env "prod-eu" { layers = ["roles/shared", "roles/coshared/aux_data", "roles/auxiliary/shared", "roles/auxiliary/prod", "roles/auxiliary/prod-eu"] }
 }
 
 # SESSIONS satellite: the local node runs only the shared query_log_archive path
@@ -102,7 +102,7 @@ role "batch_exports" {
 # columns per env that are added out-of-band and churn constantly, so their goldens
 # live in PostHog/posthog-cloud-infra (clickhouse/hcl/), not the OSS gate.
 role "data" {
-  env "local-multi" { layers = ["roles/shared", "roles/data/local"] }
+  env "local-multi" { layers = ["roles/shared", "roles/coshared/aux_data", "roles/data/local"] }
 }
 
 # role "endpoints" {
