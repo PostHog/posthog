@@ -22,7 +22,7 @@ class CommentMentionTestCase(TestCase):
             )
         self.channel = Channel.objects.create(team=self.team, name="general", created_by=self.author)
         self.task = Task.objects.create(team=self.team, title="Ship it", created_by=self.author, channel=self.channel)
-        self.run = TaskRun.objects.create(
+        self.task_run = TaskRun.objects.create(
             team=self.team,
             task=self.task,
             artifacts=[{"id": "artifact-1", "name": "report.md", "type": "output"}],

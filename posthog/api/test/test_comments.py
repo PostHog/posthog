@@ -3,6 +3,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 
+from django.apps import apps
 from django.conf import settings
 
 from parameterized import parameterized
@@ -15,27 +16,27 @@ from posthog.models.comment.utils import build_comment_item_url, extract_plain_t
 
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel, Status
-from products.tasks.backend.models import (
-    Channel as TaskChannel,
-    Task,
-    TaskRun,
-)
 
 from ee.models.rbac.access_control import AccessControl
 
 
 class TestComments(APIBaseTest, QueryMatchingTest):
     def _task_artifact_target(self, *, public: bool = True, creator=None):
+        task_channel_model = apps.get_model("tasks", "Channel")
+        task_model = apps.get_model("tasks", "Task")
+        task_run_model = apps.get_model("tasks", "TaskRun")
         channel = (
-            TaskChannel.objects.create(team=self.team, name="comment-test", created_by=self.user) if public else None
+            task_channel_model.objects.create(team=self.team, name="comment-test", created_by=self.user)
+            if public
+            else None
         )
-        task = Task.objects.create(
+        task = task_model.objects.create(
             team=self.team,
             title="Comment target",
             created_by=creator or self.user,
             channel=channel,
         )
-        TaskRun.objects.create(
+        task_run_model.objects.create(
             team=self.team,
             task=task,
             artifacts=[{"id": "artifact-1", "name": "report.md", "type": "output"}],
