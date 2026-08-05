@@ -384,6 +384,25 @@ describe('StateManager', () => {
             expect(result).toBe('cached-org-id')
         })
 
+        it('derives the organization from a configured project without replacing it with user defaults', async () => {
+            await cache.set('projectId', '789')
+            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(mockApiKey)
+            vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
+            const projectGet = vi.fn().mockResolvedValue({
+                success: true,
+                data: { id: 789, uuid: 'uuid-789', name: 'Configured Project', organization: 'org-2' },
+            })
+            ;(stateManager as any)._api = {
+                projects: () => ({ get: projectGet }),
+            }
+
+            const result = await stateManager.getOrgID()
+
+            expect(result).toBe('org-2')
+            expect(await cache.get('projectId')).toBe('789')
+            expect(projectGet).toHaveBeenCalledWith({ projectId: '789' })
+        })
+
         it('should call setDefaultOrganizationAndProject when not cached', async () => {
             const spy = vi.spyOn(stateManager, 'setDefaultOrganizationAndProject').mockResolvedValue({
                 organizationId: 'default-org',
