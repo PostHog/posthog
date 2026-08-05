@@ -914,6 +914,19 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
         )
         assert cleared.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_run_read_strips_schema_snapshot_from_metadata(self) -> None:
+        # The snapshot exists for record validation; leaking it into run reads repeats up to
+        # 20 KB of schema per row on listings scouts read inside their own prompts.
+        run = self._make_run_with_schema()
+        SignalScoutRun.objects.filter(pk=run.pk).update(
+            metadata={"structured_output_schema": _STRUCTURED_OUTPUT_SCHEMA, "report_channel": "none"}
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/scout/runs/{run.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        metadata = response.json()["metadata"]
+        assert "structured_output_schema" not in metadata
+        assert metadata["report_channel"] == "none"
+
     def test_record_output_fails_closed_when_schema_cleared_mid_request(self) -> None:
         # Simulates a clear committing between the schema read and the capacity reservation —
         # the in-transaction recheck must fail the call closed with nothing forwarded.
