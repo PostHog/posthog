@@ -175,7 +175,8 @@ describe('CdpCyclotronWorker', () => {
             expect(hogExecutorSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
                     hogFunction: expect.objectContaining({ template_id: 'template-webhook' }),
-                })
+                }),
+                expect.objectContaining({ checkpoint: expect.any(Function) })
             )
         })
 
