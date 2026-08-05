@@ -334,19 +334,17 @@ impl SinkEvent for WrappedEvent {
     /// `AnalyticsHistorical`, whose consumers need the key. Deciding late
     /// keeps the rule correct no matter how the stages are ordered.
     fn ordering(&self) -> OrderingGuarantee {
-        match self.destination {
-            // Only the lanes that exist to absorb hot keys give up ordering.
-            Destination::AnalyticsMain | Destination::Overflow | Destination::AiEventsOverflow => {
-                if self.spread_partitions {
-                    OrderingGuarantee::None
-                } else {
-                    person_ordering(self.force_disable_person_processing)
-                }
-            }
-            // Historical, dlq, custom redirects and the AI main topic keep the
-            // key even with person processing off, matching v0's route().
-            _ => OrderingGuarantee::PerDistinctId,
+        if !self.destination.absorbs_hot_keys() {
+            return OrderingGuarantee::PerDistinctId;
         }
+        // Two independent reasons to give the guarantee up on a lane that can:
+        // the overflow limiter found the key bursting, or a stage took person
+        // processing away and with it the ordering that person processing is
+        // what needs.
+        if self.spread_partitions {
+            return OrderingGuarantee::None;
+        }
+        person_ordering(self.force_disable_person_processing)
     }
 
     fn serialize(&self, ctx: &RequestContext) -> anyhow::Result<bytes::Bytes> {
@@ -1109,24 +1107,19 @@ mod tests {
         #[case] spread_partitions: bool,
         #[case] expected: OrderingGuarantee,
     ) {
+        let ctx = test_utils::test_context();
         let mut ev = ok_wrapped("$pageview", "user-1");
         ev.destination = destination;
         ev.force_disable_person_processing = force_disable_person_processing;
         ev.spread_partitions = spread_partitions;
+
         assert_eq!(ev.ordering(), expected);
-    }
-
-    #[test]
-    fn spreading_does_not_disable_person_processing() {
-        let ctx = test_utils::test_context();
-        let mut ev = ok_wrapped("$pageview", "user-1");
-        ev.destination = Destination::Overflow;
-        ev.spread_partitions = true;
-
-        assert_eq!(ev.ordering(), OrderingGuarantee::None);
-        assert!(
-            ev.headers(&ctx).force_disable_person_processing.is_none(),
-            "spreading a hot key must not tell downstream to skip person processing"
+        // The header tracks the person-processing flag and nothing else, so
+        // spreading a key never asks downstream to skip identity resolution.
+        assert_eq!(
+            ev.headers(&ctx).force_disable_person_processing,
+            force_disable_person_processing.then_some(true),
+            "the header must follow the person flag alone"
         );
     }
 

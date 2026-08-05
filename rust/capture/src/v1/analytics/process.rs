@@ -2489,6 +2489,45 @@ mod tests {
         assert_eq!(limited.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
     }
 
+    /// The two stages run in v1's production order: the burst limiter first,
+    /// then the global rate limiter. A key that trips both must still get its
+    /// warning, because the global limiter skips events whose person processing
+    /// is already off, and a burst used to leave that flag set on its way past.
+    /// The legacy path always warns here (its global limiter runs first), so
+    /// swallowing it would drop a customer-visible warning on v1 only.
+    ///
+    /// Spreading itself is covered by
+    /// `overflow_rate_limited_spreads_without_disabling_person_processing`; this
+    /// case exists for the warning and the tally.
+    #[tokio::test]
+    async fn burst_overflow_then_global_limit_still_warns() {
+        let mut ctx = test_utils::test_context();
+        ctx.api_token = "phc_tok".to_string();
+        let burst = overflow_limiter(1, 1, None);
+        let global = mock_limiter(vec!["phc_tok:user-1"]);
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$pageview", "user-1"),
+        ];
+
+        apply_overflow_stamping(Some(&burst), None, &ctx, &mut events);
+        let tally = apply_token_distinct_id_limits(&global, &ctx, None, &mut events).await;
+
+        // events[1] is the one the burst limiter sent to overflow.
+        let spread = &events[1];
+        assert_eq!(
+            spread.result,
+            EventResult::Warning,
+            "a spread key must still be warned about when the global limiter hits it"
+        );
+        assert_eq!(spread.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
+        assert_eq!(
+            tally.already_disabled, 0,
+            "spreading must not look like person processing was already off"
+        );
+        assert_eq!(tally.limited, 2);
+    }
+
     #[tokio::test]
     async fn td_limits_evaluates_but_does_not_restamp_force_disable_pp() {
         // An event that already has person processing disabled (illegal

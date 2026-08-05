@@ -58,6 +58,31 @@ impl Destination {
         }
     }
 
+    /// Whether this lane exists to absorb hot keys, and so may publish without
+    /// a partition key to spread load across partitions.
+    ///
+    /// Everything else keeps its key even when person processing is off,
+    /// because its consumers rely on per-distinct-id ordering: historical
+    /// backfills, the dlq, admin custom redirects, and the AI main topic.
+    /// Matches the lanes legacy `route()` resolves through `person_ordering`.
+    ///
+    /// Exhaustive on purpose: a new destination has to state which side it is
+    /// on rather than silently inheriting "keeps its key".
+    pub fn absorbs_hot_keys(&self) -> bool {
+        match self {
+            Self::AnalyticsMain | Self::Overflow | Self::AiEventsOverflow => true,
+            Self::AnalyticsHistorical
+            | Self::Dlq
+            | Self::Custom(_)
+            | Self::ExceptionErrorTracking
+            | Self::HeatmapMain
+            | Self::ClientIngestionWarning
+            | Self::AiEvents => false,
+            // Never published, so it never reaches a partition key.
+            Self::Drop => false,
+        }
+    }
+
     /// Stable, low-cardinality metric tag. `Custom(_)` collapses to "custom"
     /// so admin-configured topic names never become label values.
     pub fn as_tag(&self) -> &'static str {
