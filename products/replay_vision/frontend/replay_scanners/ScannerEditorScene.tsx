@@ -64,17 +64,17 @@ const STEP_HEADERS: Record<
     { hedgehog: JSX.Element; title: string; subtitle: string }
 > = {
     configure: {
-        hedgehog: <HedgehogMagnifyingGlass className="h-24 w-auto shrink-0" />,
+        hedgehog: <HedgehogMagnifyingGlass className="h-16 sm:h-24 w-auto shrink-0" />,
         title: 'Configure your scanner',
         subtitle: 'What it looks for and how it analyzes recordings.',
     },
     triggers: {
-        hedgehog: <HedgehogConstruction2 className="h-24 w-auto shrink-0" />,
+        hedgehog: <HedgehogConstruction2 className="h-16 sm:h-24 w-auto shrink-0" />,
         title: 'Set up scan conditions',
         subtitle: 'Pick which recordings to scan, and how often.',
     },
     self_driving: {
-        hedgehog: <HedgehogImTheDriver className="h-24 w-auto shrink-0" />,
+        hedgehog: <HedgehogImTheDriver className="h-16 sm:h-24 w-auto shrink-0" />,
         title: 'Self-driving',
         subtitle: 'Close the loop: from findings to shipped fixes.',
     },
@@ -182,7 +182,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                             enableFormOnSubmit
                             className="max-w-4xl w-full mx-auto"
                         >
-                            <div className="bg-bg-light border rounded-lg shadow-sm p-6 flex flex-col gap-6 [&_.Field--error_.input-like]:!border-danger">
+                            <div className="bg-bg-light border rounded-lg shadow-sm p-4 sm:p-6 flex flex-col gap-6 [&_.Field--error_.input-like]:!border-danger">
                                 <div className="flex items-center gap-3">
                                     {STEP_HEADERS[step].hedgehog}
                                     <div>
@@ -297,7 +297,7 @@ function ConfigureStep(): JSX.Element {
 
             <div className="flex flex-col gap-1 items-start">
                 <LemonField name="model" label="Model" className="items-start">
-                    <LemonSelect value={scanner.model} options={MODEL_OPTIONS} />
+                    <LemonSelect className="max-w-full" value={scanner.model} options={MODEL_OPTIONS} />
                 </LemonField>
                 <div className="text-xs text-muted">
                     Newer models tend to produce higher-quality observations, but cost more per observation.
@@ -373,7 +373,7 @@ function EditorFooter({
             {step === 'self_driving' && durationError ? (
                 <div className="text-danger text-sm">{durationError}</div>
             ) : null}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
                 {/* First form step of a new scanner goes back to the template picker; a mid-flow step goes to the
                 previous visible step; editing's first step (configure, no template) has no back. */}
                 {isNew && step === 'configure' ? (
