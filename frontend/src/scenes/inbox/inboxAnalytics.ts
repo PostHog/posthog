@@ -98,6 +98,7 @@ export type ScoutActionType =
     | 'open_helper_skill'
     | 'open_findings'
     | 'toggle_hide_disabled'
+    | 'filter_tags'
     | 'expand_run'
     | 'collapse_run'
     | 'filter_runs'
