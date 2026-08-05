@@ -18,12 +18,11 @@ def _signal(**overrides) -> EmitSignalInputs:
 
 class TestSignalDocumentId:
     def test_reprocessing_one_signal_reuses_its_document(self):
-        # document_id is what every signal read groups on. A random id per emission made a replayed or
-        # retried emission a second inbox item for a condition already reported.
+        # A random id here made every grouping replay a second inbox item.
         assert signal_document_id(_signal()) == signal_document_id(_signal())
 
     def test_weight_alone_does_not_fork_the_document(self):
-        # Weight is scoring, not identity — the pipeline may rescore the same emission.
+        # Weight is scoring, not identity: the pipeline may rescore the same emission.
         assert signal_document_id(_signal(weight=1.0)) == signal_document_id(_signal())
 
     @parameterized.expand(
@@ -32,9 +31,8 @@ class TestSignalDocumentId:
             ("source_product", {"source_product": "error_tracking"}),
             ("source_type", {"source_type": "ci_broken_default_branch"}),
             ("source_id", {"source_id": "PostHog/posthog:CI:storybook:2026-07-20:flaky"}),
-            # Sources like error tracking (issue reopened) and log alerts (alert re-fired) reuse one
-            # source_id across genuinely distinct occurrences, differing only in their evidence text.
-            # Keying on the tuple alone would silently overwrite the earlier occurrence.
+            # Error tracking and log alerts reuse one source_id across distinct occurrences that
+            # differ only in their evidence text, so the description must fork the document.
             ("description", {"description": "CI job 'warehouse-sources' recovered on a rerun again"}),
         ]
     )
