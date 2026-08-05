@@ -4,11 +4,15 @@ import type {
 } from "@posthog/api-client/posthog-client";
 import { MCP_GATEWAY_FLAG } from "@posthog/shared";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useAddLocalMcpServer } from "@posthog/ui/features/local-mcp/useAddLocalMcpServer";
 import { useLocalMcpCloudServers } from "@posthog/ui/features/local-mcp/useLocalMcpCloudServers";
+import { useLocalMcpServers } from "@posthog/ui/features/local-mcp/useLocalMcpServers";
 import { McpGatewayView } from "@posthog/ui/features/mcp-gateway/components/McpGatewayView";
 import { AddCustomServerForm } from "@posthog/ui/features/mcp-server-manager/AddCustomServerForm";
+import type { InternalServerCardData } from "@posthog/ui/features/mcp-servers/components/parts/InternalServerCard";
 import { MarketplaceView } from "@posthog/ui/features/mcp-servers/components/parts/MarketplaceView";
 import { McpInstalledRail } from "@posthog/ui/features/mcp-servers/components/parts/McpInstalledRail";
+import { useFlaggedMcpServer } from "@posthog/ui/features/mcp-servers/hooks/useFlaggedMcpServer";
 import { useMcpServers } from "@posthog/ui/features/mcp-servers/hooks/useMcpServers";
 import {
   AlertDialog,
@@ -71,6 +75,29 @@ function McpMarketplaceView() {
   } = useMcpServers();
 
   const { servers: localServers } = useLocalMcpCloudServers(true);
+
+  // Flag-delivered internal server (HOSTHOG_MCP_FLAG). Connecting writes a
+  // user-scoped local server config, so it needs the desktop workspace.
+  const flaggedServer = useFlaggedMcpServer();
+  const addLocalServer = useAddLocalMcpServer();
+  const { servers: localServerList, available: localMcpAvailable } =
+    useLocalMcpServers(flaggedServer !== null);
+  const internalServer: InternalServerCardData | undefined =
+    flaggedServer && localMcpAvailable
+      ? {
+          server: flaggedServer,
+          installed: localServerList.some(
+            (server) => server.name === flaggedServer.name,
+          ),
+          isInstalling: addLocalServer.isPending,
+          hasError: addLocalServer.isError,
+          onConnect: () =>
+            addLocalServer.mutate({
+              name: flaggedServer.name,
+              url: flaggedServer.url,
+            }),
+        }
+      : undefined;
 
   useEffect(() => {
     const refreshMcpState = () => {
@@ -263,6 +290,7 @@ function McpMarketplaceView() {
         }
         onConnect={handleConnect}
         onAddCustom={() => setView({ kind: "add-custom" })}
+        internalServer={internalServer}
       />
     );
   })();

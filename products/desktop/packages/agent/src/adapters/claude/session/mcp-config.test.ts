@@ -3,8 +3,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  loadUserClaudeJsonMcpServerDescriptors,
   loadUserClaudeJsonMcpServerEntries,
   loadUserClaudeJsonMcpServers,
+  saveUserClaudeJsonHttpMcpServer,
 } from "./mcp-config";
 
 describe("loadUserClaudeJsonMcpServers", () => {
@@ -185,5 +187,80 @@ describe("loadUserClaudeJsonMcpServerEntries", () => {
     expect(
       loadUserClaudeJsonMcpServerEntries("/cwd", undefined, tmpHome),
     ).toEqual([]);
+  });
+});
+
+describe("saveUserClaudeJsonHttpMcpServer", () => {
+  let tmpHome: string;
+
+  beforeEach(() => {
+    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "claude-json-test-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  });
+
+  it("creates ~/.claude.json when missing and round-trips through the reader", () => {
+    saveUserClaudeJsonHttpMcpServer(
+      "hosthog",
+      "https://example.test/mcp",
+      tmpHome,
+    );
+
+    const descriptors = loadUserClaudeJsonMcpServerDescriptors(
+      undefined,
+      undefined,
+      tmpHome,
+    );
+    expect(descriptors).toEqual([
+      {
+        name: "hosthog",
+        scope: "user",
+        transport: {
+          type: "http",
+          url: "https://example.test/mcp",
+          headers: undefined,
+        },
+      },
+    ]);
+  });
+
+  it("preserves unrelated config and replaces a same-name entry", () => {
+    const cfg = {
+      numStartups: 42,
+      projects: { "/cwd": { mcpServers: { other: { command: "npx" } } } },
+      mcpServers: {
+        hosthog: { type: "http", url: "https://old.test/mcp" },
+        keepme: { type: "stdio", command: "npx", args: ["pkg"] },
+      },
+    };
+    fs.writeFileSync(path.join(tmpHome, ".claude.json"), JSON.stringify(cfg));
+
+    saveUserClaudeJsonHttpMcpServer("hosthog", "https://new.test/mcp", tmpHome);
+
+    const written = JSON.parse(
+      fs.readFileSync(path.join(tmpHome, ".claude.json"), "utf8"),
+    );
+    expect(written.numStartups).toBe(42);
+    expect(written.projects).toEqual(cfg.projects);
+    expect(written.mcpServers).toEqual({
+      hosthog: { type: "http", url: "https://new.test/mcp" },
+      keepme: { type: "stdio", command: "npx", args: ["pkg"] },
+    });
+  });
+
+  it("throws on an unparseable file and leaves it untouched", () => {
+    const claudeJsonPath = path.join(tmpHome, ".claude.json");
+    fs.writeFileSync(claudeJsonPath, "not json");
+
+    expect(() =>
+      saveUserClaudeJsonHttpMcpServer(
+        "hosthog",
+        "https://example.test/mcp",
+        tmpHome,
+      ),
+    ).toThrow();
+    expect(fs.readFileSync(claudeJsonPath, "utf8")).toBe("not json");
   });
 });

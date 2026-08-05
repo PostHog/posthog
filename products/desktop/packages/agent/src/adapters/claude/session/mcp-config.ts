@@ -69,6 +69,55 @@ export function loadUserClaudeJsonMcpServerEntries(
   return [...byName.values()];
 }
 
+/**
+ * Adds or replaces a user-scoped streamable-HTTP server in ~/.claude.json,
+ * the same entry `claude mcp add --scope user --transport http` writes. The
+ * rest of the file is preserved verbatim. An unparseable file throws instead
+ * of being overwritten, because ~/.claude.json is Claude Code's primary
+ * config and clobbering it would destroy unrelated user settings. The write
+ * goes through a temp file + rename so a crash mid-write can't truncate it.
+ */
+export function saveUserClaudeJsonHttpMcpServer(
+  name: string,
+  url: string,
+  homeDir: string = os.homedir(),
+): void {
+  const claudeJsonPath = path.join(homeDir, ".claude.json");
+
+  let raw: string | undefined;
+  try {
+    raw = fs.readFileSync(claudeJsonPath, "utf8");
+  } catch {
+    // No config yet: start one with just the server entry.
+  }
+
+  let cfg: Record<string, unknown> = {};
+  if (raw !== undefined) {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      parsed === null ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed)
+    ) {
+      throw new Error("~/.claude.json is not a JSON object");
+    }
+    cfg = parsed as Record<string, unknown>;
+  }
+
+  const servers =
+    cfg.mcpServers !== null &&
+    typeof cfg.mcpServers === "object" &&
+    !Array.isArray(cfg.mcpServers)
+      ? (cfg.mcpServers as Record<string, unknown>)
+      : {};
+  servers[name] = { type: "http", url };
+  cfg.mcpServers = servers;
+
+  const tmpPath = `${claudeJsonPath}.${process.pid}.tmp`;
+  fs.writeFileSync(tmpPath, `${JSON.stringify(cfg, null, 2)}\n`);
+  fs.renameSync(tmpPath, claudeJsonPath);
+}
+
 export function loadUserClaudeJsonMcpServers(
   cwd: string,
   logger?: Logger,

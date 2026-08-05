@@ -413,9 +413,13 @@ container.bind(CODE_REVIEW_WORKSPACE_CLIENT).toConstantValue({
 container.bind(REVERT_HUNK_SERVICE).to(RevertHunkService).inSingletonScope();
 
 // local MCP servers (~/.claude.json), read for cloud-import classification
+// and written to for flag-delivered marketplace entries
 container.bind(LOCAL_MCP_WORKSPACE_CLIENT).toConstantValue({
   listLocalMcpServers: (cwd?: string) =>
     trpcClient.localMcp.list.query({ cwd }),
+  addUserMcpServer: async (input: { name: string; url: string }) => {
+    await trpcClient.localMcp.addUserServer.mutate(input);
+  },
 } satisfies LocalMcpWorkspaceClient);
 
 // skills (team publish/install reach workspace-server through this slice)

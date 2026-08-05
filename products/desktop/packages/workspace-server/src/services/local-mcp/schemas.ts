@@ -32,3 +32,16 @@ export const listLocalMcpServersInput = z.object({
 export const listLocalMcpServersOutput = z.array(
   localMcpServerDescriptorSchema,
 );
+
+export const addUserMcpServerInput = z.object({
+  // Server keys become MCP tool-name prefixes (mcp__<name>__*), so keep them
+  // identifier-shaped like `claude mcp add` does.
+  name: z
+    .string()
+    .min(1)
+    .max(100)
+    .regex(/^[a-zA-Z0-9_-]+$/),
+  url: z.url({ protocol: /^https?$/ }),
+});
+
+export type AddUserMcpServerInput = z.infer<typeof addUserMcpServerInput>;

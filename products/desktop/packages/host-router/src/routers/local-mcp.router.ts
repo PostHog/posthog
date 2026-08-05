@@ -4,6 +4,7 @@ import {
   type LocalMcpService,
 } from "@posthog/workspace-server/services/local-mcp/identifiers";
 import {
+  addUserMcpServerInput,
   listLocalMcpServersInput,
   listLocalMcpServersOutput,
 } from "@posthog/workspace-server/services/local-mcp/schemas";
@@ -16,5 +17,12 @@ export const localMcpRouter = router({
       ctx.container
         .get<LocalMcpService>(LOCAL_MCP_SERVICE)
         .listServers(input.cwd),
+    ),
+  addUserServer: publicProcedure
+    .input(addUserMcpServerInput)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<LocalMcpService>(LOCAL_MCP_SERVICE)
+        .addUserServer(input),
     ),
 });

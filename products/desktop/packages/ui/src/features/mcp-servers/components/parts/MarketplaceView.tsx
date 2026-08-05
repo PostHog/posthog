@@ -5,6 +5,7 @@ import {
   type McpRecommendedServer,
   type McpServerInstallation,
 } from "@posthog/api-client/posthog-client";
+import type { FlaggedMcpServerPayload } from "@posthog/core/local-mcp/schemas";
 import {
   filterServersByCategory,
   filterServersByQuery,
@@ -19,6 +20,10 @@ import {
   TextField,
 } from "@radix-ui/themes";
 import { useMemo } from "react";
+import {
+  InternalServerCard,
+  type InternalServerCardData,
+} from "./InternalServerCard";
 import { ServerCard } from "./ServerCard";
 
 interface MarketplaceViewProps {
@@ -34,6 +39,16 @@ interface MarketplaceViewProps {
   onOpenInstallation: (installationId: string) => void;
   onConnect: (server: McpRecommendedServer) => void;
   onAddCustom: () => void;
+  /** Flag-delivered internal server rendered ahead of the cloud catalog. */
+  internalServer?: InternalServerCardData;
+}
+
+function matchesQuery(server: FlaggedMcpServerPayload, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return [server.displayName, server.name, server.description].some((field) =>
+    field?.toLowerCase().includes(q),
+  );
 }
 
 export function MarketplaceView({
@@ -49,6 +64,7 @@ export function MarketplaceView({
   onOpenInstallation,
   onConnect,
   onAddCustom,
+  internalServer,
 }: MarketplaceViewProps) {
   const installationByTemplateId = useMemo(() => {
     const map = new Map<string, string>();
@@ -64,6 +80,13 @@ export function MarketplaceView({
     const byCategory = filterServersByCategory(servers, category);
     return filterServersByQuery(byCategory, query);
   }, [servers, category, query]);
+
+  // The internal server has no catalog category, so it only shows under "All".
+  const internalVisible =
+    internalServer !== undefined &&
+    category === "all" &&
+    matchesQuery(internalServer.server, query);
+  const visibleCount = visibleServers.length + (internalVisible ? 1 : 0);
 
   const hasFilters = query !== "" || category !== "all";
 
@@ -129,8 +152,7 @@ export function MarketplaceView({
 
       <Flex align="center" justify="between">
         <Text color="gray" className="text-[13px]">
-          {visibleServers.length}{" "}
-          {visibleServers.length === 1 ? "server" : "servers"}
+          {visibleCount} {visibleCount === 1 ? "server" : "servers"}
         </Text>
         {hasFilters && (
           <Button
@@ -151,7 +173,7 @@ export function MarketplaceView({
         <Flex align="center" justify="center" py="6">
           <Spinner size="2" />
         </Flex>
-      ) : visibleServers.length === 0 ? (
+      ) : visibleCount === 0 ? (
         <Flex
           align="center"
           justify="center"
@@ -167,6 +189,7 @@ export function MarketplaceView({
         </Flex>
       ) : (
         <Flex direction="column" gap="3">
+          {internalVisible && <InternalServerCard {...internalServer} />}
           {visibleServers.map((server) => {
             const installationId = installationByTemplateId.get(server.id);
             return (

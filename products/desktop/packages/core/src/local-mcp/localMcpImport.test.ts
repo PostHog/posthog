@@ -184,6 +184,7 @@ describe("LocalMcpImportService", () => {
           server({ type: "stdio", command: "npx" }, { name: "local" }),
         ];
       },
+      addUserMcpServer: async () => {},
     };
 
     const results = await new LocalMcpImportService(

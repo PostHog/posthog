@@ -354,6 +354,19 @@ export function isFeatureFlagEnabled(flagKey: string): boolean {
 }
 
 /**
+ * The flag's payload when it evaluates enabled for the current user.
+ * Returns undefined if PostHog is not initialized, the flag is off, or it
+ * carries no payload.
+ */
+export function getFeatureFlagPayload(flagKey: string): unknown {
+  if (!isInitialized) {
+    return undefined;
+  }
+
+  return posthog.getFeatureFlagPayload(flagKey) ?? undefined;
+}
+
+/**
  * Subscribe to feature flag changes.
  * Callback is called when flags are loaded or updated.
  * Returns unsubscribe function.
@@ -405,6 +418,7 @@ export const posthogAnalyticsTracker: AnalyticsTracker = {
  */
 export const posthogFeatureFlags: FeatureFlags = {
   isEnabled: isFeatureFlagEnabled,
+  getPayload: getFeatureFlagPayload,
   onFlagsLoaded: onFeatureFlagsLoaded,
 };
 

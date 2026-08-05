@@ -11,6 +11,7 @@ import { LOCAL_MCP_WORKSPACE_CLIENT } from "./identifiers";
 /** The slice of workspace-server this service needs, bound by the host. */
 export interface LocalMcpWorkspaceClient {
   listLocalMcpServers(cwd?: string): Promise<LocalMcpServerDescriptor[]>;
+  addUserMcpServer(input: { name: string; url: string }): Promise<void>;
 }
 
 export type LocalMcpCloudAvailability =
@@ -207,5 +208,18 @@ export class LocalMcpImportService {
   ): Promise<LocalMcpCloudClassification[]> {
     const servers = await this.workspace.listLocalMcpServers(cwd);
     return servers.map(classifyLocalMcpServer);
+  }
+
+  /** The user's ~/.claude.json servers, unclassified. */
+  async listServers(cwd?: string): Promise<LocalMcpServerDescriptor[]> {
+    return this.workspace.listLocalMcpServers(cwd);
+  }
+
+  /**
+   * Adds or replaces a user-scoped streamable-HTTP server in ~/.claude.json,
+   * the same entry `claude mcp add --scope user --transport http` writes.
+   */
+  async addUserHttpServer(input: { name: string; url: string }): Promise<void> {
+    await this.workspace.addUserMcpServer(input);
   }
 }

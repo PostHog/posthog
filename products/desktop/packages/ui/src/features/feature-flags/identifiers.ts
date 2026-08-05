@@ -5,6 +5,8 @@
  */
 export interface FeatureFlags {
   isEnabled(flagKey: string): boolean;
+  /** The flag's payload when it evaluates enabled, undefined otherwise. */
+  getPayload(flagKey: string): unknown;
   onFlagsLoaded(handler: () => void): () => void;
 }
 

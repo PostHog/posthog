@@ -34,6 +34,13 @@ export const SPOKEN_NARRATION_FLAG = "posthog-code-spoken-narration";
 // Gates importing and relaying local MCP servers into cloud task runs.
 export const LOCAL_MCP_IMPORT_FLAG = "posthog-code-local-mcp-import";
 /**
+ * Permanent internal-only gate for the HostHog entry in the MCP marketplace.
+ * The boolean controls visibility; the flag payload carries the server config
+ * (see flaggedMcpServerPayloadSchema in @posthog/core/local-mcp/schemas), so
+ * the internal endpoint never appears in this public repo.
+ */
+export const HOSTHOG_MCP_FLAG = "posthog-code-hosthog-mcp";
+/**
  * Team MCP gateway (shared credentials, per-scope tool policies, agent
  * service accounts, audit log) replacing the per-user MCP marketplace.
  * Owned by the backend rollout in posthog/posthog — same flag key there.
