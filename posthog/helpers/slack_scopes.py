@@ -2,6 +2,8 @@
 # ``products.slack_app`` handlers can share the bot's required scopes without crossing tach
 # module boundaries.
 
+from collections.abc import Iterable
+
 import structlog
 
 from posthog.models.integration import Integration, SlackIntegration
@@ -29,10 +31,16 @@ REQUIRED_SLACK_SCOPES: frozenset[str] = frozenset(
 )
 
 
-def bot_is_ready(integration: Integration) -> bool:
-    """True when the install has every scope the @PostHog bot needs to answer mentions."""
+def has_scopes(integration: Integration, required: Iterable[str]) -> bool:
+    """Whether the install granted these bot scopes. Fails closed, so an install whose
+    granted set can't be read never enables anything."""
     try:
-        return not SlackIntegration(integration).missing_scopes(REQUIRED_SLACK_SCOPES)
+        return not SlackIntegration(integration).missing_scopes(required)
     except Exception:
         logger.warning("slack_bot_scope_check_failed", integration_id=integration.id, exc_info=True)
         return False
+
+
+def bot_is_ready(integration: Integration) -> bool:
+    """True when the install has every scope the @PostHog bot needs to answer mentions."""
+    return has_scopes(integration, REQUIRED_SLACK_SCOPES)
