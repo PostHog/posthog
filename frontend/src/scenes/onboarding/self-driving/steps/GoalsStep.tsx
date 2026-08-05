@@ -17,7 +17,7 @@ import { productEnablementStepLogic } from '../productEnablementStepLogic'
  */
 export function GoalsStep({ onContinue, onSkip }: { onContinue: () => void; onSkip: () => void }): JSX.Element {
     const { selectGoal } = useActions(goalSelectionLogic)
-    const { autoEnableForGoal } = useActions(productEnablementStepLogic)
+    const { configureToolsForGoal } = useActions(productEnablementStepLogic)
 
     return (
         <div className="flex flex-col gap-6 py-1">
@@ -30,7 +30,7 @@ export function GoalsStep({ onContinue, onSkip }: { onContinue: () => void; onSk
                             type="button"
                             onClick={() => {
                                 selectGoal(goal.key)
-                                autoEnableForGoal(goal.key)
+                                configureToolsForGoal(goal.key)
                                 onContinue()
                             }}
                             className="OnboardingProductCard group flex items-center gap-4 p-4 rounded-lg border text-left cursor-pointer transition-all hover:shadow-sm"
@@ -61,7 +61,7 @@ export function GoalsStep({ onContinue, onSkip }: { onContinue: () => void; onSk
                     type="tertiary"
                     size="small"
                     onClick={() => {
-                        autoEnableForGoal(null)
+                        configureToolsForGoal(null)
                         onSkip()
                     }}
                 >

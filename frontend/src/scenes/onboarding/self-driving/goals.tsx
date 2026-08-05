@@ -19,6 +19,92 @@ export const GOAL_PRIMARY_PRODUCT: Record<SelfDrivingGoal, ProductKey> = {
     ai_app: ProductKey.AI_OBSERVABILITY,
 }
 
+/** The team toggles a tool can sit behind (the product_enablement API's product names). */
+export type EnablementProduct = 'session_replay' | 'error_tracking'
+
+export type SelfDrivingToolKey =
+    | 'product_analytics'
+    | 'session_replay'
+    | 'error_tracking'
+    | 'web_analytics'
+    | 'ai_observability'
+
+export interface SelfDrivingTool {
+    productKey: ProductKey
+    name: string
+    /** One line: what the tool contributes to the self-driving loop. */
+    benefit: string
+    /** Product icon key for `iconForType`. */
+    iconType: 'product_analytics' | 'session_replay' | 'error_tracking' | 'web_analytics' | 'llm_analytics'
+    /** The team toggle behind the tool, when it needs one. Tools without one are on as soon as data flows. */
+    enablement?: EnablementProduct
+}
+
+/** Every tool the onboarding can configure and show. */
+export const SELF_DRIVING_TOOLS: Record<SelfDrivingToolKey, SelfDrivingTool> = {
+    product_analytics: {
+        productKey: ProductKey.PRODUCT_ANALYTICS,
+        name: 'Product analytics',
+        benefit: 'Events, trends, and funnels start flowing as soon as the SDK is in.',
+        iconType: 'product_analytics',
+    },
+    session_replay: {
+        productKey: ProductKey.SESSION_REPLAY,
+        name: 'Session replay',
+        benefit: 'Real sessions recorded, so agents can watch what users did.',
+        iconType: 'session_replay',
+        enablement: 'session_replay',
+    },
+    error_tracking: {
+        productKey: ProductKey.ERROR_TRACKING,
+        name: 'Error tracking',
+        benefit: 'Exceptions grouped into issues that feed your agents.',
+        iconType: 'error_tracking',
+        enablement: 'error_tracking',
+    },
+    web_analytics: {
+        productKey: ProductKey.WEB_ANALYTICS,
+        name: 'Web analytics',
+        benefit: 'Traffic, sources, and conversion on a live dashboard.',
+        iconType: 'web_analytics',
+    },
+    ai_observability: {
+        productKey: ProductKey.AI_OBSERVABILITY,
+        name: 'AI observability',
+        benefit: 'Traces, costs, and failures from your LLM features.',
+        iconType: 'llm_analytics',
+    },
+}
+
+export interface SelfDrivingToolSet {
+    /** Rendered on the tools step as the goal's configured collection; toggleable ones get auto-enabled. */
+    shown: SelfDrivingToolKey[]
+    /** Intent-only: these ProductKeys populate the sidebar but never appear in the onboarding UI.
+     * Sidebar items resolve through the products registry's `intents` - e.g. a PRODUCT_ANALYTICS
+     * intent brings both "Product analytics" and "Dashboards" into the sidebar. */
+    sidebar: ProductKey[]
+}
+
+// Dashboards for everyone: it answers to the PRODUCT_ANALYTICS intent in the products registry.
+const SHARED_SIDEBAR: ProductKey[] = [ProductKey.PRODUCT_ANALYTICS]
+
+const GOAL_TOOL_SETS: Record<SelfDrivingGoal, SelfDrivingToolSet> = {
+    user_behavior: { shown: ['product_analytics', 'session_replay'], sidebar: SHARED_SIDEBAR },
+    fix_issues: { shown: ['error_tracking', 'session_replay'], sidebar: SHARED_SIDEBAR },
+    website_traffic: { shown: ['web_analytics', 'product_analytics'], sidebar: SHARED_SIDEBAR },
+    ai_app: { shown: ['ai_observability', 'product_analytics'], sidebar: SHARED_SIDEBAR },
+}
+
+/** The "set up everything" path (no declared goal). */
+const DEFAULT_TOOL_SET: SelfDrivingToolSet = {
+    shown: ['product_analytics', 'session_replay', 'error_tracking'],
+    sidebar: SHARED_SIDEBAR,
+}
+
+export function toolSetForGoal(goal: SelfDrivingGoal | null): SelfDrivingToolSet {
+    return goal ? GOAL_TOOL_SETS[goal] : DEFAULT_TOOL_SET
+}
+
 export interface SelfDrivingGoalDefinition {
     key: SelfDrivingGoal
     title: string

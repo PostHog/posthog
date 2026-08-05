@@ -69,7 +69,7 @@ describe('productEnablementStepLogic', () => {
         // Mock team: replay already on, error tracking off - fix_issues wants both.
         await teamLogic.asyncActions.loadCurrentTeam()
 
-        await logic.asyncActions.autoEnableForGoal('fix_issues')
+        await logic.asyncActions.configureToolsForGoal('fix_issues')
         expect(bodies).toEqual([{ products: ['error_tracking'] }])
     })
 })
