@@ -14780,7 +14780,8 @@ export namespace Schemas {
      * * `dataset_name_conflict` - dataset_name_conflict
      * * `dataset_item_archived` - dataset_item_archived
      * * `dataset_item_active` - dataset_item_active
-     * * `external_id_conflict` - external_id_conflict
+     * * `client_item_id_conflict` - client_item_id_conflict
+     * * `limit_reached` - limit_reached
      * * `stale_version` - stale_version
      */
     export type CodeEnum = typeof CodeEnum[keyof typeof CodeEnum];
@@ -14791,7 +14792,8 @@ export namespace Schemas {
       DatasetNameConflict: 'dataset_name_conflict',
       DatasetItemArchived: 'dataset_item_archived',
       DatasetItemActive: 'dataset_item_active',
-      ExternalIdConflict: 'external_id_conflict',
+      ClientItemIdConflict: 'client_item_id_conflict',
+      LimitReached: 'limit_reached',
       StaleVersion: 'stale_version',
     } as const;
 
@@ -22139,6 +22141,20 @@ export namespace Schemas {
       Databricks: 'Databricks',
     } as const;
 
+    /**
+     * * `datasets` - datasets
+     * * `dataset_items` - dataset_items
+     * * `dataset_item_versions` - dataset_item_versions
+     */
+    export type ResourceEnum = typeof ResourceEnum[keyof typeof ResourceEnum];
+
+
+    export const ResourceEnum = {
+      Datasets: 'datasets',
+      DatasetItems: 'dataset_items',
+      DatasetItemVersions: 'dataset_item_versions',
+    } as const;
+
     export interface DatasetConflictResponse {
       /** Stable code identifying why the mutation was rejected.
        *
@@ -22146,7 +22162,8 @@ export namespace Schemas {
        * * `dataset_name_conflict` - dataset_name_conflict
        * * `dataset_item_archived` - dataset_item_archived
        * * `dataset_item_active` - dataset_item_active
-       * * `external_id_conflict` - external_id_conflict
+       * * `client_item_id_conflict` - client_item_id_conflict
+       * * `limit_reached` - limit_reached
        * * `stale_version` - stale_version */
       code: CodeEnum;
       /** Explanation of how to resolve the conflict. */
@@ -22157,10 +22174,20 @@ export namespace Schemas {
          */
       current_version?: number | null;
       /**
-         * Existing item ID when the conflict concerns an external ID.
+         * Existing item ID when the conflict concerns a client item ID.
          * @nullable
          */
       current_item_id?: string | null;
+      /** Resource whose configured limit was reached.
+       *
+       * * `datasets` - datasets
+       * * `dataset_items` - dataset_items
+       * * `dataset_item_versions` - dataset_item_versions */
+      resource?: ResourceEnum;
+      /** Number of resources that already exist. */
+      current_count?: number;
+      /** Maximum number of resources allowed. */
+      limit?: number;
     }
 
     /**
@@ -22195,6 +22222,48 @@ export namespace Schemas {
       Persons: 'persons',
     } as const;
 
+    export interface DatasetExportCreate {
+      /**
+         * Dataset revision to export. Defaults to the latest revision when the export is created.
+         * @minimum 1
+         */
+      revision?: number;
+    }
+
+    export interface DatasetExportError {
+      /** Why the export cannot be created or downloaded yet. */
+      detail: string;
+    }
+
+    export type DatasetExportReadStatusEnum = typeof DatasetExportReadStatusEnum[keyof typeof DatasetExportReadStatusEnum];
+
+
+    export const DatasetExportReadStatusEnum = {
+      Pending: 'pending',
+      Complete: 'complete',
+      Failed: 'failed',
+    } as const;
+
+    export interface DatasetExportRead {
+      /** Export ID used to check status and download the file. */
+      readonly id: number;
+      /** Current export state: pending, complete, or failed. */
+      readonly status: DatasetExportReadStatusEnum;
+      /** Immutable dataset revision included in the export. */
+      readonly dataset_revision: number;
+      /** Generated JSONL filename. */
+      readonly filename: string;
+      /** When the export was requested. */
+      readonly created_at: string;
+      /** When the generated file expires. */
+      readonly expires_after: string;
+      /**
+         * Reason the export failed, or null while it is pending or complete.
+         * @nullable
+         */
+      readonly exception: string | null;
+    }
+
     export interface DatasetItemArchive {
       /**
          * Current item version observed by the caller.
@@ -22214,11 +22283,11 @@ export namespace Schemas {
       /** Dataset that will own the item. */
       dataset: string;
       /**
-         * Optional case-sensitive stable key used for idempotent creates.
+         * Optional case-sensitive stable key used for idempotent creates. It cannot be changed.
          * @maxLength 255
          * @nullable
          */
-      external_id?: string | null;
+      client_item_id?: string | null;
       /** Input supplied to the system under test. Any non-null JSON value is accepted. */
       input: DatasetJSONValue;
       /** Optional user-authored expected output. */
@@ -22257,10 +22326,10 @@ export namespace Schemas {
       /** Dataset that owns the item. */
       readonly dataset: string;
       /**
-         * Optional caller-owned stable key.
+         * Optional caller-owned stable key that cannot be changed.
          * @nullable
          */
-      readonly external_id: string | null;
+      readonly client_item_id: string | null;
       readonly version: number;
       /** ID of this immutable item version. */
       readonly version_id: string;
@@ -22317,6 +22386,9 @@ export namespace Schemas {
      */
     export type DatasetReadMetadata = { [key: string]: unknown };
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface DatasetRead {
       readonly id: string;
       readonly name: string;
@@ -22340,6 +22412,11 @@ export namespace Schemas {
       readonly created_by: UserBasic | null;
       /** Project that owns the dataset. */
       readonly team_id: number;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export interface DatasetRevisionRead {
@@ -29810,11 +29887,73 @@ export namespace Schemas {
      * * `video/mp4` - video/mp4
      * * `image/gif` - image/gif
      * * `application/json` - application/json
+     * * `application/x-ndjson` - application/x-ndjson
      */
-    export type ExportFormatEnum = typeof ExportFormatEnum[keyof typeof ExportFormatEnum];
+    export type ExportedAssetExportFormatEnum = typeof ExportedAssetExportFormatEnum[keyof typeof ExportedAssetExportFormatEnum];
 
 
-    export const ExportFormatEnum = {
+    export const ExportedAssetExportFormatEnum = {
+      ImagePng: 'image/png',
+      ApplicationPdf: 'application/pdf',
+      TextCsv: 'text/csv',
+      ApplicationVndopenxmlformatsOfficedocumentspreadsheetmlsheet: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      VideoWebm: 'video/webm',
+      VideoMp4: 'video/mp4',
+      ImageGif: 'image/gif',
+      ApplicationJson: 'application/json',
+      ApplicationXNdjson: 'application/x-ndjson',
+    } as const;
+
+    /**
+     * Standard ExportedAsset serializer that doesn't return content.
+     */
+    export interface ExportedAsset {
+      readonly id: number;
+      /** @nullable */
+      dashboard?: number | null;
+      /** @nullable */
+      insight?: number | null;
+      /** File format of the generated export.
+       *
+       * * `image/png` - image/png
+       * * `application/pdf` - application/pdf
+       * * `text/csv` - text/csv
+       * * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+       * * `video/webm` - video/webm
+       * * `video/mp4` - video/mp4
+       * * `image/gif` - image/gif
+       * * `application/json` - application/json
+       * * `application/x-ndjson` - application/x-ndjson */
+      readonly export_format: ExportedAssetExportFormatEnum;
+      readonly created_at: string;
+      readonly has_content: boolean;
+      export_context?: unknown;
+      readonly filename: string;
+      /** @nullable */
+      readonly expires_after: string | null;
+      /** @nullable */
+      readonly exception: string | null;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+    }
+
+    /**
+     * * `image/png` - image/png
+     * * `application/pdf` - application/pdf
+     * * `text/csv` - text/csv
+     * * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+     * * `video/webm` - video/webm
+     * * `video/mp4` - video/mp4
+     * * `image/gif` - image/gif
+     * * `application/json` - application/json
+     */
+    export type ExportedAssetCreateExportFormatEnum = typeof ExportedAssetCreateExportFormatEnum[keyof typeof ExportedAssetCreateExportFormatEnum];
+
+
+    export const ExportedAssetCreateExportFormatEnum = {
       ImagePng: 'image/png',
       ApplicationPdf: 'application/pdf',
       TextCsv: 'text/csv',
@@ -29828,13 +29967,23 @@ export namespace Schemas {
     /**
      * Standard ExportedAsset serializer that doesn't return content.
      */
-    export interface ExportedAsset {
+    export interface ExportedAssetCreate {
       readonly id: number;
       /** @nullable */
       dashboard?: number | null;
       /** @nullable */
       insight?: number | null;
-      export_format: ExportFormatEnum;
+      /** File format to generate. Dataset JSONL exports use the dataset export endpoint.
+       *
+       * * `image/png` - image/png
+       * * `application/pdf` - application/pdf
+       * * `text/csv` - text/csv
+       * * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+       * * `video/webm` - video/webm
+       * * `video/mp4` - video/mp4
+       * * `image/gif` - image/gif
+       * * `application/json` - application/json */
+      export_format: ExportedAssetCreateExportFormatEnum;
       readonly created_at: string;
       readonly has_content: boolean;
       export_context?: unknown;
@@ -79570,6 +79719,14 @@ export namespace Schemas {
     offset?: number;
     /**
      * Return the exact dataset snapshot at this revision.
+     * @minimum 1
+     */
+    revision?: number;
+    };
+
+    export type DatasetItemsRetrieveParams = {
+    /**
+     * Return the item as it appeared at this exact dataset revision.
      * @minimum 1
      */
     revision?: number;
