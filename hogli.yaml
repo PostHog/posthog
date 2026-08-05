@@ -1198,3 +1198,7 @@ environment:
         bin_script: start-desktop
         description: 'Install the nested products/desktop workspace and run its dev stack (Electron app plus package watchers via turbo); used by the desktop intent on hogli start'
         hidden: true
+    ci:schema:cache:key:
+        bin_script: ci-schema-cache-key
+        description: 'Print the migration-set schema cache key for a git ref; single-sourced so the save side and every restore side agree'
+        hidden: true

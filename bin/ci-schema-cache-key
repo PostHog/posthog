@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Computes the migration-set schema cache key for a git ref.
+#
+# Single-sourced because ci-backend saves under this key and ci-backend, ci-dagster,
+# ci-mcp and ci-e2e-playwright all restore by it: the computations must agree byte for
+# byte or the cache silently never hits.
+#
+#   ci-schema-cache-key <ref>             prints the key, or nothing when no migration
+#                                         files match and the caller should fall back
+#   ci-schema-cache-key --routing <ref>    prints the db routing inputs
+#
+# --routing exists so the callers that skip the cache when a PR edits routing compare
+# the same paths this key hashes. Two lists would let the guard stop covering an input.
+set -euo pipefail
+
+# Manual cache-bust knob. Bump to strand every entry saved under the old computation.
+EPOCH=v2
+
+# Routing decides which app labels reach the dump, and allow_migrate is what applies it,
+# so the config and the modules implementing it all belong in the key.
+ROUTING_PATHS=(
+    products/db_routing.yaml
+    posthog/product_db_config.py
+    posthog/product_db_router.py
+)
+
+routing_inputs() {
+    git ls-tree -r --format='%(objectname) %(path)' "$1" -- "${ROUTING_PATHS[@]}"
+}
+
+if [ "${1:-}" = "--routing" ]; then
+    routing_inputs "${2:?usage: ci-schema-cache-key --routing <git-ref>}"
+    exit 0
+fi
+
+REF=${1:?usage: ci-schema-cache-key [--routing] <git-ref>}
+
+MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$REF" \
+    | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
+    | grep -vE '/(clickhouse|async_migrations)/migrations/' \
+    | LC_ALL=C sort) || true
+
+# An empty listing would otherwise hash to a stable key that collides across unrelated
+# refs, so say nothing and let the caller pick its own fallback.
+if [ -z "$MIG_FILES" ]; then
+    exit 0
+fi
+
+PG_IMAGE=$(git show "${REF}:docker-compose.base.yml" 2>/dev/null \
+    | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
+
+MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$(routing_inputs "$REF")" \
+    | sha256sum | cut -c1-40)
+echo "posthog-schema-mig-${EPOCH}-${MIG_HASH}"

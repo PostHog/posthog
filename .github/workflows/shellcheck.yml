@@ -18,6 +18,11 @@ jobs:
             - name: Check secrets scripts
               run: cd bin && shellcheck deploy-hobby
 
+            - name: Check the schema cache key script
+              # Every schema cache key in CI comes from this one script, so a shell bug
+              # here silently misses the cache everywhere rather than failing loudly.
+              run: shellcheck bin/ci-schema-cache-key
+
             - name: Check Windows-compatible repository paths
               run: |
                   shellcheck .github/scripts/check-windows-paths.sh .github/scripts/check-windows-paths.test.sh
