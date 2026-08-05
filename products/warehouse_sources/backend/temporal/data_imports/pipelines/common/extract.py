@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.l
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     BillingLimitsWillBeReachedException,
     DuplicatePrimaryKeysException,
+    MissingPrimaryKeysException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     is_transient_object_store_error,
@@ -301,6 +302,8 @@ async def persist_primary_keys(
 def validate_incremental_sync(
     is_incremental: bool,
     resource: SourceResponse,
+    *,
+    is_first_sync: bool = True,
 ) -> None:
     # Check for duplicate primary keys
     if is_incremental and resource.has_duplicate_primary_keys:
@@ -308,6 +311,13 @@ def validate_incremental_sync(
             f"The primary keys for this table are not unique. We can't sync incrementally until the table "
             f"has a unique primary key. Primary keys being used are: {resource.primary_keys}"
         )
+
+    # The Delta merge needs a key to match rows on, so a keyless incremental table fails once a
+    # table already exists. Raise before extraction rather than letting the writer hit it mid-load:
+    # on pipeline v3 the write happens in the load consumer, which can only fail the job, so the
+    # schema is never paused and the same doomed run repeats on every schedule.
+    if is_incremental and not is_first_sync and not resource.primary_keys:
+        raise MissingPrimaryKeysException()
 
 
 async def setup_row_tracking_with_billing_check(

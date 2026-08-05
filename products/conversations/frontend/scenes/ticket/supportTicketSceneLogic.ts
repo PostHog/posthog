@@ -19,8 +19,10 @@ import { beforeUnload, router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { isUUIDLike } from 'lib/utils/guards'
+import { markdownToHtml } from 'lib/utils/markdown'
 import { fullName } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -40,6 +42,10 @@ import {
     businessKnowledgeGapSuggestionsDismissCreate,
     businessKnowledgeGapSuggestionsList,
 } from 'products/business_knowledge/frontend/generated/api'
+import {
+    conversationsTicketsNotesDestroy,
+    conversationsTicketsNotesPartialUpdate,
+} from 'products/conversations/frontend/generated/api'
 import { signalsReportsList } from 'products/signals/frontend/generated/api'
 import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -179,9 +185,10 @@ export interface supportTicketSceneLogicValues {
     breadcrumbs: Breadcrumb[]
     chatMessages: ChatMessage[]
     chatPanelWidth: (desiredSize: number | null) => number
-    draftContent: JSONContent | null
+    draftContent: string | JSONContent | null
     draftIsPrivate: boolean
     draftModeEnabled: boolean
+    editingMessageId: string | null
     emailReplyBlockedReason: EmailReplyBlockedReason | null
     eventsQuery: DataTableNode | null
     exceptionsQuery: DataTableNode | null
@@ -206,6 +213,8 @@ export interface supportTicketSceneLogicValues {
     replyRecipientDescription: string
     sidePanelContext: SidePanelSceneContext | null
     snoozedUntil: string | null
+    stashedDraftContent: string | JSONContent | null
+    stashedDraftIsPrivate: boolean
     status: TicketStatus | null
     tags: string[]
     ticket: Ticket | null
@@ -220,6 +229,15 @@ export interface supportTicketSceneLogicActions {
         value: true
     } // supportTicketsSceneLogic
     loadTags: () => any // tagsModel
+    cancelEditingMessage: () => {
+        value: true
+    }
+    clearEditingMessage: () => {
+        value: true
+    }
+    deleteMessage: (messageId: string) => {
+        messageId: string
+    }
     dismissKnowledgeGap: (suggestionId: string) => {
         suggestionId: string
     }
@@ -342,8 +360,8 @@ export interface supportTicketSceneLogicActions {
     setAssignee: (assignee: TicketAssignee) => {
         assignee: TicketAssignee
     }
-    setDraftContent: (content: JSONContent | null) => {
-        content: JSONContent | null
+    setDraftContent: (content: string | JSONContent | null) => {
+        content: string | JSONContent | null
     }
     setDraftIsPrivate: (isPrivate: boolean) => {
         isPrivate: boolean
@@ -390,6 +408,16 @@ export interface supportTicketSceneLogicActions {
     setTicketUpdating: (updating: boolean) => {
         updating: boolean
     }
+    startEditingMessage: (message: ChatMessage) => {
+        message: ChatMessage
+    }
+    stashDraftForEdit: (
+        content: string | JSONContent | null,
+        isPrivate: boolean
+    ) => {
+        content: string | JSONContent | null
+        isPrivate: boolean
+    }
     submitAiReplyFeedback: (
         messageId: string,
         rating: AiReplyFeedbackRating,
@@ -432,7 +460,7 @@ export interface supportTicketSceneLogicMeta {
             ticket: Ticket | null,
             unsavedTicketChanges: string[]
         ) => boolean
-        hasPendingWork: (hasUnsavedChanges: boolean) => boolean
+        hasPendingWork: (hasUnsavedChanges: boolean, editingMessageId: string | null) => boolean
         chatMessages: (messages: CommentType[], ticket: Ticket | null) => ChatMessage[]
         eventsQuery: (ticket: Ticket | null) => DataTableNode | null
         exceptionsQuery: (ticket: Ticket | null) => DataTableNode | null
@@ -513,10 +541,16 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         dismissKnowledgeGap: (suggestionId: string) => ({ suggestionId }),
 
         // Draft message state (persists across tab switches)
-        setDraftContent: (content: JSONContent | null) => ({ content }),
+        setDraftContent: (content: string | JSONContent | null) => ({ content }),
         setDraftIsPrivate: (isPrivate: boolean) => ({ isPrivate }),
         // Per-ticket draft mode override, seeded from the browser-local default on open
         setDraftModeEnabled: (enabled: boolean) => ({ enabled }),
+
+        startEditingMessage: (message: ChatMessage) => ({ message }),
+        cancelEditingMessage: true,
+        clearEditingMessage: true,
+        stashDraftForEdit: (content: string | JSONContent | null, isPrivate: boolean) => ({ content, isPrivate }),
+        deleteMessage: (messageId: string) => ({ messageId }),
 
         submitAiReplyFeedback: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => ({
             messageId,
@@ -740,7 +774,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             },
         ],
         draftContent: [
-            null as JSONContent | null,
+            null as string | JSONContent | null,
             {
                 setDraftContent: (_, { content }) => content,
             },
@@ -755,6 +789,27 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             false,
             {
                 setDraftModeEnabled: (_, { enabled }) => enabled,
+            },
+        ],
+        editingMessageId: [
+            null as string | null,
+            {
+                startEditingMessage: (_, { message }) => message.id,
+                clearEditingMessage: () => null,
+            },
+        ],
+        stashedDraftContent: [
+            null as string | JSONContent | null,
+            {
+                stashDraftForEdit: (_, { content }) => content,
+                clearEditingMessage: () => null,
+            },
+        ],
+        stashedDraftIsPrivate: [
+            false,
+            {
+                stashDraftForEdit: (_, { isPrivate }) => isPrivate,
+                clearEditingMessage: () => false,
             },
         ],
         feedbackByMessageId: [
@@ -868,7 +923,11 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 return status !== ticket.status || unsavedTicketChanges.length > 0
             },
         ],
-        hasPendingWork: [(s) => [s.hasUnsavedChanges], (hasUnsavedChanges: boolean): boolean => hasUnsavedChanges],
+        hasPendingWork: [
+            (s) => [s.hasUnsavedChanges, s.editingMessageId],
+            (hasUnsavedChanges: boolean, editingMessageId: string | null): boolean =>
+                hasUnsavedChanges || !!editingMessageId,
+        ],
         chatPanelWidth: [
             () => [],
             () =>
@@ -929,6 +988,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         createdBy: message.created_by,
                         createdAt: message.created_at,
                         isPrivate: message.item_context?.is_private || false,
+                        version: message.version,
                         emailDeliveryStatus: message.item_context?.email_delivery_status,
                         fromZendesk: message.item_context?.from_zendesk === true,
                     }
@@ -978,6 +1038,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     }),
     listeners(({ actions, values, props, cache }) => ({
         loadTicket: async () => {
+            if (values.editingMessageId) {
+                actions.cancelEditingMessage()
+            }
             if (props.id === 'new') {
                 actions.setTicket(null)
                 return
@@ -1131,6 +1194,38 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 return
             }
             try {
+                if (values.editingMessageId) {
+                    const editingId = values.editingMessageId
+                    await conversationsTicketsNotesPartialUpdate(
+                        String(getCurrentTeamId()),
+                        values.ticket.id,
+                        editingId,
+                        {
+                            message: content,
+                            rich_content: richContent,
+                        }
+                    )
+                    // Optimistic local update so the thread reflects the edit before comments.list returns.
+                    actions.setMessages(
+                        values.messages.map((message) =>
+                            message.id === editingId
+                                ? {
+                                      ...message,
+                                      content,
+                                      rich_content: richContent,
+                                      version: (message.version ?? 0) + 1,
+                                  }
+                                : message
+                        )
+                    )
+                    lemonToast.success('Private note updated')
+                    actions.setMessageSending(false)
+                    // Restore the stashed composer draft; skip onSuccess (it clears the editor).
+                    actions.cancelEditingMessage()
+                    actions.loadMessages()
+                    return
+                }
+
                 await api.comments.create(
                     {
                         content,
@@ -1161,9 +1256,64 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 }, 300)
                 actions.loadTickets()
             } catch {
-                lemonToast.error('Failed to send message')
+                lemonToast.error(values.editingMessageId ? 'Failed to update note' : 'Failed to send message')
                 actions.setMessageSending(false)
             }
+        },
+        startEditingMessage: ({ message }) => {
+            // Only stash the composer draft on first enter; switching notes keeps the original stash.
+            if (!cache.noteEditActive) {
+                actions.stashDraftForEdit(values.draftContent, values.draftIsPrivate)
+                cache.noteEditActive = true
+            }
+            actions.setDraftIsPrivate(true)
+            if (message.richContent) {
+                actions.setDraftContent(message.richContent as JSONContent)
+            } else {
+                // Notes from MCP/reply API are markdown-only; TipTap parses HTML from marked.
+                actions.setDraftContent(markdownToHtml(message.content || ''))
+            }
+        },
+        cancelEditingMessage: () => {
+            actions.setDraftContent(values.stashedDraftContent)
+            actions.setDraftIsPrivate(values.stashedDraftIsPrivate)
+            cache.noteEditActive = false
+            actions.clearEditingMessage()
+        },
+        setMessages: ({ messages }) => {
+            if (values.editingMessageId && !messages.some((m) => m.id === values.editingMessageId)) {
+                actions.cancelEditingMessage()
+            }
+        },
+        deleteMessage: async ({ messageId }) => {
+            if (!values.ticket?.id) {
+                return
+            }
+            LemonDialog.open({
+                title: 'Delete private note?',
+                description: 'This removes the note from the ticket thread.',
+                primaryButton: {
+                    children: 'Delete',
+                    status: 'danger',
+                    onClick: async () => {
+                        try {
+                            await conversationsTicketsNotesDestroy(
+                                String(getCurrentTeamId()),
+                                values.ticket!.id,
+                                messageId
+                            )
+                            lemonToast.success('Private note deleted')
+                            if (values.editingMessageId === messageId) {
+                                actions.cancelEditingMessage()
+                            }
+                            actions.loadMessages()
+                        } catch {
+                            lemonToast.error('Failed to delete note')
+                        }
+                    },
+                },
+                secondaryButton: { children: 'Cancel' },
+            })
         },
         dismissKnowledgeGap: async ({ suggestionId }) => {
             try {

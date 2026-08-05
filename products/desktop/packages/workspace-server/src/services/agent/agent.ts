@@ -69,6 +69,7 @@ import {
   type CloudRegion,
   type ExecutionMode,
   isAuthError,
+  type McpServerConnection,
   resolveCloudInitialPermissionMode,
   serializeError,
   TypedEventEmitter,
@@ -1318,13 +1319,10 @@ If a repository IS genuinely required, attach one in this priority order:
     return `You are resuming a previous conversation after the native session could not be restored. Here is the conversation history from the previous session:\n\n${history}\n\nContinue from where you left off when responding to the user's next message.`;
   }
 
-  private async filterReachableMcpServers<
-    T extends {
-      name: string;
-      url: string;
-      headers: Array<{ name: string; value: string }>;
-    },
-  >(servers: T[], taskRunId: string): Promise<T[]> {
+  private async filterReachableMcpServers<T extends McpServerConnection>(
+    servers: T[],
+    taskRunId: string,
+  ): Promise<T[]> {
     const probed = await Promise.all(
       servers.map(async (server) => ({
         server,
@@ -1345,10 +1343,9 @@ If a repository IS genuinely required, attach one in this priority order:
     return reachable;
   }
 
-  private async isMcpServerReachable(server: {
-    url: string;
-    headers: Array<{ name: string; value: string }>;
-  }): Promise<boolean> {
+  private async isMcpServerReachable(
+    server: Pick<McpServerConnection, "url" | "headers">,
+  ): Promise<boolean> {
     const PROBE_TIMEOUT_MS = 2_000;
     try {
       const headers: Record<string, string> = {

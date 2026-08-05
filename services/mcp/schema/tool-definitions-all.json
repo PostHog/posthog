@@ -1663,6 +1663,34 @@
             "readOnlyHint": true
         }
     },
+    "conversations-tickets-notes-destroy": {
+        "description": "Soft-delete a private note on a support ticket. Only private notes authored by the calling user can be deleted. Customer-facing replies cannot be deleted. Message IDs come from conversations-tickets-messages-retrieve. Deleting another user's note or an AI-authored note returns 403 with error_type not_note_author. Deleting a public reply returns 400 with error_type not_private_note. A missing or already-deleted note returns 404 with error_type note_not_found.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "summary": "Delete private note",
+        "title": "Delete private note",
+        "required_scopes": ["ticket:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "conversations-tickets-notes-partial-update": {
+        "description": "Update a private note on a support ticket. Only private notes authored by the calling user can be edited. Customer-facing replies cannot be edited. Message IDs come from conversations-tickets-messages-retrieve. Editing another user's note or an AI-authored note returns 403 with error_type not_note_author. Editing a public reply returns 400 with error_type not_private_note. A missing or deleted note returns 404 with error_type note_not_found. Each successful update increments the note's version. Omit rich_content to clear previous TipTap JSON so the thread falls back to the markdown message.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "summary": "Update private note",
+        "title": "Update private note",
+        "required_scopes": ["ticket:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "conversations-tickets-reply-create": {
         "description": "Post a reply or internal note to a support ticket. IMPORTANT: With is_private=false (the default), the reply IS DELIVERED to the customer via the ticket's channel (email, Slack, Teams, or GitHub). Set is_private=true to store an internal note visible only to team members.",
         "category": "Conversations",
@@ -8714,6 +8742,20 @@
             "readOnlyHint": true
         }
     },
+    "scout-record-output": {
+        "description": "Record schema-validated structured records for a `SignalScoutRun` — the structured-output channel next to findings and reports. Opt-in via the scout config's `structured_output_schema` (a JSON Schema describing one record); without it the call fails closed, as it does for a dry-run scout (emit off). Pass the `run_id` and a `records` list of `{payload, subject}` entries. All-or-nothing: any record failing the schema fails the whole call with nothing written — fix and resubmit the batch. Each accepted record lands in the project's event stream as a `$scout_structured_output` event, queryable like any event. Idempotent — event ids are deterministic, so retrying a call that failed with a delivery error (503) cannot double-count.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Record structured output for a run",
+        "title": "Record structured output for a run",
+        "required_scopes": ["signal_scout_internal:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "scout-run-now": {
         "description": "Dispatch one on-demand run of a scout by its config `id`, regardless of its schedule — useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously and inherits the scheduled path's guards: it returns 429 if the project is over its Signals credits quota or its daily scout-run budget, and 409 if a run for this scout is already in progress. A manual run counts against the same daily run budget the scheduled runs draw from, so avoid triggering repeated runs of the same scout in a short window — each one consumes the project's scout-run allowance for the day. A manual run does not change the scout's schedule, and a disabled scout can still be run this way (to test before enabling). Returns the workflow id immediately — poll `scout-runs-list` for the resulting run and its findings.",
         "category": "Signals",
@@ -10625,7 +10667,7 @@
         }
     },
     "view-materialize": {
-        "description": "Enable materialization for a saved query. This creates a physical table from the view's query and sets up a 24-hour sync schedule to keep it refreshed. Materialized views are faster to query but use storage. Use 'view-unmaterialize' to undo. Rate limited.",
+        "description": "Enable materialization for a saved query. This creates a physical table from the view's query and sets up a sync schedule to keep it refreshed, daily unless `sync_frequency` asks for another cadence. A cadence is rejected when the view's lineage cannot support it: no more often than its sources deliver new data, and no less often than a downstream view or endpoint needs. Materialized views are faster to query but use storage. Use 'view-unmaterialize' to undo. Rate limited.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Materialize saved query",
