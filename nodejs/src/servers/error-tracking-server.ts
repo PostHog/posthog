@@ -14,6 +14,7 @@ import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { GeoIPService } from '~/common/utils/geoip'
+import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -158,7 +159,7 @@ export class ErrorTrackingServer implements NodeServer {
         this.pubsub = new PubSub(this.redisPool)
         await this.pubsub.start()
 
-        const teamManager = new TeamManager(this.postgres)
+        const teamManager = new TeamManager(this.postgres, { loaderRetry: DEFAULT_LOADER_RETRY })
 
         // 2. Services needed by ErrorTrackingConsumer and HogTransformer
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
@@ -213,7 +214,9 @@ export class ErrorTrackingServer implements NodeServer {
                     outputs,
                     teamManager,
                     hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
-                    groupTypeManager: new ReadOnlyGroupTypeManager(groupRepository),
+                    groupTypeManager: new ReadOnlyGroupTypeManager(groupRepository, {
+                        loaderRetry: DEFAULT_LOADER_RETRY,
+                    }),
                     cookielessManager: this.cookielessManager!,
                     redisPool: this.redisPool!,
                     personRepository,
