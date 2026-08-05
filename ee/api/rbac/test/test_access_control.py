@@ -2285,7 +2285,7 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
         # Insight.name is empty, so the derived name shows, with short_id alongside for linking
         assert rows[str(insight.id)]["name"] == "Weekly signups"
         assert rows[str(insight.id)]["short_id"] == insight.short_id
-        # Resolved through the name fallback map, since search doesn't index warehouse tables
+        # Resolved through _NAME_RESOLUTION_MODELS_NOT_IN_SEARCH, since search doesn't index warehouse tables
         assert rows[str(table.id)]["name"] == "events_parquet"
         # A rule pointing at a missing object keeps the raw id as its name
         assert rows["999999"]["name"] == "999999"

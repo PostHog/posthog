@@ -193,7 +193,7 @@ class AccessControlSerializer(serializers.ModelSerializer):
 
 
 @dataclass(frozen=True, kw_only=True)
-class _FallbackResourceModel:
+class _ResourceDisplayModel:
     app_label: str
     model_name: str
     name_field: str
@@ -204,17 +204,17 @@ class _FallbackResourceModel:
 # index, so they have no ENTITY_MAP entry to borrow. Add one when a resource's rules render raw ids
 # instead of names; delete one when search starts indexing the resource, since ENTITY_MAP is
 # consulted first and the entry goes dead. Resources in neither place fall back to the raw id.
-_NAME_RESOLUTION_FALLBACKS: dict[str, _FallbackResourceModel] = {
-    "warehouse_view": _FallbackResourceModel(
+_NAME_RESOLUTION_MODELS_NOT_IN_SEARCH: dict[str, _ResourceDisplayModel] = {
+    "warehouse_view": _ResourceDisplayModel(
         app_label="data_modeling", model_name="datawarehousesavedquery", name_field="name"
     ),
-    "warehouse_table": _FallbackResourceModel(
+    "warehouse_table": _ResourceDisplayModel(
         app_label="warehouse_sources", model_name="datawarehousetable", name_field="name"
     ),
-    "external_data_source": _FallbackResourceModel(
+    "external_data_source": _ResourceDisplayModel(
         app_label="warehouse_sources", model_name="externaldatasource", name_field="source_type"
     ),
-    "session_recording": _FallbackResourceModel(
+    "session_recording": _ResourceDisplayModel(
         app_label="posthog", model_name="sessionrecording", name_field="session_id"
     ),
 }
@@ -263,7 +263,7 @@ def _resolve_object_names(resource: str, resource_ids: list[str], team_id: int) 
             # The rules list falls back to raw ids, but report the error: it likely affects the whole resource type
             capture_exception(e, {"resource": resource})
             return {}
-    registry = _NAME_RESOLUTION_FALLBACKS.get(resource)
+    registry = _NAME_RESOLUTION_MODELS_NOT_IN_SEARCH.get(resource)
     if not registry:
         return {}
     try:
