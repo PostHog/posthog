@@ -3185,7 +3185,7 @@ class FeatureFlagViewSet(
         ],
         responses={
             200: FeatureFlagVersionResponseSerializer,
-            400: OpenApiResponse(description="Version history is not available for remote configuration flags."),
+            400: OpenApiResponse(description="Version history is not available for flags with encrypted payloads."),
             404: OpenApiResponse(description="Version not found."),
             422: OpenApiResponse(description="Activity log incomplete; cannot reconstruct this version."),
         },
@@ -3199,9 +3199,11 @@ class FeatureFlagViewSet(
     def versions(self, request: request.Request, version_number: str, **kwargs) -> Response:
         feature_flag: FeatureFlag = self.get_object()
 
-        if feature_flag.is_remote_configuration or feature_flag.has_encrypted_payloads:
+        # Only encrypted payloads are withheld. A plaintext remote configuration payload is already
+        # served to every SDK through normal flag evaluation, so gating it here protects nothing.
+        if feature_flag.has_encrypted_payloads:
             return Response(
-                {"detail": "Version history is not available for remote configuration or encrypted flags."},
+                {"detail": "Version history is not available for flags with encrypted payloads."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
