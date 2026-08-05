@@ -57,6 +57,7 @@ def _to_rule(rule: PropertyAccessControl) -> contracts.PropertyAccessControlRule
         created_by_id=rule.created_by_id,
         created_at=rule.created_at,
         updated_at=rule.updated_at,
+        property_definition_id=rule.property_definition_id,
     )
 
 
@@ -101,6 +102,22 @@ def get_property_access_state(
         available_access_levels=list(PropertyAccessLevel),
         default_access_level=default_level,
     )
+
+
+def list_property_access_controls(
+    *,
+    team_id: int,
+    organization_member_id: UUID | None = None,
+    role_id: UUID | None = None,
+) -> list[contracts.PropertyAccessControlRule]:
+    """All property rules belonging to one subject: a member, a role, or (both None) the project-wide default."""
+    rules = PropertyAccessControl.objects.filter(
+        team_id=team_id,
+        organization_member_id=organization_member_id,
+        role_id=role_id,  # type: ignore
+        property_definition__isnull=False,
+    )
+    return [_to_rule(rule) for rule in rules]
 
 
 def team_has_property_access_rules(*, team_id: int) -> bool:
@@ -226,5 +243,6 @@ __all__ = [
     "available_access_levels",
     "delete_property_access_control",
     "get_property_access_state",
+    "list_property_access_controls",
     "upsert_property_access_control",
 ]

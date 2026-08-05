@@ -37,6 +37,7 @@ class PropertyAccessControlRule:
     created_by_id: int | None
     created_at: datetime
     updated_at: datetime
+    property_definition_id: UUID | None = None
 
 
 @dataclass(frozen=True)

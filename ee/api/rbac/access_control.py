@@ -13,6 +13,7 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.documentation import extend_schema
 from posthog.constants import AvailableFeature
+from posthog.models import PropertyDefinition
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import (
@@ -891,21 +892,35 @@ class AccessControlViewSetMixin(_GenericViewSet):
         results.sort(key=lambda r: (r["resource"], (r["name"] or "").lower()))
         return Response({"results": results})
 
-    def _property_rules_response(self, team: Team, **rule_filter) -> Response:
+    def _property_rules_response(
+        self,
+        team: Team,
+        *,
+        organization_member: OrganizationMembership | None = None,
+        role: Role | None = None,
+    ) -> Response:
         """Property restrictions belonging to one subject (anything below read & write)."""
-        # Resolved dynamically: `ee` cannot import `products.access_control` (the product depends
-        # on `ee`, so a static import would make the dependency circular)
-        PropertyAccessControl = apps.get_model("access_control", "PropertyAccessControl")
-
-        rows = (
-            PropertyAccessControl._default_manager.filter(team=team, **rule_filter)
-            .exclude(access_level="read_write")
-            .select_related("property_definition")
+        from products.access_control.backend.facade.api import (
+            list_property_access_controls,  # noqa: PLC0415 — the facade imports ee models, a module-level import would be circular
         )
 
+        rules = [
+            rule
+            for rule in list_property_access_controls(
+                team_id=team.id,
+                organization_member_id=organization_member.id if organization_member else None,
+                role_id=role.id if role else None,
+            )
+            if rule.access_level.value != "read_write"
+        ]
+        definitions_by_id = {
+            str(pd.id): pd
+            for pd in PropertyDefinition.objects.filter(id__in=[rule.property_definition_id for rule in rules])
+        }
+
         results = []
-        for pac in rows:
-            pd = pac.property_definition
+        for rule in rules:
+            pd = definitions_by_id.get(str(rule.property_definition_id))
             if pd is None:
                 continue
             results.append(
@@ -913,7 +928,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
                     "property_definition_id": str(pd.id),
                     "property": pd.name,
                     "property_type": "person" if pd.type == pd.Type.PERSON else "event",
-                    "access_level": pac.access_level,
+                    "access_level": rule.access_level.value,
                 }
             )
         results.sort(key=lambda r: (r["property_type"], (r["property"] or "").lower()))
@@ -931,7 +946,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
     def access_control_default_properties(self, request: Request, *args, **kwargs) -> Response:
         """Property restrictions that apply to everyone without a rule of their own."""
         team = cast(Team, self.team)  # type: ignore
-        return self._property_rules_response(team, organization_member=None, role=None)
+        return self._property_rules_response(team)
 
     @extend_schema(exclude=True)
     @action(methods=["GET"], detail=True, url_path="access_control_member_objects")
