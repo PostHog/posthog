@@ -925,6 +925,31 @@ class TestEndpointRequestParams:
         )
         assert params["filter"] == "greater-or-equal(created,2026-03-04T02:58:14.000Z)"
 
+    def test_profiles_request_the_omitted_subscriptions_object(self) -> None:
+        # Klaviyo excludes subscriptions (consent detail) unless additional-fields asks for it;
+        # dropping this param silently loses the column for every synced profile.
+        params = _build_initial_params(
+            KLAVIYO_ENDPOINTS["profiles"],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+            incremental_field="updated",
+        )
+        assert params["additional-fields[profile]"] == "subscriptions"
+        assert params["filter"] == "greater-than(updated,2026-03-04T02:58:14.000Z)"
+
+    @parameterized.expand([("list_profiles",), ("segment_profiles",)])
+    def test_membership_fan_outs_keep_their_restrictive_fieldset(self, endpoint: str) -> None:
+        # The fan-outs only need joined_group_at; expanding them with additional-fields would
+        # balloon every per-parent request.
+        params = _build_initial_params(
+            KLAVIYO_ENDPOINTS[endpoint],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            incremental_field=None,
+        )
+        assert params["fields[profile]"] == "joined_group_at"
+        assert "additional-fields[profile]" not in params
+
 
 class TestNewSchemas:
     @parameterized.expand(
