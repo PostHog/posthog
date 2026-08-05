@@ -125,3 +125,7 @@ PERMISSION_REQUEST_PROMPT = """
 MISSING_INSIGHT_IDS_PROMPT = """
 Some insights were not found in the conversation artifacts: {{{missing_ids}}}. You should check if the provided insight_ids are correct.
 """.strip()
+
+SKIPPED_INVALID_INSIGHTS_PROMPT = """
+The following insights were skipped because their query failed to run: {{{names}}}. Revise them and try adding them again.
+""".strip()

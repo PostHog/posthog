@@ -376,10 +376,11 @@ function InsightCardInternal(
                         title={apiError.detail}
                         queryId={apiError.data?.queryId}
                         supportOnly={isDashboardTileError}
+                        onRetry={refresh}
                     />
                 )
             }
-            return <InsightErrorState />
+            return <InsightErrorState onRetry={refresh} />
         }
 
         if (timedOut) {

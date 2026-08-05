@@ -108,7 +108,7 @@ export function CustomerAnalyticsQueryCard({ insight }: CustomerAnalyticsQueryCa
             title={insight.name}
             description={insight.description}
             query={insight.query}
-            context={{ refresh: 'force_blocking', insightProps }}
+            context={{ refresh: 'lazy_async', insightProps }}
             className={insight?.className || ''}
             attachTo={customerAnalyticsSceneLogic}
             extraControls={surveyOpportunityButton}

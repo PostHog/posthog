@@ -4,10 +4,21 @@ from django.db import transaction
 
 import structlog
 from pydantic import BaseModel, Field
+from rest_framework.exceptions import APIException
 
 from posthog.schema import DataTableNode, DataVisualizationNode, HogQLQuery, InsightVizNode, QuerySchemaRoot
 
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.errors import (
+    ExposedHogQLError,
+    NotImplementedError as HogQLNotImplementedError,
+)
+
+from posthog.api.services.query import process_query_dict
+from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import EventSource, report_user_action
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.sync import database_sync_to_async
 from posthog.utils import pluralize
 
@@ -25,6 +36,7 @@ from ee.hogai.tools.upsert_dashboard.prompts import (
     DASHBOARD_NOT_FOUND_PROMPT,
     MISSING_INSIGHT_IDS_PROMPT,
     PERMISSION_REQUEST_PROMPT,
+    SKIPPED_INVALID_INSIGHTS_PROMPT,
     UPDATE_NO_CHANGES_PROMPT,
     UPSERT_DASHBOARD_CONTEXT_PROMPT_TEMPLATE,
     UPSERT_DASHBOARD_TOOL_PROMPT,
@@ -164,10 +176,12 @@ class UpsertDashboardTool(MaxTool):
             raise MaxToolRetryableError(format_prompt_string(MISSING_INSIGHT_IDS_PROMPT, missing_ids=missing_ids))
 
         validated_artifacts = cast(list[VisualizationWithSourceResult], artifacts)
-        insights = self._resolve_insights(validated_artifacts)
+        insights, kept_indices, failed_names = await self._resolve_insights(validated_artifacts)
 
         if not insights:
             return CREATE_NO_INSIGHTS_PROMPT, None
+
+        matching_artifacts = [validated_artifacts[index] for index in kept_indices]
 
         dashboard = await self._create_dashboard_with_tiles(action.name, action.description, insights)
         # AI dashboards are always built from scratch (no template, no duplicate); set the same provenance
@@ -182,8 +196,10 @@ class UpsertDashboardTool(MaxTool):
                 "duplicated_from_dashboard_id": None,
             },
         )
-        await self._report_new_insights(validated_artifacts, insights)
+        await self._report_new_insights(matching_artifacts, insights)
         output = await self._format_dashboard_output(dashboard, insights)
+        if failed_names:
+            output += "\n\n" + format_prompt_string(SKIPPED_INVALID_INSIGHTS_PROMPT, names=", ".join(failed_names))
 
         return output, {"dashboard_id": dashboard.id}
 
@@ -197,63 +213,126 @@ class UpsertDashboardTool(MaxTool):
         insight_ids = action.insight_ids or []
         artifacts = await self._get_visualization_artifacts(insight_ids) if insight_ids else []
 
+        new_insights, kept_indices, failed_names = await self._resolve_insights(artifacts)
+        filtered_insight_ids = [insight_ids[index] for index in kept_indices]
+        matching_artifacts = [artifacts[index] for index in kept_indices]
+
         dashboard, resolved_insights = await self._update_dashboard_with_tiles(
             dashboard,
             action.name,
             action.description,
-            insight_ids,
-            artifacts,
+            filtered_insight_ids,
+            new_insights,
             action.layout_mode,
         )
         await self._report_dashboard_action(dashboard, "dashboard updated")
 
-        if artifacts:
-            await self._report_new_insights(cast(list[VisualizationWithSourceResult], artifacts), resolved_insights)
+        if matching_artifacts:
+            await self._report_new_insights(
+                cast(list[VisualizationWithSourceResult], matching_artifacts), resolved_insights
+            )
 
         # Re-fetch sorted tiles to get the latest state
         sorted_tiles = await self._get_dashboard_sorted_tiles(dashboard)
         insights = [tile.insight for tile in sorted_tiles if tile.insight is not None]
 
         output = await self._format_dashboard_output(dashboard, insights)
+        if failed_names:
+            output += "\n\n" + format_prompt_string(SKIPPED_INVALID_INSIGHTS_PROMPT, names=", ".join(failed_names))
 
         return output, {"dashboard_id": dashboard.id}
 
-    def _resolve_insights(self, artifacts: list[VisualizationWithSourceResult]) -> list[Insight]:
+    async def _resolve_insights(
+        self, artifacts: list[VisualizationWithSourceResult]
+    ) -> tuple[list[Insight], list[int], list[str]]:
         """
         Resolve insight_ids using VisualizationHandler.
-        Returns (resolved_insights, missing_ids) in same order as input.
 
-        For State/Artifact sources, creates and saves new Insights before adding to dashboard.
+        For State/Artifact sources, creates (but doesn't save) new Insights from the artifact content,
+        running each query first so a schema-valid but runtime-broken query never reaches a saved
+        dashboard tile. Insights whose query fails to execute are dropped rather than resolved.
+
+        Returns (resolved_insights, kept_indices, failed_names): resolved_insights stays 1:1 with
+        kept_indices, the positions in `artifacts` that made it through; failed_names lists the
+        dropped insights' names for reporting back to the user.
         """
         resolved: list[Insight] = []
+        kept_indices: list[int] = []
+        failed_names: list[str] = []
 
-        for result in artifacts:
+        for index, result in enumerate(artifacts):
             if isinstance(result, ModelArtifactResult):
                 resolved.append(result.model)
+                kept_indices.append(index)
+                continue
+
+            # State or Artifact source - need to create and save insight from artifact content
+            content = result.content
+            # Coerce query to the QuerySchema union
+            coerced_query = QuerySchemaRoot.model_validate(content.query.model_dump(mode="json")).root
+            if isinstance(coerced_query, DataVisualizationNode):
+                # SQL-backed insight: already a top-level query node, keep its display/chart settings as-is.
+                converted = coerced_query.model_dump(exclude_none=True)
+            elif isinstance(coerced_query, HogQLQuery):
+                converted = DataTableNode(source=coerced_query).model_dump(exclude_none=True)
             else:
-                # State or Artifact source - need to create and save insight from artifact content
-                content = result.content
-                # Coerce query to the QuerySchema union
-                coerced_query = QuerySchemaRoot.model_validate(content.query.model_dump(mode="json")).root
-                if isinstance(coerced_query, DataVisualizationNode):
-                    # SQL-backed insight: already a top-level query node, keep its display/chart settings as-is.
-                    converted = coerced_query.model_dump(exclude_none=True)
-                elif isinstance(coerced_query, HogQLQuery):
-                    converted = DataTableNode(source=coerced_query).model_dump(exclude_none=True)
-                else:
-                    converted = InsightVizNode(source=coerced_query).model_dump(exclude_none=True)
+                converted = InsightVizNode(source=coerced_query).model_dump(exclude_none=True)
 
-                insight = Insight(
-                    team=self._team,
-                    created_by=self._user,
-                    name=(content.name or "Untitled")[:400],
-                    description=(content.description or "")[:400],
-                    query=converted,
-                    saved=True,
+            error = await self._validate_query(converted)
+            if error is not None:
+                logger.warning(
+                    "upsert_dashboard: dropping AI-generated insight whose query failed to run",
+                    name=content.name,
+                    error=error,
                 )
-                resolved.append(insight)
+                failed_names.append(content.name or "Untitled")
+                continue
 
-        return resolved
+            insight = Insight(
+                team=self._team,
+                created_by=self._user,
+                name=(content.name or "Untitled")[:400],
+                description=(content.description or "")[:400],
+                query=converted,
+                saved=True,
+            )
+            resolved.append(insight)
+            kept_indices.append(index)
+
+        return resolved, kept_indices, failed_names
+
+    async def _validate_query(self, query_dict: dict) -> str | None:
+        """Execute a query synchronously to catch runtime failures that schema validation can't.
+
+        Returns an error message on failure, or None on success.
+        """
+
+        def run() -> dict | BaseModel:
+            return process_query_dict(
+                self._team,
+                query_dict,
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                limit_context=LimitContext.POSTHOG_AI,
+                user=self._user,
+            )
+
+        try:
+            response = await database_sync_to_async(run, thread_sensitive=False)()
+        except (
+            APIException,
+            ExposedHogQLError,
+            HogQLNotImplementedError,
+            ExposedCHQueryError,
+            UserAccessControlError,
+        ) as err:
+            return str(err)
+        except Exception as err:
+            return str(err)
+
+        response_dict = response if isinstance(response, dict) else response.model_dump(mode="json")
+        if isinstance(response_dict, dict) and (error := response_dict.get("error")):
+            return str(error)
+        return None
 
     async def _report_dashboard_action(
         self, dashboard: Dashboard, event: str, extra_properties: dict[str, Any] | None = None
@@ -323,7 +402,7 @@ class UpsertDashboardTool(MaxTool):
         name: str | None,
         description: str | None,
         insight_ids: list[str],
-        artifacts: list[VisualizationWithSourceResult],
+        insights: list[Insight],
         layout_mode: Literal["preserve_existing", "reflow_all"],
     ) -> tuple[Dashboard, list[Insight]]:
         """Update dashboard tiles based on provided insight IDs.
@@ -333,12 +412,12 @@ class UpsertDashboardTool(MaxTool):
             name: New dashboard name (if provided)
             description: New dashboard description (if provided)
             insight_ids: Ordered list of insight IDs for the dashboard
-            artifacts: Resolved visualization artifacts matching insight_ids order
+            insights: Already resolved (validated, possibly unsaved) insights matching insight_ids order
             layout_mode: Layout strategy for existing tiles
 
         Returns:
             Tuple of (dashboard, resolved_insights) where resolved_insights
-            corresponds 1:1 with artifacts in the same order.
+            corresponds 1:1 with insight_ids in the same order.
         """
         if name is not None:
             dashboard.name = name
@@ -361,8 +440,8 @@ class UpsertDashboardTool(MaxTool):
             if tile.insight and tile.insight.short_id:
                 short_id_to_tile[tile.insight.short_id] = tile
 
-        # Resolve artifacts to insights
-        resolved_insights = self._create_resolved_insights(self._resolve_insights(artifacts))
+        # Save any not-yet-persisted insights
+        resolved_insights = self._create_resolved_insights(insights)
 
         # Track tiles that will be active after update
         active_tile_ids: set[int] = set()

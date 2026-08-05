@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
+from rest_framework.exceptions import APIException
 
 from posthog.schema import (
     ArtifactSource,
@@ -40,6 +41,14 @@ DEFAULT_TRENDS_QUERY = TrendsQuery(series=[EventsNode(name="$pageview")])
 
 
 class TestUpsertDashboardTool(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Query execution is a real ClickHouse call; mock it as a boundary so these tests don't
+        # depend on a live ClickHouse. Tests that exercise the validation failure path override this.
+        patcher = patch("ee.hogai.tools.upsert_dashboard.tool.process_query_dict", return_value={"results": []})
+        self.addCleanup(patcher.stop)
+        patcher.start()
+
     def _create_tool(self, state: AssistantState | None = None) -> UpsertDashboardTool:
         if state is None:
             state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
@@ -539,9 +548,11 @@ class TestUpsertDashboardTool(BaseTest):
 
         # First get the artifacts, then resolve them to insights
         artifacts = await tool._get_visualization_artifacts(insight_ids)
-        insights = tool._resolve_insights(artifacts)
+        insights, kept_indices, failed_names = await tool._resolve_insights(artifacts)
 
         self.assertEqual(len(insights), 3)
+        self.assertEqual(kept_indices, [0, 1, 2])
+        self.assertEqual(failed_names, [])
 
         # Verify order is preserved
         # State visualizations get default name "Insight" from the handler
@@ -561,9 +572,11 @@ class TestUpsertDashboardTool(BaseTest):
         )
         tool = self._create_tool()
 
-        insights = tool._resolve_insights([StateArtifactResult(content=content)])
+        insights, kept_indices, failed_names = await tool._resolve_insights([StateArtifactResult(content=content)])
 
         self.assertEqual(len(insights), 1)
+        self.assertEqual(kept_indices, [0])
+        self.assertEqual(failed_names, [])
         saved_query = insights[0].query
         assert saved_query is not None
         self.assertEqual(saved_query["kind"], "DataVisualizationNode")
@@ -573,6 +586,34 @@ class TestUpsertDashboardTool(BaseTest):
             "SELECT toStartOfDay(timestamp) AS day, count() FROM events GROUP BY day",
         )
         self.assertEqual(saved_query["display"], "ActionsLineGraph")
+
+    async def test_resolve_insights_drops_insight_whose_query_fails_to_run(self):
+        good_content = VisualizationArtifactContent(
+            query=DEFAULT_TRENDS_QUERY,
+            name="Good Insight",
+            description="Runs fine",
+        )
+        bad_content = VisualizationArtifactContent(
+            query=DEFAULT_TRENDS_QUERY,
+            name="Bad Insight",
+            description="Fails at runtime",
+        )
+        tool = self._create_tool()
+
+        # Both queries are schema-identical, so distinguish them by call order: the first
+        # (good) succeeds, the second (bad) raises.
+        with patch(
+            "ee.hogai.tools.upsert_dashboard.tool.process_query_dict",
+            side_effect=[{"results": []}, APIException("Query failed")],
+        ):
+            insights, kept_indices, failed_names = await tool._resolve_insights(
+                [StateArtifactResult(content=good_content), StateArtifactResult(content=bad_content)]
+            )
+
+        self.assertEqual(len(insights), 1)
+        self.assertEqual(insights[0].name, "Good Insight")
+        self.assertEqual(kept_indices, [0])
+        self.assertEqual(failed_names, ["Bad Insight"])
 
     async def test_full_integration_positional_reordering(self):
         """
