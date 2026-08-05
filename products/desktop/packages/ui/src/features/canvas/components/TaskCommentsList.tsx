@@ -223,8 +223,11 @@ function PrThreadRow({
 
   const run = async (action: () => Promise<boolean>) => {
     setBusy(true);
-    await action();
-    setBusy(false);
+    try {
+      if (!(await action())) throw new Error("GitHub comment action failed");
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -285,7 +288,7 @@ export function TaskCommentsList({
   commentVersionLabel?: (versionId: string) => string | null;
   onCanvasCommentOpen?: (versionId: string | null) => void;
 }) {
-  const { runs } = useTaskRuns(task.id);
+  const { runs } = useTaskRuns(onlySource ? undefined : task.id);
   const { members } = useOrgMembers();
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
   const activeArtifactId = useActiveArtifactId(task.id);
@@ -369,12 +372,6 @@ export function TaskCommentsList({
     prConversation.byUrl,
   ]);
 
-  const sourceOptions = useMemo(() => threadSourceOptions(threads), [threads]);
-  const sourceLabel =
-    sourceFilter === ALL_SOURCES
-      ? "All sources"
-      : (sourceOptions.find((option) => option.key === sourceFilter)?.label ??
-        "All sources");
   // Every source that could ever hold a thread, whether or not it has one yet.
   // Validating against this rather than the loaded threads lets the filter
   // follow an artifact whose comments haven't arrived, and lets the task and
@@ -386,13 +383,22 @@ export function TaskCommentsList({
     for (const prUrl of prUrls) keys.add(prUrl);
     return keys;
   }, [sources, prUrls]);
+  const sourceOptions = useMemo(() => threadSourceOptions(threads), [threads]);
+  const effectiveSourceFilter =
+    sourceFilter === ALL_SOURCES || knownSourceKeys.has(sourceFilter)
+      ? sourceFilter
+      : ALL_SOURCES;
+  const sourceLabel =
+    effectiveSourceFilter === ALL_SOURCES
+      ? "All sources"
+      : (sourceOptions.find((option) => option.key === effectiveSourceFilter)
+          ?.label ?? "All sources");
 
-  // A source that can't exist any more (its artifact left the task) can't stay
-  // selected, or the pane reads as empty with no hint why. Adjust during render
-  // rather than in an effect, so the stale filter never commits first.
-  if (sourceFilter !== ALL_SOURCES && !knownSourceKeys.has(sourceFilter)) {
-    setSourceFilter(ALL_SOURCES);
-  }
+  useEffect(() => {
+    if (sourceFilter !== effectiveSourceFilter) {
+      setSourceFilter(effectiveSourceFilter);
+    }
+  }, [effectiveSourceFilter, sourceFilter]);
 
   // Follow the artifact on screen until the reader picks a source themselves;
   // after that the filter is theirs, not the pane's.
@@ -407,7 +413,8 @@ export function TaskCommentsList({
   }, [activeArtifactId, onlySource]);
 
   const inSource = (thread: TaskCommentThread) =>
-    sourceFilter === ALL_SOURCES || thread.sourceKey === sourceFilter;
+    effectiveSourceFilter === ALL_SOURCES ||
+    thread.sourceKey === effectiveSourceFilter;
   const scoped = threads.filter(inSource);
   const openCount = scoped.filter((thread) => !thread.resolved).length;
   const resolvedCount = scoped.length - openCount;

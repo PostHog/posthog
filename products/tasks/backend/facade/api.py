@@ -6037,12 +6037,6 @@ def _index_thread_message_mentions(message: TaskThreadMessage, mentioned_user_id
         )
 
 
-def task_has_canvas_created_event(*, team_id: int, task_id: UUID, canvas_id: str) -> bool:
-    from products.tasks.backend.logic.services.comment_activity import task_has_canvas_created_event as service
-
-    return service(team_id=team_id, task_id=task_id, canvas_id=canvas_id)
-
-
 def task_comment_target_is_accessible(
     *, team_id: int, user_id: int | None, task_id: str | UUID, scope: str, item_id: str | None
 ) -> bool:

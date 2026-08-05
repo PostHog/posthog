@@ -128,7 +128,7 @@ def _task_comment_target_is_accessible(
     ):
         return False
 
-    from products.canvas.backend.comment_access import canvas_belongs_to_generation_task  # noqa: PLC0415
+    from products.canvas.backend.comment_access import canvas_belongs_to_task  # noqa: PLC0415
 
     try:
         parsed_task_id = UUID(task_id)
@@ -136,7 +136,7 @@ def _task_comment_target_is_accessible(
         return False
     if not item_id:
         return False
-    return canvas_belongs_to_generation_task(
+    return canvas_belongs_to_task(
         team_id=team_id,
         canvas_id=item_id,
         task_id=parsed_task_id,

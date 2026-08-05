@@ -1,10 +1,9 @@
 from base64 import urlsafe_b64decode, urlsafe_b64encode
-from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID
 
-from django.db.models import Q, QuerySet
+from django.db.models import Count, Q, QuerySet
 
 from posthog.models import Comment
 
@@ -12,6 +11,9 @@ from products.tasks.backend.facade import contracts
 from products.tasks.backend.models import TaskArtifact, TaskRun, TaskThreadMessage
 
 COMMENT_STATES = frozenset({"open", "resolved"})
+LEGACY_TASK_RUN_LIMIT = 100
+TASK_ARTIFACT_LIMIT = 500
+CANVAS_EVENT_LIMIT = 500
 
 
 class InvalidTaskCommentCursor(ValueError):
@@ -38,7 +40,7 @@ def _artifact_names(*, team_id: int, task_id: UUID, artifact_ids: Sequence[str])
     for artifacts in (
         TaskRun.objects.filter(team_id=team_id, task_id=task_id)
         .order_by("-created_at", "-id")
-        .values_list("artifacts", flat=True)
+        .values_list("artifacts", flat=True)[:LEGACY_TASK_RUN_LIMIT]
     ):
         for artifact in artifacts or []:
             artifact_id = str(artifact.get("id") or "") if isinstance(artifact, dict) else ""
@@ -93,7 +95,8 @@ def _canvas_names(*, team_id: int, task_id: UUID, canvas_ids: Sequence[str]) -> 
     for payload in (
         TaskThreadMessage.objects.for_team(team_id)
         .filter(task_id=task_id, event="canvas_created")
-        .values_list("payload", flat=True)
+        .order_by("-created_at", "-id")
+        .values_list("payload", flat=True)[:CANVAS_EVENT_LIMIT]
     ):
         canvas_url = payload.get("canvas_url") if isinstance(payload, dict) else None
         canvas_id = canvas_url.rstrip("/").rsplit("/", 1)[-1] if isinstance(canvas_url, str) else ""
@@ -118,10 +121,9 @@ def _target(comment: Comment, target_names: dict[tuple[str, str], str]) -> contr
     )
 
 
-def _resolved(root: Comment, replies: Sequence[Comment]) -> bool:
-    state_replies = [reply for reply in replies if _is_state_event(reply)]
-    if state_replies:
-        return (state_replies[-1].item_context or {}).get("threadState") == "resolved"
+def _resolved(root: Comment, latest_state: str | None) -> bool:
+    if latest_state is not None:
+        return latest_state == "resolved"
     return root.completed_at is not None
 
 
@@ -144,13 +146,19 @@ def _target_names_for_roots(*, team_id: int, task_id: UUID, roots: Sequence[Comm
 
 def list_artifacts(*, team_id: int, task_id: UUID) -> list[contracts.TaskArtifactDTO]:
     artifacts: dict[tuple[str, str], contracts.TaskArtifactDTO] = {}
-    for artifact_id, name in TaskArtifact.objects.for_team(team_id).filter(task_id=task_id).values_list("id", "name"):
+    relational_artifacts = (
+        TaskArtifact.objects.for_team(team_id)
+        .filter(task_id=task_id)
+        .order_by("-updated_at", "-id")
+        .values_list("id", "name")[:TASK_ARTIFACT_LIMIT]
+    )
+    for artifact_id, name in relational_artifacts:
         relational_id = str(artifact_id)
         artifacts[("artifact", relational_id)] = contracts.TaskArtifactDTO(id=relational_id, type="artifact", name=name)
     for manifest in (
         TaskRun.objects.filter(team_id=team_id, task_id=task_id)
         .order_by("-created_at", "-id")
-        .values_list("artifacts", flat=True)
+        .values_list("artifacts", flat=True)[:LEGACY_TASK_RUN_LIMIT]
     ):
         for artifact in manifest or []:
             if not isinstance(artifact, dict):
@@ -163,7 +171,8 @@ def list_artifacts(*, team_id: int, task_id: UUID) -> list[contracts.TaskArtifac
     for payload in (
         TaskThreadMessage.objects.for_team(team_id)
         .filter(task_id=task_id, event="canvas_created")
-        .values_list("payload", flat=True)
+        .order_by("-created_at", "-id")
+        .values_list("payload", flat=True)[:CANVAS_EVENT_LIMIT]
     ):
         canvas_url = payload.get("canvas_url") if isinstance(payload, dict) else None
         canvas_name = payload.get("canvas_name") if isinstance(payload, dict) else None
@@ -206,18 +215,25 @@ def list_comments(
         roots = batch[:remaining]
         if not roots:
             break
-        replies: dict[UUID, list[Comment]] = defaultdict(list)
-        for reply in (
-            _comments(team_id, task_id)
-            .filter(source_comment_id__in=[root.id for root in roots])
-            .order_by("created_at", "id")
-        ):
-            if reply.source_comment_id:
-                replies[reply.source_comment_id].append(reply)
+        root_ids = [root.id for root in roots]
+        reply_qs = _comments(team_id, task_id).filter(source_comment_id__in=root_ids)
+        human_replies = reply_qs.filter(
+            Q(item_context__isnull=True)
+            | ~Q(item_context__has_key="threadState")
+            | ~Q(item_context__threadState__in=COMMENT_STATES)
+        )
+        reply_counts = dict(human_replies.values_list("source_comment_id").annotate(count=Count("id")))
+        latest_states = {
+            source_comment_id: item_context.get("threadState")
+            for source_comment_id, item_context in reply_qs.filter(item_context__threadState__in=COMMENT_STATES)
+            .order_by("source_comment_id", "-created_at", "-id")
+            .distinct("source_comment_id")
+            .values_list("source_comment_id", "item_context")
+            if isinstance(item_context, dict)
+        }
         target_names = _target_names_for_roots(team_id=team_id, task_id=task_id, roots=roots)
         for root in roots:
-            comment_replies = replies[root.id]
-            resolved = _resolved(root, comment_replies)
+            resolved = _resolved(root, latest_states.get(root.id))
             if resolved and not include_resolved:
                 continue
             result.append(
@@ -227,7 +243,7 @@ def list_comments(
                     content=root.content or "",
                     selected_text=((root.item_context or {}).get("anchor") or {}).get("quote"),
                     created_at=root.created_at,
-                    reply_count=sum(1 for reply in comment_replies if not _is_state_event(reply)),
+                    reply_count=reply_counts.get(root.id, 0),
                     resolved=resolved,
                 )
             )
@@ -242,9 +258,7 @@ def list_comments(
 
 def _entry(comment: Comment) -> contracts.TaskCommentEntryDTO:
     creator = comment.created_by
-    author = None
-    if creator:
-        author = " ".join(filter(None, [creator.first_name, creator.last_name])) or creator.email
+    author = " ".join(filter(None, [creator.first_name, creator.last_name])) or None if creator is not None else None
     return contracts.TaskCommentEntryDTO(
         id=comment.id,
         content=comment.content or "",
@@ -292,7 +306,10 @@ def retrieve_comment(
     return contracts.TaskCommentDetailDTO(
         id=root.id,
         target=_target(root, target_names),
-        resolved=_resolved(root, [latest_state_reply] if latest_state_reply else []),
+        resolved=_resolved(
+            root,
+            (latest_state_reply.item_context or {}).get("threadState") if latest_state_reply else None,
+        ),
         comments=[_entry(comment) for comment in comments],
         next=_encode_cursor(comments[-1].created_at, comments[-1].id) if has_more and comments else None,
     )

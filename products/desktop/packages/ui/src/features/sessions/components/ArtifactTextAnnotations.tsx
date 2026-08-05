@@ -207,13 +207,20 @@ export function ArtifactTextAnnotations({
     const container = containerRef.current;
     const root = rootRef.current;
     if (!container || !root) return;
-    const handleMouseUp = () => {
+    let frame = 0;
+    const updateSelection = () => {
       const domSelection = window.getSelection();
       if (
         !domSelection ||
         domSelection.isCollapsed ||
         domSelection.rangeCount === 0
       ) {
+        if (
+          document.activeElement instanceof Element &&
+          document.activeElement.closest("[data-selection-comment-overlay]")
+        ) {
+          return;
+        }
         dismiss();
         return;
       }
@@ -222,6 +229,7 @@ export function ArtifactTextAnnotations({
         !root.contains(range.startContainer) ||
         !root.contains(range.endContainer)
       ) {
+        dismiss();
         return;
       }
       const offsets = selectionOffsets(root, range);
@@ -243,8 +251,15 @@ export function ArtifactTextAnnotations({
         },
       });
     };
-    container.addEventListener("mouseup", handleMouseUp);
-    return () => container.removeEventListener("mouseup", handleMouseUp);
+    const handleSelectionChange = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(updateSelection);
+    };
+    document.addEventListener("selectionchange", handleSelectionChange);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("selectionchange", handleSelectionChange);
+    };
   }, [containerRef, dismiss, rootRef]);
 
   return (

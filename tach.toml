@@ -817,16 +817,18 @@ from = [
 
 [[interfaces]]
 expose = [
-    "backend\\.comment_access.*",
+    "backend\\.artifacts.*",
+    "backend\\.tasks.*",
 ]
 from = [
     "products.canvas",
 ]
 
+# Generic Comments delegates Canvas ownership checks to this narrow,
+# product-owned boundary; Canvas never imports Comments or Tasks here.
 [[interfaces]]
 expose = [
-    "backend\\.artifacts.*",
-    "backend\\.tasks.*",
+    "backend\\.comment_access.*",
 ]
 from = [
     "products.canvas",

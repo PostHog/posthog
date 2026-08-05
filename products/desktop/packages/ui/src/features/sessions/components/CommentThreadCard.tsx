@@ -124,16 +124,25 @@ export function CommentThreadCard({
       data-comment-thread-id={threadId}
     >
       <CardContent className="p-3">
-        <button type="button" className="w-full text-left" onClick={onSelect}>
-          {source}
-          {resolution === "orphaned" && (
-            <div className="mb-1.5 flex items-center gap-1 text-amber-700 text-xs dark:text-amber-300">
-              <WarningCircle />
-              The highlighted text changed
-            </div>
-          )}
-          <CommentBody entry={root} />
-        </button>
+        <div className="relative w-full text-left">
+          <Button
+            type="button"
+            variant="outline"
+            className="absolute inset-0 h-auto w-full opacity-0"
+            aria-label="Open comment thread"
+            onClick={onSelect}
+          />
+          <div className="pointer-events-none relative [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
+            {source}
+            {resolution === "orphaned" && (
+              <div className="mb-1.5 flex items-center gap-1 text-amber-700 text-xs dark:text-amber-300">
+                <WarningCircle />
+                The highlighted text changed
+              </div>
+            )}
+            <CommentBody entry={root} />
+          </div>
+        </div>
         {/* Replies sit at the root's indentation: a thread this narrow reads as
             one conversation, and nesting only stole width from the text. */}
         {replies.map((entry) => (

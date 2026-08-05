@@ -179,20 +179,20 @@ function ActivityConversation({
     taskId,
     nonce: null,
   });
-  // Adjust during render rather than in an effect, so the panel never commits a
-  // stale tab before switching. A new task resets the baseline (an old focus
-  // must not hijack it); a fresh focus nonce for this task brings the Comments
-  // tab with the pick.
-  if (seenFocus.current.taskId !== taskId) {
-    seenFocus.current = { taskId, nonce: null };
-  } else if (
-    commentFocus?.openCommentsTab &&
-    commentFocus.nonce !== seenFocus.current.nonce
-  ) {
-    seenFocus.current = { taskId, nonce: commentFocus.nonce };
-    // Not handleTabChange: a programmatic switch isn't a user tab change.
-    setTab("comments");
-  }
+  useEffect(() => {
+    if (seenFocus.current.taskId !== taskId) {
+      seenFocus.current = { taskId, nonce: null };
+      return;
+    }
+    if (
+      commentFocus?.openCommentsTab &&
+      commentFocus.nonce !== seenFocus.current.nonce
+    ) {
+      seenFocus.current = { taskId, nonce: commentFocus.nonce };
+      // Not handleTabChange: a programmatic switch isn't a user tab change.
+      setTab("comments");
+    }
+  }, [commentFocus, taskId]);
   useEffect(() => {
     if (tab === "comments" && commentFocus?.openCommentsTab) {
       acknowledgeCommentsTabOpen(taskId, commentFocus.nonce);

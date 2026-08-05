@@ -2,7 +2,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "1285_drop_desktop_file_system")]
+    dependencies = [("posthog", "1286_cleanup_orphaned_identity_provider_configs")]
 
     operations = [
         migrations.AddField(

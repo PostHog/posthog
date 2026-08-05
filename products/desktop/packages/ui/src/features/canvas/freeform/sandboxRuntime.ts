@@ -304,7 +304,7 @@ export function buildSandboxDocument(
       const start = before.toString().length;
       const end = through.toString().length;
       const quote = text.slice(start, end);
-      if (!quote.trim()) {
+      if (!quote.trim() || quote.length > 10000) {
         clearTextSelection();
         return;
       }
@@ -329,26 +329,34 @@ export function buildSandboxDocument(
     document.head.appendChild(commentHighlightStyle);
     let currentCommentHighlights = [];
     let commentRanges = [];
-    const commentRangeAt = (start, end) => {
+    const commentTextIndex = () => {
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-      let offset = 0, startNode, endNode, startOffset = 0, endOffset = 0;
+      const entries = [];
+      let text = "";
       for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-        const next = offset + node.data.length;
-        if (!startNode && start >= offset && start <= next) {
-          startNode = node;
-          startOffset = start - offset;
-        }
-        if (end >= offset && end <= next) {
-          endNode = node;
-          endOffset = end - offset;
-          break;
-        }
-        offset = next;
+        const start = text.length;
+        text += node.data;
+        entries.push({ node, start, end: text.length });
       }
-      if (!startNode || !endNode) return null;
+      return { text, entries };
+    };
+    const commentRangeAt = (index, start, end) => {
+      const find = (offset) => {
+        let low = 0, high = index.entries.length - 1, match = null;
+        while (low <= high) {
+          const middle = (low + high) >> 1;
+          const entry = index.entries[middle];
+          if (offset < entry.start) high = middle - 1;
+          else if (offset > entry.end) low = middle + 1;
+          else { match = entry; high = middle - 1; }
+        }
+        return match;
+      };
+      const startEntry = find(start), endEntry = find(end);
+      if (!startEntry || !endEntry) return null;
       const range = document.createRange();
-      range.setStart(startNode, startOffset);
-      range.setEnd(endNode, endOffset);
+      range.setStart(startEntry.node, start - startEntry.start);
+      range.setEnd(endEntry.node, end - endEntry.start);
       return range;
     };
     const resolveCommentAnchor = ${resolveTextCommentAnchor.toString()};
@@ -358,12 +366,10 @@ export function buildSandboxDocument(
       if (!window.Highlight || !window.CSS || !CSS.highlights) return;
       const normal = new Highlight();
       const active = new Highlight();
-      const whole = document.createRange();
-      whole.selectNodeContents(document.body);
-      const text = whole.toString();
+      const index = commentTextIndex();
       for (const item of currentCommentHighlights) {
-        const resolved = resolveCommentAnchor(text, item.anchor);
-        const range = resolved && commentRangeAt(resolved.start, resolved.end);
+        const resolved = resolveCommentAnchor(index.text, item.anchor);
+        const range = resolved && commentRangeAt(index, resolved.start, resolved.end);
         if (range) {
           commentRanges.push({ id: item.id, range });
           (item.active ? active : normal).add(range);

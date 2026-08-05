@@ -366,12 +366,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=True, methods=["get"], url_path="artifacts", required_scopes=["task:read"])
     def artifacts(self, request, pk=None, **kwargs):
         task_id = self._sandbox_bound_task_id(request, pk)
-        artifacts: dict[tuple[str, str], dict[str, str]] = {
-            (artifact.type, artifact.id): {"id": artifact.id, "type": artifact.type, "name": artifact.name}
-            for artifact in tasks_facade.list_task_artifacts(team_id=self.team_id, task_id=task_id)
-        }
         data = TaskArtifactsResponseSerializer(
-            {"artifacts": sorted(artifacts.values(), key=lambda item: (item["type"], item["id"]))}
+            {"artifacts": tasks_facade.list_task_artifacts(team_id=self.team_id, task_id=task_id)}
         ).data
         return Response(data)
 

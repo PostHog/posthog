@@ -7,7 +7,7 @@ from django.db.models import Q
 
 from posthog.models import Comment
 
-from products.tasks.backend.models import Channel, Task, TaskArtifact, TaskCommentActivity, TaskRun, TaskThreadMessage
+from products.tasks.backend.models import Channel, Task, TaskArtifact, TaskCommentActivity, TaskRun
 from products.tasks.backend.visibility import task_visibility_q
 
 COMMENT_ACTIVITY_SCOPES = frozenset({"task", "task_artifact", "desktop_canvas"})
@@ -15,15 +15,6 @@ COMMENT_ACTIVITY_SCOPES = frozenset({"task", "task_artifact", "desktop_canvas"})
 
 def _visible_tasks(team_id: int, user_id: int | None):
     return Task.objects.filter(team_id=team_id, deleted=False).filter(task_visibility_q(user_id))
-
-
-def task_has_canvas_created_event(*, team_id: int, task_id: UUID, canvas_id: str) -> bool:
-    return TaskThreadMessage.objects.filter(
-        team_id=team_id,
-        task_id=task_id,
-        event="canvas_created",
-        payload__canvas_url__endswith=f"/{canvas_id}",
-    ).exists()
 
 
 def target_is_accessible(
@@ -47,11 +38,11 @@ def target_is_accessible(
             return True
     except (ValueError, DjangoValidationError):
         pass
-    return any(
-        isinstance(artifact, dict) and str(artifact.get("id")) == item_id
-        for artifacts in TaskRun.objects.filter(team_id=team_id, task_id=task.id).values_list("artifacts", flat=True)
-        for artifact in artifacts or []
-    )
+    return TaskRun.objects.filter(
+        team_id=team_id,
+        task_id=task.id,
+        artifacts__contains=[{"id": item_id}],
+    ).exists()
 
 
 def _notification_tasks(team_id: int):

@@ -108,7 +108,18 @@ function SelectionComposerCard({
   const [userExpanded, setUserExpanded] = useState(false);
   const expanded = initiallyExpanded || userExpanded;
   const [draft, setDraft] = useState("");
-  const style = { top: anchor.top + 4, left: anchor.left };
+  const overlayWidth = expanded ? Math.min(420, window.innerWidth * 0.8) : 120;
+  const overlayHeight = expanded ? 180 : 36;
+  const style = {
+    top: Math.max(
+      8,
+      Math.min(anchor.top + 4, window.innerHeight - overlayHeight - 8),
+    ),
+    left: Math.max(
+      8,
+      Math.min(anchor.left, window.innerWidth - overlayWidth - 8),
+    ),
+  };
 
   useEffect(() => {
     const dismissOutside = (event: PointerEvent) => {

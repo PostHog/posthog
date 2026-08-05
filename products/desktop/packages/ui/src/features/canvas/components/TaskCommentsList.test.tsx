@@ -24,6 +24,16 @@ const mocks = vi.hoisted(() => ({
   queriedTargets: [] as unknown[],
 }));
 
+function openThread(body: string): void {
+  const card = screen.getByText(body).closest("[data-comment-thread-id]");
+  expect(card).not.toBeNull();
+  fireEvent.click(
+    within(card as HTMLElement).getByRole("button", {
+      name: "Open comment thread",
+    }),
+  );
+}
+
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskRuns", () => ({
   useTaskRuns: () => ({ runs: mocks.runs, isLoading: false }),
 }));
@@ -278,7 +288,7 @@ describe("TaskCommentsList", () => {
       itemId: "canvas-1",
     });
 
-    fireEvent.click(screen.getByText("Canvas feedback"));
+    openThread("Canvas feedback");
     expect(onCanvasCommentOpen).toHaveBeenCalledWith("version-2");
 
     await act(async () => {
@@ -368,7 +378,7 @@ describe("TaskCommentsList", () => {
   it("opens the artifact a thread belongs to and focuses that thread", () => {
     render(<TaskCommentsList task={task} timeline={[]} />);
 
-    fireEvent.click(screen.getByText("Tighten this summary"));
+    openThread("Tighten this summary");
 
     expect(mocks.openArtifactTab).toHaveBeenCalledWith("task-1", {
       runId: "run-1",
@@ -388,9 +398,9 @@ describe("TaskCommentsList", () => {
   it("re-requests focus for a thread already focused", () => {
     render(<TaskCommentsList task={task} timeline={[]} />);
 
-    fireEvent.click(screen.getByText("Tighten this summary"));
+    openThread("Tighten this summary");
     const first = useCommentNavigationStore.getState().focusByTask["task-1"];
-    fireEvent.click(screen.getByText("Tighten this summary"));
+    openThread("Tighten this summary");
     const second = useCommentNavigationStore.getState().focusByTask["task-1"];
 
     expect(second?.nonce).toBeGreaterThan(first?.nonce ?? 0);
@@ -544,7 +554,7 @@ describe("TaskCommentsList", () => {
     mocks.prReviewThreads = [reviewThread()];
 
     render(<TaskCommentsList task={task} timeline={[]} />);
-    fireEvent.click(screen.getByText("This needs a guard"));
+    openThread("This needs a guard");
 
     expect(mocks.openPrInReview).toHaveBeenCalledWith(
       "task-1",
