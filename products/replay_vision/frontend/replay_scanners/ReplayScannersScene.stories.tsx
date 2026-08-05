@@ -524,6 +524,14 @@ export const ScannerTemplates: StoryObj = {
     parameters: { pageUrl: urls.replayVisionTemplates() },
 }
 
+// The flag-gated "tell PostHog AI what you want to accomplish" box below the template grid.
+export const ScannerTemplatesWithGoalDraft: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionTemplates(),
+        featureFlags: [FEATURE_FLAGS.REPLAY_VISION, FEATURE_FLAGS.REPLAY_VISION_GOAL_DRAFT],
+    },
+}
+
 export const ScannerEditorConfigure: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerConfigure(summarizerScanner.id) },
 }
