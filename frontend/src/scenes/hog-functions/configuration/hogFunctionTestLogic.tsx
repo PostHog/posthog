@@ -67,6 +67,29 @@ const convertFromTransformationEvent = (result: HogTransformationEvent): Record<
     }
 }
 
+const flattenErrorDetail = (detail: any, path: string[] = []): string[] => {
+    if (typeof detail === 'string') {
+        return [path.length > 0 ? `${path.join('.')}: ${detail}` : detail]
+    }
+    if (Array.isArray(detail)) {
+        return detail.flatMap((entry) => flattenErrorDetail(entry, path))
+    }
+    if (detail && typeof detail === 'object') {
+        return Object.entries(detail).flatMap(([key, entry]) => flattenErrorDetail(entry, [...path, key]))
+    }
+    return []
+}
+
+/** A failed test request carries either the worker's `errors`, a DRF validation payload, or nothing
+ * useful — flatten whichever arrived so the results panel can show something concrete. */
+export const testInvocationErrorMessages = (error: any): string[] => {
+    const data = error?.data
+    const messages = flattenErrorDetail(
+        data?.errors ?? (typeof data?.detail === 'string' ? data.detail : undefined) ?? data
+    )
+    return messages.length > 0 ? messages : [error?.message ?? 'The test run failed for an unknown reason.']
+}
+
 export interface CodeEditorValidation {
     value: string
     editor: editor.IStandaloneCodeEditor
@@ -534,7 +557,14 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                         lemonToast.error(`Testing failed: ${e.data.configuration.filters.non_field_errors}`)
                         return
                     }
-                    lemonToast.error(`An unexpected server error occurred while testing the function: ${e}`)
+                    // A failed request still describes a failed test run, so show it in the results
+                    // panel rather than as a toast that stringifies the exception.
+                    actions.setTestResult({
+                        status: 'error',
+                        logs: e?.data?.logs ?? [],
+                        result: null,
+                        errors: testInvocationErrorMessages(e),
+                    })
                 }
             },
         },

@@ -369,13 +369,26 @@ export function HogFunctionTest(): JSX.Element {
                                               : 'error'
                                     }
                                 >
-                                    {testResult.status === 'success'
-                                        ? 'Success'
-                                        : testResult.status === 'skipped'
-                                          ? `${
-                                                type.charAt(0).toUpperCase() + type.slice(1)
-                                            } was skipped because the event did not match the filter criteria`
-                                          : 'Error'}
+                                    {testResult.status === 'success' ? (
+                                        'Success'
+                                    ) : testResult.status === 'skipped' ? (
+                                        `${
+                                            type.charAt(0).toUpperCase() + type.slice(1)
+                                        } was skipped because the event did not match the filter criteria`
+                                    ) : testResult.errors?.length ? (
+                                        <>
+                                            <p className="mb-1">The test run failed:</p>
+                                            <ul className="mb-0 deprecated-space-y-1">
+                                                {testResult.errors.map((error, index) => (
+                                                    <li key={index}>
+                                                        <code className="whitespace-pre-wrap">{error}</code>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </>
+                                    ) : (
+                                        'Error'
+                                    )}
                                 </LemonBanner>
 
                                 {(type === 'transformation' || type === 'transformation_log') &&
@@ -483,6 +496,7 @@ export function HogFunctionTest(): JSX.Element {
                                     className="ph-no-capture"
                                     rowKey="timestamp"
                                     pagination={{ pageSize: 200, hideOnSinglePage: true }}
+                                    emptyState="This test run produced no logs."
                                 />
                             </div>
                         ) : (

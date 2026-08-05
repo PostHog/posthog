@@ -500,24 +500,37 @@ class InputsSerializer(serializers.DictField):
 
     def run_child_validation(self, data):
         result = {}
-        errors = {}
+        errors: dict[str, Any] = {}
 
         existing_secret_inputs = self.context.get("encrypted_inputs")
         # Note this should always be the child of a dict serializer with a sibling 'inputs_schema' field so we can validate against the relevant schema
         parent_serializer = self.parent
         try:
             inputs_schema = parent_serializer.initial_data["inputs_schema"]
-        except:
+        except (AttributeError, KeyError, TypeError):
             raise serializers.ValidationError("Missing inputs_schema.")
+
+        # `initial_data` is the raw payload, so the sibling `inputs_schema` field may not have passed
+        # its own validation — DRF collects every field's errors rather than stopping at the first.
+        # Reject a malformed schema here instead of crashing on it.
+        if not isinstance(inputs_schema, list) or not all(
+            isinstance(schema, dict) and "key" in schema for schema in inputs_schema
+        ):
+            raise serializers.ValidationError("Invalid inputs_schema: each entry must be an object with a 'key'.")
 
         # Validate each input against the schema
         for schema in inputs_schema:
             key = str(schema["key"])
             value = data.get(key) or {}
 
+            if not isinstance(value, dict):
+                errors[key] = "Expected an object with a 'value' key."
+                continue
+
             # We only load the existing secret if the schema is secret and the given value has "secret" set
             if schema.get("secret") and existing_secret_inputs and ((value and value.get("secret")) or value == {}):
-                value = existing_secret_inputs.get(schema["key"]) or {}
+                # `existing_secret_inputs` round-trips through JSON, so its keys are always strings
+                value = existing_secret_inputs.get(key) or {}
 
             self.context["schema"] = schema
 

@@ -20,13 +20,17 @@ from posthog.cdp.validation import (
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
 
-def validate_inputs(schema, inputs, function_type="destination", is_dwh_source=False):
+def validate_inputs(schema, inputs, function_type="destination", is_dwh_source=False, encrypted_inputs=None):
     serializer = MappingsSerializer(
         data={
             "inputs_schema": schema,
             "inputs": inputs,
         },
-        context={"function_type": function_type, "is_dwh_source": is_dwh_source},
+        context={
+            "function_type": function_type,
+            "is_dwh_source": is_dwh_source,
+            "encrypted_inputs": encrypted_inputs,
+        },
     )
     serializer.is_valid(raise_exception=True)
     return serializer.validated_data["inputs"]
@@ -79,6 +83,32 @@ def create_example_inputs():
         },
         "number": {"value": 42},
     }
+
+
+@parameterized.expand(
+    [
+        ("schema_entry_missing_key", [{"type": "string"}], {}, None),
+        ("schema_entry_not_an_object", ["url"], {}, None),
+        ("inputs_schema_not_a_list", {"url": {"type": "string"}}, {}, None),
+        (
+            "input_value_a_string_for_a_secret",
+            [{"key": "url", "type": "string", "secret": True}],
+            {"url": "http://localhost"},
+            {"url": {"value": "http://stored"}},
+        ),
+        (
+            "input_value_a_list_under_templating",
+            [{"key": "url", "type": "string", "templating": "hog"}],
+            {"url": ["http://localhost"]},
+            None,
+        ),
+    ]
+)
+def test_malformed_inputs_are_rejected_rather_than_crashing(_name, inputs_schema, inputs, encrypted_inputs):
+    # `inputs` validates against the raw, not-yet-validated `inputs_schema`, so these used to raise
+    # KeyError/AttributeError/TypeError and 500 the request instead of returning a 400.
+    with pytest.raises(ValidationError):
+        validate_inputs(inputs_schema, inputs, encrypted_inputs=encrypted_inputs)
 
 
 class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):

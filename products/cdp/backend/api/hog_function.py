@@ -7,6 +7,7 @@ from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
+import requests
 import structlog
 import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
@@ -111,12 +112,42 @@ CREATE_ENABLED_MESSAGE = (
     "once the config looks right."
 )
 
+# A worker error body is the only detail a test invocation failure carries, but it can also be a
+# proxy error page, so cap what we forward to the client.
+MAX_WORKER_ERROR_LENGTH = 1000
+
 # The confirm token makes the publish preview structurally unskippable: only the preview mints it,
 # and it signs both sides of the publish, so a valid token proves the caller saw what publishing
 # would change. Signing the live timestamp too is what stops a publish from silently discarding a
 # concurrent web edit: the draft is a full snapshot, so it overwrites whatever landed since.
 PUBLISH_CONFIRM_TOKEN_MAX_AGE = timedelta(minutes=15)
 _PUBLISH_CONFIRM_SALT = "hogfunction-publish"
+
+
+def _worker_error_messages(res: requests.Response) -> list[str]:
+    """Pull readable detail out of a failed cdp worker response.
+
+    The worker reports failures as `{"error": "..."}` or `{"errors": [...]}`, but anything between us
+    and it can answer with a plain-text or HTML body instead, so fall back to the raw text and
+    finally to the status code — a test invocation that surfaces no detail is the bug this avoids.
+    """
+    try:
+        body = res.json()
+    except ValueError:
+        body = None
+
+    if isinstance(body, dict):
+        errors = body.get("errors")
+        if isinstance(errors, list) and errors:
+            return [str(error)[:MAX_WORKER_ERROR_LENGTH] for error in errors]
+        error = body.get("error") or body.get("detail")
+        if error:
+            return [str(error)[:MAX_WORKER_ERROR_LENGTH]]
+
+    text = (res.text or "").strip()
+    if text:
+        return [text[:MAX_WORKER_ERROR_LENGTH]]
+    return [f"The function worker responded with HTTP {res.status_code}."]
 
 
 def _publish_confirm_value(hog_function: HogFunction) -> str:
@@ -755,6 +786,11 @@ class HogFunctionInvocationSerializer(serializers.Serializer):
     )
     status = serializers.CharField(read_only=True, help_text="Invocation result status.")
     logs = serializers.ListField(read_only=True, help_text="Execution logs from the test invocation.")
+    # `errors` shadows DRF's `Serializer.errors` property for the type checker only — the metaclass
+    # moves declared fields off the class at runtime, so `serializer.errors` still works.
+    errors = serializers.ListField(  # type: ignore[assignment]
+        read_only=True, help_text="Why the invocation failed. Empty unless status is 'error'."
+    )
     invocation_id = serializers.CharField(
         required=False, allow_null=True, help_text="Optional invocation ID for correlation."
     )
@@ -1053,7 +1089,10 @@ class HogFunctionViewSet(
         )
 
         if res.status_code != 200:
-            return Response({"status": "error"}, status=res.status_code)
+            return Response(
+                {"status": "error", "errors": _worker_error_messages(res), "logs": []},
+                status=res.status_code,
+            )
 
         return Response(res.json())
 

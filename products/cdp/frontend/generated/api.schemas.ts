@@ -584,6 +584,8 @@ export interface HogFunctionInvocationApi {
     readonly status: string
     /** Execution logs from the test invocation. */
     readonly logs: readonly unknown[]
+    /** Why the invocation failed. Empty unless status is 'error'. */
+    readonly errors: readonly unknown[]
     /**
      * Optional invocation ID for correlation.
      * @nullable

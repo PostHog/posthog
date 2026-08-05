@@ -1828,6 +1828,31 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "value": "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
             }
 
+    @parameterized.expand(
+        [
+            ("errors_list", {"errors": ["Invalid globals"]}, "", ["Invalid globals"]),
+            ("error_string", {"error": "Invalid function type"}, "", ["Invalid function type"]),
+            ("non_json_body", None, "502 Bad Gateway", ["502 Bad Gateway"]),
+            ("empty_body", None, "", ["The function worker responded with HTTP 502."]),
+        ]
+    )
+    def test_test_invocation_surfaces_the_worker_error(self, _name, body, text, expected_errors):
+        with patch(
+            "products.cdp.backend.api.hog_function.create_hog_invocation_test"
+        ) as mock_create_hog_invocation_test:
+            res = MagicMock(status_code=502, text=text)
+            res.json.side_effect = ValueError if body is None else None
+            res.json.return_value = body
+            mock_create_hog_invocation_test.return_value = res
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/new/invocations/",
+                data={"configuration": {**EXAMPLE_FULL}},
+            )
+
+            assert response.status_code == 502, response.json()
+            assert response.json() == {"status": "error", "errors": expected_errors, "logs": []}
+
     # warehouse_source_webhook is intentionally omitted: it's excluded from the viewset queryset
     # entirely (see test_warehouse_source_webhook_excluded), so its rerun endpoint 404s before the
     # rerunnable-type guard is ever reached — it can't exercise the 400 this test asserts.
