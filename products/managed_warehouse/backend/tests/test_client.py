@@ -74,14 +74,11 @@ class TestCompileHogQLToDuckLakeSQL:
 
 
 class TestDuckLakeModelRedirect:
-    def test_materialized_model_resolves_to_ducklake_table_not_s3(self):
-        from posthog.models import Organization, Team
-
+    @staticmethod
+    def _create_materialized_model(team, name: str = "vitally_org"):
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
         from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
-        org = Organization.objects.create(name="ducklake-redirect")
-        team = Team.objects.create(organization=org)
         credential = DataWarehouseCredential.objects.create(team=team, access_key="key", access_secret="secret")
         source_table = DataWarehouseTable.objects.create(
             name="vitally_source",
@@ -91,15 +88,38 @@ class TestDuckLakeModelRedirect:
             url_pattern="https://bucket.s3.amazonaws.com/vitally/*.parquet",
             format="Parquet",
         )
-        DataWarehouseSavedQuery.objects.create(
+        return DataWarehouseSavedQuery.objects.create(
             team=team,
-            name="vitally_org",
+            name=name,
             query={"query": "SELECT org_id FROM vitally_source"},
             columns={"org_id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
             table=source_table,
             is_materialized=True,
             status=DataWarehouseSavedQuery.Status.COMPLETED,
         )
+
+    @staticmethod
+    def _create_completed_shadow_job(team, saved_query):
+        from products.data_modeling.backend.facade.models import (
+            DataModelingJob,
+            DataModelingJobEngine,
+            DataModelingJobStatus,
+        )
+
+        return DataModelingJob.objects.create(
+            team=team,
+            saved_query=saved_query,
+            engine=DataModelingJobEngine.DUCKGRES,
+            status=DataModelingJobStatus.COMPLETED,
+        )
+
+    def test_materialized_model_resolves_to_ducklake_table_not_s3(self):
+        from posthog.models import Organization, Team
+
+        org = Organization.objects.create(name="ducklake-redirect")
+        team = Team.objects.create(organization=org)
+        saved_query = self._create_materialized_model(team)
+        self._create_completed_shadow_job(team, saved_query)
 
         query = HogQLQuery(query="SELECT org_id FROM vitally_org")
         postgres_sql, _values, _hogql = compile_hogql_to_ducklake_sql(team.pk, query)
@@ -108,6 +128,43 @@ class TestDuckLakeModelRedirect:
         # ClickHouse s3() table function, which DuckDB cannot execute.
         assert "s3(" not in postgres_sql.lower()
         assert f"shadow_{team.pk}_models" in postgres_sql
+
+    def test_model_without_completed_shadow_job_inlines_its_definition(self):
+        from posthog.models import Organization, Team
+
+        org = Organization.objects.create(name="ducklake-unshadowed")
+        team = Team.objects.create(organization=org)
+        self._create_materialized_model(team)
+
+        query = HogQLQuery(query="SELECT org_id FROM vitally_org")
+        postgres_sql, _values, _hogql = compile_hogql_to_ducklake_sql(team.pk, query)
+
+        # No duckgres shadow run ever completed, so the DuckLake table does not exist.
+        # Binding it anyway would fail at runtime with "Table ... does not exist";
+        # the model's definition must be inlined as a subquery instead.
+        assert f"shadow_{team.pk}_models" not in postgres_sql
+        assert "vitally_source" in postgres_sql
+
+    def test_model_binding_matches_writer_name_sanitization(self):
+        from posthog.models import Organization, Team
+
+        from products.managed_warehouse.backend.common import duckgres_data_modeling_table_name
+
+        org = Organization.objects.create(name="ducklake-long-name")
+        team = Team.objects.create(organization=org)
+        long_name = "a_really_long_model_name_that_exceeds_the_sixty_three_character_identifier_limit"
+        saved_query = self._create_materialized_model(team, name=long_name)
+        self._create_completed_shadow_job(team, saved_query)
+
+        query = HogQLQuery(query=f"SELECT org_id FROM {long_name}")
+        postgres_sql, _values, _hogql = compile_hogql_to_ducklake_sql(team.pk, query)
+
+        # The writer truncates the DuckLake table name to 63 characters; binding the
+        # raw normalized name would reference a table the writer never created.
+        sanitized = duckgres_data_modeling_table_name(saved_query.normalized_name)
+        assert sanitized != saved_query.normalized_name
+        assert f"shadow_{team.pk}_models.{sanitized}" in postgres_sql
+        assert f"shadow_{team.pk}_models.{saved_query.normalized_name}" not in postgres_sql
 
     def test_source_table_resolves_to_ducklake_table_not_s3(self):
         from posthog.models import Organization, Team

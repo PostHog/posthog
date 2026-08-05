@@ -562,6 +562,15 @@ def duckgres_data_modeling_schema(team_id: int) -> str:
     return f"{DATA_MODELING_DUCKGRES_SHADOW_SCHEMA_PREFIX}_{team_id}_models"
 
 
+def duckgres_data_modeling_table_name(normalized_name: str) -> str:
+    """Resolve the DuckLake table name of a shadow-materialized model.
+
+    Must match how ``execute_ducklake_create_table`` sanitizes the name it writes,
+    or query binding references a table the writer never created.
+    """
+    return sanitize_ducklake_identifier(normalized_name, default_prefix="model")
+
+
 TABLE_SUFFIX_MAX_LENGTH = 63
 # A schema name doubles as the suffix in `events_<suffix>` / `persons_<suffix>`, so it must
 # already be a safe SQL identifier — lowercase letters, numbers, and underscores. We validate

@@ -7,6 +7,7 @@ from products.managed_warehouse.backend.common import (
     duckgres_data_imports_schema,
     duckgres_data_imports_table_name,
     duckgres_data_modeling_schema,
+    duckgres_data_modeling_table_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -29,16 +30,37 @@ def bind_tables_to_ducklake(database: Any, team_id: int) -> None:
 
 
 def _bind_materialized_models(database: Any, team_id: int) -> None:
-    """Bind materialized data-modeling models to their DuckLake schema (``shadow_<team_id>_models``)."""
+    """Bind materialized data-modeling models to their DuckLake schema (``shadow_<team_id>_models``).
+
+    A model's DuckLake table only exists after at least one duckgres shadow run
+    completed (``CREATE OR REPLACE`` persists across later failures). Models without
+    one are inlined as their view definition instead, so a downstream model doesn't
+    fail with "Table ... does not exist" just because its upstream never shadowed.
+    """
     from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
     from posthog.hogql.errors import ResolutionError
 
-    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+    from products.data_modeling.backend.facade.models import (
+        DataModelingJob,
+        DataModelingJobEngine,
+        DataModelingJobStatus,
+        DataWarehouseSavedQuery,
+    )
 
     schema_name = duckgres_data_modeling_schema(team_id)
-    materialized = DataWarehouseSavedQuery.objects.filter(
-        team_id=team_id, is_materialized=True, table__isnull=False
-    ).exclude(deleted=True)
+    materialized = list(
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, is_materialized=True, table__isnull=False).exclude(
+            deleted=True
+        )
+    )
+    shadowed_query_ids = set(
+        DataModelingJob.objects.filter(
+            team_id=team_id,
+            engine=DataModelingJobEngine.DUCKGRES,
+            status=DataModelingJobStatus.COMPLETED,
+            saved_query_id__in=[saved_query.id for saved_query in materialized],
+        ).values_list("saved_query_id", flat=True)
+    )
     for saved_query in materialized:
         try:
             node = database.get_table_node(saved_query.name.split("."))
@@ -48,11 +70,14 @@ def _bind_materialized_models(database: Any, team_id: int) -> None:
         existing = node.table
         if existing is None:
             continue
+        if saved_query.id not in shadowed_query_ids:
+            node.table = saved_query.hogql_definition(None)
+            continue
         node.table = DirectPostgresTable(
             name=saved_query.name,
             external_data_source_id="",
             postgres_schema=schema_name,
-            postgres_table_name=saved_query.normalized_name,
+            postgres_table_name=duckgres_data_modeling_table_name(saved_query.normalized_name),
             fields=existing.fields,
         )
 
