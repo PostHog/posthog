@@ -4,6 +4,9 @@ Tests for message_formatter.py - message input/output formatting logic.
 Tests cover multiple LLM provider formats, tool calls, truncation, and edge cases.
 """
 
+from parameterized import parameterized
+
+from ..constants import MISSING_REASONING_NOTE, MISSING_TOOL_OUTPUT_NOTE
 from ..message_formatter import (
     extract_text_content,
     extract_tool_calls_from_content,
@@ -486,3 +489,113 @@ class TestEdgeCases:
         lines = format_input_messages("")
         # Empty string should be treated as no input
         assert len(lines) == 0
+
+
+class TestResponsesApiItems:
+    @parameterized.expand(
+        [
+            (
+                "custom_tool_call",
+                {
+                    "call_id": "call_1",
+                    "input": "const r = await tools.foo(); text(r)",
+                    "name": "exec",
+                    "status": "completed",
+                    "type": "custom_tool_call",
+                },
+                "exec(const r = await tools.foo(); text(r))",
+            ),
+            (
+                "custom_tool_call_output",
+                {
+                    "call_id": "call_1",
+                    "output": [{"text": "channel|sessions\nDirect|21800", "type": "input_text"}],
+                    "type": "custom_tool_call_output",
+                },
+                "Direct|21800",
+            ),
+            (
+                "function_call",
+                {
+                    "call_id": "call_2",
+                    "name": "execute_sql",
+                    "arguments": '{"query": "select 1"}',
+                    "type": "function_call",
+                },
+                'execute_sql(query="select 1")',
+            ),
+            (
+                "function_call_output",
+                {
+                    "call_id": "call_2",
+                    "output": [{"text": "event|c_7d\nnot_found|4", "type": "input_text"}],
+                    "type": "function_call_output",
+                },
+                "not_found|4",
+            ),
+            (
+                "reasoning",
+                {"type": "reasoning", "summary": [{"text": "Checking the error rate.", "type": "summary_text"}]},
+                "Checking the error rate.",
+            ),
+        ]
+    )
+    def test_renders_payload_held_outside_content(self, _name, message, expected):
+        result = "\n".join(format_input_messages([message]))
+        assert expected in result
+
+    @parameterized.expand(
+        [
+            ("empty_list", []),
+            ("missing", None),
+            ("empty_string", ""),
+        ]
+    )
+    def test_tool_output_without_payload_says_so(self, _name, output):
+        message = {"call_id": "call_1", "type": "function_call_output"}
+        if output is not None:
+            message["output"] = output
+
+        result = "\n".join(format_input_messages([message]))
+        assert MISSING_TOOL_OUTPUT_NOTE in result
+
+    def test_reasoning_without_summary_says_so(self):
+        message = {"type": "reasoning", "encrypted_content": "gAAAA", "summary": []}
+        result = "\n".join(format_input_messages([message]))
+        assert MISSING_REASONING_NOTE in result
+
+    def test_responses_output_object_is_unwrapped(self):
+        output_choices = {
+            "object": "response",
+            "status": "completed",
+            "output": [
+                {"type": "reasoning", "summary": [{"text": "Time to query.", "type": "summary_text"}]},
+                {
+                    "call_id": "c9",
+                    "input": "text(1)",
+                    "name": "exec",
+                    "status": "completed",
+                    "type": "custom_tool_call",
+                },
+            ],
+        }
+        result = "\n".join(format_output_messages(None, output_choices))
+        assert "OUTPUT:" in result
+        assert "Time to query." in result
+        assert "exec(text(1))" in result
+
+    def test_chat_completions_messages_are_unaffected(self):
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi", "tool_calls": [{"function": {"name": "test", "arguments": ""}}]},
+        ]
+        result = "\n".join(format_input_messages(messages))
+        assert "Hello" in result
+        assert "Tool calls: 1" in result
+        assert "test()" in result
+
+    def test_plain_text_blocks_are_not_labelled(self):
+        messages = [{"role": "user", "content": [{"type": "input_text", "text": "Run the scout"}]}]
+        result = "\n".join(format_input_messages(messages))
+        assert "Run the scout" in result
+        assert "[INPUT_TEXT]" not in result

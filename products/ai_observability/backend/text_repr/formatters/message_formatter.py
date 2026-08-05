@@ -14,11 +14,17 @@ from .constants import (
     DEFAULT_TRUNCATE_BUFFER,
     MAX_UNABLE_TO_PARSE_REPR_LENGTH,
     MAX_UNPARSED_DISPLAY_LENGTH,
+    MISSING_REASONING_NOTE,
+    MISSING_TOOL_OUTPUT_NOTE,
+    PLAIN_TEXT_BLOCK_TYPES,
     PRESERVE_HEADER_LINES,
+    RESPONSES_TOOL_CALL_TYPES,
+    RESPONSES_TOOL_OUTPUT_TYPES,
     SAMPLED_VIEW_HEADER,
     SAMPLING_MAX_ITERATIONS,
     SAMPLING_REDUCTION_FACTOR,
 )
+from .tool_formatter import format_tools
 
 
 class FormatterOptions(TypedDict, total=False):
@@ -279,8 +285,8 @@ def safe_extract_text(content: Any) -> str:
                         if i > 0 and text_parts:
                             text_parts.append("")  # Blank line separator
 
-                        # If we have a type and it's not just "text", label it
-                        if item_type and item_type != "text":
+                        # If we have a type that isn't already plain text, label it
+                        if item_type and item_type not in PLAIN_TEXT_BLOCK_TYPES:
                             text_parts.append(f"[{item_type.upper()}]")
                             text_parts.append("")  # Blank line after label
 
@@ -400,6 +406,74 @@ def extract_text_content(content: Any) -> str:
     return safe_extract_text(content)
 
 
+def _extract_responses_payload_text(payload: Any) -> str:
+    """Extract text from a Responses API payload, which is a string or a list of content blocks."""
+    if not payload:
+        # Guard before `extract_text_content`, whose repr fallback would turn an empty list or
+        # dict into a literal "[]" / "{}" and read as recorded content.
+        return ""
+    if isinstance(payload, str):
+        return payload
+    return extract_text_content(payload)
+
+
+def _format_responses_item(msg: dict[str, Any], options: FormatterOptions | None = None) -> list[str] | None:
+    """Format one OpenAI Responses API item, or return None when the item is not one.
+
+    Returning None lets the caller fall back to the Chat Completions `content` / `tool_calls`
+    path. These items are worth special-casing because they hold their payload outside
+    `content`, so reading `content` alone drops every tool call, tool result, and reasoning
+    summary in the conversation while still printing its header.
+    """
+    item_type = msg.get("type")
+
+    if item_type in RESPONSES_TOOL_CALL_TYPES:
+        # `arguments` is the JSON-schema tool shape, `input` the freeform custom-tool shape.
+        arguments = msg.get("arguments")
+        if arguments is None:
+            arguments = msg.get("input", "")
+        call_line = format_single_tool_call(str(msg.get("name") or "unknown"), arguments)
+        lines, _ = truncate_content(call_line, options)
+        return lines
+
+    if item_type in RESPONSES_TOOL_OUTPUT_TYPES:
+        text = _extract_responses_payload_text(msg.get("output") or msg.get("content"))
+        if not text:
+            return [MISSING_TOOL_OUTPUT_NOTE]
+        lines, _ = truncate_content(text, options)
+        return lines
+
+    if item_type == "reasoning":
+        text = _extract_responses_payload_text(msg.get("summary") or msg.get("content"))
+        if not text:
+            # Reasoning is frequently returned encrypted, with no readable summary at all.
+            return [MISSING_REASONING_NOTE]
+        lines, _ = truncate_content(text, options)
+        return lines
+
+    if item_type == "additional_tools":
+        # The tool catalog this item carries runs to tens of thousands of characters, so lean on
+        # `format_tools` to collapse anything longer than a short list down to a count.
+        tool_lines = format_tools(msg.get("tools"), options)
+        if tool_lines:
+            return tool_lines
+
+    return None
+
+
+def _extract_responses_output_items(value: Any) -> list[Any] | None:
+    """Return the item list of an OpenAI Responses API response object, or None if it isn't one.
+
+    The Responses API answers with `{"object": "response", "output": [...]}` where Chat
+    Completions answers with `{"choices": [...]}`, so a formatter that only knows `choices`
+    renders no model output at all.
+    """
+    if not isinstance(value, dict) or value.get("object") != "response":
+        return None
+    output = value.get("output")
+    return output if isinstance(output, list) else None
+
+
 def format_messages_array(messages: list[Any], options: FormatterOptions | None = None) -> list[str]:
     """
     Format an array of message objects without header.
@@ -428,15 +502,19 @@ def format_messages_array(messages: list[Any], options: FormatterOptions | None 
         lines.append(f"[{i + 1}] {role.upper()}")
         lines.append("")
 
-        if content:
-            text_content = extract_text_content(content)
-            if text_content:
-                content_lines, _ = truncate_content(text_content, options)
-                lines.extend(content_lines)
+        responses_lines = _format_responses_item(msg, options)
+        if responses_lines is not None:
+            lines.extend(responses_lines)
+        else:
+            if content:
+                text_content = extract_text_content(content)
+                if text_content:
+                    content_lines, _ = truncate_content(text_content, options)
+                    lines.extend(content_lines)
 
-        if tool_calls:
-            lines.append("")
-            lines.extend(format_tool_calls(tool_calls))
+            if tool_calls:
+                lines.append("")
+                lines.extend(format_tool_calls(tool_calls))
 
         # Add separator between messages (but not after the last one)
         if i < len(messages) - 1:
@@ -484,6 +562,17 @@ def format_output_messages(
 ) -> list[str]:
     """Format output messages section."""
     lines: list[str] = []
+
+    # Responses API output (an item list) rather than Chat Completions choices
+    responses_items = _extract_responses_output_items(ai_output_choices)
+    if responses_items is None:
+        responses_items = _extract_responses_output_items(ai_output)
+    if responses_items is not None:
+        if responses_items:
+            lines.append("")
+            lines.append("OUTPUT:")
+            lines.extend(format_messages_array(responses_items, options))
+        return lines
 
     # Simple string output
     if ai_output and isinstance(ai_output, str):

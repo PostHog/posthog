@@ -9,9 +9,11 @@ import ast
 import json
 from typing import Any
 
+from .constants import MISSING_TOOL_OUTPUT_NOTE
 from .message_formatter import (
     FormatterOptions,
     add_line_numbers,
+    extract_text_content,
     format_messages_array,
     format_single_tool_call,
     truncate_content,
@@ -99,10 +101,14 @@ def _format_tool_result(state: dict, options: FormatterOptions | None) -> list[s
         header_parts.append(f"({status})")
     lines.append(" ".join(header_parts))
 
-    if content:
-        lines.append("")
-        content_lines, _ = truncate_content(str(content), options)
+    lines.append("")
+    # `content` is often a list of content blocks, which `str()` would render as a Python repr.
+    text = content if isinstance(content, str) else extract_text_content(content) if content else ""
+    if text:
+        content_lines, _ = truncate_content(text, options)
         lines.extend(content_lines)
+    else:
+        lines.append(MISSING_TOOL_OUTPUT_NOTE)
 
     return lines
 

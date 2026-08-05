@@ -30,6 +30,20 @@ SAMPLING_REDUCTION_FACTOR = 0.9  # Safety margin when reducing target line count
 # Tool formatting
 DEFAULT_TOOLS_COLLAPSE_THRESHOLD = 5  # Collapse tool lists longer than this
 
+# OpenAI Responses API item shapes. Unlike Chat Completions messages, these keep their payload
+# outside `content`: tool calls in `arguments` / `input`, tool results in `output`, model
+# reasoning in `summary`. A formatter that reads only `content` renders them as a bare header.
+RESPONSES_TOOL_CALL_TYPES = frozenset({"function_call", "custom_tool_call"})
+RESPONSES_TOOL_OUTPUT_TYPES = frozenset({"function_call_output", "custom_tool_call_output"})
+# Content-block types that hold plain text, so prefixing them with a `[TYPE]` label spends two
+# lines repeating what the block already is.
+PLAIN_TEXT_BLOCK_TYPES = frozenset({"text", "input_text", "output_text", "summary_text"})
+
+# Placeholders for evidence the event never carried. Without them a reader, or an LLM judge
+# grading the trace, cannot tell a tool that returned nothing from a payload we failed to record.
+MISSING_TOOL_OUTPUT_NOTE = "[tool output not recorded]"
+MISSING_REASONING_NOTE = "[reasoning summary not recorded]"
+
 # Tree rendering
 MAX_TREE_DEPTH = 10  # Maximum depth for hierarchical trace tree rendering
 
