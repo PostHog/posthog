@@ -103,7 +103,9 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .min(1)
             .max(organizationsProjectsPartialUpdateBodyNameMax)
             .optional()
-            .describe('Human-readable project name.'),
+            .describe(
+                'Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.'
+            ),
         product_description: zod
             .string()
             .max(organizationsProjectsPartialUpdateBodyProductDescriptionMax)
