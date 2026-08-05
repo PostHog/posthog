@@ -84,6 +84,10 @@ class QueryStatusManager:
         return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.team_id}:{self.query_id}:heartbeat"
 
     @property
+    def principal_key(self) -> str:
+        return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.team_id}:{self.query_id}:principal"
+
+    @property
     def running_queries_key(self) -> str:
         return f"{self.KEY_PREFIX_RUNNING_QUERIES}:{self.team_id}"
 
@@ -93,6 +97,24 @@ class QueryStatusManager:
             seconds=self.STATUS_TTL_SECONDS
         )
         self.redis_client.set(self.results_key, value, exat=int(query_status.expiration_time.timestamp()))
+
+    def store_principal(self, principal: PrincipalRef) -> None:
+        """Hand the worker a principal reference beside the status, rather than on the task signature.
+
+        A new parameter on a live Celery task is a non-retryable TypeError for every worker that
+        predates it, so a rolling deploy would error exactly the queries this is meant to fix. A
+        worker that has never heard of this key just doesn't read it and runs the query userless,
+        which denies rather than over-grants. It does not belong on `QueryStatus` either: that model
+        is serialized straight back to whoever polls the query.
+        """
+        self.redis_client.set(self.principal_key, json.dumps(principal), ex=self.STATUS_TTL_SECONDS)
+
+    def get_principal(self) -> Optional[PrincipalRef]:
+        raw = self.redis_client.get(self.principal_key)
+        if not raw:
+            return None
+        principal = json.loads(raw)
+        return principal if isinstance(principal, dict) else None
 
     def _store_clickhouse_query_progress_dict(self, query_progress_dict):
         value = json.dumps(query_progress_dict)
@@ -166,6 +188,7 @@ class QueryStatusManager:
         logger.info("Deleting redis query key %s", self.results_key)
         self.redis_client.delete(self.results_key)
         self.redis_client.delete(self.clickhouse_query_status_key)
+        self.redis_client.delete(self.principal_key)
 
     def get_running_query_by_cache_key(self, cache_key: str) -> Optional[str]:
         """Get the query_id of a running query with the given cache_key, if any."""
@@ -193,7 +216,6 @@ def execute_process_query(
     limit_context: Optional[LimitContext],
     is_query_service: bool = False,
     analytics_props: Optional["AnalyticsProps"] = None,
-    principal: Optional[PrincipalRef] = None,
 ):
     tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
     manager = QueryStatusManager(query_id, team_id)
@@ -209,14 +231,18 @@ def execute_process_query(
     if user_id:
         user = User.objects.only("email", "is_staff").get(pk=user_id)
         is_staff_user = user.is_staff
-    elif principal:
+    else:
+        principal: Optional[PrincipalRef] = None
         try:
-            user = rebuild_principal(principal, team)
+            principal = manager.get_principal()
+            if principal:
+                user = rebuild_principal(principal, team)
         except Exception as e:
             # Raising here would escape ahead of the try block below that records query failures, so
             # the caller would see the query hang until Celery exhausted its retries on the same
             # payload. Fall back to the userless path, which denies rather than over-grants.
-            record_principal_loss(str(principal.get("kind")), "rebuild_error", query_id=query_id)
+            kind = str(principal.get("kind")) if principal else "unknown"
+            record_principal_loss(kind, "rebuild_error", query_id=query_id)
             capture_exception(e, {"query_id": query_id})
 
     query_status = manager.get_query_status()
@@ -364,7 +390,7 @@ def enqueue_process_query_task(
 
     # Past the early returns (so a deduplicated or already-answered query does no work) but ahead of
     # the Redis writes below, so a failure here cannot leave a registered cache key with no task.
-    principal = serialize_principal(user)
+    principal_ref = serialize_principal(user)
 
     # Immediately set status, so we don't have race with celery
     query_status = QueryStatus(
@@ -377,6 +403,10 @@ def enqueue_process_query_task(
     query_tags = get_query_tags().model_dump()
     manager.store_query_status(query_status)
 
+    # Written before the task is dispatched below, so the worker cannot look for it too early.
+    if principal_ref is not None:
+        manager.store_principal(principal_ref)
+
     if cache_key:
         try:
             manager.register_cache_key_mapping(cache_key)
@@ -388,12 +418,8 @@ def enqueue_process_query_task(
     from posthog.tasks.tasks import process_query_task  # noqa: PLC0415
 
     limit_context = LimitContext.POSTHOG_AI if is_posthog_ai else LimitContext.QUERY_ASYNC
-    # Omitting the kwarg when there is no principal keeps the real-user path byte-identical on the
-    # wire, so a rolling deploy cannot fail those queries. It does not save principal-carrying
-    # queries: a worker running code without the `principal` parameter rejects them with a
-    # TypeError, which `autoretry_for` does not cover. Workers have to roll before web pods, or
-    # shared-link and service-token async queries error for the length of the deploy.
-    extra_kwargs = {"principal": principal} if principal is not None else {}
+    # The task signature is unchanged from the previous release on purpose — the principal travels
+    # beside the status instead, see QueryStatusManager.store_principal.
     task_signature = process_query_task.si(
         team.id,
         user_id,
@@ -403,7 +429,6 @@ def enqueue_process_query_task(
         is_query_service,
         limit_context,
         analytics_props=analytics_props,
-        **extra_kwargs,
     )
 
     if _test_only_bypass_celery:

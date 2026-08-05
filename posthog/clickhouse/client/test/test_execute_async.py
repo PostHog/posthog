@@ -189,21 +189,14 @@ class TestExecuteProcessQuery(TestCase):
         self, mock_process_query_dict, mock_redis_client
     ):
         sharing_configuration = SharingConfiguration.objects.create(team=self.team, enabled=True)
+        status = json.dumps({"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}).encode()
+        principal = json.dumps({"kind": "shared_link", "id": sharing_configuration.pk}).encode()
         mock_redis = MagicMock()
-        mock_redis.get.return_value = json.dumps(
-            {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
-        ).encode()
+        mock_redis.get.side_effect = lambda key: principal if str(key).endswith(":principal") else status
         mock_redis_client.return_value = mock_redis
         mock_process_query_dict.return_value = {}
 
-        execute_process_query(
-            self.team.id,
-            None,
-            self.query_id,
-            self.query_json,
-            self.limit_context,
-            principal={"kind": "shared_link", "id": sharing_configuration.pk},
-        )
+        execute_process_query(self.team.id, None, self.query_id, self.query_json, self.limit_context)
 
         called_user = mock_process_query_dict.call_args.kwargs["user"]
         self.assertIsInstance(called_user, SharedLinkUser)
@@ -211,24 +204,31 @@ class TestExecuteProcessQuery(TestCase):
 
     @patch("posthog.clickhouse.client.execute_async.redis.get_client")
     @patch("posthog.tasks.tasks.process_query_task")
-    def test_enqueue_sends_a_principal_reference_only_for_principals_without_a_user_id(
+    def test_enqueue_leaves_a_principal_reference_beside_the_status_and_off_the_task_signature(
         self, mock_process_query_task, mock_redis_client
     ):
-        # A `principal` kwarg on a worker still running old code is a TypeError, so it must stay off
-        # the wire for the overwhelmingly common real-user case.
-        mock_redis_client.return_value = MagicMock()
+        # Any new kwarg here is a non-retryable TypeError on a worker that predates it, so the
+        # reference has to reach the worker without changing what goes on the wire.
+        mock_redis = MagicMock()
+        mock_redis_client.return_value = mock_redis
         sharing_configuration = SharingConfiguration.objects.create(team=self.team, enabled=True)
 
         for principal, expected in [
-            (self.user, None),
-            (SharedLinkUser(sharing_configuration), {"kind": "shared_link", "id": sharing_configuration.pk}),
+            (self.user, []),
+            (SharedLinkUser(sharing_configuration), [{"kind": "shared_link", "id": sharing_configuration.pk}]),
         ]:
             with self.subTest(principal=type(principal).__name__):
-                mock_process_query_task.si.reset_mock()
+                mock_redis.set.reset_mock()
                 client.enqueue_process_query_task(
                     self.team, principal, build_query("SELECT 1"), _test_only_bypass_celery=True
                 )
-                self.assertEqual(mock_process_query_task.si.call_args.kwargs.get("principal"), expected)
+                written = [
+                    json.loads(call.args[1])
+                    for call in mock_redis.set.call_args_list
+                    if str(call.args[0]).endswith(":principal")
+                ]
+                self.assertEqual(written, expected)
+                self.assertNotIn("principal", mock_process_query_task.si.call_args.kwargs)
 
 
 class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):

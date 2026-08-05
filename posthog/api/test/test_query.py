@@ -1290,7 +1290,7 @@ class TestQueryRetrieve(APIBaseTest):
         ).encode()
         response = self.client.delete(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.redis_client_mock.delete.call_count, 2)
+        self.assertEqual(self.redis_client_mock.delete.call_count, 3)
 
 
 class TestQueryDraftSql(APIBaseTest):
