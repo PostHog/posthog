@@ -2557,15 +2557,12 @@ class ExperimentService:
                 )
                 return
 
-            if requested_repository and target["source"] == "explicit":
+            picked_repository = requested_repository if target["source"] == "explicit" else None
+            if picked_repository:
                 # Persist the request's choice only now that it passed the installation check —
                 # a typo'd or stale name must not stick and block the single-repo fallback later.
-                experiment.repository = requested_repository
+                experiment.repository = picked_repository
                 experiment.save(update_fields=["repository"])
-                if set_repository_as_team_default:
-                    config = self._get_team_experiments_config()
-                    config.flag_cleanup_repository = requested_repository
-                    config.save(update_fields=["flag_cleanup_repository"])
 
             plan = cleanup_plan(conclusion, experiment.feature_flag.variants or [])
             title, description = build_cleanup_prompt(experiment, flag_key, plan)
@@ -2594,6 +2591,12 @@ class ExperimentService:
                     # on_commit runs before the view serializes the response — reflect the id on the
                     # in-memory instance so the end/ship response already carries it.
                     experiment.flag_cleanup_task_id = created.task_id
+                    if picked_repository and set_repository_as_team_default:
+                        # The team default steers other experiments, so save it only once a
+                        # cleanup has actually opened against the picked repo.
+                        config = self._get_team_experiments_config()
+                        config.flag_cleanup_repository = picked_repository
+                        config.save(update_fields=["flag_cleanup_repository"])
                 except Exception:
                     logger.exception("experiment_cleanup_pr_task_failed", experiment_id=experiment_id)
 

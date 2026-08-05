@@ -311,6 +311,38 @@ class TestExperimentCleanupPr(APIBaseTest):
             self.assertIsNone(config.flag_cleanup_repository)
             mock_create_task.assert_not_called()
 
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=True)
+    @patch(
+        "products.experiments.backend.experiment_service.tasks_facade.create_and_run_task",
+        side_effect=Exception("sandbox unavailable"),
+    )
+    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    def test_team_default_not_saved_when_task_creation_fails(
+        self,
+        mock_resolve_github,
+        _mock_create_task,
+        _mock_feature_enabled,
+        _mock_report,
+    ):
+        mock_resolve_github.return_value = SimpleNamespace(
+            list_all_cached_repositories=lambda max_repos: [{"full_name": "acme/web"}, {"full_name": "acme/api"}]
+        )
+        experiment = self._running_experiment()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            ExperimentService(team=self.team, user=self.user).end_experiment(
+                experiment,
+                conclusion="won",
+                open_cleanup_pr=True,
+                repository="acme/api",
+                set_repository_as_team_default=True,
+                request=self._make_request(),
+            )
+
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        self.assertIsNone(config.flag_cleanup_repository)
+
     def test_cleanup_target_never_uses_personal_github_connections(self):
         # The team has no GitHub integration, but an org owner has a personal connection with
         # cached repos. The resolver's owner fallback must not surface those repo names to
