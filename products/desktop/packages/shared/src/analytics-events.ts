@@ -983,7 +983,10 @@ export interface ChannelActionProperties {
   surface: ChannelsSurface;
   /** The channel acted on, when one is in scope. */
   channel_id?: string;
-  /** Whether the channel is the private #me space or a shared one, when known. */
+  /**
+   * Personal (#me) vs shared. Absent at capture sites that hold only a
+   * channel_id; set where the full channel is in scope (sidebar/hotkey opens).
+   */
   channel_type?: "public" | "personal";
   /** For file/unfile/archive/open task actions; for copy_link of a thread. */
   task_id?: string;
