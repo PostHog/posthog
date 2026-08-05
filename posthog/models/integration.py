@@ -5150,11 +5150,12 @@ class PostgreSQLServerIntegration:
 
         port = config.get("port", None)
         try:
-            port = int(port)
-            if port is None or port > 65535 or port < 0:
-                raise IntegrationError("A valid port is required for an {self.integration_kind} integration")
+            port = int(port)  # type: ignore
         except (TypeError, ValueError):
             raise IntegrationError("Port must be an integer")
+
+        if port > 65535 or port < 0:
+            raise IntegrationError("A valid port is required for an {self.integration_kind} integration")
 
         user = _return_non_empty_str_from_config(
             config,

@@ -778,7 +778,9 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             organization_id = str(get_organization().id)
 
             if "aws_role_arn" in config:
-                redshift_integration = AWSRedshiftRoleBasedIntegration
+                redshift_integration: (
+                    type[RedshiftIntegration] | type[AWSRedshiftIntegration] | type[AWSRedshiftRoleBasedIntegration]
+                ) = AWSRedshiftRoleBasedIntegration
             elif any(required in config for required in ("host", "port", "user", "password")):
                 redshift_integration = RedshiftIntegration
             elif any(required in config for required in ("aws_access_key_id", "aws_secret_access_key")):

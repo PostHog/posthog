@@ -27,8 +27,8 @@ from posthog.models.integration import (
     AWSS3Integration,
     AWSS3RoleBasedIntegration,
     Integration,
+    IntegrationError,
     S3CompatibleIntegration,
-    S3CredentialIntegrationError,
 )
 from posthog.models.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
@@ -93,8 +93,7 @@ NON_RETRYABLE_ERROR_TYPES = (
     # The linked Integration was deleted or doesn't belong to the team
     "S3IntegrationNotFoundError",
     # The linked Integration is the wrong kind or has invalid/missing credentials
-    "S3CredentialIntegrationError",
-    "AWSCredentialIntegrationError",
+    "IntegrationError",
 )
 
 FILE_FORMAT_EXTENSIONS = {
@@ -144,7 +143,7 @@ async def _get_s3_integration(
 
     The kind is validated on create by the batch export serializer, so the wrong-kind branch is
     purely defensive against an integration whose kind was changed out from under the export.
-    `AWSS3Integration`/`S3CompatibleIntegration` themselves raise `S3CredentialIntegrationError` if
+    `AWSS3Integration`/`S3CompatibleIntegration` themselves raise `IntegrationError` if
     the credentials are malformed.
     """
     try:
@@ -160,7 +159,7 @@ async def _get_s3_integration(
     if integration.kind == Integration.IntegrationKind.S3_COMPATIBLE:
         return S3CompatibleIntegration(integration)
 
-    raise S3CredentialIntegrationError(
+    raise IntegrationError(
         f"Integration with ID '{integration_id}' for team '{team_id}' is not an S3 integration "
         f"(kind='{integration.kind}')"
     )
