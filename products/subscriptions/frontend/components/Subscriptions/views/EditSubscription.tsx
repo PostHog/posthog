@@ -683,7 +683,7 @@ function EditSubscriptionForm({
                                                         options={bysetposOptions}
                                                         value={value ? String(value) : null}
                                                         onChange={(val) => {
-                                                            onChange(typeof val === 'string' ? parseInt(val, 10) : null)
+                                                            onChange(val === null ? null : Number(val))
                                                         }}
                                                     />
                                                 )}
