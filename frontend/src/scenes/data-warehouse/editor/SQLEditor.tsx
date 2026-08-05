@@ -7,7 +7,6 @@ import { IconBook, IconChevronDown, IconDownload, IconNotebook, IconX } from '@p
 import { LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -373,7 +372,6 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         inProgressViewEdits,
         isSourceQueryLastRun,
         isMultiQuery,
-        featureFlags,
     } = useValues(sqlEditorLogic)
     const { convertToNotebook, openHistoryModal } = useActions(editorSceneLogic)
     const {
@@ -650,17 +648,13 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                                     saveAsViewAccessDisabledReason,
                                                                 onClick: () => saveAsView(),
                                                             },
-                                                            ...(featureFlags[FEATURE_FLAGS.ENDPOINTS]
-                                                                ? [
-                                                                      {
-                                                                          label: 'Save as endpoint...',
-                                                                          disabledReason:
-                                                                              saveAsDisabledReason ??
-                                                                              saveAsEndpointAccessDisabledReason,
-                                                                          onClick: () => saveAsEndpoint(),
-                                                                      },
-                                                                  ]
-                                                                : []),
+                                                            {
+                                                                label: 'Save as endpoint...',
+                                                                disabledReason:
+                                                                    saveAsDisabledReason ??
+                                                                    saveAsEndpointAccessDisabledReason,
+                                                                onClick: () => saveAsEndpoint(),
+                                                            },
                                                         ]}
                                                     />
                                                 ),
@@ -722,17 +716,13 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                                 saveAsDisabledReason ?? saveAsViewAccessDisabledReason,
                                                             onClick: () => saveAsView(),
                                                         },
-                                                        ...(featureFlags[FEATURE_FLAGS.ENDPOINTS]
-                                                            ? [
-                                                                  {
-                                                                      label: 'Save as endpoint...',
-                                                                      disabledReason:
-                                                                          saveAsDisabledReason ??
-                                                                          saveAsEndpointAccessDisabledReason,
-                                                                      onClick: () => saveAsEndpoint(),
-                                                                  },
-                                                              ]
-                                                            : []),
+                                                        {
+                                                            label: 'Save as endpoint...',
+                                                            disabledReason:
+                                                                saveAsDisabledReason ??
+                                                                saveAsEndpointAccessDisabledReason,
+                                                            onClick: () => saveAsEndpoint(),
+                                                        },
                                                     ]}
                                                 />
                                             ),
