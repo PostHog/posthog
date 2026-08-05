@@ -93,7 +93,7 @@ class SloInterceptor(Interceptor):
     dataclass. See ``SloConfig`` for field documentation.
     """
 
-    task_queue = (settings.ANALYTICS_PLATFORM_TASK_QUEUE, settings.GENERAL_PURPOSE_TASK_QUEUE)
+    task_queue = settings.ANALYTICS_PLATFORM_TASK_QUEUE
 
     def workflow_interceptor_class(
         self, input: WorkflowInterceptorClassInput
