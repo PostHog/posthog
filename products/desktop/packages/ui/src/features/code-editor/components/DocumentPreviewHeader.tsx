@@ -40,7 +40,7 @@ export function DocumentPreviewHeader({
             render={
               <Button
                 size="icon"
-                variant="ghost"
+                variant="default"
                 onClick={onToggleRendered}
                 aria-label={showRendered ? "View source" : "View preview"}
               >
@@ -57,7 +57,7 @@ export function DocumentPreviewHeader({
             render={
               <Button
                 size="icon"
-                variant="ghost"
+                variant="default"
                 onClick={handleCopySource}
                 aria-label="Copy source"
               >
