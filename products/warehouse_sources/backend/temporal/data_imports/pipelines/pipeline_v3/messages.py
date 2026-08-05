@@ -2,9 +2,6 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal, Optional
 
-from posthog.kafka_client.client import _KafkaProducer
-from posthog.kafka_client.routing import KafkaClusterProfile, get_producer
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
@@ -13,14 +10,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 SyncTypeLiteral = Literal["full_refresh", "incremental", "append", "cdc"]
 
 
-def get_warpstream_kafka_producer() -> _KafkaProducer:
-    """Get a singleton Kafka producer configured for WarpStream/warehouse pipelines."""
-    return get_producer(profile=KafkaClusterProfile.WAREHOUSE_SOURCES)
-
-
 @dataclass
 class ExportSignalMessage:
-    """Message structure for export signals sent to Kafka."""
+    """One extracted batch's hand-off from the extraction side to the load consumer.
+
+    Produced per batch by `postgres_queue.producer` (and the CDC extraction activities) and
+    consumed by `load.processor`. The schema predates the Postgres load queue — it was the
+    v3 Kafka transport's message format — which is why the queue bridge converts a
+    `PendingBatch` into this shape rather than the other way around.
+    """
 
     team_id: int
     job_id: str

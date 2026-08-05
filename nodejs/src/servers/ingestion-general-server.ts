@@ -68,7 +68,9 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
  * This is the union of:
  * - BaseServerConfig: HTTP server, profiling, pod termination lifecycle
  * - IngestionConsumerConfig: ingestion pipeline, person/group processing, overflow, cookieless, etc.
- * - HogTransformerServiceConfig: CDP keys needed by the hog transformer running in-process
+ * - HogTransformerServiceConfig: the transformation-only keys the in-process hog transformer reads.
+ *   No CDP delivery config (Redis, watcher, SES, fetch) - transformations run the synchronous
+ *   Hog core alone, so those keys are deliberately absent rather than inherited.
  * - Infrastructure configs: Kafka broker, Postgres, Redis, consumer tuning
  * - Remaining CommonConfig picks: server mode, services, observability
  *
@@ -90,6 +92,7 @@ export type IngestionGeneralServerConfig = BaseServerConfig &
         | 'LOG_LEVEL'
         | 'PLUGIN_SERVER_MODE'
         | 'CLOUD_DEPLOYMENT'
+        | 'ENCRYPTION_SALT_KEYS'
         | 'MMDB_FILE_LOCATION'
         | 'CAPTURE_INTERNAL_URL'
         | 'LAZY_LOADER_DEFAULT_BUFFER_MS'
@@ -263,7 +266,6 @@ export class IngestionGeneralServer implements NodeServer {
             encryptedFields,
             integrationManager,
             monitoringOutputs: ingestionOutputs,
-            teamManager,
         }
 
         const ingestionDeps: IngestionConsumerDeps = {
