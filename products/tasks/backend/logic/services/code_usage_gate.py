@@ -161,7 +161,8 @@ def cloud_usage_limit_response(user, team_id: int, *, require_tasks_access: bool
 
     ``require_tasks_access`` lets callers whose run is entitled through another product skip the
     PostHog Code (`tasks`) entitlement check while still applying the usage-limit cost backstop —
-    e.g. running a self-driving report task from the Inbox (see ``is_signal_report_task``).
+    e.g. ``POST /tasks/{id}/run``, which the generally-available Inbox uses to run report and scout
+    tasks.
     """
     if require_tasks_access and (response := code_access_required_response(user)):
         return response

@@ -708,15 +708,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ) == tasks_facade.TaskRuntime.PI and not tasks_facade.pi_cloud_runtime_enabled(self.team, request.user):
             return _pi_cloud_runtime_disabled_response()
 
-        # Self-driving report tasks (Inbox "Create PR" / "Discuss") are entitled through the Inbox
-        # (`product-autonomy`), not the PostHog Code (`tasks`) product, so they skip the Code
-        # entitlement check — mirroring auto-start, which runs the same tasks server-side without it.
-        # Usage limits still apply as a cost backstop.
-        require_tasks_access = not tasks_facade.is_signal_report_task(pk, self.team_id)
+        # No PostHog Code (`tasks`) entitlement check: this is the endpoint the generally-available
+        # Inbox runs tasks through (report "Create PR" / "Discuss", scout chat), so gating it on a
+        # product the Inbox doesn't require would 403 a released surface. Usage limits still apply
+        # as a cost backstop.
         if (
-            limit_response := cloud_usage_limit_response(
-                request.user, self.team_id, require_tasks_access=require_tasks_access
-            )
+            limit_response := cloud_usage_limit_response(request.user, self.team_id, require_tasks_access=False)
         ) is not None:
             return limit_response
 
