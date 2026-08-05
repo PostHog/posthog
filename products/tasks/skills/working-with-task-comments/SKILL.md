@@ -10,17 +10,17 @@ description: >-
 
 # Working with task comments
 
-Use the PostHog MCP `exec` dispatcher for every task-comment operation. In PostHog Code the only
-top-level PostHog tool is normally `mcp__posthog__exec`; `tasks-comments-list` and the related names
-are inner tools, not separately registered MCP tools.
+Use the canonical PostHog MCP tool `posthog:exec` for every task-comment operation. A client or
+harness may render that canonical name differently. `tasks-comments-list` and the related names are
+inner tools, not separately registered MCP tools.
 
-Do not conclude that comments are unavailable merely because the top-level tool list contains
-`mcp__posthog__exec` instead of `mcp__posthog__tasks_comments_list`. Do not use MCP resource-listing
-tools: comments are inner tools behind `exec`, not MCP resources.
+Do not conclude that comments are unavailable because a client-specific tool name differs from
+`posthog:exec`, or because there is no top-level `posthog:tasks-comments-list` tool. Do not use MCP
+resource-listing tools: comments are inner tools behind `exec`, not MCP resources.
 
 ## Discover the inner tools
 
-Call `mcp__posthog__exec` with:
+Call `posthog:exec` with:
 
 ```json
 {"command":"search ^tasks-(artifacts-list|comments-(list|retrieve))$"}
@@ -32,9 +32,9 @@ The expected inner tools are:
 - `tasks-comments-list`
 - `tasks-comments-retrieve`
 
-If `mcp__posthog__exec` is absent, the PostHog MCP server is unavailable in the run. If `exec search`
-returns none of these names, the current connection lacks the required PostHog Code task context.
-Only then report that task comments cannot be accessed.
+If the client exposes no tool corresponding to canonical `posthog:exec`, the PostHog MCP server is
+unavailable in the run. If `exec search` returns none of these names, the current connection lacks
+the required PostHog Code task context. Only then report that task comments cannot be accessed.
 
 Use `info <inner-tool-name>` when the schema is unclear. For example:
 
