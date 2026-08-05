@@ -101,6 +101,7 @@ from products.signals.backend.scout_harness.serializers import (
     SearchMemoryQuerySerializer,
     SearchRecentRunsQuerySerializer,
     SignalScoutConfigCreateSerializer,
+    SignalScoutConfigListQuerySerializer,
     SignalScoutConfigSerializer,
     SignalScoutConfigUpdateSerializer,
     SignalScoutCreateResponseSerializer,
@@ -1927,7 +1928,8 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "is read verbatim by the scout agent."
             )
 
-    @extend_schema(
+    @validated_request(
+        query_serializer=SignalScoutConfigListQuerySerializer,
         responses={
             200: OpenApiResponse(
                 response=SignalScoutConfigSerializer(many=True),
@@ -1938,8 +1940,9 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description=(
             "List the per-(team, skill) scout configs for this project. Each row includes its schedule "
             "(rolling `run_interval_minutes`, or a project-local `run_cron_schedule` when set), `enabled`, "
-            "and `emit` posture. A freshly authored scout skill appears here once its config is registered, "
-            "either explicitly via create or by the coordinator's next tick."
+            "`emit` posture, and `tags`. A freshly authored scout skill appears here once its config is "
+            "registered, either explicitly via create or by the coordinator's next tick. Pass `tags` to "
+            "narrow the fleet to the scouts carrying at least one of the given labels."
         ),
         operation_id="signals_scout_config_list",
     )
@@ -1950,12 +1953,14 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # held-back team across the whole config API. Storage is untouched; the row reappears if
         # the team is later un-withheld.
         withheld = withheld_skills_for_team(team_id)
-        configs = list(
-            SignalScoutConfig.objects.unscoped()
-            .filter(team_id=team_id)
-            .exclude(skill_name__in=withheld)
-            .order_by("skill_name")
-        )
+        queryset = SignalScoutConfig.objects.unscoped().filter(team_id=team_id).exclude(skill_name__in=withheld)
+        # Any-of, matching how the fleet UI's tag picker reads. `&&` over the array column rather
+        # than a join table or a GIN index: the team filter already bounds this to the handful of
+        # scouts an org is allowed to create, so there is nothing left for an index to save.
+        tags = (getattr(request, "validated_query_data", None) or {}).get("tags")
+        if tags:
+            queryset = queryset.filter(tags__overlap=tags)
+        configs = list(queryset.order_by("skill_name"))
         skill_info = _skill_info_for(team_id, [c.skill_name for c in configs])
         serializer = SignalScoutConfigSerializer(configs, many=True, context={"skill_info": skill_info})
         return Response(serializer.data)
