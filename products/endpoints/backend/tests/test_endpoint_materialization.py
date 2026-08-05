@@ -162,10 +162,11 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             DataWarehouseSavedQuery.objects.filter(team=self.team, name=f"{endpoint.name}_v{version.version}").exists()
         )
 
-    def test_enable_fails_when_the_dag_sync_leaves_no_node(self):
+    def test_enable_fails_as_a_request_error_when_the_dag_sync_leaves_no_node(self):
         # the endpoint path swallows a dag sync failure, and scheduling then disables itself rather
         # than raising, so without a check the enable reports success on an endpoint that nothing
-        # will ever refresh
+        # will ever refresh. an unresolvable dependency is the author's to fix, so it must not
+        # report as a server error and page on-call
         DAG.objects.create(team=self.team, name="Default")
         self.mock_v2_dag_ids.side_effect = lambda candidate_dag_ids=None: set(candidate_dag_ids or [])
         endpoint = create_endpoint_with_version(
@@ -188,7 +189,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR, response.json())
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         version.refresh_from_db()
         self.assertIsNone(version.saved_query)
 
