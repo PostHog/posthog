@@ -48,6 +48,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     AccountRelationshipSerializer,
     AccountRelationshipWriteSerializer,
     AccountSerializer,
+    CalendarSyncStatusSerializer,
     CalendarSyncTriggerResponseSerializer,
     CalendarSyncTriggerSerializer,
     CustomerJourneySerializer,
@@ -1651,8 +1652,15 @@ class CalendarSyncViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
     Temporal schedule; this surface only offers the manual "sync now" escape hatch."""
 
     scope_object = "account"
+    scope_object_read_actions = ["list"]
     serializer_class = CalendarSyncTriggerSerializer
-    queryset = None  # no model — the trigger starts a Temporal workflow through the facade
+    pagination_class = None  # a team connects a handful of calendars — nothing to paginate
+    queryset = None  # no model — state lives in integration config, reached through the facade
+
+    @extend_schema(responses={200: CalendarSyncStatusSerializer(many=True)})
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        statuses = api.list_calendar_sync_statuses(self.team_id)
+        return Response(CalendarSyncStatusSerializer(instance=statuses, many=True).data)
 
     @validated_request(
         request_serializer=CalendarSyncTriggerSerializer,

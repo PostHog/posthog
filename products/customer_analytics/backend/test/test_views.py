@@ -2683,6 +2683,45 @@ class TestCalendarSyncViewSet(APIBaseTest):
         workflow_kwargs = mock_connect.return_value.start_workflow.call_args.kwargs
         self.assertEqual(workflow_kwargs["id"], f"google-calendar-sync-{integration.id}")
 
+    def test_list_reports_last_synced_and_in_flight_runs(self):
+        from datetime import timedelta
+
+        from django.utils import timezone as dj_timezone
+
+        from posthog.models.integration import Integration
+
+        now = dj_timezone.now()
+        synced = Integration.objects.create(
+            team=self.team,
+            kind="google-calendar",
+            integration_id="sub-synced",
+            config={
+                "calendar_sync_started_at": (now - timedelta(minutes=5)).isoformat(),
+                "calendar_last_synced_at": (now - timedelta(minutes=4)).isoformat(),
+            },
+        )
+        syncing = Integration.objects.create(
+            team=self.team,
+            kind="google-calendar",
+            integration_id="sub-syncing",
+            config={"calendar_sync_started_at": (now - timedelta(minutes=1)).isoformat()},
+        )
+        stale = Integration.objects.create(
+            team=self.team,
+            kind="google-calendar",
+            integration_id="sub-stale",
+            config={"calendar_sync_started_at": (now - timedelta(hours=2)).isoformat()},
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/calendar_sync/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        by_id = {row["integration_id"]: row for row in response.json()}
+        self.assertFalse(by_id[synced.id]["is_syncing"])
+        self.assertIsNotNone(by_id[synced.id]["last_synced_at"])
+        self.assertTrue(by_id[syncing.id]["is_syncing"])
+        self.assertFalse(by_id[stale.id]["is_syncing"])
+
     def test_sync_now_404s_for_another_teams_integration(self):
         from posthog.models.integration import Integration
 

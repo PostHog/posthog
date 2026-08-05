@@ -2513,6 +2513,45 @@ def get_account_support_tickets(
     return list_account_tickets(team_id, account.external_id, limit=limit)
 
 
+def list_calendar_sync_statuses(team_id: int) -> list[contracts.CalendarSyncStatus]:
+    """Sync state of every connected calendar for the team: last completed sync and
+    whether a run is currently in flight (started but not finished, within the sync
+    activity's timeout — a run past it is considered dead, not running)."""
+    from products.customer_analytics.backend.logic.calendar_sync import (  # noqa: PLC0415 — keeps requests/HogQL layers off the import path
+        LAST_SYNCED_AT_CONFIG_KEY,
+        SYNC_STALE_AFTER,
+        SYNC_STARTED_AT_CONFIG_KEY,
+    )
+
+    statuses = []
+    for integration in Integration.objects.filter(team_id=team_id, kind="google-calendar").order_by("id"):
+        config = integration.config or {}
+        last_synced_at = _parse_datetime(config.get(LAST_SYNCED_AT_CONFIG_KEY))
+        started_at = _parse_datetime(config.get(SYNC_STARTED_AT_CONFIG_KEY))
+        is_syncing = bool(
+            started_at
+            and (last_synced_at is None or started_at > last_synced_at)
+            and started_at > timezone.now() - SYNC_STALE_AFTER
+        )
+        statuses.append(
+            contracts.CalendarSyncStatus(
+                integration_id=integration.id,
+                last_synced_at=last_synced_at,
+                is_syncing=is_syncing,
+            )
+        )
+    return statuses
+
+
+def _parse_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
 def trigger_calendar_sync(team_id: int, integration_id: int) -> str | None:
     """Start the calendar-sync workflow for one connected calendar, outside the hourly
     schedule. Returns 'started', 'already_running' (a sync for this calendar is in

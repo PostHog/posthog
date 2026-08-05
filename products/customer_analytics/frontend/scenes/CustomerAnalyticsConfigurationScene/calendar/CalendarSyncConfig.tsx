@@ -5,6 +5,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TZLabel } from 'lib/components/TZLabel'
 import { TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
@@ -16,7 +17,7 @@ import { calendarSyncLogic } from './calendarSyncLogic'
 export function CalendarSyncConfig(): JSX.Element {
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const { deleteIntegration } = useActions(integrationsLogic)
-    const { syncingIntegrationIds } = useValues(calendarSyncLogic)
+    const { statusByIntegrationId, triggeringIntegrationIds } = useValues(calendarSyncLogic)
     const { syncNow } = useActions(calendarSyncLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -27,34 +28,50 @@ export function CalendarSyncConfig(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            {calendarIntegrations.map((integration) => (
-                <IntegrationView
-                    key={integration.id}
-                    integration={integration}
-                    // A custom suffix replaces IntegrationView's built-in Disconnect button, so it returns here.
-                    suffix={
-                        <div className="flex flex-row gap-2">
-                            <LemonButton
-                                type="secondary"
-                                icon={<IconRefresh />}
-                                loading={syncingIntegrationIds.includes(integration.id)}
-                                onClick={() => syncNow(integration.id)}
-                            >
-                                Sync now
-                            </LemonButton>
-                            <LemonButton
-                                type="secondary"
-                                status="danger"
-                                icon={<IconTrash />}
-                                onClick={() => deleteIntegration(integration.id)}
-                                disabledReason={restrictedReason}
-                            >
-                                Disconnect
-                            </LemonButton>
-                        </div>
-                    }
-                />
-            ))}
+            {calendarIntegrations.map((integration) => {
+                const syncStatus = statusByIntegrationId[integration.id]
+                const isSyncing = !!syncStatus?.is_syncing || triggeringIntegrationIds.includes(integration.id)
+                return (
+                    <IntegrationView
+                        key={integration.id}
+                        integration={integration}
+                        // A custom suffix replaces IntegrationView's built-in Disconnect button, so it returns here.
+                        suffix={
+                            <div className="flex flex-row items-center gap-2">
+                                <span className="text-xs text-secondary whitespace-nowrap">
+                                    {isSyncing ? (
+                                        'Syncing...'
+                                    ) : syncStatus?.last_synced_at ? (
+                                        <>
+                                            Last synced <TZLabel time={syncStatus.last_synced_at} />
+                                        </>
+                                    ) : (
+                                        'Not synced yet'
+                                    )}
+                                </span>
+                                <LemonButton
+                                    type="secondary"
+                                    icon={<IconRefresh />}
+                                    loading={isSyncing}
+                                    disabledReason={isSyncing ? 'A sync is already running' : undefined}
+                                    onClick={() => syncNow(integration.id)}
+                                >
+                                    Sync now
+                                </LemonButton>
+                                <LemonButton
+                                    type="secondary"
+                                    status="danger"
+                                    icon={<IconTrash />}
+                                    onClick={() => deleteIntegration(integration.id)}
+                                    disabledReason={restrictedReason}
+                                >
+                                    Disconnect
+                                </LemonButton>
+                            </div>
+                        }
+                    />
+                )
+            })}
             <div className="flex">
                 <LemonButton
                     type="primary"

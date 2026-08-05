@@ -24,6 +24,7 @@ import type {
     AnnouncementApi,
     AnnouncementChannelApi,
     AnnouncementsListParams,
+    CalendarSyncStatusApi,
     CalendarSyncTriggerApi,
     CalendarSyncTriggerResponseApi,
     CustomPropertyDefinitionApi,
@@ -692,6 +693,21 @@ export const announcementsChannelsList = async (
     options?: RequestInit
 ): Promise<AnnouncementChannelApi[]> => {
     return apiMutator<AnnouncementChannelApi[]>(getAnnouncementsChannelsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCalendarSyncListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/calendar_sync/`
+}
+
+/**
+ * Calendar-sync controls for Customer analytics settings. Sync runs on an hourly
+ * Temporal schedule; this surface only offers the manual "sync now" escape hatch.
+ */
+export const calendarSyncList = async (projectId: string, options?: RequestInit): Promise<CalendarSyncStatusApi[]> => {
+    return apiMutator<CalendarSyncStatusApi[]>(getCalendarSyncListUrl(projectId), {
         ...options,
         method: 'GET',
     })
