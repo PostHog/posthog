@@ -6,37 +6,30 @@ import { LemonTag, Link } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
+import { captureInboxRunOpened } from '../../inboxAnalytics'
 import { SignalRun } from '../../types'
 import { stripScoutPrefix } from '../../utils/scoutRunsWindow'
-import { resolveRunVariant, VARIANT_META } from './runStatusVariant'
+import { resolveRunVariant, RunStatusIndicator } from './runStatusVariant'
 import { inboxCardRowClassName } from './useReportArchive'
 
 export function SignalRunCard({ run }: { run: SignalRun }): JSX.Element {
-    const meta = VARIANT_META[resolveRunVariant(run.status)]
     const isScout = run.kind === 'scout'
-    // Scout titles are skill code names, shown verbatim in monospace (identifiers, not prose); signal
-    // titles are the originating report's title.
     const displayTitle = isScout ? stripScoutPrefix(run.title) : run.title
 
     return (
         <div className={clsx('relative', inboxCardRowClassName(false))}>
-            {/* The task (agent transcript) is the primary click target; the report link sits in its own
-                column so it isn't nested inside this link. */}
             <Link
                 to={urls.taskDetail(run.task_id)}
+                onClick={() =>
+                    captureInboxRunOpened({ kind: run.kind, status: run.status, hasReport: !!run.report_id })
+                }
                 className="flex min-w-0 flex-1 items-start gap-2.5 text-left text-inherit no-underline"
             >
-                {/* One small color-coded dot carries the status — no separate orb or status tag. */}
-                <span
-                    className={clsx('mt-1.5 block size-2 shrink-0 rounded-full', meta.dotClass)}
-                    role="img"
-                    aria-label={meta.ariaLabel}
-                />
                 <div className="flex flex-col gap-1 min-w-0 flex-1">
                     <span
                         className={clsx(
                             'min-w-0 truncate text-sm leading-snug',
-                            isScout ? 'font-mono text-[13px]' : 'font-semibold'
+                            isScout ? 'font-mono' : 'font-semibold'
                         )}
                     >
                         {displayTitle || 'Untitled run'}
@@ -53,7 +46,7 @@ export function SignalRunCard({ run }: { run: SignalRun }): JSX.Element {
                         >
                             {isScout ? 'Scout' : 'Signal'}
                         </LemonTag>
-                        <span>{meta.label}</span>
+                        <RunStatusIndicator variant={resolveRunVariant(run.status)} />
                         <span aria-hidden>·</span>
                         <span>
                             Started <TZLabel time={run.created_at} className="tabular-nums align-baseline" />

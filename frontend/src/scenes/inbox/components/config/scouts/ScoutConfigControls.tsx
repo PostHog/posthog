@@ -1,19 +1,15 @@
-import { useMountedLogic, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInput, LemonSelect, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
-
-import type { IntegrationType } from '~/types'
 
 import type {
     PatchedSignalScoutConfigUpdateApi as SignalScoutConfigUpdate,
     SignalScoutConfigApi as SignalScoutConfig,
 } from 'products/signals/frontend/generated/api.schemas'
+import { ScoutConfigNetworkAccessEnumApi } from 'products/signals/frontend/generated/api.schemas'
 
 import {
     dailyCronToTime,
@@ -25,6 +21,7 @@ import {
     SCOUT_DAILY_AT_SCHEDULE_MODE,
     timeToDailyCron,
 } from '../../../utils/scoutRunsWindow'
+import { ScoutSlackDestination } from './ScoutSlackDestination'
 
 interface ScoutConfigControlsProps {
     config: SignalScoutConfig
@@ -69,8 +66,6 @@ export function ScoutConfigForm({
     deleting,
     updating = false,
 }: ScoutConfigFormProps): JSX.Element {
-    useMountedLogic(integrationsLogic)
-    const { slackIntegrations, integrationsLoading } = useValues(integrationsLogic)
     const { timezone: projectTimezone } = useValues(teamLogic)
     const dailyTime = dailyCronToTime(config.run_cron_schedule)
     const scheduleMode = getScoutScheduleMode(config)
@@ -141,12 +136,52 @@ export function ScoutConfigForm({
                     />
                 </div>
             ) : null}
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-col min-w-0">
+                    <span className="text-xs text-default">Network access</span>
+                    <span className="text-[11.5px] text-muted">
+                        What the scout can reach while it runs. Trusted domains cover PostHog, GitHub, and common
+                        package registries. Full access lets it reach any site.
+                    </span>
+                </div>
+                <LemonSelect
+                    size="small"
+                    value={config.network_access}
+                    options={[
+                        { value: ScoutConfigNetworkAccessEnumApi.Trusted, label: 'Trusted domains only' },
+                        { value: ScoutConfigNetworkAccessEnumApi.Full, label: 'Full access' },
+                    ]}
+                    // Editable while the scout is disabled, unlike the schedule controls: a newly
+                    // enabled scout with no prior run is immediately due, so network access must be
+                    // settable BEFORE the enable or the first run races out under the default policy.
+                    disabledReason={updating ? 'Saving scout settings' : undefined}
+                    className="w-44"
+                    onChange={(value) => {
+                        if (value !== config.network_access) {
+                            onUpdate(config.id, { network_access: value })
+                        }
+                    }}
+                />
+            </div>
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-col min-w-0">
+                    <span className="text-xs text-default">Opt out of auto-pause</span>
+                    <span className="text-[11.5px] text-muted">
+                        A scout is paused when nobody acts on its reports for a few weeks, and flagged as quiet when it
+                        surfaces nothing. Turn this on to opt this scout out of both.
+                    </span>
+                </div>
+                <LemonSwitch
+                    size="small"
+                    checked={config.auto_pause_exempt}
+                    disabledReason={controlsDisabledReason}
+                    onChange={(checked) => onUpdate(config.id, { auto_pause_exempt: checked })}
+                    aria-label={`${config.skill_name} opt out of auto-pause`}
+                />
+            </div>
             <ScoutSlackDestination
-                config={config}
-                onUpdate={onUpdate}
-                integrations={slackIntegrations ?? []}
-                loading={integrationsLoading && slackIntegrations === undefined}
-                updating={updating}
+                destination={config.output_destinations?.slack}
+                onChange={(outputDestinations) => onUpdate(config.id, { output_destinations: outputDestinations })}
                 disabledReason={controlsDisabledReason}
             />
             {/* Only custom scouts are deletable. A canonical scout would be re-seeded from disk after
@@ -169,109 +204,6 @@ export function ScoutConfigForm({
                     </LemonButton>
                 </div>
             ) : null}
-        </div>
-    )
-}
-
-function ScoutSlackDestination({
-    config,
-    onUpdate,
-    integrations,
-    loading,
-    updating = false,
-    disabledReason,
-}: ScoutConfigControlsProps & {
-    integrations: IntegrationType[]
-    loading: boolean
-    disabledReason?: string
-}): JSX.Element {
-    const destination = config.output_destinations?.slack
-    const configuredIntegration = destination
-        ? integrations.find((integration) => integration.id === destination.integration_id)
-        : undefined
-    const selectedIntegration = configuredIntegration ?? (integrations.length === 1 ? integrations[0] : null)
-
-    const selectWorkspace = (integrationId: number): void => {
-        onUpdate(config.id, {
-            output_destinations: { slack: { integration_id: integrationId, channel: null } },
-        })
-    }
-
-    const selectChannel = (channel: string | null): void => {
-        if (!channel || !selectedIntegration) {
-            onUpdate(config.id, { output_destinations: {} })
-            return
-        }
-        onUpdate(config.id, {
-            output_destinations: {
-                slack: { integration_id: selectedIntegration.id, channel },
-            },
-        })
-    }
-
-    const disableSlack = (): void => {
-        onUpdate(config.id, { output_destinations: {} })
-    }
-
-    const hasChannel = Boolean(destination?.channel)
-
-    return (
-        <div className="flex flex-col gap-2 border-t border-primary pt-2">
-            <div className="flex flex-col min-w-0">
-                <span className="text-xs text-default">Slack destination</span>
-                <span className="text-[11.5px] text-muted">Post each scout run's output to a channel</span>
-            </div>
-            {loading ? (
-                <span className="text-xs text-muted">Loading Slack workspaces…</span>
-            ) : integrations.length === 0 ? (
-                <Link to={urls.settings('environment-integrations', 'integration-slack')}>
-                    Connect a Slack workspace
-                </Link>
-            ) : (
-                <div className="flex flex-col gap-2 max-w-md">
-                    {integrations.length > 1 ? (
-                        <LemonSelect
-                            size="small"
-                            value={selectedIntegration?.id ?? null}
-                            options={integrations.map((integration) => ({
-                                value: integration.id,
-                                label: integration.display_name || `Slack workspace ${integration.id}`,
-                            }))}
-                            onChange={(integrationId) => integrationId != null && selectWorkspace(integrationId)}
-                            placeholder="Select workspace"
-                            disabledReason={disabledReason ?? (updating ? 'Saving…' : undefined)}
-                        />
-                    ) : null}
-                    {selectedIntegration ? (
-                        <div className="flex items-center gap-2">
-                            <div className="flex-1 min-w-0">
-                                <SlackChannelPicker
-                                    integration={selectedIntegration}
-                                    value={configuredIntegration ? (destination?.channel ?? undefined) : undefined}
-                                    onChange={selectChannel}
-                                    disabled={updating || disabledReason !== undefined}
-                                />
-                            </div>
-                            {hasChannel ? (
-                                <LemonButton
-                                    size="small"
-                                    icon={<IconTrash />}
-                                    onClick={disableSlack}
-                                    tooltip="Turn off Slack notifications for this scout"
-                                    disabledReason={disabledReason ?? (updating ? 'Saving…' : undefined)}
-                                    aria-label="Turn off Slack notifications"
-                                />
-                            ) : null}
-                        </div>
-                    ) : null}
-                    <span className="text-[11.5px] text-muted">
-                        {hasChannel
-                            ? 'PostHog must be in the channel. Invite it with '
-                            : 'Pick a channel to turn notifications on. PostHog must be in the channel — invite it with '}
-                        <code>/invite @PostHog</code>.
-                    </span>
-                </div>
-            )}
         </div>
     )
 }

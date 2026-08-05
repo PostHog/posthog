@@ -7,10 +7,13 @@ def auto_select_digest_project(
     team_data: dict[int, dict],
     setting_key: str,
     sort_key: Callable[[dict], float],
+    persist: bool = True,
 ) -> bool:
     """Auto-select the busiest project for first-time digest users.
 
-    Returns True if settings were updated (caller should refresh_from_db).
+    Returns True if settings were written to the database (caller should refresh_from_db).
+    ``persist=False`` applies the selection to the in-memory user only, so a simulated run does
+    not consume the one-shot enrollment.
     """
     from posthog.models.user import User
 
@@ -23,6 +26,10 @@ def auto_select_digest_project(
 
     busiest_team_id = max(team_data, key=lambda tid: sort_key(team_data[tid]))
     current_settings[setting_key] = {str(busiest_team_id): True}
+    if not persist:
+        user.partial_notification_settings = current_settings
+        return False
+
     User.objects.filter(pk=user.pk).update(partial_notification_settings=current_settings)
     return True
 

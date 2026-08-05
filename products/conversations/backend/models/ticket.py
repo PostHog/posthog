@@ -142,10 +142,37 @@ class Ticket(UUIDTModel):
             models.Index(fields=["team", "-updated_at"], name="posthog_con_team_updated_idx"),
             # Dashboard filtered + ordered queries
             models.Index(fields=["team", "status", "-updated_at"], name="posthog_con_status_upd_idx"),
-            # SLA sort/filter queries
-            models.Index(fields=["team", "sla_due_at"], name="posthog_con_team_sla_idx"),
-            # Snooze: dashboard filter/sort by team
-            models.Index(fields=["team", "snoozed_until"], name="posthog_con_team_snooze_idx"),
+            # SLA sort + filter. The dashboard sorts by "sla_due_at <dir> NULLS LAST, ticket_number
+            # DESC"; one expression index per direction makes each page a top-N index scan instead
+            # of a full sort of the mostly-NULL table (a plain ascending index can't serve DESC
+            # NULLS LAST, and lacks the ticket_number tiebreaker). The leading (team_id, sla_due_at)
+            # prefix also serves the SLA state filter, so these supersede a plain (team, sla_due_at).
+            models.Index(
+                models.F("team_id"),
+                models.F("sla_due_at").asc(nulls_last=True),
+                models.F("ticket_number").desc(),
+                name="posthog_con_sla_asc_idx",
+            ),
+            models.Index(
+                models.F("team_id"),
+                models.F("sla_due_at").desc(nulls_last=True),
+                models.F("ticket_number").desc(),
+                name="posthog_con_sla_desc_idx",
+            ),
+            # Snooze sort + filter: same asc/desc expression-index pair. The leading prefix serves
+            # the snoozed isnull filter, so these supersede a plain (team, snoozed_until) index.
+            models.Index(
+                models.F("team_id"),
+                models.F("snoozed_until").asc(nulls_last=True),
+                models.F("ticket_number").desc(),
+                name="posthog_con_snooze_asc_idx",
+            ),
+            models.Index(
+                models.F("team_id"),
+                models.F("snoozed_until").desc(nulls_last=True),
+                models.F("ticket_number").desc(),
+                name="posthog_con_snooze_desc_idx",
+            ),
             # Snooze: wake task (cross-team, only non-null rows)
             models.Index(
                 fields=["snoozed_until"],

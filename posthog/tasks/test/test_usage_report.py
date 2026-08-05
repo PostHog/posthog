@@ -207,6 +207,9 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
 
         # make sure we don't collapse duplicate rows
         sync_execute("SYSTEM STOP MERGES")
+        # Server-global and not scoped to this database, so it outlives the process and would
+        # leave every later test on this ClickHouse unable to merge.
+        self.addCleanup(sync_execute, "SYSTEM START MERGES")
 
         materialize("events", "$exception_values")
 
@@ -4855,6 +4858,21 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         TEST_clear_instance_license_cache()
         materialize("events", "$exception_values")
 
+    def _assert_queued_report(self, mock_producer: MagicMock, expected_report: dict[str, Any]) -> None:
+        # Assert on the decoded payload rather than the compressed bytes: `teams` is keyed by
+        # team id in whatever order Postgres hands the rows back, so two runs of an identical
+        # report serialize to different JSON — and therefore different gzip — bytes.
+        mock_producer.send_message.assert_called_once()
+        kwargs = mock_producer.send_message.call_args.kwargs
+        assert kwargs["message_attributes"] == {
+            "content_encoding": "gzip",
+            "content_type": "application/json",
+        }
+        assert json.loads(gzip.decompress(base64.b64decode(kwargs["message_body"]))) == {
+            "organization_id": str(self.organization.id),
+            "usage_report": expected_report,
+        }
+
     def _usage_report_response(self) -> Any:
         # A roughly correct billing response
         return {
@@ -4905,27 +4923,12 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         full_report_as_dict = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.organization.id)], get_instance_metadata(period))
         )
-        json_data = json.dumps(
-            {
-                "organization_id": str(self.organization.id),
-                "usage_report": full_report_as_dict,
-            },
-            separators=(",", ":"),
-        )
-        compressed_bytes = gzip.compress(json_data.encode("utf-8"))
-        compressed_b64 = base64.b64encode(compressed_bytes).decode("ascii")
 
         send_all_org_usage_reports(dry_run=False)
         license = License.objects.first()
         assert license
 
-        mock_producer.send_message.assert_called_once_with(
-            message_attributes={
-                "content_encoding": "gzip",
-                "content_type": "application/json",
-            },
-            message_body=compressed_b64,
-        )
+        self._assert_queued_report(mock_producer, full_report_as_dict)
 
         # mock_posthog.capture.assert_any_call(
         #     get_machine_id(),
@@ -4959,27 +4962,11 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
                     get_instance_metadata(period),
                 )
             )
-            json_data = json.dumps(
-                {
-                    "organization_id": str(self.organization.id),
-                    "usage_report": full_report_as_dict,
-                },
-                separators=(",", ":"),
-            )
-            compressed_bytes = gzip.compress(json_data.encode("utf-8"))
-            compressed_b64 = base64.b64encode(compressed_bytes).decode("ascii")
-
             send_all_org_usage_reports(dry_run=False)
             license = License.objects.first()
             assert license
 
-            mock_producer.send_message.assert_called_once_with(
-                message_attributes={
-                    "content_encoding": "gzip",
-                    "content_type": "application/json",
-                },
-                message_body=compressed_b64,
-            )
+            self._assert_queued_report(mock_producer, full_report_as_dict)
 
             # mock_posthog.capture.assert_any_call(
             #     self.user.distinct_id,
@@ -5416,6 +5403,16 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
                 person_mode="full",
             )
 
+        for i in range(3):
+            _create_event(
+                event="$experiment_exposure",
+                team=self.team,
+                distinct_id=f"exposure_user_{i}",
+                timestamp=self.begin + relativedelta(hours=i),
+                properties={"$feature_flag": f"flag_{i}"},
+                person_mode="full",
+            )
+
         # Create various types of AI events that should NOT be counted in billable events
         # $ai_generation events
         for i in range(3):
@@ -5608,7 +5605,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         result = get_teams_with_billable_event_count_in_period(self.begin, self.end)
 
         # We should get 15 events for our team (10 test_event + 5 enhanced_event)
-        # NOT counting: 3 survey sent, 3 $feature_flag_called, 10 AI events
+        # NOT counting: 3 survey sent, 3 $feature_flag_called, 3 $experiment_exposure, 10 AI events
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][0], self.team.id)
         self.assertEqual(result[0][1], 15)

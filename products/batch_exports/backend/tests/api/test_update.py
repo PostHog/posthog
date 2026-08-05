@@ -751,6 +751,7 @@ def test_can_patch_hogql_query(client: HttpClient, temporal, encryption_codec, o
             "values": {"hogql_val_0": "test", "hogql_val_1": "Int64"},
             "hogql_query": "SELECT toString(uuid) AS uuid, 'test' AS test, toInt(plus(1, 1)) AS n FROM events",
         },
+        "hogql_query": None,
     }
 
 

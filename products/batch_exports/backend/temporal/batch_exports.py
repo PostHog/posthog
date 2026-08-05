@@ -38,9 +38,9 @@ from products.batch_exports.backend.service import (
     update_batch_export_run,
 )
 from products.batch_exports.backend.temporal.metrics import get_export_finished_metric, get_export_started_metric
+from products.batch_exports.backend.temporal.pipeline.query_ranges import use_distributed_events_recent_table
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
-from products.batch_exports.backend.temporal.spmc import use_distributed_events_recent_table
-from products.batch_exports.backend.temporal.sql import (
+from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
@@ -473,6 +473,17 @@ class OverBillingLimitError(Exception):
         super().__init__(f"Team {team_id} is over billing limit for batch exports")
 
 
+def is_over_billing_limit_error(e: exceptions.ActivityError) -> bool:
+    """Check if an activity failed because a team is over billing limit.
+
+    Temporal doesn't propagate original exception classes across the activity
+    boundary: workflows see an `ActivityError` whose cause is an `ApplicationError`
+    carrying the original class name in its `type` attribute. So workflows cannot
+    catch `OverBillingLimitError` directly and must use this check instead.
+    """
+    return isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == OverBillingLimitError.__name__
+
+
 @activity.defn
 async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExportRunId:
     """Activity that creates an BatchExportRun and returns the run id.
@@ -539,11 +550,14 @@ async def check_is_over_limit(team_id: int) -> bool:
     """
     team: Team = await Team.objects.aget(id=team_id)
 
-    limited_team_tokens_rows_synced = await asyncio.to_thread(
+    # The ROWS_EXPORTED resource stores a team attribute for each team that has
+    # exceeded their quota and thus is limited. The term "attribute" refers to
+    # a team identifier, which in our case is the team's API token.
+    limited_team_tokens_rows_exported = await asyncio.to_thread(
         list_limited_team_attributes, QuotaResource.ROWS_EXPORTED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
     )
 
-    if team.api_token in limited_team_tokens_rows_synced:
+    if team.api_token in limited_team_tokens_rows_exported:
         return True
 
     return False

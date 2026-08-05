@@ -135,6 +135,8 @@ class BrokenTestState(StrEnum):
 
 class PRLifecycleEventKind(StrEnum):
     OPENED = "opened"
+    READY_FOR_REVIEW = "ready_for_review"
+    CONVERTED_TO_DRAFT = "converted_to_draft"
     CI_STARTED = "ci_started"
     CI_FINISHED = "ci_finished"
     MERGED = "merged"
@@ -254,6 +256,21 @@ class PullRequest:
 
 
 @dataclass(frozen=True)
+class MergedPullRequest:
+    """A merged pull request reduced to its branch-tip head SHA — the discovery seam for ReviewHog
+    telemetry ("which PRs merged recently, and the commit at each branch tip"). ``head_sha`` is the
+    run / branch-tip SHA (``head.sha``), never the ephemeral ``refs/pull/N/merge`` commit (SPEC §7).
+    ``merged_at`` and ``head_sha`` are non-null and non-empty by construction: the read keeps only
+    PRs that actually merged and whose snapshot carries a branch-tip SHA (a malformed row without
+    one is excluded, not surfaced as an empty SHA no consumer could use).
+    """
+
+    number: int
+    head_sha: str
+    merged_at: datetime
+
+
+@dataclass(frozen=True)
 class WorkflowRun:
     id: int
     workflow_name: str
@@ -295,6 +312,11 @@ class WorkflowRunDetail:
     run_attempt: int
     # Attributed pull request number, or 0 when unattributed.
     pr_number: int
+    # The PR whose merge produced this run's head commit: the merged PR whose merge commit is this
+    # head SHA, falling back to the commit subject's `(#NNNN)` suffix. None when neither resolves.
+    # This is the only PR attribution a default-branch push has, since its `pull_requests`
+    # association is empty by then, so consumers read `pr_number` first and fall back to this (SPEC §6).
+    commit_pr_number: int | None
 
 
 @dataclass(frozen=True)
@@ -742,6 +764,10 @@ class PullRequestListItem:
     merged_at: datetime | None
     # merged_at - created_at; coarse (fuses draft + ready-for-review time). None until merged.
     open_to_merge_seconds: int | None
+    # merged_at minus the LAST observed ready_for_review transition, falling back to created_at
+    # for a merged PR verifiably never drafted. None when unmerged, re-drafted, or not observed
+    # (the PR's life isn't fully inside the synced issue-event window); never "never drafted".
+    ready_to_merge_seconds: int | None
     labels: list[str]
     ci: CIStatusRollup
     # CI triggers attributed to this PR: distinct head SHAs across its workflow runs (a run
@@ -1034,6 +1060,10 @@ class RepoOverview:
     billable_minutes_prev: float | None
     estimated_cost_usd: float | None
     estimated_cost_usd_prev: float | None
+    # The slice of billable_minutes spent on merge-queue batch branches, broken out so queue-settings
+    # changes show up as their own delta instead of hiding inside the total.
+    merge_queue_billable_minutes: float | None
+    merge_queue_billable_minutes_prev: float | None
     jobs_available: bool
     # 'master' or 'main', picked by observed run volume in the current window.
     default_branch: str

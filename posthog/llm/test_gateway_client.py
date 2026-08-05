@@ -15,10 +15,12 @@ from posthog.llm.gateway_client import (
     get_async_llm_client,
     get_llm_client,
     resolve_ai_gateway_config,
+    team_trace_id,
 )
 
 AI_GATEWAY_URL = "https://ai-gateway.example/v1"
 AI_GATEWAY_KEY = "phs_project_secret"
+TEAM_42_TRACE_ID = "30a04c7a-98b4-5119-8597-8c696e44a270"
 
 
 class TestGetLlmClient:
@@ -262,6 +264,28 @@ class TestBuildAsyncOpenAIClient:
         assert result is mock_get_async.return_value
 
 
+class TestTeamTraceId:
+    # Expected ids are $ai_trace_id values observed on captured events, not recomputed from the
+    # helper: recomputing would make the test agree with itself and miss a namespace change.
+    @pytest.mark.parametrize(
+        "team_id,expected",
+        [
+            (2, "aba5a277-3ba6-5682-a2da-f455d39e8aff"),
+            (1589, "2e803550-d2e1-5dd7-9124-0fdd7e8c9518"),
+            (169318, "92733d55-3d1e-5062-905b-0afa3b2e2a92"),
+            (487950, "78c3f90a-d69e-5fe6-b2b2-3f22a4d7ebb1"),
+        ],
+    )
+    def test_matches_python_gateway_derivation(self, team_id: int, expected: str):
+        assert team_trace_id(team_id) == expected
+
+    def test_unattributed_call_has_no_trace_id(self):
+        assert team_trace_id(None) is None
+
+    def test_distinct_teams_do_not_share_a_trace(self):
+        assert team_trace_id(2) != team_trace_id(3)
+
+
 class TestBuildAsyncAnthropicClient:
     @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
     @patch("posthog.llm.gateway_client.httpx.AsyncClient")
@@ -281,11 +305,35 @@ class TestBuildAsyncAnthropicClient:
             default_headers={
                 "X-PostHog-Properties": json.dumps(
                     {"ai_product": "signals_grouping", "ai_stage": "match", "team_id": "42"}
-                )
+                ),
+                "X-PostHog-Trace-Id": TEAM_42_TRACE_ID,
             },
             http_client=mock_httpx.return_value,
         )
         assert result is mock_anthropic.return_value
+
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    @patch("posthog.llm.gateway_client.httpx.AsyncClient")
+    @patch("posthog.llm.gateway_client.AsyncAnthropic")
+    def test_gateway_mode_omits_trace_header_when_team_id_unset(self, mock_anthropic, mock_httpx):
+        build_async_anthropic_client("signals", ai_product="signals_grouping", ai_stage="match")
+
+        _, kwargs = mock_anthropic.call_args
+        assert "X-PostHog-Trace-Id" not in kwargs["default_headers"]
+
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    @patch("posthog.llm.gateway_client.httpx.AsyncClient")
+    @patch("posthog.llm.gateway_client.AsyncAnthropic")
+    def test_gateway_mode_sends_trace_header_alongside_properties(self, mock_anthropic, mock_httpx):
+        # The emission path replaces the properties blob per call and the gateway strips
+        # $-prefixed keys, so the trace has to ride its own header.
+        build_async_anthropic_client("signals", team_id=42)
+
+        _, kwargs = mock_anthropic.call_args
+        assert kwargs["default_headers"] == {
+            "X-PostHog-Properties": json.dumps({"team_id": "42"}),
+            "X-PostHog-Trace-Id": TEAM_42_TRACE_ID,
+        }
 
     @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
     @patch("posthog.llm.gateway_client.httpx.AsyncClient")
