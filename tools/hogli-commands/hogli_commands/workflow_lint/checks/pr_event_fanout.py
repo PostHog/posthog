@@ -54,7 +54,8 @@ def _configured_actions(config: object) -> frozenset[str]:
     if isinstance(types, str):
         return frozenset({types})
     if isinstance(types, list):
-        return frozenset(str(action) for action in types) or DEFAULT_PR_ACTIONS
+        # An empty list selects no activity type, so the workflow never dispatches.
+        return frozenset(str(action) for action in types)
     return DEFAULT_PR_ACTIONS
 
 
