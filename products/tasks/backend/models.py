@@ -1172,16 +1172,16 @@ class TaskActivity(TeamScopedRootMixin):
             )
 
 
-class TaskCommentMentionActivity(TeamScopedRootMixin):
-    """One durable Activity entry per comment that mentions a user.
-
-    TaskActivity intentionally collapses lifecycle noise per task. Explicit
-    comment mentions do not: each can carry a separate request and deep link.
-    """
+class TaskCommentActivity(TeamScopedRootMixin):
+    class Kind(models.TextChoices):
+        MENTION = "mention", "Mention"
+        THREAD_REPLY = "thread_reply", "Thread reply"
+        OWNED_ITEM_COMMENT = "owned_item_comment", "Owned item comment"
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    actor = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
     comment = models.ForeignKey(
         "posthog.Comment",
@@ -1190,23 +1190,32 @@ class TaskCommentMentionActivity(TeamScopedRootMixin):
         db_constraint=False,
         db_index=False,
     )
+    root_comment = models.ForeignKey(
+        "posthog.Comment",
+        on_delete=models.CASCADE,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+    )
+    kind = models.CharField(max_length=32, choices=Kind)
     activity_at = models.DateTimeField()
     read_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        db_table = "posthog_task_comment_mention_activity"
+        db_table = "posthog_task_comment_activity"
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "user", "comment"],
-                name="task_comment_mention_activity_unique",
+                name="task_comment_activity_unique",
             )
         ]
         indexes = [
-            models.Index(fields=["team", "user", "activity_at", "id"], name="task_comment_mention_feed_idx"),
+            models.Index(fields=["team", "user", "activity_at", "id"], name="task_comment_activity_feed"),
+            models.Index(fields=["team", "root_comment", "activity_at"], name="task_comment_thread_feed"),
             models.Index(
                 fields=["team", "user"],
                 condition=models.Q(read_at__isnull=True),
-                name="task_comment_mention_unread",
+                name="task_comment_activity_unread",
             ),
         ]
 
@@ -1216,18 +1225,24 @@ class TaskCommentMentionActivity(TeamScopedRootMixin):
         *,
         team_id: int,
         user_id: int,
+        actor_id: int,
         task_id: uuid.UUID | str,
         comment_id: uuid.UUID,
+        root_comment_id: uuid.UUID,
+        kind: str,
         activity_at: datetime,
     ) -> None:
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
                 INSERT INTO {cls._meta.db_table}
-                       (id, team_id, user_id, task_id, comment_id, activity_at, read_at)
-                VALUES (%s, %s, %s, %s, %s, %s, NULL)
+                       (id, team_id, user_id, actor_id, task_id, comment_id, root_comment_id, kind, activity_at, read_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NULL)
                 ON CONFLICT (team_id, user_id, comment_id) DO UPDATE
                    SET task_id = EXCLUDED.task_id,
+                       actor_id = EXCLUDED.actor_id,
+                       root_comment_id = EXCLUDED.root_comment_id,
+                       kind = EXCLUDED.kind,
                        activity_at = EXCLUDED.activity_at,
                        read_at = CASE
                            WHEN {cls._meta.db_table}.activity_at = EXCLUDED.activity_at
@@ -1236,7 +1251,17 @@ class TaskCommentMentionActivity(TeamScopedRootMixin):
                        END
                  WHERE {cls._meta.db_table}.activity_at <= EXCLUDED.activity_at
                 """,
-                [uuid7(), team_id, user_id, task_id, comment_id, activity_at],
+                [
+                    uuid7(),
+                    team_id,
+                    user_id,
+                    actor_id,
+                    task_id,
+                    comment_id,
+                    root_comment_id,
+                    kind,
+                    activity_at,
+                ],
             )
 
 

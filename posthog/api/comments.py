@@ -60,15 +60,15 @@ def _require_ticket_editor_access(
         raise exceptions.PermissionDenied("You do not have access to this ticket")
 
 
-def _record_task_comment_activity(comment: Comment, mentions: list[int], *, activity_at=None) -> None:
-    """Mirror mentions on a Code task's comments into that task's activity feed.
-
-    The desktop app reads its own activity feed rather than the notifications inbox, so a
-    mention that only fanned out to email and the web would be invisible in the very app
-    the comment was written in. The tasks facade decides which scopes are its own.
-    """
-    from products.tasks.backend.facade.api import (  # noqa: PLC0415 — keeps the generic comments API decoupled from the tasks product, only imported for mention writes
-        record_comment_mention_activity,
+def _record_task_comment_activity(
+    comment: Comment,
+    mentions: list[int],
+    *,
+    activity_at=None,
+    include_relationship_recipients: bool = True,
+) -> None:
+    from products.tasks.backend.facade.api import (  # noqa: PLC0415 — keeps the generic comments API decoupled from the tasks product
+        record_comment_activity,
     )
 
     task_id = comment.item_id if comment.scope == "task" else (comment.item_context or {}).get("taskId")
@@ -82,16 +82,20 @@ def _record_task_comment_activity(comment: Comment, mentions: list[int], *, acti
     if not target_was_validated:
         return
 
-    record_comment_mention_activity(
+    owner_id = None
+    if comment.scope == "desktop_canvas" and comment.item_id:
+        from products.canvas.backend.facade.api import canvas_owner_id  # noqa: PLC0415
+
+        owner_id = canvas_owner_id(team_id=comment.team_id, canvas_id=comment.item_id)
+
+    record_comment_activity(
         team_id=comment.team_id,
-        scope=comment.scope,
-        item_id=comment.item_id,
-        item_context=comment.item_context,
         comment_id=comment.id,
-        author_id=comment.created_by_id,
-        created_at=activity_at or comment.created_at,
         mentioned_user_ids=mentions,
         target_was_validated=True,
+        include_relationship_recipients=include_relationship_recipients,
+        target_owner_id=owner_id,
+        activity_at=activity_at,
     )
 
 
@@ -335,7 +339,7 @@ class CommentSerializer(serializers.ModelSerializer):
             send_discussions_mentioned.delay(comment.id, mentions, slug)
             produce_discussion_mention_events(comment, mentions, slug)
             send_mention_notifications(comment, mentions, slug)
-            _record_task_comment_activity(comment, mentions)
+        _record_task_comment_activity(comment, mentions)
 
         return comment
 
@@ -375,7 +379,12 @@ class CommentSerializer(serializers.ModelSerializer):
             send_discussions_mentioned.delay(updated_instance.id, mentions, slug)
             produce_discussion_mention_events(updated_instance, mentions, slug)
             send_mention_notifications(updated_instance, mentions, slug)
-            _record_task_comment_activity(updated_instance, mentions, activity_at=timezone.now())
+            _record_task_comment_activity(
+                updated_instance,
+                mentions,
+                activity_at=timezone.now(),
+                include_relationship_recipients=False,
+            )
 
         return updated_instance
 

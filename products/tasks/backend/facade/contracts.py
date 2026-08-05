@@ -246,8 +246,8 @@ class TaskMentionDTO:
 class TaskActivityDTO:
     """One entry in the requesting user's task-centric activity feed.
 
-    Lifecycle signals collapse to one row per task, while explicit resource-comment
-    mentions remain separate entries. Source fields describe the message or comment tied
+    Lifecycle signals collapse to one row per task, while comment notifications remain
+    separate entries. Source fields describe the message or comment tied
     to ``activity_at`` and stay empty for task creation.
     """
 

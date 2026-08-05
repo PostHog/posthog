@@ -172,6 +172,8 @@ export type TaskActivityKind =
   | "completed"
   | "message"
   | "mention"
+  | "thread_reply"
+  | "owned_item_comment"
   | "created";
 
 /**
@@ -207,6 +209,7 @@ export interface TaskActivityPage {
 export interface TaskActivityReadMarker {
   task_id: string;
   seen_before: string;
+  activity_id?: string;
 }
 
 export interface TaskActivityMarkReadResult {

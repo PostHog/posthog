@@ -23,3 +23,15 @@ def canvas_belongs_to_generation_task(*, team_id: int, canvas_id: str, task_id: 
         task_id=task_id,
         canvas_id=canvas_id,
     )
+
+
+def canvas_owner_id(*, team_id: int, canvas_id: str) -> int | None:
+    try:
+        return (
+            Canvas.objects.for_team(team_id)
+            .filter(id=canvas_id, deleted=False)
+            .values_list("created_by_id", flat=True)
+            .first()
+        )
+    except (ValueError, ValidationError):
+        return None

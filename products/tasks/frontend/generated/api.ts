@@ -659,7 +659,7 @@ export const getTaskActivityListUrl = (projectId: string, params?: TaskActivityL
 }
 
 /**
- * Tasks the requester is involved in (created, mentioned, or messaged), one row per task, most-recent activity first, restricted to tasks they can see.
+ * Task lifecycle rows collapse per task. Comment notifications remain separate. Results are most-recent first and restricted to tasks the requester can see.
  * @summary List the requester's task activity
  */
 export const taskActivityList = async (
@@ -678,7 +678,7 @@ export const getTaskActivityMarkReadCreateUrl = (projectId: string) => {
 }
 
 /**
- * Clear the unread flag on the requester's feed rows for the given tasks. Read state is per task, so opening a task through any surface clears the same row.
+ * Clear collapsed task activity through task timestamps and individual comment activity through activity IDs.
  * @summary Mark task activity read
  */
 export const taskActivityMarkReadCreate = async (

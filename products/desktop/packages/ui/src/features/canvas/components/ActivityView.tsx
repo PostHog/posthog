@@ -69,6 +69,17 @@ function ChannelSuffix({ channelName }: { channelName: string | null }) {
   );
 }
 
+function ownedItemName(item: TaskActivityItem): string {
+  switch (item.commentTarget?.scope) {
+    case "desktop_canvas":
+      return "canvas";
+    case "task_artifact":
+      return "artifact";
+    default:
+      return "task";
+  }
+}
+
 /** The lead line describing what happened, chosen by the row's activity kind. */
 export function activityHeadline(
   item: TaskActivityItem,
@@ -113,6 +124,26 @@ export function activityHeadline(
             {userDisplayName(item.author)}
           </Text>{" "}
           mentioned you
+          <ChannelSuffix channelName={item.channelName} />
+        </>
+      );
+    case "thread_reply":
+      return (
+        <>
+          <Text as="span" size="1" weight="medium">
+            {userDisplayName(item.author)}
+          </Text>{" "}
+          replied to a thread you participated in
+          <ChannelSuffix channelName={item.channelName} />
+        </>
+      );
+    case "owned_item_comment":
+      return (
+        <>
+          <Text as="span" size="1" weight="medium">
+            {userDisplayName(item.author)}
+          </Text>{" "}
+          commented on your {ownedItemName(item)}
           <ChannelSuffix channelName={item.channelName} />
         </>
       );
@@ -287,7 +318,13 @@ export function ActivityView() {
   // reached any other way, so the feed converges either way.
   const markRead = useCallback(
     (item: TaskActivityItem) =>
-      markTasksRead([{ task_id: item.taskId, seen_before: item.activityAt }]),
+      markTasksRead([
+        {
+          task_id: item.taskId,
+          seen_before: item.activityAt,
+          ...(item.commentId ? { activity_id: item.id } : {}),
+        },
+      ]),
     [markTasksRead],
   );
   const markAllRead = useCallback(() => {
@@ -328,8 +365,8 @@ export function ActivityView() {
           </EmptyMedia>
           <EmptyTitle>No activity yet</EmptyTitle>
           <EmptyDescription>
-            Tasks you create, get tagged in, or reply to across{" "}
-            {spacesLayout ? "spaces" : "channels"} land here.
+            Task updates and comment notifications across{" "}
+            {spacesLayout ? "spaces" : "channels"} appear here.
           </EmptyDescription>
         </EmptyHeader>
       </Empty>
@@ -376,7 +413,7 @@ export function ActivityView() {
               )}
             </PageHeaderTitleRow>
             <PageHeaderDescription>
-              Tasks you're involved in across spaces.
+              Task updates and comment notifications across spaces.
             </PageHeaderDescription>
           </PageHeaderHeading>
         </PageHeader>
@@ -396,7 +433,7 @@ export function ActivityView() {
               Activity
             </Text>
             <Text size="2" className="block text-muted-foreground">
-              Tasks you're involved in across{" "}
+              Task updates and comment notifications across{" "}
               {spacesLayout ? "spaces" : "channels"}.
             </Text>
           </div>

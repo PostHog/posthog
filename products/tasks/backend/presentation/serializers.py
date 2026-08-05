@@ -1737,11 +1737,20 @@ class TaskActivitySerializer(DataclassSerializer):
         help_text="Author of the thread message tied to the latest activity, when one applies.",
     )
     activity_kind = serializers.ChoiceField(
-        choices=["awaiting_input", "completed", "mention", "message", "created"],
+        choices=[
+            "awaiting_input",
+            "completed",
+            "mention",
+            "thread_reply",
+            "owned_item_comment",
+            "message",
+            "created",
+        ],
         help_text=(
             "What the latest activity on this task was: an agent run waiting on the requester "
             "(awaiting_input), a completed run (completed), someone @-mentioning them (mention), "
-            "a thread reply (message), or their creating the task (created)."
+            "a comment-thread reply (thread_reply), a comment on their item (owned_item_comment), "
+            "a task-thread reply (message), or their creating the task (created)."
         ),
     )
     snippet = serializers.CharField(
@@ -1796,6 +1805,11 @@ class TaskActivityPageSerializer(DataclassSerializer):
 
 class TaskActivityReadMarkerSerializer(serializers.Serializer):
     task_id = serializers.UUIDField(help_text="Task whose displayed activity should be marked read.")
+    activity_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Comment activity row to mark read. Omit for collapsed task activity.",
+    )
     seen_before = serializers.DateTimeField(
         help_text="Mark activity at or before this timestamp read without clearing newer activity."
     )

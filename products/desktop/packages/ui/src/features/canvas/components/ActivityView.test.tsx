@@ -53,6 +53,33 @@ describe("activityHeadline", () => {
     ],
     ["agent reply", item({ activityKind: "message" }), "The agent replied"],
     [
+      "thread reply",
+      item({
+        activityKind: "thread_reply",
+        author: {
+          id: 2,
+          uuid: "author",
+          email: "author@posthog.com",
+          first_name: "Ann",
+        },
+      }),
+      "replied to a thread you participated in",
+    ],
+    [
+      "canvas owner comment",
+      item({
+        activityKind: "owned_item_comment",
+        commentTarget: { scope: "desktop_canvas", itemId: "canvas-1" },
+        author: {
+          id: 2,
+          uuid: "author",
+          email: "author@posthog.com",
+          first_name: "Ann",
+        },
+      }),
+      "commented on your canvas",
+    ],
+    [
       "own reply",
       item({
         activityKind: "message",

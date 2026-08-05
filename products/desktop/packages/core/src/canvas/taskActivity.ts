@@ -8,8 +8,8 @@ import type { CommentTarget } from "../comments/anchors";
 /**
  * The Activity feed — tasks the current user is involved in (created, mentioned
  * in, or messaged in) — as served by the backend task-activity index
- * (`getTaskActivity`). Task state collapses per task, while comment mentions are
- * individual entries; the client only maps DTOs to items.
+ * (`getTaskActivity`). Task state collapses per task, while comment notifications
+ * are individual entries; the client only maps DTOs to items.
  */
 
 export interface TaskActivityItem {

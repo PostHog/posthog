@@ -36,7 +36,7 @@ from django.utils import timezone as django_timezone
 import posthoganalytics
 
 from posthog.event_usage import groups
-from posthog.models import Team, User
+from posthog.models import Comment, Team, User
 from posthog.models.integration import Integration
 
 from products.tasks.backend.constants import (
@@ -77,7 +77,7 @@ from products.tasks.backend.models import (
     TaskArtifact,
     TaskAutomation,
     TaskClientProvenance,
-    TaskCommentMentionActivity,
+    TaskCommentActivity,
     TaskPin,
     TaskRun,
     TaskSession,
@@ -208,6 +208,7 @@ __all__ = [
     "presign_task_run_artifact",
     "read_task_run_artifact",
     "read_task_run_logs",
+    "record_comment_activity",
     "record_task_run_user_activity",
     "redeem_code_invite",
     "redispatch_task_run",
@@ -6115,61 +6116,85 @@ def _comment_task_id(scope: str, item_id: str | None, item_context: dict[str, An
         return None
 
 
-def record_comment_mention_activity(
+def record_comment_activity(
     *,
     team_id: int,
-    scope: str,
-    item_id: str | None,
-    item_context: dict[str, Any] | None,
     comment_id: UUID,
-    author_id: int | None,
-    created_at: datetime,
     mentioned_user_ids: Sequence[int],
     target_was_validated: bool = False,
+    include_relationship_recipients: bool = True,
+    target_owner_id: int | None = None,
+    activity_at: datetime | None = None,
 ) -> None:
-    """Project mentions on a task's comments into the mentioned users' activity feeds.
-
-    Comments on a task's artifacts and canvases live on the shared comments table rather
-    than in the task thread, so without this they reach a recipient by email and web
-    notification but never by the Code app's Activity page — the one surface where the
-    comment itself is readable.
-
-    The task id is client-supplied for resource-scoped comments, so it is checked against
-    the team before anything is written. Visibility deliberately is not checked: the feed
-    re-checks it on read, which is what keeps rows honest when a task's visibility changes
-    after the mention was recorded.
-    """
-    recipients = [user_id for user_id in dict.fromkeys(mentioned_user_ids) if user_id != author_id]
-    if not recipients:
+    comment = Comment.objects.filter(team_id=team_id, id=comment_id).select_related("source_comment").first()
+    if comment is None or comment.created_by_id is None:
         return
-
-    task_id = _comment_task_id(scope, item_id, item_context)
+    task_id = _comment_task_id(comment.scope, comment.item_id, comment.item_context)
     if task_id is None:
         return
-    if not task_comment_mentions_allowed(team_id=team_id, user_id=author_id, task_id=task_id):
+    if not task_comment_mentions_allowed(team_id=team_id, user_id=comment.created_by_id, task_id=task_id):
         return
 
     try:
         if not target_was_validated and not task_comment_target_is_accessible(
             team_id=team_id,
-            user_id=author_id,
+            user_id=comment.created_by_id,
             task_id=task_id,
-            scope=scope,
-            item_id=item_id,
+            scope=comment.scope,
+            item_id=comment.item_id,
         ):
             return
-        for user_id in recipients:
-            TaskCommentMentionActivity.record(
+        task = Task.objects.filter(team_id=team_id, id=task_id).only("created_by_id").first()
+        if task is None:
+            return
+
+        root_comment_id = comment.source_comment_id or comment.id
+        recipients: dict[int, str] = {}
+        if include_relationship_recipients:
+            if comment.source_comment_id:
+                participant_ids = (
+                    Comment.objects.filter(
+                        team_id=team_id,
+                    )
+                    .filter(Q(id=root_comment_id) | Q(source_comment_id=root_comment_id))
+                    .values_list("created_by_id", flat=True)
+                )
+                for participant_id in participant_ids:
+                    if participant_id:
+                        recipients[participant_id] = TaskCommentActivity.Kind.THREAD_REPLY
+            else:
+                owner_id = target_owner_id
+                if owner_id is None and comment.scope == "task_artifact":
+                    try:
+                        owner_id = (
+                            TaskArtifact.objects.for_team(team_id)
+                            .filter(task_id=task_id, id=comment.item_id)
+                            .values_list("created_by_id", flat=True)
+                            .first()
+                        )
+                    except (ValueError, DjangoValidationError):
+                        owner_id = None
+                owner_id = owner_id or task.created_by_id
+                if owner_id:
+                    recipients[owner_id] = TaskCommentActivity.Kind.OWNED_ITEM_COMMENT
+
+        for mentioned_user_id in mentioned_user_ids:
+            recipients[mentioned_user_id] = TaskCommentActivity.Kind.MENTION
+        recipients.pop(comment.created_by_id, None)
+
+        for user_id, kind in recipients.items():
+            TaskCommentActivity.record(
                 team_id=team_id,
                 user_id=user_id,
+                actor_id=comment.created_by_id,
                 task_id=task_id,
-                activity_at=created_at,
+                activity_at=activity_at or comment.created_at,
                 comment_id=comment_id,
+                root_comment_id=root_comment_id,
+                kind=kind,
             )
     except Exception:
-        # Best-effort, like the sibling mention fan-outs: a feed row is never worth
-        # failing the write of the comment that produced it.
-        logger.exception("Failed to record comment mention activity", extra={"comment_id": str(comment_id)})
+        logger.exception("Failed to record comment activity", extra={"comment_id": str(comment_id)})
 
 
 def list_mentions(
@@ -6278,12 +6303,12 @@ def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
     visibility gate belongs on read rather than being enforced when projecting.
     """
     visible_tasks = _visible_task_qs(team_id, user_id).filter(internal=False, archived=False)
-    return TaskActivity.objects.filter(team_id=team_id, user_id=user_id, task__in=visible_tasks)
+    return TaskActivity.objects.for_team(team_id).filter(user_id=user_id, task__in=visible_tasks)
 
 
-def _comment_mention_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskCommentMentionActivity]:
+def _comment_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskCommentActivity]:
     visible_tasks = _visible_task_qs(team_id, user_id).filter(internal=False, archived=False)
-    return TaskCommentMentionActivity.objects.filter(team_id=team_id, user_id=user_id, task__in=visible_tasks)
+    return TaskCommentActivity.objects.for_team(team_id).filter(user_id=user_id, task__in=visible_tasks)
 
 
 def count_unread_task_activity(team_id: int, user_id: int | None) -> int:
@@ -6292,7 +6317,7 @@ def count_unread_task_activity(team_id: int, user_id: int | None) -> int:
         return 0
     return (
         _task_activity_qs(team_id, user_id).filter(read_at__isnull=True).count()
-        + _comment_mention_activity_qs(team_id, user_id).filter(read_at__isnull=True).count()
+        + _comment_activity_qs(team_id, user_id).filter(read_at__isnull=True).count()
     )
 
 
@@ -6304,7 +6329,7 @@ def list_task_activity(
     before: datetime | None = None,
     before_id: UUID | None = None,
 ) -> contracts.TaskActivityPageDTO:
-    """The requester's task activity and individual comment mentions, newest first.
+    """The requester's task and comment activity, newest first.
 
     ``unread_count`` counts every unread row the requester can see, not just the ones in
     this page, so the sidebar badge stays honest past ``limit``.
@@ -6312,19 +6337,19 @@ def list_task_activity(
     if user_id is None:
         return contracts.TaskActivityPageDTO(results=[], unread_count=0)
     task_qs = _task_activity_qs(team_id, user_id)
-    mention_qs = _comment_mention_activity_qs(team_id, user_id)
+    comment_qs = _comment_activity_qs(team_id, user_id)
     if before is not None and before_id is not None:
         cursor = Q(activity_at__lt=before) | Q(activity_at=before, id__lt=before_id)
         task_qs = task_qs.filter(cursor)
-        mention_qs = mention_qs.filter(cursor)
+        comment_qs = comment_qs.filter(cursor)
     task_rows = task_qs.select_related("task__channel", "message__author", "comment__created_by").order_by(
         "-activity_at", "-id"
     )[: limit + 1]
-    mention_rows = mention_qs.select_related("task__channel", "comment__created_by").order_by("-activity_at", "-id")[
+    comment_rows = comment_qs.select_related("task__channel", "comment__created_by").order_by("-activity_at", "-id")[
         : limit + 1
     ]
-    activity_rows: list[TaskActivity | TaskCommentMentionActivity] = [*task_rows, *mention_rows]
-    rows: list[TaskActivity | TaskCommentMentionActivity] = sorted(
+    activity_rows: list[TaskActivity | TaskCommentActivity] = [*task_rows, *comment_rows]
+    rows: list[TaskActivity | TaskCommentActivity] = sorted(
         activity_rows,
         key=lambda row: (row.activity_at, row.id),
         reverse=True,
@@ -6342,15 +6367,15 @@ def list_task_activity(
                 channel_id=row.task.channel_id,
                 channel_name=row.task.channel.name if row.task.channel else None,
                 activity_at=row.activity_at,
-                activity_kind=(TaskActivity.Kind.MENTION if isinstance(row, TaskCommentMentionActivity) else row.kind),
+                activity_kind=row.kind,
                 snippet=(row.comment.content or "" if row.comment else "")
-                if isinstance(row, TaskCommentMentionActivity)
+                if isinstance(row, TaskCommentActivity)
                 else _activity_snippet(row),
                 latest_author=_user_basic_info(
-                    row.comment.created_by if isinstance(row, TaskCommentMentionActivity) else _activity_author(row)
+                    row.comment.created_by if isinstance(row, TaskCommentActivity) else _activity_author(row)
                 ),
-                latest_message_id=None if isinstance(row, TaskCommentMentionActivity) else row.message_id,
-                latest_comment_id=(row.comment.source_comment_id or row.comment_id) if row.comment else None,
+                latest_message_id=None if isinstance(row, TaskCommentActivity) else row.message_id,
+                latest_comment_id=row.root_comment_id if isinstance(row, TaskCommentActivity) else None,
                 latest_comment_scope=row.comment.scope if row.comment else None,
                 latest_comment_item_id=row.comment.item_id if row.comment else None,
                 is_unread=row.read_at is None,
@@ -6363,24 +6388,39 @@ def list_task_activity(
     )
 
 
-def mark_task_activity_read(team_id: int, user_id: int | None, activities: Sequence[tuple[UUID, datetime]]) -> int:
+def mark_task_activity_read(
+    team_id: int,
+    user_id: int | None,
+    activities: Sequence[tuple[UUID, datetime, UUID | None]],
+) -> int:
     """Mark feed rows read only when their latest activity was visible to the requester."""
     if user_id is None or not activities:
         return 0
     activity_versions = Q()
-    for task_id, seen_before in activities:
-        activity_versions |= Q(task_id=task_id, activity_at__lte=seen_before)
-    task_rows = (
-        TaskActivity.objects.filter(team_id=team_id, user_id=user_id, read_at__isnull=True)
-        .filter(activity_versions)
+    comment_activity_ids: list[UUID] = []
+    for task_id, seen_before, comment_activity_id in activities:
+        if comment_activity_id:
+            comment_activity_ids.append(comment_activity_id)
+        else:
+            activity_versions |= Q(task_id=task_id, activity_at__lte=seen_before)
+    task_rows = 0
+    if activity_versions:
+        task_rows = (
+            TaskActivity.objects.for_team(team_id)
+            .filter(user_id=user_id, read_at__isnull=True)
+            .filter(activity_versions)
+            .update(read_at=django_timezone.now())
+        )
+    comment_rows = (
+        TaskCommentActivity.objects.for_team(team_id)
+        .filter(
+            user_id=user_id,
+            id__in=comment_activity_ids,
+            read_at__isnull=True,
+        )
         .update(read_at=django_timezone.now())
     )
-    mention_rows = (
-        TaskCommentMentionActivity.objects.filter(team_id=team_id, user_id=user_id, read_at__isnull=True)
-        .filter(activity_versions)
-        .update(read_at=django_timezone.now())
-    )
-    return task_rows + mention_rows
+    return task_rows + comment_rows
 
 
 def delete_thread_message(message_id: str | UUID, task_id: str | UUID, team_id: int, user_id: int | None) -> str:

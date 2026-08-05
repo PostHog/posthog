@@ -2740,8 +2740,7 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskMention[];
   }
 
-  // Tasks the current user is involved in (created, mentioned, or messaged),
-  // one row per task, newest activity first.
+  // Task lifecycle and individual comment activity, newest first.
   async getTaskActivity(options?: {
     before?: string;
     beforeId?: string;
@@ -2764,8 +2763,7 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskActivityPage;
   }
 
-  // Read state is per task, so callers name the tasks the user has seen rather than
-  // clearing the whole feed.
+  // Task lifecycle activity clears by task timestamp; comment activity clears by row id.
   async markTaskActivityRead(
     activities: TaskActivityReadMarker[],
   ): Promise<TaskActivityMarkReadResult> {

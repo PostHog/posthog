@@ -25,11 +25,13 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         task_channel_model = apps.get_model("tasks", "Channel")
         task_model = apps.get_model("tasks", "Task")
         task_run_model = apps.get_model("tasks", "TaskRun")
-        channel = (
-            task_channel_model.objects.create(team=self.team, name="comment-test", created_by=self.user)
-            if public
-            else None
-        )
+        channel = None
+        if public:
+            channel, _ = task_channel_model.objects.unscoped().get_or_create(
+                team=self.team,
+                name="comment-test",
+                defaults={"created_by": self.user},
+            )
         task = task_model.objects.create(
             team=self.team,
             title="Comment target",
@@ -83,14 +85,14 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         task = self._task_artifact_target()
         channel = task.channel
         canvas_model = apps.get_model("canvas", "Canvas")
-        canvas = canvas_model.objects.create(
+        canvas = canvas_model.objects.unscoped().create(
             team=self.team,
             channel=channel,
             name="Launch canvas",
             created_by=self.user,
         )
         canvas_version_model = apps.get_model("canvas", "CanvasSourceVersion")
-        canvas_version_model.objects.create(
+        canvas_version_model.objects.unscoped().create(
             team=self.team,
             canvas=canvas,
             source_hash="a" * 64,
@@ -115,17 +117,42 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas.id}&task_id={task.id}"
         )
         assert [row["id"] for row in with_task.json()["results"]] == [created.json()["id"]]
-        task_activity_model = apps.get_model("tasks", "TaskCommentMentionActivity")
-        assert task_activity_model.objects.filter(
-            team=self.team,
-            user=mentioned,
-            task=task,
-            comment_id=created.json()["id"],
-        ).exists()
+        task_activity_model = apps.get_model("tasks", "TaskCommentActivity")
+        assert (
+            task_activity_model.objects.unscoped()
+            .filter(
+                team=self.team,
+                user=mentioned,
+                task=task,
+                comment_id=created.json()["id"],
+            )
+            .exists()
+        )
 
         other_task = self._task_artifact_target()
         payload["item_context"]["taskId"] = str(other_task.id)
         assert self.client.post(f"/api/projects/{self.team.id}/comments", payload).status_code == 403
+
+    def test_comment_without_a_mention_notifies_the_task_owner(self) -> None:
+        task = self._task_artifact_target()
+        owner = User.objects.create_and_join(self.organization, "owner@posthog.com", "password")
+        task.created_by = owner
+        task.save(update_fields=["created_by"])
+
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Review when ready",
+                "scope": "task_artifact",
+                "item_id": "artifact-1",
+                "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+            },
+        )
+
+        assert created.status_code == status.HTTP_201_CREATED
+        activity_model = apps.get_model("tasks", "TaskCommentActivity")
+        activity = activity_model.objects.unscoped().get(team=self.team, user=owner, comment_id=created.json()["id"])
+        assert activity.kind == "owned_item_comment"
 
     @mock.patch("posthog.api.comments.send_mention_notifications")
     def test_personal_channel_comments_ignore_mentions(self, send_notifications: mock.Mock) -> None:
@@ -147,29 +174,34 @@ class TestComments(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_201_CREATED
         send_notifications.assert_not_called()
-        task_activity_model = apps.get_model("tasks", "TaskCommentMentionActivity")
-        assert not task_activity_model.objects.filter(team=self.team, user=mentioned, task=task).exists()
+        task_activity_model = apps.get_model("tasks", "TaskCommentActivity")
+        assert not task_activity_model.objects.unscoped().filter(team=self.team, user=mentioned, task=task).exists()
 
     @mock.patch("posthog.api.comments._record_task_comment_activity")
-    def test_edit_mentions_use_the_edit_time_for_activity(self, record_activity: mock.Mock) -> None:
+    def test_edit_mentions_do_not_repeat_relationship_notifications(self, record_activity: mock.Mock) -> None:
         task = self._task_artifact_target()
         mentioned = User.objects.create_and_join(self.organization, "mentioned@posthog.com", "password")
-        comment = Comment.objects.create(
-            team=self.team,
-            created_by=self.user,
-            content="Old comment",
-            scope="task_artifact",
-            item_id="artifact-1",
-            item_context={"anchor": {"kind": "document"}, "taskId": str(task.id)},
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Old comment",
+                "scope": "task_artifact",
+                "item_id": "artifact-1",
+                "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+            },
         )
+        assert created.status_code == status.HTTP_201_CREATED
+        record_activity.reset_mock()
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/comments/{comment.id}",
+            f"/api/projects/{self.team.id}/comments/{created.json()['id']}"
+            f"?scope=task_artifact&item_id=artifact-1&task_id={task.id}",
             {"content": "Edited mention", "mentions": [mentioned.id]},
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert record_activity.call_args.kwargs["activity_at"] > comment.created_at
+        assert record_activity.call_args.kwargs["include_relationship_recipients"] is False
+        assert record_activity.call_args.kwargs["activity_at"] is not None
 
     def _create_comment(self, data: dict | None = None) -> Any:
         if data is None:

@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name="TaskCommentMentionActivity",
+            name="TaskCommentActivity",
             fields=[
                 (
                     "id",
@@ -23,7 +23,37 @@ class Migration(migrations.Migration):
                 ("activity_at", models.DateTimeField()),
                 ("read_at", models.DateTimeField(blank=True, null=True)),
                 (
+                    "kind",
+                    models.CharField(
+                        choices=[
+                            ("mention", "Mention"),
+                            ("thread_reply", "Thread reply"),
+                            ("owned_item_comment", "Owned item comment"),
+                        ],
+                        max_length=32,
+                    ),
+                ),
+                (
+                    "actor",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="+",
+                        to="posthog.user",
+                    ),
+                ),
+                (
                     "comment",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        db_index=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="+",
+                        to="posthog.comment",
+                    ),
+                ),
+                (
+                    "root_comment",
                     models.ForeignKey(
                         db_constraint=False,
                         db_index=False,
@@ -56,19 +86,18 @@ class Migration(migrations.Migration):
                 ),
             ],
             options={
-                "db_table": "posthog_task_comment_mention_activity",
+                "db_table": "posthog_task_comment_activity",
                 "indexes": [
-                    models.Index(fields=["team", "user", "activity_at", "id"], name="task_comment_mention_feed_idx"),
+                    models.Index(fields=["team", "user", "activity_at", "id"], name="task_comment_activity_feed"),
+                    models.Index(fields=["team", "root_comment", "activity_at"], name="task_comment_thread_feed"),
                     models.Index(
                         condition=models.Q(("read_at__isnull", True)),
                         fields=["team", "user"],
-                        name="task_comment_mention_unread",
+                        name="task_comment_activity_unread",
                     ),
                 ],
                 "constraints": [
-                    models.UniqueConstraint(
-                        fields=("team", "user", "comment"), name="task_comment_mention_activity_unique"
-                    )
+                    models.UniqueConstraint(fields=("team", "user", "comment"), name="task_comment_activity_unique")
                 ],
             },
         ),
