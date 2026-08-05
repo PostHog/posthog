@@ -216,52 +216,45 @@ async fn run_v1(limits: Limits, batch_size: usize, observe: usize) -> Observed {
     })
 }
 
-/// The matrix. `observe` picks which event of the batch carries the interaction:
-/// with `burst = 1` the first event is within budget and the second is limited,
-/// so the two-event cases assert on index 1.
+/// The matrix. Cases with a burst limiter armed send two events and observe
+/// the second (`burst` of 1 admits the first event and limits the rest);
+/// every other case observes its only event.
 #[rstest]
-#[case::no_limits(Limits::NONE, 1, 0, Lane::Main, true, false)]
+#[case::no_limits(
+    Limits::NONE,
+    Observed { lane: Lane::Main, has_key: true, person_processing_disabled: false }
+)]
 #[case::burst_rate_limited(
     Limits { burst_limiter: true, ..Limits::NONE },
-    2, 1, Lane::Overflow, false, false
+    Observed { lane: Lane::Overflow, has_key: false, person_processing_disabled: false }
 )]
 #[case::burst_rate_limited_preserving_locality(
     Limits { burst_limiter: true, preserve_locality: true, ..Limits::NONE },
-    2, 1, Lane::Overflow, true, false
+    Observed { lane: Lane::Overflow, has_key: true, person_processing_disabled: false }
 )]
 #[case::force_limited(
     Limits { force_limited: true, ..Limits::NONE },
-    1, 0, Lane::Overflow, false, true
+    Observed { lane: Lane::Overflow, has_key: false, person_processing_disabled: true }
 )]
 #[case::globally_limited(
     Limits { globally_limited: true, ..Limits::NONE },
-    1, 0, Lane::Overflow, false, true
+    Observed { lane: Lane::Overflow, has_key: false, person_processing_disabled: true }
 )]
 #[case::globally_limited_and_burst_rate_limited(
     Limits { globally_limited: true, burst_limiter: true, ..Limits::NONE },
-    2, 1, Lane::Overflow, false, true
+    Observed { lane: Lane::Overflow, has_key: false, person_processing_disabled: true }
 )]
 // The cell the two paths used to disagree on: the global rate limiter has taken
 // person processing away, so the burst limiter's locality preference must not
 // hand the hot key its partition back.
 #[case::globally_limited_and_burst_preserving_locality(
     Limits { globally_limited: true, burst_limiter: true, preserve_locality: true, ..Limits::NONE },
-    2, 1, Lane::Overflow, false, true
+    Observed { lane: Lane::Overflow, has_key: false, person_processing_disabled: true }
 )]
 #[tokio::test]
-async fn v0_and_v1_agree(
-    #[case] limits: Limits,
-    #[case] batch_size: usize,
-    #[case] observe: usize,
-    #[case] expected_lane: Lane,
-    #[case] expected_has_key: bool,
-    #[case] expected_person_disabled: bool,
-) {
-    let expected = Observed {
-        lane: expected_lane,
-        has_key: expected_has_key,
-        person_processing_disabled: expected_person_disabled,
-    };
+async fn v0_and_v1_agree(#[case] limits: Limits, #[case] expected: Observed) {
+    let batch_size = if limits.burst_limiter { 2 } else { 1 };
+    let observe = batch_size - 1;
 
     let v0 = run_v0(limits, batch_size, observe).await;
     let v1 = run_v1(limits, batch_size, observe).await;
