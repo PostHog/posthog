@@ -64,12 +64,16 @@ export function AnnotatedArtifactHtml({
     null,
   );
   const [selection, setSelection] = useState<EditorSelection | null>(null);
-  const documentUrl = useMemo(() => {
-    const document = artifactHtmlDocument(html, channelRef.current);
-    return URL.createObjectURL(new Blob([document], { type: "text/html" }));
-  }, [html]);
+  const [documentUrl, setDocumentUrl] = useState<string | null>(null);
 
-  useEffect(() => () => URL.revokeObjectURL(documentUrl), [documentUrl]);
+  useEffect(() => {
+    const document = artifactHtmlDocument(html, channelRef.current);
+    const nextDocumentUrl = URL.createObjectURL(
+      new Blob([document], { type: "text/html" }),
+    );
+    setDocumentUrl(nextDocumentUrl);
+    return () => URL.revokeObjectURL(nextDocumentUrl);
+  }, [html]);
 
   const bridgeItems = useMemo(
     () =>
@@ -203,7 +207,7 @@ export function AnnotatedArtifactHtml({
         className="size-full border-0 bg-white"
         sandbox="allow-scripts"
         referrerPolicy="no-referrer"
-        src={documentUrl}
+        src={documentUrl ?? "about:blank"}
         title={`Preview of ${name}`}
         onLoad={sendComments}
       />
