@@ -508,6 +508,49 @@ class TestIncrementalBatchDeduplication:
         assert final.column("name").to_pylist() == ["second_copy"]
 
 
+class TestCreateRaceWithExistingTable:
+    """DeltaTable.create() defaults to mode="error", raising "table already exists at that
+    location" whenever the destination is non-empty. get_delta_table() can report "no table
+    yet" while one already exists there — e.g. a zombie Temporal activity attempt (heartbeat-
+    timed-out but still running while its retry starts, same unfenced race this package's
+    README documents for repartition) races another writer that already created it. write()
+    must tolerate that race instead of failing the sync.
+    """
+
+    @pytest.mark.parametrize(
+        "write_type,expected_ids",
+        [("full_refresh", {2, 3}), ("append", {1, 2, 3})],
+        ids=["full_refresh", "append"],
+    )
+    @pytest.mark.asyncio
+    async def test_create_tolerates_a_table_already_created_by_a_racing_writer(
+        self, write_type: str, expected_ids: set[int], tmp_path: Path
+    ):
+        delta_path = str(tmp_path / "table")
+        # A concurrent writer (e.g. a zombie retry) has already created the table at this location.
+        deltalake.write_deltalake(delta_path, pa.table({"id": [1]}))
+
+        helper = make_local_table_ref(delta_path)
+        real_get_delta_table = helper.get_delta_table
+        calls = {"n": 0}
+
+        async def flaky_first_check():
+            calls["n"] += 1
+            return None if calls["n"] == 1 else await real_get_delta_table()
+
+        batch = pa.table({"id": [2, 3]})
+
+        with patch.object(helper, "get_delta_table", AsyncMock(side_effect=flaky_first_check)):
+            result = await DeltaWriter(helper).write(
+                data=batch,
+                write_type=write_type,  # type: ignore[arg-type]
+                should_overwrite_table=write_type == "full_refresh",
+                primary_keys=None,
+            )
+
+        assert set(result.to_pyarrow_table().column("id").to_pylist()) == expected_ids
+
+
 class TestUnpartitionedTableWithPartitionKeyColumn:
     """A Delta table can carry `_ph_partition_key` in its schema while its
     partition_columns metadata is empty `[]` — e.g. the SchemaMismatchError fallback in
