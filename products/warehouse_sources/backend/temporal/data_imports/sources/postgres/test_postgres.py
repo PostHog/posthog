@@ -1214,6 +1214,30 @@ class TestPostgresSourceRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Admin-shutdown error should not be non-retryable: {error_msg}"
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # SQLSTATE 57P03: connect-time refusal while a smart/fast shutdown is in progress — the
+            # connect-time sibling of the admin-shutdown case above. The offset-chunking reconnect
+            # already retries this in-process (`_SERVER_STARTING_UP_ERROR_SUBSTRINGS` in
+            # postgres.py); this is the whole-activity-retry fallback for when that budget is
+            # exhausted (e.g. a longer maintenance window).
+            'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+            "FATAL:  the database system is shutting down",
+            "OperationalError: the database system is shutting down",
+        ],
+    )
+    def test_server_shutting_down_is_classified_retryable(self, source, error_msg):
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Server-shutting-down error should be classified retryable: {error_msg}"
+
+    def test_server_shutting_down_is_not_also_non_retryable(self, source):
+        error_msg = "the database system is shutting down"
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Server-shutting-down error should not be non-retryable: {error_msg}"
+
 
 def _raise_eof() -> None:
     # Indirection so the `yield` below stays reachable under mypy's warn_unreachable — at runtime
@@ -1671,6 +1695,14 @@ class TestDroppedOrConnectTimeout:
                 'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 "FATAL:  the database system is starting up"
             ),
+            # The mirror-image 57P03 refusal at shutdown: a smart/fast shutdown in progress refuses
+            # new connections the same way a not-yet-started server does. Transient — the source
+            # accepts connections again once it restarts — so the offset-chunking reconnect must
+            # retry it in-process instead of failing the whole activity.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  the database system is shutting down"
+            ),
         ],
     )
     def test_transient_connect_path_errors_are_retryable(self, error):
@@ -2100,9 +2132,10 @@ class TestConnectToPostgresMultiAddressFailover:
         assert connect_mock.call_args.kwargs["hostaddr"] == "203.0.113.5"
 
 
-# Transaction-mode poolers (Supabase Supavisor on :6543, PgBouncer transaction mode, AWS RDS Proxy)
-# reject the libpq `options` startup parameter we send to pin client_encoding=UTF8. When they do, we
-# drop `options` and retry rather than failing the connection.
+# Transaction-mode poolers (Supabase Supavisor on :6543, PgBouncer transaction mode, AWS RDS Proxy,
+# Neon's pooled endpoint) reject the libpq `options` startup parameter we send to pin
+# client_encoding=UTF8 and, on the CDC path, server-side timeouts. When they do, we drop `options`
+# and retry rather than failing the connection.
 class TestConnectOptionsStartupParamFallback:
     @pytest.mark.parametrize(
         "message,expected",
@@ -2114,6 +2147,19 @@ class TestConnectOptionsStartupParamFallback:
             (
                 "connection failed: FATAL:  Feature not supported: RDS Proxy currently "
                 "doesn’t support command-line options.",
+                True,
+            ),
+            # Neon names the rejected setting after the colon, so a match on the exact
+            # "parameter: options" wording above misses it and the connection never opens.
+            (
+                'connection to server at "1.2.3.4", port 5432 failed: ERROR:  unsupported startup '
+                "parameter in options: statement_timeout. Please use unpooled connection or remove "
+                "this parameter from the startup package.",
+                True,
+            ),
+            (
+                'connection to server at "1.2.3.4", port 5432 failed: ERROR:  unsupported startup '
+                "parameter in options: idle_in_transaction_session_timeout.",
                 True,
             ),
             ("password authentication failed for user", False),
