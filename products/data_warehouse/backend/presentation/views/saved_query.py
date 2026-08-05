@@ -1245,6 +1245,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         should_unpause = saved_query.sync_frequency_interval is None
         previous_interval = saved_query.sync_frequency_interval
+        previously_materialized = saved_query.is_materialized
 
         saved_query.sync_frequency_interval = sync_frequency_interval
         saved_query.is_materialized = True
@@ -1261,7 +1262,13 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             saved_query.schedule_materialization(unpause=should_unpause, trigger_immediate_run=True)
         except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
             # The requested cadence can't be honored (e.g. finer than an upstream source
-            # delivers) — a request problem, not a server one.
+            # delivers) — a request problem, not a server one. `schedule_materialization`
+            # deliberately re-raises these without applying its disable-on-failure contract, and
+            # this action is not inside an atomic block, so undo the enable by hand: otherwise the
+            # 400 leaves is_materialized=True behind and the UI reads the rejection as a success.
+            saved_query.sync_frequency_interval = previous_interval
+            saved_query.is_materialized = previously_materialized
+            saved_query.save(update_fields=["sync_frequency_interval", "is_materialized"])
             raise serializers.ValidationError(str(e))
 
         # Refresh from DB to check if schedule_materialization set is_materialized = False on failure

@@ -264,8 +264,9 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
                     {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
                     for column_name, column_type in ads_incremental_fields.get(endpoint, [])
                 ],
+                should_sync_default=schema.should_sync_default,
             )
-            for endpoint in linkedin_ads_schemas.keys()
+            for endpoint, schema in linkedin_ads_schemas.items()
         ]
 
         if names is not None:

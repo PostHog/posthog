@@ -16,7 +16,11 @@ from posthog.schema import NativeMarketingSource
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
-from products.marketing_analytics.backend.services.attribution_health import UnmatchedUtmSample, get_attribution_health
+from products.marketing_analytics.backend.services.attribution_health import (
+    AttributionHealthResponse,
+    UnmatchedUtmSample,
+    get_attribution_health,
+)
 from products.marketing_analytics.backend.services.native_integrations import (
     NATIVE_TO_KEY,
     NativeIntegration,
@@ -108,13 +112,22 @@ async def suggest_utm_mappings(
     min_event_count: int = DEFAULT_MIN_EVENT_COUNT,
     max_per_integration: int = MAX_SUGGESTIONS_PER_INTEGRATION,
     lookback_days: int = 90,
+    attribution: AttributionHealthResponse | None = None,
 ) -> UtmMappingSuggestionsResponse:
     """Detect unmatched utm_source values and propose target integrations.
 
     `lookback_days` defaults to 90 (vs attribution_health's 7) to catch typo'd or
     one-off values worth mapping; widen further for catalog-style audits.
+
+    `attribution` lets a caller that already ran `get_attribution_health` hand the
+    result in rather than paying for the same ClickHouse aggregation twice — the
+    setup plan needs both. `lookback_days` is ignored when it's supplied: the
+    reported window comes off the response so it can never disagree with the data
+    the suggestions were actually derived from.
     """
-    attribution = await get_attribution_health(team, lookback_days=lookback_days)
+    if attribution is None:
+        attribution = await get_attribution_health(team, lookback_days=lookback_days)
+    lookback_days = attribution.lookback_days
     current_mappings = await _read_current_mappings(team)
     notes: list[str] = []
 

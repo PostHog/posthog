@@ -145,6 +145,12 @@ function isToolCallItem(item: ConversationItem): item is SessionUpdateItem {
   );
 }
 
+function isSessionUpdateItem(
+  item: ConversationItem,
+): item is SessionUpdateItem {
+  return item.type === "session_update";
+}
+
 /**
  * Session-updates that `SessionUpdateView` always renders as `null`. They produce no row, so they
  * must not break a contiguous tool run.
@@ -177,21 +183,66 @@ function isInvisibleItem(item: ConversationItem): boolean {
 }
 
 /**
- * Collapse each contiguous run of ≥2 tool-call updates into a single `ToolGroupItem`. A run is
- * broken by any *visible* non-tool item (prose, thought, status) so groups follow reading order;
- * invisible updates (see {@link INVISIBLE_UPDATES}) are transparent and don't split a run. A lone
- * tool call passes through untouched — it stays a single marker, matching the legacy thread.
+ * A thought joins a tool run instead of breaking it, because between two calls it narrates the
+ * stretch of work the run already stands for. The group's body still lists it in order. Prose to
+ * the user (`agent_message_chunk`) does break a run, since that is addressed to the reader rather
+ * than describing the work.
  */
+function isThoughtItem(item: ConversationItem): boolean {
+  return (
+    item.type === "session_update" &&
+    item.update.sessionUpdate === "agent_thought_chunk"
+  );
+}
+
+/**
+ * Collapse each contiguous run of ≥2 tool-call updates into a single `ToolGroupItem`. A run is
+ * broken by any *visible* non-tool, non-thought item (prose, status) so groups follow reading
+ * order; invisible updates (see {@link INVISIBLE_UPDATES}) are transparent and don't split a run.
+ * A lone tool call passes through untouched as a single marker, and so do the thoughts around it:
+ * thoughts ride along a run, they never make one.
+ */
+/**
+ * Item arrays for settled runs, keyed on the run's (stable) first item.
+ *
+ * Grouping re-runs over the whole thread on every streamed chunk, so a completed run produces a
+ * fresh array with identical contents each time. New identity defeats `ToolGroup`'s `memo`, which
+ * makes every settled group above the live one re-render per chunk. Handing back the previous
+ * array lets them skip the render.
+ *
+ * Only safe once the run's turn is complete, because a live tool's status is mutated in place on
+ * its resolved `ToolCall`: reusing an array mid-turn would leave a spinner on a tool that has
+ * since finished. `len` covers a run that gains items before it settles.
+ */
+const settledRunItems = new WeakMap<
+  ConversationItem,
+  { len: number; items: SessionUpdateItem[] }
+>();
+
+function stableRunItems(run: SessionUpdateItem[]): SessionUpdateItem[] {
+  if (!run.at(-1)?.turnContext.turnComplete) return run;
+  const key = run[0];
+  const cached = settledRunItems.get(key);
+  if (cached && cached.len === run.length) return cached.items;
+  settledRunItems.set(key, { len: run.length, items: run });
+  return run;
+}
+
 function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
   const out: ThreadItem[] = [];
-  // The buffer holds the active run: tool items plus any invisible items interleaved with them.
+  // The buffer holds the active run in order: tools, the thoughts between them, and any invisible
+  // items interleaved with either.
   let buffer: ConversationItem[] = [];
   let toolCount = 0;
 
   const flush = () => {
     if (toolCount >= 2) {
-      const tools = buffer.filter(isToolCallItem);
-      out.push({ type: "tool_group", id: tools[0].id, tools });
+      out.push({
+        type: "tool_group",
+        // Keyed on the first tool call so the id survives thoughts appending around it.
+        id: buffer.filter(isToolCallItem)[0].id,
+        items: stableRunItems(buffer.filter(isSessionUpdateItem)),
+      });
     } else {
       out.push(...buffer);
     }
@@ -203,8 +254,8 @@ function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
     if (isToolCallItem(item)) {
       buffer.push(item);
       toolCount++;
-    } else if (isInvisibleItem(item)) {
-      // Don't break the run; carry it along (it renders nothing wherever it lands).
+    } else if (isInvisibleItem(item) || isThoughtItem(item)) {
+      // Don't break the run; carry it along in order.
       buffer.push(item);
     } else {
       flush();
@@ -595,12 +646,12 @@ function ThreadItemBody({
   keyboardFocused?: boolean;
 }) {
   if (item.type === "tool_group") {
-    const context = item.tools[0]?.turnContext;
+    const context = item.items[0]?.turnContext;
     const turnStreaming =
       !!context && !context.turnComplete && !context.turnCancelled;
     return (
       <ToolGroup
-        tools={item.tools}
+        items={item.items}
         mayStillGrow={isTrailing && turnStreaming}
       />
     );
@@ -1036,6 +1087,14 @@ const FlatRowView = memo(
  * (`ChatMessageFooter`) — see `UserBubble`.
  */
 interface SharedChatThreadProps {
+  /**
+   * Fold each run of tool calls into one collapsible row. Defaults to true.
+   *
+   * Embedded surfaces (the live-agent chat preview) pass false: they are short, they are the whole
+   * point of the pane they sit in, and folding the agent's work behind a chip there hides the only
+   * thing there is to look at.
+   */
+  groupToolCalls?: boolean;
   isPromptPending: boolean | null;
   promptStartedAt?: number | null;
   promptRecallRef?: RefObject<PromptRecallHandler | null>;
@@ -1109,6 +1168,7 @@ interface ChatThreadRendererProps extends SharedChatThreadProps {
 function ChatThreadRenderer({
   conversationItems,
   footerEvents,
+  groupToolCalls = true,
   isPromptPending,
   promptStartedAt,
   repoPath,
@@ -1136,8 +1196,8 @@ function ChatThreadRenderer({
   );
 
   const rows = useMemo<TurnRow[]>(
-    () => groupIntoTurns(groupToolRuns(items)),
-    [items],
+    () => groupIntoTurns(groupToolCalls ? groupToolRuns(items) : items),
+    [items, groupToolCalls],
   );
 
   // Virtualization ratchet: past the threshold the thread switches to the windowed body and
