@@ -674,7 +674,7 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             # A `* Pass` gate fails only because a job it gates failed, so counting it emits a second
-            # signal for every real flake. Real aggregators settle in 3-5s; real jobs run 60s+.
+            # signal for every real flake. NO_OP_JOB_MAX_SECONDS drops this one.
             ("Tests Pass", 3),
             # 46s clears the duration floor, so only BY_DESIGN_FAILURES can drop these.
             *[(name, 46) for name in _BY_DESIGN_JOB_NAMES],

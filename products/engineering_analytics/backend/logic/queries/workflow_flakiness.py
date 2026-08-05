@@ -11,8 +11,9 @@ from products.engineering_analytics.backend.logic.queries._curated import Curate
 from products.engineering_analytics.backend.logic.queries._workflow_filters import run_started_floor_constant
 
 # A job that failed in under this many seconds did no real work: it's a required-check aggregator
-# echoing a dependency's failure, which double-counts every real flake. Measured on PostHog/posthog,
-# aggregators settle in 3-5s and real jobs run 60s+. Run-level twin: NO_OP_RUN_MAX_SECONDS.
+# echoing a dependency's failure, which double-counts every real flake. The floor separates a job
+# that only reads its dependencies' results from one that runs anything. Run-level twin:
+# NO_OP_RUN_MAX_SECONDS.
 NO_OP_JOB_MAX_SECONDS = 10
 
 # These jobs commit an artifact, then exit 1 so the merge waits for review. The rerun passes because
