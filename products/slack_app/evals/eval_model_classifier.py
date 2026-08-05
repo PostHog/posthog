@@ -31,7 +31,7 @@ from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
 from products.slack_app.backend.services.model_catalogue import ModelChoice
-from products.slack_app.evals.model_classifier_scorers import EXPECTATION_KEY, ModelOverrideMatch, NoUnaskedOverride
+from products.slack_app.evals.scorers import MODEL_OVERRIDE_KEY, ModelOverrideMatch, NoUnaskedOverride
 
 SUITE_KIND = SuiteKind.ONE_SHOT
 
@@ -49,7 +49,7 @@ CHOICES: tuple[ModelChoice, ...] = (
 
 
 def _asks(model: str | None = None, reasoning_effort: str | None = None) -> dict:
-    return {EXPECTATION_KEY: {"model": model, "reasoning_effort": reasoning_effort}}
+    return {MODEL_OVERRIDE_KEY: {"model": model, "reasoning_effort": reasoning_effort}}
 
 
 # Deliberately not the prompt's own few-shot examples. Reusing those would measure

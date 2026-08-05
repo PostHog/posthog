@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from parameterized import parameterized
 
-from products.slack_app.evals.model_classifier_scorers import EXPECTATION_KEY, ModelOverrideMatch, NoUnaskedOverride
+from products.slack_app.evals.scorers import MODEL_OVERRIDE_KEY, ModelOverrideMatch, NoUnaskedOverride
 
-ASKS_FOR_FABLE = {EXPECTATION_KEY: {"model": "claude-fable-5", "reasoning_effort": None}}
-ASKS_FOR_NOTHING = {EXPECTATION_KEY: {"model": None, "reasoning_effort": None}}
+ASKS_FOR_FABLE = {MODEL_OVERRIDE_KEY: {"model": "claude-fable-5", "reasoning_effort": None}}
+ASKS_FOR_NOTHING = {MODEL_OVERRIDE_KEY: {"model": None, "reasoning_effort": None}}
 
 
 def _output(model: str | None = None, effort: str | None = None) -> dict:
