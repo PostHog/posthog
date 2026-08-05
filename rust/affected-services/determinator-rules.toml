@@ -3,28 +3,20 @@
 # Custom rules are processed before default rules. Default rules already handle:
 #   - .cargo/config, .cargo/config.toml → mark-changed = "all"
 #   - Cargo.toml (workspace root) → mark-changed = "all"
-#   - Cargo.lock → mark-changed = [] (ignored — we override below)
+#   - Cargo.lock → mark-changed = [] (ignored; the graph diff covers it)
 #   - README, LICENSE, .gitignore, etc. → mark-changed = []
 #
 # Paths are workspace-relative (strip the `rust/` repo prefix before passing).
 
 use-default-rules = true
 
-# Cargo.lock deliberately has no rule here — the default (mark-changed = [])
-# is correct. The determinator's own graph diff already covers it: whenever a
-# resolved dependency changes, `process_build_summaries` re-simulates each
-# workspace member's none/default/all feature sets against the old graph and
-# marks every dependent changed. A lockfile-only `cargo update` of a widely
-# used crate still fans out to all its dependents.
-#
-# A blanket mark-changed = "all" was tried here and reverted: it fired on every
-# lockfile touch, so adding one dev-dependency edge rebuilt all 68 crates and
-# blew the build job's timeout. Cargo.lock does not record features at all —
-# narrowing surfaces as a removed dependency edge, which the graph diff sees.
-#
-# The one case the graph diff cannot cover is when the old graph fails to
-# build, leaving nothing to diff against. compute_affected() handles that in
-# code by forcing rebuild-all, and that fallback is the real safety net.
+# Cargo.lock intentionally has no rule: the default (mark-changed = []) is
+# correct, because the determinator's graph diff already re-simulates each
+# member's feature sets and marks every dependent of a changed dependency.
+# Do not re-add mark-changed = "all" — it fires on every lockfile touch, so one
+# added dev-dependency rebuilds the whole workspace and blows the build timeout.
+# When the old graph is missing there is nothing to diff, and compute_affected()
+# forces rebuild-all in code instead.
 
 # Dockerfiles and CI image config — cross-cutting build changes.
 [[path-rule]]
