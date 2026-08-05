@@ -197,8 +197,14 @@ class UserTeamPermissions:
         if organization is None or organization_membership is None:
             return None
 
+        # The member arm below resolves rules against the passed membership, while roles are looked
+        # up under `self.p.user`. A mismatched pair would mix one user's roles into another user's
+        # resolution, so require the caller to pair them.
+        if organization_membership.user_id != self.p.user.pk:
+            raise ValueError("organization_membership must belong to the UserPermissions principal")
+
         if not organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
-            return cast("OrganizationMembership.Level", organization_membership.level)
+            return self._capped_at_admin(organization_membership.level)
 
         # Project rules for this team, from prefetched data
         access_controls = [
@@ -209,7 +215,7 @@ class UserTeamPermissions:
 
         # Organization admins and owners always have access
         if organization_membership.level >= OrganizationMembership.Level.ADMIN:
-            return cast("OrganizationMembership.Level", organization_membership.level)
+            return self._capped_at_admin(organization_membership.level)
 
         # Role-backed project AccessControl rows only take effect if the organization has
         # the ROLE_BASED_ACCESS feature — same gate as the UI's "Roles" block on the
@@ -246,6 +252,13 @@ class UserTeamPermissions:
 
         # No access control row in the database, admin by default. See: `default_access_level()` in `posthog/rbac/user_access_control.py`
         return OrganizationMembership.Level.ADMIN
+
+    @staticmethod
+    def _capped_at_admin(organization_level: int) -> "OrganizationMembership.Level":
+        """Project access tops out at admin, so an organization owner resolves to admin here rather
+        than leaking `OWNER` out of a project-level resolver. No call site distinguishes the two —
+        they all gate on `is not None`, `>= MEMBER` or `>= ADMIN`."""
+        return min(cast("OrganizationMembership.Level", organization_level), OrganizationMembership.Level.ADMIN)
 
     @staticmethod
     def _highest_membership_level(access_levels: list[str]) -> Optional["OrganizationMembership.Level"]:

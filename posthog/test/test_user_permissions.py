@@ -544,6 +544,55 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
 
     @parameterized.expand(
         [
+            ("denial", "none", "member", OrganizationMembership.Level.MEMBER),
+            ("grant", "admin", "none", None),
+        ]
+    )
+    def test_member_rule_from_another_organization_is_ignored(self, _name, member_level, default_level, expected_level):
+        # Same as above for the member arm: nothing scopes `organization_member` on an AccessControl
+        # row to the project's organization, so a rule can name a membership the user holds elsewhere
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self._grant_project_access(default_level)
+
+        other_organization = Organization.objects.create(name="Other organization")
+        other_membership = OrganizationMembership.objects.create(
+            organization=other_organization, user=self.user, level=OrganizationMembership.Level.MEMBER
+        )
+        self._grant_project_access(member_level, member=other_membership)
+
+        assert self.permissions().current_team.effective_membership_level == expected_level
+
+    def test_effective_membership_level_rejects_a_membership_from_another_user(self):
+        # Roles are resolved through the UserPermissions principal, so a mismatched membership would
+        # mix one user's roles into another user's resolution
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
+        other_membership = OrganizationMembership.objects.get(user=other_user, organization=self.organization)
+
+        permissions = self.permissions()
+        with self.assertRaises(ValueError):
+            permissions.current_team.effective_membership_level_for_parent_membership(
+                self.organization, other_membership
+            )
+
+    @parameterized.expand(
+        [
+            ("with_access_control", True),
+            ("without_access_control", False),
+        ]
+    )
+    def test_effective_membership_level_caps_organization_owner_at_admin(self, _name, access_control_available):
+        # Project access tops out at admin, so OWNER must not leak out of a project-level resolver
+        if not access_control_available:
+            self.organization.available_product_features = []
+            self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+
+        assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
+
+    @parameterized.expand(
+        [
             ("denial", "none", None),
             ("grant", "admin", OrganizationMembership.Level.ADMIN),
         ]

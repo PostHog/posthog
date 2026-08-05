@@ -303,10 +303,20 @@ def model_has_created_by(model_cls: type[models.Model]) -> bool:
 
 # Row targets: who an AccessControl row applies to, relative to self.user
 # (who is in role_a and in role_other_org; other_user is in role_b).
-# role_other_org is a role self.user holds in a different organization, which nothing on the write
-# path scopes out of a rule on this team - resolving it here would cross the authorization boundary.
-TARGETS = ("team_default", "self_member", "other_member", "role_a", "role_b", "role_other_org")
-# Rows _filter_options can ever see for self.user - other_member/role_b/role_other_org are invisible
+# role_other_org/member_other_org are a role and a membership self.user holds in a different
+# organization, neither of which the write path scopes out of a rule on this team - resolving either
+# here would cross the authorization boundary.
+TARGETS = (
+    "team_default",
+    "self_member",
+    "other_member",
+    "role_a",
+    "role_b",
+    "role_other_org",
+    "member_other_org",
+)
+# Rows _filter_options can ever see for self.user - other_member/role_b and both *_other_org targets
+# are invisible
 MATCHING = {"team_default", "self_member", "role_a"}
 
 PROJECT_LEVELS = ordered_access_levels("project")
@@ -409,7 +419,8 @@ def oracle_project_membership_level(
     # them denies instead of falling through to the team default. Role rows are invisible without
     # ROLE_BASED_ACCESS, so a stale role rule neither grants nor denies.
     if membership_level >= OrganizationMembership.Level.ADMIN:
-        return membership_level
+        # Project access caps at admin, so an org owner resolves to admin and never OWNER
+        return OrganizationMembership.Level.ADMIN
 
     visible = {"team_default", "self_member"} | ({"role_a"} if role_based_access else set())
     matching = [s for s in specs if s.target in visible]
@@ -562,6 +573,8 @@ class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
             return {"role": self.role_a}
         if target == "role_other_org":
             return {"role": self.role_other_org}
+        if target == "member_other_org":
+            return {"organization_member": self.other_organization_membership}
         return {"role": self.role_b}
 
     def _materialize(self, specs: list[RowSpec], resource: APIScopeObject, obj: Optional[models.Model]) -> None:
@@ -777,6 +790,14 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         # The two project resolvers must not contradict each other: effective_membership_level
         # gates ~25 call sites, while get_user_access_level is what PermissionClass 403s on, so a
         # disagreement means one of them grants access the other denies.
+        #
+        # Scope: object-scope rows only (`project_rows()` draws `("object",)`, so every row carries
+        # `resource_id = str(team.pk)`). Agreement is *not* asserted for resource-level project rows
+        # (`resource="project", resource_id IS NULL`): those make `get_user_access_level` return
+        # `default_access_level("project")` == "admin" via `access_level_for_resource`, while
+        # `effective_membership_level` filters them out on `resource_id`. Only a project admin can
+        # create such a row and the UI never sends `resource: "project"` to `resource_access_controls`,
+        # so that path is left as-is rather than modelled here.
         self._set_membership_level(membership_level)
         self._set_role_based_access(role_based_access)
         self._materialize_project_rows(team_rows)

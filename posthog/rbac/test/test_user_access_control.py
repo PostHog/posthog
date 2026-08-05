@@ -144,6 +144,30 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         assert self.user_access_control._user_role_ids == [self.role_a.id]
         assert self.user_access_control.get_user_access_level(self.team) == expected_level
 
+    @parameterized.expand(
+        [
+            ("denial", "none", "member", "member"),
+            ("grant", "admin", "none", "none"),
+        ]
+    )
+    def test_member_rule_from_another_organization_is_ignored(self, _name, member_level, default_level, expected_level):
+        # Same as above for the member arm: nothing scopes `organization_member` to the project's
+        # organization, so a rule can name a membership the user holds in an unrelated organization
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self._create_access_control(resource_id=str(self.team.id), access_level=default_level)
+
+        other_organization = Organization.objects.create(name="Other organization")
+        other_membership = OrganizationMembership.objects.create(
+            organization=other_organization, user=self.user, level=OrganizationMembership.Level.MEMBER
+        )
+        self._create_access_control(
+            resource_id=str(self.team.id), access_level=member_level, organization_member=other_membership
+        )
+
+        self._clear_uac_caches()
+        assert self.user_access_control.get_user_access_level(self.team) == expected_level
+
     def test_without_available_product_features(self):
         self.organization.available_product_features = []
         self.organization.save()
