@@ -47,6 +47,16 @@ class ScannerModel(models.TextChoices):
     GEMINI_3_6_FLASH = "gemini-3.6-flash", "Gemini 3.6 Flash"
 
 
+class ScannerOrigin(models.TextChoices):
+    """Where a scanner's config came from, and therefore what the row is allowed to do."""
+
+    # Saved by a user: named, editable, listed, and swept on a schedule.
+    CONFIGURED = "configured", "Configured"
+    # Minted from a config passed inline to a one-off scan (see `inline_scan.py`). Never swept,
+    # never listed, not editable, and reaped once it has nothing to show.
+    INLINE = "inline", "Inline"
+
+
 def initial_watermark() -> "datetime":
     """A new scanner's sweep watermark, started one settle-interval back so its first sweep immediately picks up
     recordings that have just cleared the settle window instead of a ~settle-interval cold start; it advances
@@ -54,11 +64,30 @@ def initial_watermark() -> "datetime":
     return timezone.now() - SETTLE_INTERVAL
 
 
+class ReplayScannerManager(models.Manager["ReplayScanner"]):
+    """Fail-closed: `objects` is configured-only, so a new call site can't leak inline scanners.
+
+    Anything that presents, counts, edits, or sweeps a team's scanners wants exactly this. Reading
+    observations back is the one thing that doesn't; go through `scanner_access` for that rather than
+    naming `all_origins` yourself.
+    """
+
+    def get_queryset(self) -> "models.QuerySet[ReplayScanner]":
+        return super().get_queryset().filter(origin=ScannerOrigin.CONFIGURED)
+
+
 class ReplayScanner(UUIDModel):
     """A configured probe that gets applied to completed session recordings (see README)."""
 
+    objects = ReplayScannerManager()
+    all_origins = models.Manager()
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
-    name = models.CharField(max_length=255, help_text="Human-readable name. Unique within the team.")
+    name = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Human-readable name, unique within the team. Empty for inline scanners, which aren't named.",
+    )
     description = models.TextField(
         blank=True,
         default="",
@@ -91,6 +120,21 @@ class ReplayScanner(UUIDModel):
         help_text="When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work.",
     )
     emits_signals = models.BooleanField(default=False)
+
+    origin = models.CharField(
+        max_length=16,
+        choices=ScannerOrigin.choices,
+        default=ScannerOrigin.CONFIGURED,
+        db_default=ScannerOrigin.CONFIGURED,
+        help_text="Whether a user saved this scanner or an inline scan minted it. See `ScannerOrigin`.",
+    )
+    inline_key = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Config fingerprint an inline scan resolves by. Empty for configured scanners.",
+    )
 
     scanner_version = models.PositiveIntegerField(
         default=1,
@@ -132,8 +176,32 @@ class ReplayScanner(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        # FK traversal and cascades must still see inline scanners; only `objects` is fail-closed.
+        base_manager_name = "all_origins"
         constraints = [
-            models.UniqueConstraint(fields=["team", "name"], name="replay_scanner_unique_team_name"),
+            # Names are a configured-scanner concept; inline rows have none, and several unnamed
+            # rows per team must be allowed to coexist.
+            models.UniqueConstraint(
+                fields=["team", "name"],
+                condition=models.Q(origin=ScannerOrigin.CONFIGURED),
+                name="replay_scanner_unique_configured_team_name",
+            ),
+            # One inline scanner per team per config, so asking the same question twice reuses the
+            # observations it already has instead of minting a scanner per request.
+            models.UniqueConstraint(
+                fields=["team", "inline_key"],
+                condition=models.Q(origin=ScannerOrigin.INLINE),
+                name="replay_scanner_unique_team_inline_key",
+            ),
+            # The discriminator and the fingerprint have to agree, or `configured()` and the inline
+            # lookup would disagree about the same row.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(origin=ScannerOrigin.CONFIGURED, inline_key="")
+                    | (models.Q(origin=ScannerOrigin.INLINE) & ~models.Q(inline_key=""))
+                ),
+                name="replay_scanner_inline_key_matches_origin",
+            ),
             models.CheckConstraint(
                 condition=models.Q(sampling_rate__gte=0.0) & models.Q(sampling_rate__lte=1.0),
                 name="replay_scanner_sampling_rate_range",
@@ -141,6 +209,12 @@ class ReplayScanner(UUIDModel):
         ]
         indexes = [
             models.Index(fields=["team", "enabled"], name="rl_team_enabled_idx"),
+            # Serves the reaper's scan for inline scanners that never produced an observation.
+            models.Index(
+                fields=["created_at"],
+                name="rl_inline_created_idx",
+                condition=models.Q(origin=ScannerOrigin.INLINE),
+            ),
         ]
 
     _VERSION_TRACKED_FIELDS = (
@@ -169,8 +243,9 @@ class ReplayScanner(UUIDModel):
             # SELECT FOR UPDATE so concurrent saves can't both bump scanner_version from the same baseline.
             with transaction.atomic():
                 old = (
+                    # By-pk, so it must resolve whatever origin the row is; `objects` would miss inline rows.
                     type(self)
-                    .objects.select_for_update()
+                    .all_origins.select_for_update()
                     .filter(pk=self.pk)
                     .only("scanner_version", "enabled", *relevant)
                     .first()
