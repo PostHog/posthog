@@ -181,7 +181,7 @@ async def process_team_signals_batch_activity(input: ProcessTeamSignalsBatchInpu
                 content,
                 metadata,
                 timestamp,
-                inserted_at
+                latest_inserted_at
             FROM ({_DEDUPED_SIGNALS_SUBQUERY})
             WHERE NOT JSONExtractBool(metadata, 'deleted')
             ORDER BY timestamp DESC, document_id DESC
