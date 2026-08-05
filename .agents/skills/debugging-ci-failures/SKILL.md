@@ -199,9 +199,11 @@ generic Playwright test failure.
 ## Base rate for infra and setup failures
 
 "Transient" is a claim about how often the job fails, so do not assert it from
-one run. A job that dies before its tests run leaves no test-level evidence
-anywhere — no `FAILED` line, so nothing in the failure logs, the digest, or the
-flaky-tests tool. Job conclusions are the only substrate that sees it.
+one run. A job that dies before its tests run leaves no test-level evidence: no
+`FAILED` line, so no fingerprint and no span, so it never appears as a row in
+`broken_tests` or in the flaky-tests tool. It is still visible as a job
+conclusion, which is what the digest's master-failures section and
+`engineering-analytics-run-failure-logs` read. Start there, not from a test.
 
 Unlike the span-derived test reads, this one can give you a real rate: the
 warehouse records every job attempt, greens included, so the denominator is
@@ -212,8 +214,9 @@ directly, as it is a product skill and not invocable from this repo.
 
 Read the result as:
 
-- **Low percentage, recent hours mostly green** — transient. Report and move on;
-  for a queued PR, re-enqueueing is the next step, not a code change.
+- **Low percentage, recent hours mostly green** — transient. Report and move on.
+  For a queued PR, recommend re-enqueueing rather than a code change; posting
+  `/trunk merge` yourself needs approval, per the Safety rules above.
 - **Recent hours entirely red** — an outage, not a flake. Say so, and stop
   telling people to retry.
 - **Steady over days** — a standing defect somebody owns. Worth a ticket even

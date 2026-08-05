@@ -64,13 +64,6 @@ fails every concurrently-running PR. A failure appearing on many unrelated branc
 window is the signature of a master-merge break, not of those PRs' code. Tell the asker explicitly
 when their PR is not at fault — that is usually the single most valuable sentence in the answer.
 
-**A branch named `trunk-merge/pr-<n>/<uuid>` is the exception to row 1.** It is a Trunk merge queue
-branch, holding master plus every PR ahead of `<n>` in the queue; a hundred commits from other people
-is normal. It reads as "1 branch, so PR `<n>`'s own problem" while being close to the opposite — the
-PR it is named after contributes the topmost commits, and the rest is other people's code. Attribute
-it as you would a trunk break, and re-check any `pr_only` verdict carrying this branch shape before
-repeating it. These branches are a fifth of recent job rows, not an edge case.
-
 ## Trunk break → culprit
 
 Run the boundary query (query 2): master-only job history for the failing job, ordered by
