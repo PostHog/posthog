@@ -108,7 +108,7 @@ function validateDashboardExportInsights(
     return subscription.dashboard_export_insights?.length ? undefined : 'Select at least one insight'
 }
 
-function validateWeekdaySchedule(subscription: Partial<SubscriptionType>): string | undefined {
+function validateWeekdaySchedule(subscription: Partial<SubscriptionType>): string | null {
     if (
         (subscription.frequency === 'daily' || subscription.frequency === 'weekly') &&
         !subscription.byweekday?.length
@@ -122,15 +122,15 @@ function validateWeekdaySchedule(subscription: Partial<SubscriptionType>): strin
         !subscription.start_date ||
         !subscription.byweekday?.length
     ) {
-        return undefined
+        return null
     }
     const startWeekday = dayjs.utc(subscription.start_date).format('dddd').toLowerCase()
     return subscription.byweekday.includes(startWeekday as WeekdayType)
-        ? undefined
+        ? null
         : 'Select the delivery day matching the start date for this interval'
 }
 
-function validateFrequency(subscription: Partial<SubscriptionType>): string | undefined {
+function validateFrequency(subscription: Partial<SubscriptionType>): string | null {
     if (!subscription.frequency) {
         return 'You need to set a schedule frequency'
     }
@@ -432,10 +432,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     // Rows created before a window was chosen carry ai_prompt_config: {} — normalise
                     // so the analysis window select renders the effective default instead of empty.
                     let byweekday = subscription.byweekday
-                    if (
-                        subscription.frequency === 'daily' &&
-                        ((subscription.interval ?? 1) > 1 || !subscription.byweekday?.length)
-                    ) {
+                    if (!byweekday?.length && subscription.frequency === 'daily') {
                         byweekday = [...ALL_DAYS]
                     } else if (!byweekday?.length && subscription.frequency === 'weekly') {
                         byweekday = [dayjs.utc(subscription.start_date).format('dddd').toLowerCase() as WeekdayType]
@@ -624,14 +621,6 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                         byweekday: null,
                     })
                 }
-            }
-
-            if (
-                key === 'interval' &&
-                selectors.subscription(previousState)?.frequency === 'daily' &&
-                Number(value) > 1
-            ) {
-                actions.setSubscriptionValues({ byweekday: [...ALL_DAYS] })
             }
 
             if (key === 'target_type') {

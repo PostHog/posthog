@@ -120,6 +120,23 @@ describe('subscriptionLogic', () => {
         expect(existingLogic.values.subscription.byweekday).toEqual(['monday'])
     })
 
+    it('preserves selected days for daily subscriptions with intervals greater than one', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                    frequency: 'daily',
+                    interval: 2,
+                    byweekday: ['monday', 'wednesday'],
+                }),
+            },
+        })
+
+        router.actions.push('/insights/123/subscriptions/1')
+        await expectLogic(existingLogic).toFinishListeners().toDispatchActions(['loadSubscriptionSuccess'])
+
+        expect(existingLogic.values.subscription.byweekday).toEqual(['monday', 'wednesday'])
+    })
+
     it('updates values depending on frequency', async () => {
         router.actions.push('/insights/123/subscriptions/new')
         await expectLogic(newLogic).toFinishListeners()
@@ -139,19 +156,6 @@ describe('subscriptionLogic', () => {
             bysetpos: null,
             byweekday: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
         })
-
-        newLogic.actions.setSubscriptionValue('byweekday', ['monday', 'tuesday'])
-        newLogic.actions.setSubscriptionValue('interval', 2)
-        await expectLogic(newLogic).toFinishListeners()
-        expect(newLogic.values.subscription.byweekday).toEqual([
-            'monday',
-            'tuesday',
-            'wednesday',
-            'thursday',
-            'friday',
-            'saturday',
-            'sunday',
-        ])
 
         newLogic.actions.setSubscriptionValues({
             interval: 7,

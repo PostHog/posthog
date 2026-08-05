@@ -655,8 +655,7 @@ function EditSubscriptionForm({
                                         <LemonSelect options={availableFrequencyOptions} />
                                     </LemonField>
 
-                                    {(subscription.frequency === 'weekly' ||
-                                        (subscription.frequency === 'daily' && subscription.interval === 1)) && (
+                                    {(subscription.frequency === 'daily' || subscription.frequency === 'weekly') && (
                                         <>
                                             <LemonField name="byweekday">
                                                 {({ value, onChange }) => {
