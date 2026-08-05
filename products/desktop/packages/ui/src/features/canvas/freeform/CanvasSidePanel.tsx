@@ -95,7 +95,11 @@ export function CanvasSidePanel({
 
       <div className="min-h-0 flex-1">
         {tab === "comments" && commentTaskId ? (
-          <CanvasCommentsLoader taskId={commentTaskId} />
+          <CanvasCommentsLoader
+            taskId={commentTaskId}
+            dashboardId={dashboardId}
+            name={name}
+          />
         ) : effectiveTaskId ? (
           <CanvasChatLoader taskId={effectiveTaskId} />
         ) : (
@@ -145,7 +149,15 @@ function CanvasChatLoader({ taskId }: { taskId: string }) {
   return <EmbeddedSessionView task={task} />;
 }
 
-function CanvasCommentsLoader({ taskId }: { taskId: string }) {
+function CanvasCommentsLoader({
+  taskId,
+  dashboardId,
+  name,
+}: {
+  taskId: string;
+  dashboardId: string;
+  name: string;
+}) {
   const { data: task } = useQuery(taskDetailQuery(taskId));
 
   if (!task) {
@@ -156,12 +168,33 @@ function CanvasCommentsLoader({ taskId }: { taskId: string }) {
     );
   }
 
-  return <CanvasTaskComments task={task} />;
+  return (
+    <CanvasTaskComments task={task} dashboardId={dashboardId} name={name} />
+  );
 }
 
-function CanvasTaskComments({ task }: { task: Task }) {
+function CanvasTaskComments({
+  task,
+  dashboardId,
+  name,
+}: {
+  task: Task;
+  dashboardId: string;
+  name: string;
+}) {
   const { timeline } = useThreadConversation(task, {
     surface: "activity_panel",
   });
-  return <TaskCommentsList task={task} timeline={timeline} />;
+  return (
+    <TaskCommentsList
+      task={task}
+      timeline={timeline}
+      onlySource={{
+        kind: "canvas",
+        name,
+        target: { scope: "desktop_canvas", itemId: dashboardId },
+        url: null,
+      }}
+    />
+  );
 }

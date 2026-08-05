@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   setResolved: vi.fn(),
   createdFor: [] as unknown[],
   resolvedFor: [] as unknown[],
+  queriedTargets: [] as unknown[],
 }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskRuns", () => ({
@@ -87,10 +88,13 @@ vi.mock("@posthog/ui/features/code-review/hooks/usePrCommentActions", () => ({
   }),
 }));
 vi.mock("@posthog/ui/features/sessions/components/useComments", () => ({
-  useCommentsForTargetsQuery: () => ({
-    data: mocks.comments,
-    isLoading: false,
-  }),
+  useCommentsForTargetsQuery: (targets: unknown) => {
+    mocks.queriedTargets.push(targets);
+    return {
+      data: mocks.comments,
+      isLoading: false,
+    };
+  },
   useCreateComment: (target: unknown) => {
     mocks.createdFor.push(target);
     return { mutate: mocks.createComment, isPending: false };
@@ -203,9 +207,44 @@ describe("TaskCommentsList", () => {
     mocks.setResolved.mockReset();
     mocks.createdFor = [];
     mocks.resolvedFor = [];
+    mocks.queriedTargets = [];
     useCommentNavigationStore.setState({
       focusByTask: {},
       resolutionsByTarget: {},
+    });
+  });
+
+  it("queries and displays only the current canvas when restricted", () => {
+    mocks.comments = [
+      comment({
+        item_id: "canvas-1",
+        scope: "desktop_canvas",
+        content: "Canvas feedback",
+      }),
+    ];
+
+    render(
+      <TaskCommentsList
+        task={task}
+        timeline={[]}
+        onlySource={{
+          kind: "canvas",
+          name: "Launch canvas",
+          target: { scope: "desktop_canvas", itemId: "canvas-1" },
+          url: null,
+        }}
+      />,
+    );
+
+    expect(mocks.queriedTargets.at(-1)).toEqual([
+      { scope: "desktop_canvas", itemId: "canvas-1" },
+    ]);
+    expect(screen.getByText("Canvas feedback")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Filter by source")).not.toBeInTheDocument();
+    expect(screen.queryByText("Launch canvas")).not.toBeInTheDocument();
+    expect(mocks.createdFor.at(-1)).toEqual({
+      scope: "desktop_canvas",
+      itemId: "canvas-1",
     });
   });
 

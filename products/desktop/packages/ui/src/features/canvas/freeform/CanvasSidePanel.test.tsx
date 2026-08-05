@@ -11,8 +11,16 @@ vi.mock("@posthog/ui/features/canvas/hooks/useThreadConversation", () => ({
   useThreadConversation: () => ({ timeline: [{ kind: "message" }] }),
 }));
 vi.mock("@posthog/ui/features/canvas/components/TaskCommentsList", () => ({
-  TaskCommentsList: ({ task }: { task: { id: string } }) => (
-    <div data-testid="task-comments">{task.id}</div>
+  TaskCommentsList: ({
+    task,
+    onlySource,
+  }: {
+    task: { id: string };
+    onlySource: { target: { itemId: string } };
+  }) => (
+    <div data-testid="task-comments">
+      {task.id}:{onlySource.target.itemId}
+    </div>
   ),
 }));
 vi.mock("@posthog/ui/features/sessions/components/EmbeddedSessionView", () => ({
@@ -30,7 +38,7 @@ describe("CanvasSidePanel", () => {
     useCanvasChatPanelStore.setState({ tab: "chat", collapsed: false });
   });
 
-  it("switches from the canvas task chat to all task comments", () => {
+  it("switches from canvas chat to comments for this canvas", () => {
     render(
       <CanvasSidePanel
         effectiveTaskId="task-1"
@@ -45,6 +53,8 @@ describe("CanvasSidePanel", () => {
 
     expect(screen.getByTestId("task-chat")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Comments"));
-    expect(screen.getByTestId("task-comments")).toHaveTextContent("task-1");
+    expect(screen.getByTestId("task-comments")).toHaveTextContent(
+      "task-1:canvas-1",
+    );
   });
 });

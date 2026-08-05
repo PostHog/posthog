@@ -129,6 +129,7 @@ function ResourceThreadRow({
   pulsing,
   resolution,
   onOpen,
+  showSource = true,
 }: {
   thread: TaskCommentThread;
   source: CommentSource;
@@ -139,6 +140,7 @@ function ResourceThreadRow({
   pulsing: boolean;
   resolution?: HighlightResolution;
   onOpen: () => void;
+  showSource?: boolean;
 }) {
   const createComment = useCreateComment(source.target, taskId);
   const setResolved = useSetCommentResolved(source.target);
@@ -153,7 +155,7 @@ function ResourceThreadRow({
       members={members}
       resolution={resolution}
       busy={createComment.isPending || setResolved.isPending}
-      source={<SourceLabel thread={thread} />}
+      source={showSource ? <SourceLabel thread={thread} /> : undefined}
       onSelect={onOpen}
       onReply={(content, mentions) =>
         createComment.mutate({
@@ -235,9 +237,13 @@ function PrThreadRow({
 export function TaskCommentsList({
   task,
   timeline,
+  onlySource,
 }: {
   task: Task;
   timeline: ThreadTimelineRow<TaskThreadMessage>[];
+  /** Restricts the pane to one resource known by its host, without relying on
+   * the task timeline to rediscover it. */
+  onlySource?: CommentSource;
 }) {
   const { runs } = useTaskRuns(task.id);
   const { members } = useOrgMembers();
@@ -261,7 +267,10 @@ export function TaskCommentsList({
     () => buildRows(task, timeline, runs),
     [task, timeline, runs],
   );
-  const sources = useMemo(() => commentSources(task.id, rows), [task.id, rows]);
+  const sources = useMemo(
+    () => (onlySource ? [onlySource] : commentSources(task.id, rows)),
+    [task.id, rows, onlySource],
+  );
   const targets = useMemo(
     () => sources.map((source) => source.target),
     [sources],
@@ -271,16 +280,20 @@ export function TaskCommentsList({
     intervalMs: POLL_INTERVAL_MS,
   });
   const prUrls = useMemo(
-    () => rows.flatMap((row) => (row.kind === "pr" ? [row.url] : [])),
-    [rows],
+    () =>
+      onlySource
+        ? []
+        : rows.flatMap((row) => (row.kind === "pr" ? [row.url] : [])),
+    [rows, onlySource],
   );
   const prConversation = usePrCommentsForUrls(prUrls);
   const prReviews = usePrReviewThreadsForUrls(prUrls);
   const prTitles = usePrTitles(prUrls);
 
   const taskTarget = useMemo(() => taskCommentTarget(task.id), [task.id]);
-  const taskSourceKey = commentTargetKey(taskTarget);
-  const createTaskComment = useCreateComment(taskTarget, task.id);
+  const composerTarget = onlySource?.target ?? taskTarget;
+  const composerSourceKey = commentTargetKey(composerTarget);
+  const createComment = useCreateComment(composerTarget, task.id);
 
   const threads = useMemo(() => {
     const reviewByUrl = new Map(prReviews.byUrl);
@@ -336,13 +349,13 @@ export function TaskCommentsList({
   // after that the filter is theirs, not the pane's.
   const sourceFilterTouched = useRef(false);
   useEffect(() => {
-    if (sourceFilterTouched.current) return;
+    if (onlySource || sourceFilterTouched.current) return;
     setSourceFilter(
       activeArtifactId
         ? commentTargetKey({ scope: "task_artifact", itemId: activeArtifactId })
         : ALL_SOURCES,
     );
-  }, [activeArtifactId]);
+  }, [activeArtifactId, onlySource]);
 
   const inSource = (thread: TaskCommentThread) =>
     sourceFilter === ALL_SOURCES || thread.sourceKey === sourceFilter;
@@ -423,58 +436,63 @@ export function TaskCommentsList({
     // they stay reachable however long the thread list grows.
     <div className="flex min-h-full flex-col">
       <header className="sticky top-0 z-10 flex shrink-0 items-center justify-end gap-1 bg-gray-1 px-2 py-2">
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                size="sm"
-                aria-label="Filter by source"
-                title={sourceLabel}
-              >
-                <span className="max-w-40 truncate">{sourceLabel}</span>
-                <CaretDownIcon />
-              </Button>
-            }
-          />
-          {/* Wide, single-line rows: the label truncates at the end (with the
+        {!onlySource && (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  size="sm"
+                  aria-label="Filter by source"
+                  title={sourceLabel}
+                >
+                  <span className="max-w-40 truncate">{sourceLabel}</span>
+                  <CaretDownIcon />
+                </Button>
+              }
+            />
+            {/* Wide, single-line rows: the label truncates at the end (with the
               full name on hover) and the count is pinned right with the shared
               ml-auto idiom, so a long PR title stays legible and aligned. */}
-          <DropdownMenuContent align="end" sideOffset={6} className="w-80">
-            <DropdownMenuRadioGroup
-              value={sourceFilter}
-              onValueChange={(value) => {
-                sourceFilterTouched.current = true;
-                setSourceFilter(value);
-              }}
-            >
-              <DropdownMenuRadioItem value={ALL_SOURCES} className="gap-2">
-                <FunnelSimpleIcon size={12} className="shrink-0 text-gray-11" />
-                <span className="min-w-0 truncate">All sources</span>
-                <span className="ml-auto shrink-0 pl-3 text-muted-foreground tabular-nums">
-                  {threads.length}
-                </span>
-              </DropdownMenuRadioItem>
-              {sourceOptions.map((option) => (
-                <DropdownMenuRadioItem
-                  key={option.key}
-                  value={option.key}
-                  title={option.label}
-                  className="gap-2"
-                >
-                  {sourceIcon(option.kind, option.label)}
-                  <span className="min-w-0 truncate">{option.label}</span>
+            <DropdownMenuContent align="end" sideOffset={6} className="w-80">
+              <DropdownMenuRadioGroup
+                value={sourceFilter}
+                onValueChange={(value) => {
+                  sourceFilterTouched.current = true;
+                  setSourceFilter(value);
+                }}
+              >
+                <DropdownMenuRadioItem value={ALL_SOURCES} className="gap-2">
+                  <FunnelSimpleIcon
+                    size={12}
+                    className="shrink-0 text-gray-11"
+                  />
+                  <span className="min-w-0 truncate">All sources</span>
                   <span className="ml-auto shrink-0 pl-3 text-muted-foreground tabular-nums">
-                    {
-                      threads.filter(
-                        (thread) => thread.sourceKey === option.key,
-                      ).length
-                    }
+                    {threads.length}
                   </span>
                 </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
+                {sourceOptions.map((option) => (
+                  <DropdownMenuRadioItem
+                    key={option.key}
+                    value={option.key}
+                    title={option.label}
+                    className="gap-2"
+                  >
+                    {sourceIcon(option.kind, option.label)}
+                    <span className="min-w-0 truncate">{option.label}</span>
+                    <span className="ml-auto shrink-0 pl-3 text-muted-foreground tabular-nums">
+                      {
+                        threads.filter(
+                          (thread) => thread.sourceKey === option.key,
+                        ).length
+                      }
+                    </span>
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
@@ -515,7 +533,9 @@ export function TaskCommentsList({
               </EmptyTitle>
               <EmptyDescription>
                 {stateFilter === "open"
-                  ? "Comment on the task below, or open an artifact and select text to start a thread there."
+                  ? onlySource
+                    ? "Comment on this canvas to start a thread."
+                    : "Comment on the task below, or open an artifact and select text to start a thread there."
                   : "Resolved threads will appear here."}
               </EmptyDescription>
             </EmptyHeader>
@@ -536,6 +556,7 @@ export function TaskCommentsList({
                   thread.id,
                 )}
                 onOpen={() => openThread(thread)}
+                showSource={!onlySource}
               />
             ) : (
               <PrThreadRow
@@ -554,7 +575,7 @@ export function TaskCommentsList({
           value={draft}
           onValueChange={setDraft}
           onSubmit={(content, mentions) => {
-            createTaskComment.mutate({
+            createComment.mutate({
               content,
               context: { anchor: { kind: "document" } },
               mentions,
@@ -565,15 +586,15 @@ export function TaskCommentsList({
             setStateFilter("open");
             if (
               sourceFilter !== ALL_SOURCES &&
-              sourceFilter !== taskSourceKey
+              sourceFilter !== composerSourceKey
             ) {
               setSourceFilter(ALL_SOURCES);
             }
           }}
           members={members}
-          placeholder="Comment on this task… Type @ to mention someone"
+          placeholder={`Comment on this ${onlySource ? "canvas" : "task"}… Type @ to mention someone`}
           rows={2}
-          disabled={createTaskComment.isPending}
+          disabled={createComment.isPending}
         />
       </footer>
     </div>
