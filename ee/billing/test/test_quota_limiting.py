@@ -2664,6 +2664,32 @@ class TestPatchTodaysUsage(BaseTest):
             "todays_usage": 0,
         }
 
+    def test_omitted_components_without_prior_data_leave_no_empty_placeholders(self) -> None:
+        # A billing payload that predates component reporting arrives at an org that has
+        # never had component data (today's prod state until billing ships components).
+        # The OrganizationUsageInfo construction defaults each component to {}; those
+        # placeholders must not be written into the org's usage dict.
+        self.organization.usage = {
+            "events": {"usage": 100, "limit": 1_000, "todays_usage": 7},
+            "period": _PERIOD,
+        }
+
+        new_usage = cast(
+            OrganizationUsageInfo,
+            {
+                "events": {"usage": 101, "limit": 1_000},
+                "posthog_code_token_credits": {},
+                "sandbox_compute_credits": {},
+                "sandbox_compute_cpu_millicore_seconds": {},
+                "sandbox_compute_memory_mib_seconds": {},
+                "period": _PERIOD,
+            },
+        )
+
+        assert set_org_usage_summary(self.organization, new_usage=new_usage) is True
+        for field in INFORMATIONAL_USAGE_RESOURCES:
+            assert field not in self.organization.usage, field
+
     def test_returns_false_when_no_resources_to_patch(self) -> None:
         # Org has only `period` — no per-resource dicts to patch.
         self.organization.usage = {"period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"]}

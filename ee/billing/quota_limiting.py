@@ -865,6 +865,11 @@ def _merge_informational_usage_summary(
         if not resource_usage:
             if original_field_usage:
                 new_usage[field] = original_field_usage
+            else:
+                # Billing omitted the component and there's no last-known value: drop the
+                # empty placeholder OrganizationUsageInfo construction left behind rather
+                # than writing `{}` into every org's usage dict.
+                new_usage.pop(field, None)
             continue
 
         if todays_usage:
