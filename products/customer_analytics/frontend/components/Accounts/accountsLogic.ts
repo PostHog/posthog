@@ -581,7 +581,10 @@ export const accountsLogic = kea<accountsLogicType>([
             },
         ],
         // Keeps server-side sort while paging, so reaching the last page never drops the
-        // orderBy and collapses the accumulated rows back to page one.
+        // orderBy and collapses the accumulated rows back to page one. Resetting on every
+        // listLoadData is deliberate even for the refetch a sort-while-paginated triggers:
+        // that request already carries the new orderBy, and its response replaces the
+        // accumulated pages with one server-sorted page that is safe to client-sort next.
         listPaginated: [
             false,
             {
