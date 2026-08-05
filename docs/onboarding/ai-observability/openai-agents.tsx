@@ -78,25 +78,12 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
 
                             instrument(
                                 client=posthog,
-                                # Resolves the user per run from RunConfig trace_metadata — see the next step
                                 distinct_id=lambda trace: (trace.metadata or {}).get("posthog_distinct_id"),
                                 privacy_mode=False, # optional
                                 groups={"company": "company_id_in_your_db"}, # optional
                             )
                         `}
                     />
-
-                    <CalloutBox type="fyi" icon="IconInfo" title="Identity scope">
-                        <Markdown>
-                            {dedent`
-                                \`instrument()\` registers one tracing processor for the whole process, so anything
-                                static you pass here applies to **every** run in the process. The lambda above is
-                                the per-run escape hatch: it reads the user from each run's \`trace_metadata\`
-                                (next step). A static \`distinct_id\` string is only appropriate when one process
-                                serves one user, like a CLI or worker.
-                            `}
-                        </Markdown>
-                    </CalloutBox>
 
                     <Blockquote>
                         <Markdown>
@@ -148,7 +135,7 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
                                 agent,
                                 "What's the weather in Paris?",
                                 run_config=RunConfig(
-                                    group_id="conversation_abc",  # becomes $ai_session_id
+                                    group_id="conversation_abc",
                                     trace_metadata={"posthog_distinct_id": "user_123"},
                                 ),
                             )
