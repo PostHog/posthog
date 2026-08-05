@@ -12,12 +12,14 @@ import type { UserBasicType, UserType } from '~/types'
 
 import {
     accountRelationshipDefinitionsList,
+    accountsPartialUpdate,
     accountsRelationshipsCreate,
     accountsRelationshipsEndCreate,
     accountsRelationshipsList,
     customPropertyDefinitionsList,
 } from 'products/customer_analytics/frontend/generated/api'
 import type {
+    AccountApi,
     AccountRelationshipApi,
     AccountRelationshipDefinitionApi,
     CustomPropertyDefinitionApi,
@@ -45,6 +47,7 @@ jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     ...jest.requireActual('products/customer_analytics/frontend/generated/api'),
     accountRelationshipDefinitionsList: jest.fn(),
     customPropertyDefinitionsList: jest.fn(),
+    accountsPartialUpdate: jest.fn(),
     accountsRelationshipsCreate: jest.fn(),
     accountsRelationshipsEndCreate: jest.fn(),
     accountsRelationshipsList: jest.fn(),
@@ -61,6 +64,7 @@ const mockRelationshipsEnd = accountsRelationshipsEndCreate as jest.MockedFuncti
     typeof accountsRelationshipsEndCreate
 >
 const mockRelationshipsList = accountsRelationshipsList as jest.MockedFunction<typeof accountsRelationshipsList>
+const mockPartialUpdate = accountsPartialUpdate as jest.MockedFunction<typeof accountsPartialUpdate>
 
 const DEFINITIONS: AccountRelationshipDefinitionApi[] = [
     { id: 'def-csm', name: 'CSM', description: null, is_single_holder: true },
@@ -74,6 +78,17 @@ const buildRelationship = (overrides: Partial<AccountRelationshipApi> = {}): Acc
     user: { id: 42, email: 'alex@example.com' },
     started_at: '2026-01-01T00:00:00Z',
     ended_at: null,
+    ...overrides,
+})
+
+const buildAccount = (overrides: Partial<AccountApi> = {}): AccountApi => ({
+    id: 'acc-1',
+    name: 'Acme',
+    tags: [],
+    notebooks: [],
+    created_at: '2026-01-01T00:00:00Z',
+    created_by: null,
+    updated_at: null,
     ...overrides,
 })
 
@@ -744,6 +759,44 @@ describe('accountsLogic', () => {
 
             resolveFirst(buildRelationship())
             await expectLogic(logic).toFinishAllListeners()
+        })
+    })
+
+    describe('updateAccountTags', () => {
+        it('masks the cell optimistically and collapses an editing burst into one PATCH with the final list', async () => {
+            mockPartialUpdate.mockResolvedValue(buildAccount({ tags: ['vip', 'churn-risk'] }))
+
+            logic.actions.updateAccountTags('acc-1', ['vip'])
+            expect(logic.values.tagOverrides['acc-1']).toEqual(['vip'])
+            logic.actions.updateAccountTags('acc-1', ['vip', 'churn-risk'])
+            expect(logic.values.tagOverrides['acc-1']).toEqual(['vip', 'churn-risk'])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockPartialUpdate).toHaveBeenCalledTimes(1)
+            expect(mockPartialUpdate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1', {
+                tags: ['vip', 'churn-risk'],
+            })
+        })
+
+        it('reverts the optimistic override and clears saving on failure', async () => {
+            mockPartialUpdate.mockRejectedValueOnce(new Error('boom'))
+
+            logic.actions.updateAccountTags('acc-1', ['vip'])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.tagOverrides['acc-1']).toBeUndefined()
+            expect(logic.values.isTagsSaving('acc-1')).toBe(false)
+        })
+    })
+
+    describe('addTagToFilter', () => {
+        it('compounds clicked tags into the filter and ignores tags already filtered', async () => {
+            logic.actions.addTagToFilter('vip')
+            logic.actions.addTagToFilter('churn-risk')
+            logic.actions.addTagToFilter('vip')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.tagsFilter).toEqual(['vip', 'churn-risk'])
         })
     })
 })
