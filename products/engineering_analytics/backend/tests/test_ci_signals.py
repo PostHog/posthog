@@ -704,7 +704,10 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
             )
         findings = detect_flaky_checks(self._curated_over_runs(rows, jobs), min_flaky_runs=3)
         assert len(findings) == 1
-        assert findings[0].extra["job_name"] == "Product tests (warehouse-sources, events schema legacy)"
+        # The key and description group on the base name; extra keeps the worked example's real
+        # job name so investigation queries on the warehouse still match.
+        assert "CI job 'Product tests (warehouse-sources, events schema legacy)'" in findings[0].description
+        assert findings[0].extra["job_name"] == "Product tests (warehouse-sources (1/6), events schema legacy)"
         assert findings[0].extra["flaky_count"] == 3
         # The shard the worked example came from is evidence, so it survives outside the key.
         assert "Product tests (warehouse-sources (1/6), events schema legacy)" in findings[0].description

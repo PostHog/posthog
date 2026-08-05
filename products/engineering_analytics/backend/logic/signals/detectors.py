@@ -157,7 +157,9 @@ def detect_flaky_checks(
                     repo_owner=repo_owner,
                     repo_name=repo_name,
                     workflow_name=workflow_name,
-                    job_name=job_name,
+                    # The worked example's real job name, not the shard-stripped key: downstream
+                    # investigation queries filter warehouse rows on the rendered name.
+                    job_name=latest.job_name,
                     run_id=latest.run_id,
                     head_sha=latest.head_sha,
                     failed_attempt=latest.failed_attempt,
