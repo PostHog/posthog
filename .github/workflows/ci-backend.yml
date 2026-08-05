@@ -1284,8 +1284,11 @@ jobs:
                   owner: ${{ github.repository_owner }}
                   repositories: ${{ github.event.repository.name }}
 
+            # Plain setup-python: this PR-only job runs on ubuntu-latest, whose cache
+            # store no master job ever saves the python tool cache to, so the
+            # setup-python-cached restore would miss on every run.
             - name: Set up Python
-              uses: ./.github/actions/setup-python-cached
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.13.13
                   # Reuse the app token already minted above instead of a second mint.

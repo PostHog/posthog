@@ -10,8 +10,8 @@
 # Intentional deltas vs canonical (everything else is kept apples-to-apples):
 # - runs-on: depot-* labels instead of ubuntu-latest
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install,
-#   setup-sqlx-cli, and setup-python-cached are byte-equivalent mirrors of the canonical
-#   composites)
+#   setup-sqlx-cli, and setup-python-cached mirror the canonical composites; any
+#   deltas are documented in each mirror's header)
 # - permissions: pull-requests:read (no comment/auto-commit side effects)
 # - Stripped side effects: artifact uploads, CI report section posters (canonical
 #   additionally skips these on trunk-merge/** branches to save GITHUB_TOKEN budget;
