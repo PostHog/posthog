@@ -108,7 +108,7 @@ export function MergedTicketInfoCard({ ticket, color }: { ticket: Ticket; color?
                 type="tertiary"
                 noPadding
                 className="mt-2 text-muted-alt"
-                icon={<IconChevronDown className={expanded ? undefined : '-rotate-90'} />}
+                icon={<IconChevronDown className={expanded ? 'rotate-180' : '-rotate-90'} />}
                 onClick={() => setExpanded(!expanded)}
             >
                 {expanded ? 'Show less' : 'More details'}
