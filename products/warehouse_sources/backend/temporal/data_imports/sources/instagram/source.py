@@ -15,7 +15,7 @@ from posthog.schema import (
 
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, INSTAGRAM_OAUTH_SCOPE, InstagramIntegration
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     SourceInputs,
     SourceResponse,
 )
