@@ -185,8 +185,8 @@ pub enum DataType {
 }
 
 /// Event names diverted to the dedicated AI lane. Must stay in sync with the
-/// ingestion AI subpipeline's allowlist (`AI_EVENT_TYPES` in
-/// `nodejs/src/ingestion/common/subpipelines/ai-event-types.ts`), which DLQs
+/// AI lane's allowlist (`AI_EVENT_TYPES` in
+/// `nodejs/src/ingestion/pipelines/ai/ai-event-types.ts`), which DLQs
 /// anything it receives that isn't on the list. Matching on the `$ai_` prefix
 /// instead would divert prefixed-but-unlisted names (e.g. `$ai_call`) into the
 /// AI topic only for the ingestion pipeline to DLQ them.

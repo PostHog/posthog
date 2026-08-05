@@ -1,11 +1,10 @@
 import { AI_EVENTS_OUTPUT, AiEventOutput, EventOutput } from '~/common/outputs'
-import { AI_EVENT_TYPES } from '~/ingestion/common/subpipelines/ai-event-types'
-import { LARGE_AI_PROPERTIES } from '~/ingestion/common/subpipelines/large-ai-properties'
+import { EventToEmit } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import { AI_EVENT_TYPES } from '~/ingestion/pipelines/ai/ai-event-types'
+import { LARGE_AI_PROPERTIES } from '~/ingestion/pipelines/ai/large-ai-properties'
 import { ProcessedEvent } from '~/types'
-
-import { EventToEmit } from './emit-event-step'
 
 export interface SplitAiEventsStepInput {
     eventsToEmit: EventToEmit<EventOutput>[]
