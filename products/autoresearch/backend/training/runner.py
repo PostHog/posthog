@@ -475,8 +475,8 @@ def run_training(
 
     Raises if Temporal is unreachable or the task cannot be created.
     """
+    from products.tasks.backend.facade import api as tasks_facade
     from products.tasks.backend.facade.sandbox import SandboxTemplate
-    from products.tasks.backend.models import Task, TaskRun
 
     now = django_timezone.now()
     training_run = AutoresearchTrainingRun.objects.create(
@@ -508,11 +508,11 @@ def run_training(
             pending_suggestions=pending_suggestions or None,
         )
 
-        task = Task.create_and_run(
+        task = tasks_facade.create_and_run_task(
             team=pipeline.team,
             title=f"[autoresearch] {pipeline.name}: learn to predict '{pipeline.target_event}'",
             description=description,
-            origin_product=Task.OriginProduct.AUTORESEARCH,
+            origin_product=tasks_facade.TaskOriginProduct.AUTORESEARCH,
             user_id=user_id,
             repository=None,
             create_pr=False,
@@ -532,16 +532,16 @@ def run_training(
 
         task_run = task.latest_run
         if not task_run:
-            raise RuntimeError("Task.create_and_run() did not produce a TaskRun")
+            raise RuntimeError("create_and_run_task() did not produce a TaskRun")
 
         # Embed the training_run_id in the TaskRun state so the completion
         # signal handler can look it up without an extra DB query.
-        TaskRun.update_state_atomic(
-            run_id=task_run.id,
+        tasks_facade.update_task_run_state(
+            task_run.id,
             updates={"autoresearch_training_run_id": str(training_run.id)},
         )
 
-        training_run.task_id = task.pk
+        training_run.task_id = task.task_id
         training_run.task_run_id = task_run.id
         training_run.save(update_fields=["task_id", "task_run_id"])
 
@@ -549,7 +549,7 @@ def run_training(
             "autoresearch_training_started",
             pipeline_id=str(pipeline.pk),
             training_run_id=str(training_run.pk),
-            task_id=str(task.pk),
+            task_id=str(task.task_id),
             task_run_id=str(task_run.id),
         )
         return training_run

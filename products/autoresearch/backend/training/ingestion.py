@@ -60,9 +60,9 @@ def handle_task_run_completed(task_run: Any) -> None:
         )
         return
 
-    from products.tasks.backend.models import TaskRun
+    from products.tasks.backend.facade.api import TaskRunStatus
 
-    if task_run.status in {TaskRun.Status.FAILED, TaskRun.Status.CANCELLED}:
+    if task_run.status in {TaskRunStatus.FAILED, TaskRunStatus.CANCELLED}:
         _mark_failed(training_run, error=task_run.error_message or "TaskRun did not complete successfully")
         return
 

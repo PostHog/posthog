@@ -75,6 +75,7 @@ from products.autoresearch.backend.training import artifacts as artifact_store
 from products.autoresearch.backend.training.promotion import complete_training_run
 from products.autoresearch.backend.training.recipe_validation import RecipeValidationError, validate_feature_sql
 from products.autoresearch.backend.training.runner import run_training
+from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.sandbox import get_sandbox_class
 
 logger = structlog.get_logger(__name__)
@@ -687,14 +688,10 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
         client — and verified to belong to this training run. Raises ValidationError
         if the run has no live sandbox.
         """
-        # Deferred to avoid a tasks<->autoresearch import cycle (matches training.run_training).
-        from products.tasks.backend.models import TaskRun  # noqa: PLC0415
-
         if not training_run.task_run_id:
             raise ValidationError("This training run has no sandbox (e.g. a stub run). Cannot materialize features.")
-        try:
-            task_run = TaskRun.objects.get(id=training_run.task_run_id)
-        except TaskRun.DoesNotExist:
+        task_run = tasks_facade.get_task_run(training_run.task_run_id)
+        if task_run is None:
             raise ValidationError("Sandbox task run not found for this training run.")
         state = task_run.state or {}
         if str(state.get("autoresearch_training_run_id")) != str(training_run.id):

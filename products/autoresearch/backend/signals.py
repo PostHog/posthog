@@ -22,12 +22,12 @@ def on_task_run_saved(sender: Any, instance: Any, created: bool, **kwargs: Any) 
     if created:
         return
 
-    from products.tasks.backend.models import TaskRun
+    from products.tasks.backend.facade.api import TaskRunStatus
 
     if instance.status not in {
-        TaskRun.Status.COMPLETED,
-        TaskRun.Status.FAILED,
-        TaskRun.Status.CANCELLED,
+        TaskRunStatus.COMPLETED,
+        TaskRunStatus.FAILED,
+        TaskRunStatus.CANCELLED,
     }:
         return
 

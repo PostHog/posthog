@@ -250,7 +250,7 @@ class TestAgentRecordedTraining(APIBaseTest):
         from unittest.mock import MagicMock
 
         from products.autoresearch.backend.training.ingestion import handle_task_run_completed
-        from products.tasks.backend.models import TaskRun as TaskRunModel
+        from products.tasks.backend.models import TaskRun as TaskRunModel  # tach-ignore
 
         # Agent opens a run and records an iteration via the new MCP write path.
         run_id = self._open_run()
