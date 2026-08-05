@@ -10,6 +10,7 @@ shape and Python shape stay in lockstep.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 from django.utils import timezone
 
@@ -95,7 +96,18 @@ class RunMetadataField(serializers.DictField):
     and it coerced the nested `derived` map to its string repr on the way out, turning a queryable
     object into unparseable prose. Output-only: writes come from the runner at creation and from
     `derived_metadata.stamp_derived_metadata` at finalize, never through this field.
+
+    The dispatch-time `structured_output_schema` snapshot is stripped on the way out: it exists
+    for record validation (`_resolve_schema` reads the row directly), can be 20 KB, and would
+    otherwise repeat on every row of a run listing — megabytes of schema text no run consumer
+    needs, in responses scouts read inside their own prompts.
     """
+
+    def to_representation(self, value: Any) -> Any:
+        data = super().to_representation(value)
+        if isinstance(data, dict):
+            data.pop("structured_output_schema", None)
+        return data
 
 
 class SignalScoutRunSummarySerializer(serializers.Serializer):
