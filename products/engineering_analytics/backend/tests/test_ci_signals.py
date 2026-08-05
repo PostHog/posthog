@@ -674,12 +674,9 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             # A `* Pass` gate fails only because a job it gates failed, so counting it emits a second
-            # signal for every real flake. Real aggregators settle in 3-5s; real jobs run 60s+, so
-            # NO_OP_JOB_MAX_SECONDS is what drops this one.
+            # signal for every real flake. Real aggregators settle in 3-5s; real jobs run 60s+.
             ("Tests Pass", 3),
-            # By-design failures commit an artifact and then exit 1 to block the merge, and the
-            # rerun passes because the artifact is in place. Their 46s clears the duration floor, so
-            # only BY_DESIGN_FAILURES can drop them.
+            # 46s clears the duration floor, so only BY_DESIGN_FAILURES can drop these.
             *[(name, 46) for name in _BY_DESIGN_JOB_NAMES],
         ]
     )
@@ -715,9 +712,7 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand([(name,) for name in _BY_DESIGN_JOB_NAMES])
     def test_flaky_check_reports_by_design_job_names_in_another_repo(self, job_name: str) -> None:
-        # Each BY_DESIGN_FAILURES entry is qualified by repo, because a job's display name is free
-        # text: another team's job that happens to share one fails for its own reasons, and every
-        # team with CI signals enabled runs this detector over its own repos.
+        # Every team runs this detector over its own repos, so the repo qualifier has to hold.
         now = datetime.now(UTC).replace(tzinfo=None)
         rows = [
             _run_row(1, "CI", "shaS", "success", now - timedelta(hours=2), 60, run_attempt=2, repository="acme/webapp")
