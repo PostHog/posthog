@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import { projectLogic } from 'scenes/projectLogic'
 
-import { tasksModelCatalogueRetrieve } from 'products/tasks/frontend/generated/api'
+import { tasksModelsRetrieve } from 'products/tasks/frontend/generated/api'
 import { ModelChoiceApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { FALLBACK_MODEL_CHOICES } from '../utils/composerModels'
@@ -71,7 +71,7 @@ export const modelCatalogueLogic = kea<modelCatalogueLogicType>([
                     if (values.currentProjectId == null) {
                         return FALLBACK_MODEL_CHOICES
                     }
-                    const response = await tasksModelCatalogueRetrieve(String(values.currentProjectId))
+                    const response = await tasksModelsRetrieve(String(values.currentProjectId))
                     return response.models.length ? response.models : FALLBACK_MODEL_CHOICES
                 },
             },

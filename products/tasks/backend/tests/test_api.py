@@ -11425,7 +11425,7 @@ class TestModelCatalogueAPI(BaseTaskAPITest):
             "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
             return_value=self.GATEWAY_MODELS,
         ):
-            response = self.client.get("/api/projects/@current/tasks/model_catalogue/")
+            response = self.client.get("/api/projects/@current/tasks/models/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         models = response.json()["models"]
@@ -11442,7 +11442,7 @@ class TestModelCatalogueAPI(BaseTaskAPITest):
             "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
             return_value=(),
         ):
-            response = self.client.get("/api/projects/@current/tasks/model_catalogue/")
+            response = self.client.get("/api/projects/@current/tasks/models/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"models": []})

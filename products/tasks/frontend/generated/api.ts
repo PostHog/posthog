@@ -2241,19 +2241,19 @@ export const tasksActiveWizardRunRetrieve = async (
     })
 }
 
-export const getTasksModelCatalogueRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/tasks/model_catalogue/`
+export const getTasksModelsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/models/`
 }
 
 /**
  * Return the models a task run may use, with the reasoning efforts each one supports. Derived from the live LLM gateway catalogue, so a newly released model appears without a client change. An empty list means the gateway is unreachable — clients should fall back to their own default rather than treating it as 'no models exist'.
  * @summary List available models
  */
-export const tasksModelCatalogueRetrieve = async (
+export const tasksModelsRetrieve = async (
     projectId: string,
     options?: RequestInit
 ): Promise<ModelCatalogueResponseApi> => {
-    return apiMutator<ModelCatalogueResponseApi>(getTasksModelCatalogueRetrieveUrl(projectId), {
+    return apiMutator<ModelCatalogueResponseApi>(getTasksModelsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

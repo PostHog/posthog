@@ -447,8 +447,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "than treating it as 'no models exist'."
         ),
     )
-    @action(detail=False, methods=["get"], url_path="model_catalogue", required_scopes=["task:read"])
-    def model_catalogue(self, request, **kwargs):
+    @action(detail=False, methods=["get"], url_path="models", required_scopes=["task:read"])
+    def models(self, request, **kwargs):
         choices = available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
         return Response(
             {
