@@ -9,23 +9,26 @@ import type { Task } from "@posthog/shared/domain-types";
 import { ActivityTimeline } from "@posthog/ui/features/canvas/components/ActivityTimeline";
 import { TaskCard } from "@posthog/ui/features/canvas/components/ChannelFeedView";
 import { TaskArtifactsList } from "@posthog/ui/features/canvas/components/TaskArtifactsList";
+import { TaskCommentsList } from "@posthog/ui/features/canvas/components/TaskCommentsList";
 import {
   AgentStatusLine,
   ThreadLoadingState,
   ThreadReplyComposer,
 } from "@posthog/ui/features/canvas/components/ThreadPanel";
 import { useThreadConversation } from "@posthog/ui/features/canvas/hooks/useThreadConversation";
+import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { buildConversationItems } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { track } from "@posthog/ui/shell/analytics";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-type ActivityTab = "timeline" | "artifacts";
+type ActivityTab = "timeline" | "artifacts" | "comments";
 
 const ACTIVITY_TABS: readonly { key: ActivityTab; label: string }[] = [
   { key: "timeline", label: "Timeline" },
   { key: "artifacts", label: "Artifacts" },
+  { key: "comments", label: "Comments" },
 ] as const;
 
 /** The 32px row this panel leads with: the tabs are the header, so the strip
@@ -161,15 +164,41 @@ function ActivityConversation({
     [tab, events, isPromptPending],
   );
 
+  // A thread picked on the artifact itself lives in the Comments tab, so the
+  // pick has to bring the tab with it. Only a fresh request switches tabs: a
+  // focus left over from an earlier visit must not hijack the panel on mount.
+  const commentFocus = useCommentNavigationStore(
+    (state) => state.focusByTask[taskId],
+  );
+  // Tracks the task too: this panel is reused across tasks without remounting,
+  // so a nonce seen for the previous task says nothing about this one.
+  const seenFocus = useRef({ taskId, nonce: commentFocus?.nonce });
+  // Adjust during render rather than in an effect, so the panel never commits a
+  // stale tab before switching. A new task resets the baseline (an old focus
+  // must not hijack it); a fresh focus nonce for this task brings the Comments
+  // tab with the pick.
+  if (seenFocus.current.taskId !== taskId) {
+    seenFocus.current = { taskId, nonce: commentFocus?.nonce };
+  } else if (commentFocus && commentFocus.nonce !== seenFocus.current.nonce) {
+    seenFocus.current = { taskId, nonce: commentFocus.nonce };
+    // Not handleTabChange: a programmatic switch isn't a user tab change.
+    setTab("comments");
+  }
+
   const scrollRef = useRef<HTMLDivElement>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when rendered thread content changes
   useEffect(() => {
+    // Only the timeline reads bottom-up; the other tabs put what matters on top.
+    if (tab !== "timeline") return;
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [timeline, events.length, agentStatus?.phase, tab]);
 
   const showComposer = tab === "timeline";
 
   const body = () => {
+    if (tab === "comments") {
+      return <TaskCommentsList task={task} timeline={timeline} />;
+    }
     if (tab === "artifacts") {
       return (
         <TaskArtifactsList

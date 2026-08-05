@@ -199,6 +199,44 @@ export interface TaskSessionStorageAccess {
   content_sha256: string | null;
 }
 
+export interface ResourceCommentUser {
+  id: number;
+  uuid: string;
+  first_name?: string;
+  last_name?: string;
+  email: string;
+}
+
+/**
+ * The commentable resources this client knows how to address. `scope` is a
+ * free-form column on the backend `Comment` model, so adding a resource is a
+ * new member here plus a caller — no migration and no endpoint.
+ */
+export type CommentScope = "task_artifact" | "desktop_canvas" | "task";
+
+/** A row from the generic comments API. Named `Resource*` so it never collides
+ *  with the DOM's global `Comment` type. */
+export interface ResourceComment {
+  id: string;
+  created_by: ResourceCommentUser | null;
+  content: string | null;
+  created_at: string;
+  item_id: string | null;
+  item_context: unknown;
+  scope: string;
+  source_comment: string | null;
+  completed_at?: string | null;
+}
+
+export interface CreateResourceCommentRequest {
+  scope: CommentScope;
+  itemId: string;
+  content: string;
+  context: unknown;
+  sourceCommentId?: string;
+  mentions?: number[];
+}
+
 /** Thrown when the backend rejects a cloud run with a 429 usage-limit error. */
 export class CloudUsageLimitError extends Error {
   limitType: UsageLimitType;
@@ -3234,6 +3272,47 @@ export class PostHogAPIClient {
 
     const data = (await response.json()) as { url: string };
     return data.url;
+  }
+
+  async getResourceComments(
+    scope: CommentScope,
+    itemId: string,
+  ): Promise<ResourceComment[]> {
+    const teamId = await this.getTeamId();
+    const comments: ResourceComment[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await this.api.get("/api/projects/{project_id}/comments/", {
+        path: { project_id: String(teamId) },
+        query: { scope, item_id: itemId, cursor },
+      });
+      comments.push(...(page.results as unknown as ResourceComment[]));
+      cursor = page.next
+        ? (new URL(page.next).searchParams.get("cursor") ?? undefined)
+        : undefined;
+    } while (cursor);
+    return comments;
+  }
+
+  async createResourceComment(
+    request: CreateResourceCommentRequest,
+  ): Promise<ResourceComment> {
+    const teamId = await this.getTeamId();
+    const payload = {
+      content: request.content,
+      scope: request.scope,
+      item_id: request.itemId,
+      item_context: request.context,
+      source_comment: request.sourceCommentId ?? null,
+      mentions: request.mentions ?? [],
+      // Resolution is represented by a thread-state reply so this stays on the
+      // same PAT-compatible write path as ordinary comments.
+      is_task: false,
+    };
+    return (await this.api.post("/api/projects/{project_id}/comments/", {
+      path: { project_id: String(teamId) },
+      body: payload as unknown as Schemas.Comment,
+    })) as unknown as ResourceComment;
   }
 
   async getTaskSessionStorageAccess(

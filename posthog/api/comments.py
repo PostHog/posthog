@@ -58,6 +58,29 @@ def _require_ticket_editor_access(
         raise exceptions.PermissionDenied("You do not have access to this ticket")
 
 
+def _record_task_comment_activity(comment: Comment, mentions: list[int]) -> None:
+    """Mirror mentions on a Code task's comments into that task's activity feed.
+
+    The desktop app reads its own activity feed rather than the notifications inbox, so a
+    mention that only fanned out to email and the web would be invisible in the very app
+    the comment was written in. The tasks facade decides which scopes are its own.
+    """
+    from products.tasks.backend.facade.api import (  # noqa: PLC0415 — keeps the generic comments API decoupled from the tasks product, only imported for mention writes
+        record_comment_mention_activity,
+    )
+
+    record_comment_mention_activity(
+        team_id=comment.team_id,
+        scope=comment.scope,
+        item_id=comment.item_id,
+        item_context=comment.item_context,
+        comment_id=comment.id,
+        author_id=comment.created_by_id,
+        created_at=comment.created_at,
+        mentioned_user_ids=mentions,
+    )
+
+
 class CommentSerializer(serializers.ModelSerializer):
     def _extract_mentions_from_rich_content(self, rich_content: dict | None) -> list[int]:
         if not rich_content:
@@ -225,6 +248,7 @@ class CommentSerializer(serializers.ModelSerializer):
             send_discussions_mentioned.delay(comment.id, mentions, slug)
             produce_discussion_mention_events(comment, mentions, slug)
             send_mention_notifications(comment, mentions, slug)
+            _record_task_comment_activity(comment, mentions)
 
         return comment
 
@@ -256,6 +280,7 @@ class CommentSerializer(serializers.ModelSerializer):
             send_discussions_mentioned.delay(updated_instance.id, mentions, slug)
             produce_discussion_mention_events(updated_instance, mentions, slug)
             send_mention_notifications(updated_instance, mentions, slug)
+            _record_task_comment_activity(updated_instance, mentions)
 
         return updated_instance
 

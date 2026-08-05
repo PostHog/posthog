@@ -26,19 +26,12 @@ import {
   useRef,
   useState,
 } from "react";
-import rehypeRaw from "rehype-raw";
-import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
-import type { PluggableList } from "unified";
 import { isSendMessageSubmitKey } from "../../../utils/sendMessageKey";
+import { githubRehypePlugins } from "../../editor/components/githubMarkdownPlugins";
 import { MarkdownRenderer } from "../../editor/components/MarkdownRenderer";
 import { sendPromptToAgent } from "../../sessions/sendPromptToAgent";
 import { usePrCommentActions } from "../hooks/usePrCommentActions";
 import type { PrCommentMetadata } from "../types";
-
-const ghRehypePlugins: PluggableList = [
-  rehypeRaw,
-  [rehypeSanitize, defaultSchema],
-];
 
 const MAX_COMMENT_HEIGHT = 120;
 type ComposerMode = "reply" | "chat";
@@ -261,7 +254,7 @@ function CommentBody({
         >
           <MarkdownRenderer
             content={comment.body}
-            rehypePlugins={ghRehypePlugins}
+            rehypePlugins={githubRehypePlugins}
           />
           {!isExpanded && isOverflowing && (
             <Box
@@ -524,7 +517,7 @@ export function PrCommentThread({
                       <div className="text-[13px] text-[var(--gray-11)] leading-relaxed">
                         <MarkdownRenderer
                           content={pendingReply}
-                          rehypePlugins={ghRehypePlugins}
+                          rehypePlugins={githubRehypePlugins}
                         />
                       </div>
                     </div>

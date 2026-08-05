@@ -1,6 +1,6 @@
 import { Check, Code, Copy, Eye } from "@phosphor-icons/react";
 import { Flex, IconButton, Text } from "@radix-ui/themes";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { Tooltip } from "../../../primitives/Tooltip";
 
 export function DocumentPreviewHeader({
@@ -8,11 +8,13 @@ export function DocumentPreviewHeader({
   content,
   showRendered,
   onToggleRendered,
+  actions,
 }: {
   label: string;
   content: string;
   showRendered: boolean;
   onToggleRendered: () => void;
+  actions?: ReactNode;
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -34,6 +36,7 @@ export function DocumentPreviewHeader({
         {label}
       </Text>
       <Flex align="center" gap="1">
+        {actions}
         <Tooltip content={showRendered ? "View source" : "View preview"}>
           <IconButton
             size="1"

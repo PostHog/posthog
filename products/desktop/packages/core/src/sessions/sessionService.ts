@@ -9,6 +9,10 @@ import type {
   SessionConfigSelectOption,
   SessionUpdate,
 } from "@agentclientprotocol/sdk";
+import type {
+  CreateResourceCommentRequest,
+  ResourceComment,
+} from "@posthog/api-client/posthog-client";
 import {
   type AcpMessage,
   type Adapter,
@@ -49,6 +53,7 @@ import {
   isTerminalStatus,
   type Task,
 } from "@posthog/shared/domain-types";
+import type { CommentTarget } from "../comments/anchors";
 import type { SpeechKind, SpeechSource } from "../speech/identifiers";
 import {
   CONTEXT_WINDOW_OPTION_CATEGORY,
@@ -7493,6 +7498,49 @@ export class SessionService {
       });
       return null;
     }
+  }
+
+  async getResourceComments(target: CommentTarget): Promise<ResourceComment[]> {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready") return [];
+    return authStatus.auth.client.getResourceComments(
+      target.scope,
+      target.itemId,
+    );
+  }
+
+  /**
+   * Comments for several resources at once, for surfaces that centralize threads
+   * across a task's artifacts and canvases. Returns one flat list — every row
+   * already carries `scope` and `item_id`, so callers group without bookkeeping.
+   * Fanning out here (rather than in a hook) keeps the multi-source read in a
+   * service and lets the caller hold a single query.
+   */
+  async getResourceCommentsForTargets(
+    targets: CommentTarget[],
+  ): Promise<ResourceComment[]> {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready" || targets.length === 0) return [];
+    const client = authStatus.auth.client;
+    const pages = await Promise.all(
+      targets.map((target) =>
+        client
+          .getResourceComments(target.scope, target.itemId)
+          // One unreadable resource must not blank the whole pane.
+          .catch(() => [] as ResourceComment[]),
+      ),
+    );
+    return pages.flat();
+  }
+
+  async createResourceComment(
+    request: CreateResourceCommentRequest,
+  ): Promise<ResourceComment> {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready") {
+      throw new Error("Sign in to comment");
+    }
+    return authStatus.auth.client.createResourceComment(request);
   }
 
   async getCloudRunArtifacts(

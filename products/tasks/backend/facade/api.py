@@ -52,6 +52,7 @@ from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
+from products.tasks.backend.forwarded_content import frame_forwarded_comment
 from products.tasks.backend.logic.services.image_builder import (
     ensure_image_builder_task,
     is_custom_images_enabled,
@@ -6031,6 +6032,80 @@ def _index_thread_message_mentions(message: TaskThreadMessage, mentioned_user_id
         )
 
 
+# The comment scopes the desktop client writes against a task's resources; mirrors its
+# CommentScope union. Anything else on the shared comments table belongs to another product.
+COMMENT_ACTIVITY_SCOPES = frozenset({"task", "task_artifact", "desktop_canvas"})
+
+
+def _comment_task_id(scope: str, item_id: str | None, item_context: dict[str, Any] | None) -> UUID | None:
+    """The task a comment was written against, or None if it isn't one of ours.
+
+    Only ``scope="task"`` names the task directly. The resource-scoped comments carry it in
+    ``item_context`` instead, because their ``item_id`` points at an artifact that lives in a
+    run's JSON rather than in a table this could join against — so the value is
+    client-supplied, and callers check it against the team before trusting it.
+    """
+    if scope not in COMMENT_ACTIVITY_SCOPES:
+        return None
+    raw_task_id = item_id if scope == "task" else (item_context or {}).get("taskId")
+    if not isinstance(raw_task_id, str):
+        return None
+    try:
+        return UUID(raw_task_id)
+    except ValueError:
+        return None
+
+
+def record_comment_mention_activity(
+    *,
+    team_id: int,
+    scope: str,
+    item_id: str | None,
+    item_context: dict[str, Any] | None,
+    comment_id: UUID,
+    author_id: int | None,
+    created_at: datetime,
+    mentioned_user_ids: Sequence[int],
+) -> None:
+    """Project mentions on a task's comments into the mentioned users' activity feeds.
+
+    Comments on a task's artifacts and canvases live on the shared comments table rather
+    than in the task thread, so without this they reach a recipient by email and web
+    notification but never by the Code app's Activity page — the one surface where the
+    comment itself is readable.
+
+    The task id is client-supplied for resource-scoped comments, so it is checked against
+    the team before anything is written. Visibility deliberately is not checked: the feed
+    re-checks it on read, which is what keeps rows honest when a task's visibility changes
+    after the mention was recorded.
+    """
+    recipients = [user_id for user_id in dict.fromkeys(mentioned_user_ids) if user_id != author_id]
+    if not recipients:
+        return
+
+    task_id = _comment_task_id(scope, item_id, item_context)
+    if task_id is None:
+        return
+
+    try:
+        if not Task.objects.filter(team_id=team_id, id=task_id, deleted=False).exists():
+            return
+        for user_id in recipients:
+            TaskActivity.record(
+                team_id=team_id,
+                user_id=user_id,
+                task_id=task_id,
+                kind=TaskActivity.Kind.MENTION,
+                activity_at=created_at,
+                comment_id=comment_id,
+                actor_id=author_id,
+            )
+    except Exception:
+        # Best-effort, like the sibling mention fan-outs: a feed row is never worth
+        # failing the write of the comment that produced it.
+        logger.exception("Failed to record comment mention activity", extra={"comment_id": str(comment_id)})
+
+
 def list_mentions(
     team_id: int, user_id: int | None, *, since: datetime | None = None, limit: int = 100
 ) -> list[contracts.TaskMentionDTO]:
@@ -6112,6 +6187,24 @@ def project_completed_activity(task_run: "TaskRun") -> None:
     )
 
 
+def _activity_snippet(row: TaskActivity) -> str:
+    """Preview of whatever the row's latest activity was said in, if anything was."""
+    if row.message:
+        return row.message.content
+    if row.comment:
+        return row.comment.content or ""
+    return ""
+
+
+def _activity_author(row: TaskActivity) -> "User | None":
+    """Who wrote the thread message or comment behind the row; None for agent and task rows."""
+    if row.message:
+        return row.message.author if row.message.author_id else None
+    if row.comment:
+        return row.comment.created_by
+    return None
+
+
 def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
     """The requester's feed rows, gated to tasks they can still see.
 
@@ -6147,7 +6240,11 @@ def list_task_activity(
     qs = _task_activity_qs(team_id, user_id)
     if before is not None and before_id is not None:
         qs = qs.filter(Q(activity_at__lt=before) | Q(activity_at=before, id__lt=before_id))
-    rows = list(qs.select_related("task__channel", "message__author").order_by("-activity_at", "-id")[: limit + 1])
+    rows = list(
+        qs.select_related("task__channel", "message__author", "comment__created_by").order_by("-activity_at", "-id")[
+            : limit + 1
+        ]
+    )
     has_more = len(rows) > limit
     rows = rows[:limit]
     next_row = rows[-1] if has_more else None
@@ -6161,8 +6258,8 @@ def list_task_activity(
                 channel_name=row.task.channel.name if row.task.channel else None,
                 activity_at=row.activity_at,
                 activity_kind=row.kind,
-                snippet=row.message.content if row.message else "",
-                latest_author=_user_basic_info(row.message.author if row.message and row.message.author_id else None),
+                snippet=_activity_snippet(row),
+                latest_author=_user_basic_info(_activity_author(row)),
                 latest_message_id=row.message_id,
                 is_unread=row.read_at is None,
             )
@@ -6234,7 +6331,7 @@ def forward_thread_message(
 
         author = message.author
         author_name = (author.get_full_name() or author.email) if author else "A teammate"
-        content = f"[Thread comment from {author_name}] {message.content}"
+        content = frame_forwarded_comment(author_name=author_name, content=message.content)
         signal_result = signal_task_run_user_message(run.id, task.id, team_id, content=content, artifact_ids=[])
         if not signal_result:
             return "signal_failed", None

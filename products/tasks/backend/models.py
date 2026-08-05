@@ -1098,6 +1098,20 @@ class TaskActivity(TeamScopedRootMixin):
     message = models.ForeignKey(
         TaskThreadMessage, on_delete=models.SET_NULL, null=True, blank=True, related_name="activity_rows"
     )
+    # A mention can come from a comment on one of the task's resources rather than from the
+    # thread. Unconstrained and reverse-less to keep this product's rows off the shared
+    # comments table — the feed already tolerates a row whose source has gone.
+    comment = models.ForeignKey(
+        "posthog.Comment",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_constraint=False,
+        # Unindexed on purpose: this table is upserted on every thread message, and nothing
+        # reads it by comment, so the only caller an index would serve is a rare hard delete.
+        db_index=False,
+    )
     kind = models.CharField(max_length=32, choices=Kind)
     activity_at = models.DateTimeField()
     read_at = models.DateTimeField(null=True, blank=True)
@@ -1122,6 +1136,7 @@ class TaskActivity(TeamScopedRootMixin):
         kind: str,
         activity_at: datetime,
         message_id: uuid.UUID | None = None,
+        comment_id: uuid.UUID | None = None,
         actor_id: int | None = None,
     ) -> None:
         """Record the latest activity on ``task_id`` for ``user_id``, newest-wins.
@@ -1139,10 +1154,11 @@ class TaskActivity(TeamScopedRootMixin):
             cursor.execute(
                 f"""
                 INSERT INTO {cls._meta.db_table}
-                       (id, team_id, user_id, task_id, message_id, kind, activity_at, read_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                       (id, team_id, user_id, task_id, message_id, comment_id, kind, activity_at, read_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (team_id, user_id, task_id) DO UPDATE
                    SET message_id = EXCLUDED.message_id,
+                       comment_id = EXCLUDED.comment_id,
                        kind = EXCLUDED.kind,
                        activity_at = EXCLUDED.activity_at,
                        read_at = CASE
@@ -1152,7 +1168,7 @@ class TaskActivity(TeamScopedRootMixin):
                        END
                  WHERE {cls._meta.db_table}.activity_at <= EXCLUDED.activity_at
                 """,
-                [uuid7(), team_id, user_id, task_id, message_id, kind, activity_at, read_at],
+                [uuid7(), team_id, user_id, task_id, message_id, comment_id, kind, activity_at, read_at],
             )
 
 

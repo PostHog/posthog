@@ -1,7 +1,9 @@
-import { Plus } from "@phosphor-icons/react";
+import { ChatCircle, Plus } from "@phosphor-icons/react";
 import { Button } from "@posthog/quill";
+import type { UserBasic } from "@posthog/shared/domain-types";
 import type { EditorSelection } from "@posthog/ui/features/code-editor/components/CodeMirrorEditor";
 import { CommentAnnotation } from "@posthog/ui/features/code-review/components/CommentAnnotation";
+import { CommentComposer } from "@posthog/ui/features/sessions/components/CommentComposer";
 import { Tooltip } from "@radix-ui/themes";
 import { useCallback, useState } from "react";
 import { createPortal } from "react-dom";
@@ -22,8 +24,18 @@ interface SelectionCommentOverlayProps {
   selection: EditorSelection | null;
   open: boolean;
   filePath: string;
-  onSubmit: (startLine: number, endLine: number, text: string) => void;
+  onSubmit: (
+    startLine: number,
+    endLine: number,
+    text: string,
+    mentions?: number[],
+  ) => void;
   onDismiss: () => void;
+  actionLabel?: string;
+  placeholder?: string;
+  showActionText?: boolean;
+  initiallyExpanded?: boolean;
+  members?: UserBasic[];
 }
 
 /**
@@ -37,6 +49,11 @@ export function SelectionCommentOverlay({
   filePath,
   onSubmit,
   onDismiss,
+  actionLabel = "Add to chat",
+  placeholder,
+  showActionText = false,
+  initiallyExpanded = false,
+  members,
 }: SelectionCommentOverlayProps) {
   if (!open || !selection?.anchor) return null;
   // Key by the range so a fresh selection remounts the card back to the "+".
@@ -49,6 +66,11 @@ export function SelectionCommentOverlay({
       filePath={filePath}
       onSubmit={onSubmit}
       onDismiss={onDismiss}
+      actionLabel={actionLabel}
+      placeholder={placeholder}
+      showActionText={showActionText}
+      initiallyExpanded={initiallyExpanded}
+      members={members}
     />
   );
 }
@@ -60,30 +82,54 @@ function SelectionComposerCard({
   filePath,
   onSubmit,
   onDismiss,
+  actionLabel,
+  placeholder,
+  showActionText,
+  initiallyExpanded,
+  members,
 }: {
   anchor: { top: number; left: number };
   fromLine: number;
   toLine: number;
   filePath: string;
-  onSubmit: (startLine: number, endLine: number, text: string) => void;
+  onSubmit: (
+    startLine: number,
+    endLine: number,
+    text: string,
+    mentions?: number[],
+  ) => void;
   onDismiss: () => void;
+  actionLabel: string;
+  placeholder?: string;
+  showActionText: boolean;
+  initiallyExpanded: boolean;
+  members?: UserBasic[];
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [userExpanded, setUserExpanded] = useState(false);
+  const expanded = initiallyExpanded || userExpanded;
+  const [draft, setDraft] = useState("");
   const style = { top: anchor.top + 4, left: anchor.left };
 
   if (!expanded) {
     return createPortal(
-      <Tooltip content="Add to chat">
+      <Tooltip content={actionLabel}>
         <Button
           type="button"
           variant="primary"
-          size="icon-sm"
-          aria-label="Add selection to chat"
+          size={showActionText ? "sm" : "icon-sm"}
+          aria-label={actionLabel}
           className="fixed z-50 shadow-sm"
           style={style}
-          onClick={() => setExpanded(true)}
+          onClick={() => setUserExpanded(true)}
         >
-          <Plus size={14} weight="bold" />
+          {showActionText ? (
+            <>
+              <ChatCircle size={14} weight="bold" />
+              Comment
+            </>
+          ) : (
+            <Plus size={14} weight="bold" />
+          )}
         </Button>
       </Tooltip>,
       document.body,
@@ -95,13 +141,31 @@ function SelectionComposerCard({
       className="fixed z-50 w-[420px] max-w-[80vw] rounded-md border border-gray-5 bg-gray-2 shadow-lg"
       style={style}
     >
-      <CommentAnnotation
-        filePath={filePath}
-        startLine={fromLine}
-        endLine={toLine}
-        onDismiss={onDismiss}
-        onSubmitText={(text) => onSubmit(fromLine, toLine, text)}
-      />
+      {members ? (
+        <div className="p-2">
+          <CommentComposer
+            value={draft}
+            onValueChange={setDraft}
+            onSubmit={(content, mentions) => {
+              onSubmit(fromLine, toLine, content, mentions);
+              onDismiss();
+            }}
+            onCancel={onDismiss}
+            members={members}
+            placeholder={placeholder ?? "Add a comment…"}
+            rows={2}
+            autoFocus
+          />
+        </div>
+      ) : (
+        <CommentAnnotation
+          filePath={filePath}
+          startLine={fromLine}
+          endLine={toLine}
+          onDismiss={onDismiss}
+          onSubmitText={(text) => onSubmit(fromLine, toLine, text)}
+        />
+      )}
     </div>,
     document.body,
   );
