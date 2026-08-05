@@ -214,6 +214,14 @@ def _suggest_for_integration(
         return None
 
     current_field = get_match_field(source_name, mappings)
+
+    # Matching on campaign_id is the cure for a name collision, so once a team is already on it
+    # a collision is not evidence of anything to change. Without this the target field — derived
+    # as "whatever isn't current" — came out as campaign_name, and the override below would
+    # cheerfully suggest reintroducing the ambiguity it fired about.
+    if colliding_integrations and current_field == "campaign_id":
+        return None
+
     target_field = "campaign_id" if current_field != "campaign_id" else DEFAULT_MATCH_FIELD
 
     if target_field == "campaign_id" and _id_coverage(group) < MIN_ID_COVERAGE:
@@ -309,7 +317,10 @@ def _collision_reason(
     group: list[Campaign],
     utm_campaign_values: set[str],
 ) -> str:
-    affected = [c for c in group if _candidate_value(c, DEFAULT_MATCH_FIELD) not in utm_campaign_values]
+    # Campaigns whose name IS in the catalogue — those are the ones a shared name can misattribute.
+    # This read `not in` before, which counted the campaigns receiving no traffic at all and so
+    # reported "0 campaign(s) worth $0.00" in precisely the collision case it exists to describe.
+    affected = [c for c in group if _candidate_value(c, DEFAULT_MATCH_FIELD) in utm_campaign_values]
     others = ", ".join(colliding) or "another integration"
     return (
         f"{display_name} shares campaign names with {others}, so name matching can't tell them "
