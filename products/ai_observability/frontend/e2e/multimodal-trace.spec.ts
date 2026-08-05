@@ -1,6 +1,7 @@
 // Product-owned specs reach Playwright helpers through this alias, not a relative path
 // (see products/replay/frontend/e2e/player.spec.ts).
 import { expect, test } from '@playwright-utils/workspace-test-base'
+import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
 
@@ -12,9 +13,10 @@ const PROXY_BASE_URL = process.env.E2E_PROXY_URL || 'http://localhost:8010'
 // image is offloaded to a blob pointer in ClickHouse. Neither test alone is end-to-end coverage:
 // that one stops at the data layer, this one starts from a seeded event. If you change the fixture
 // or the assertions here, update that test too or the E2E property is silently lost.
-const FIXTURE = JSON.parse(
-    fs.readFileSync(path.join(__dirname, '../../../../common/fixtures/ai-multimodal/generation-event.json'), 'utf-8')
-)
+const FIXTURE_DIR = path.join(__dirname, '../../../../common/fixtures/ai-multimodal')
+const FIXTURE = JSON.parse(fs.readFileSync(path.join(FIXTURE_DIR, 'generation-event.json'), 'utf-8'))
+const SCREENSHOT_BYTES = fs.readFileSync(path.join(FIXTURE_DIR, 'screenshot.png'))
+const POINTER_RE = /phaiblob:\/\/v1\/sha256\/(?<hash>[0-9a-f]{64})\?mime=(?<mime>[^&]+)&size=(?<size>\d+)/
 
 test.describe('AI observability multimodal trace', () => {
     test('a screenshot sent through ingestion renders in the trace view', async ({
@@ -57,6 +59,8 @@ test.describe('AI observability multimodal trace', () => {
         })
 
         await test.step('poll until ingestion has offloaded the image and stored a pointer', async () => {
+            let storedInput = ''
+
             await expect
                 .poll(
                     async () => {
@@ -77,11 +81,21 @@ test.describe('AI observability multimodal trace', () => {
                             throw new Error(`query endpoint returned ${resp.status()}: ${await resp.text()}`)
                         }
                         const body = await resp.json()
-                        return String(body.results?.[0]?.[0] ?? '')
+                        storedInput = String(body.results?.[0]?.[0] ?? '')
+                        return storedInput
                     },
                     { timeout: 120_000, intervals: [2_000, 5_000] }
                 )
                 .toContain('phaiblob://')
+
+            // Mirrors test_ai_multimodal_blessed_path.py's pointer-field assertion, so a fixture
+            // pair regenerated on only one side (JSON updated, PNG stale, or vice versa) fails
+            // here instead of only in the pytest acceptance test, which this suite never runs.
+            const match = storedInput.match(POINTER_RE)
+            expect(match).not.toBeNull()
+            expect(match?.groups?.hash).toBe(crypto.createHash('sha256').update(SCREENSHOT_BYTES).digest('hex'))
+            expect(decodeURIComponent(match?.groups?.mime ?? '')).toBe('image/png')
+            expect(Number(match?.groups?.size)).toBe(SCREENSHOT_BYTES.length)
         })
 
         await test.step('open the trace and assert the image decoded', async () => {

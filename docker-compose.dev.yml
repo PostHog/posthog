@@ -267,7 +267,12 @@ services:
             db:
                 condition: service_healthy
             objectstorage:
-                condition: service_started
+                # Wait for the bucket-bootstrap sentinel, not just the process: the AI blob
+                # store's startup self-test exits the process if the ai-blobs bucket is
+                # missing, and SeaweedFS creates that bucket asynchronously after startup.
+                # service_started would race the bootstrap loop (see the objectstorage
+                # healthcheck rationale above).
+                condition: service_healthy
             personhog-router:
                 condition: service_started
         healthcheck:
