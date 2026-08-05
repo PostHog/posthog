@@ -101,7 +101,10 @@ MAILGUN_ENDPOINTS: dict[str, MailgunEndpointConfig] = {
         name="templates",
         path="/v3/{domain}/templates",
         domain_scoped=True,
-        page_size=1000,
+        # Left at 100 until someone confirms the cap against a live account: the docs only state
+        # 1000 for tags. A rejected `limit` returns 400, which the fan-out reads as an unqueryable
+        # domain and skips, so guessing too high loses the endpoint on every domain with a warning.
+        page_size=100,
         # Template names are unique per domain; list items aren't guaranteed an `id`.
         primary_keys=["domain", "name"],
     ),
