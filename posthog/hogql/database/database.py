@@ -7,9 +7,10 @@ import threading
 import dataclasses
 import pickletools
 from collections import defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from functools import cache
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -451,34 +452,40 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
 
 
 @cache
-def _system_table_access_scopes() -> tuple[tuple[str, APIScopeObject], ...]:
-    """(table name, access scope) for the access-controlled Postgres system tables.
+def _system_table_access_scopes() -> Mapping[str, APIScopeObject]:
+    """Table name -> access scope for the access-controlled Postgres system tables.
 
     Cached for the process lifetime — this result directly gates table visibility in access-control
     decisions, so every entry here MUST remain process-static. Do NOT make a system table's
     access_scope dynamic (per-team, per-flag, or env-driven at call time): this cache would silently
     serve stale scopes and bypass the restriction. Today SystemTables().children is a static
     class-level dict of module-level PostgresTable constants, which satisfies that invariant.
+    Returned read-only so a caller can't mutate the shared cached mapping.
     """
-    return tuple(
-        (name, table_node.table.access_scope)
-        for name, table_node in SystemTables().children.items()
-        if isinstance(table_node.table, PostgresTable) and table_node.table.access_scope is not None
+    return MappingProxyType(
+        {
+            name: table_node.table.access_scope
+            for name, table_node in SystemTables().children.items()
+            if isinstance(table_node.table, PostgresTable) and table_node.table.access_scope is not None
+        }
     )
 
 
 @cache
-def _system_table_required_features() -> tuple[tuple[str, str], ...]:
-    """(table name, required AvailableFeature) for system tables behind a billing entitlement.
+def _system_table_required_features() -> Mapping[str, str]:
+    """Table name -> required AvailableFeature for system tables behind a billing entitlement.
 
     Same process-static invariant as _system_table_access_scopes: the entitlement a table *requires*
     is a static property of the table. What varies per organization is whether that entitlement is
-    *available*, which is resolved uncached in _unentitled_system_tables.
+    *available*, which is resolved uncached in _unentitled_system_tables. Returned read-only so a
+    caller can't mutate the shared cached mapping.
     """
-    return tuple(
-        (name, table_node.table.required_feature_on_cloud)
-        for name, table_node in SystemTables().children.items()
-        if isinstance(table_node.table, PostgresTable) and table_node.table.required_feature_on_cloud is not None
+    return MappingProxyType(
+        {
+            name: table_node.table.required_feature_on_cloud
+            for name, table_node in SystemTables().children.items()
+            if isinstance(table_node.table, PostgresTable) and table_node.table.required_feature_on_cloud is not None
+        }
     )
 
 
@@ -496,7 +503,7 @@ def _unentitled_system_tables(team: Team) -> set[str]:
         return set()
 
     organization = team.organization
-    return {name for name, feature in required_features if not organization.is_feature_available(feature)}
+    return {name for name, feature in required_features.items() if not organization.is_feature_available(feature)}
 
 
 def _compute_system_table_access_decision(
@@ -522,7 +529,9 @@ def _compute_system_table_access_decision(
     # Anonymous or synthetic principal: keep only access-controlled tables its scopes cover (none for shared link / team token).
     if user is None or isinstance(user, SyntheticUser | SharedLinkUser):
         readable_scopes = user.readable_system_table_access_scopes() if user is not None else set()
-        return None, unentitled | {name for name, access_scope in scoped_tables if access_scope not in readable_scopes}
+        return None, unentitled | {
+            name for name, access_scope in scoped_tables.items() if access_scope not in readable_scopes
+        }
 
     user_access_control = user_access_control or UserAccessControl(user=user, team=team)
 
@@ -531,7 +540,7 @@ def _compute_system_table_access_decision(
         return user_access_control, unentitled
 
     denied: set[str] = set(unentitled)
-    for name, access_scope in scoped_tables:
+    for name, access_scope in scoped_tables.items():
         access_level = user_access_control.access_level_for_resource(access_scope)
         if access_level and access_level != NO_ACCESS_LEVEL:
             continue  # User has access, keep it
