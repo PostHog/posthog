@@ -14,8 +14,6 @@ resolving a scan id, and reading observations back.
 
 from typing import Any
 
-from django.db import IntegrityError
-
 from posthog.models.team import Team
 
 from products.replay_vision.backend.fingerprint import config_fingerprint
@@ -46,29 +44,30 @@ def create_inline_scanner(
     scanner_config: dict[str, Any],
     model: str,
 ) -> ReplayScanner:
-    """Mint the scanner for an inline config. Call only once a scan is actually going to start."""
-    try:
-        return ReplayScanner.all_origins.create(
-            team=team,
-            origin=ScannerOrigin.INLINE,
-            inline_key=key,
+    """Mint the scanner for an inline config. Call only once a scan is actually going to start.
+
+    `get_or_create` rather than a plain create: two requests can ask the same question at the same
+    moment, and it wraps the losing INSERT in a savepoint so the unique violation doesn't poison an
+    enclosing transaction.
+    """
+    scanner, _ = ReplayScanner.all_origins.get_or_create(
+        team=team,
+        origin=ScannerOrigin.INLINE,
+        inline_key=key,
+        defaults={
             # No name: inline scanners aren't addressed by one, and the team-name uniqueness index is
             # partial on configured rows so several unnamed rows per team coexist happily.
-            name="",
-            description="Created by an inline scan. Runs only against the sessions it was pointed at.",
+            "name": "",
+            "description": "Created by an inline scan. Runs only against the sessions it was pointed at.",
             # No owner: the row is shared by everyone who asks this question, so crediting whoever got
             # here first would misattribute it.
-            created_by=None,
-            scanner_type=scanner_type,
-            scanner_config=scanner_config,
-            model=model,
+            "created_by": None,
+            "scanner_type": scanner_type,
+            "scanner_config": scanner_config,
+            "model": model,
             # Nothing to sweep: no query, and disabled, which is what actually gates scheduling.
-            enabled=False,
-            sampling_rate=0.0,
-        )
-    except IntegrityError:
-        # A concurrent request for the same fingerprint won the unique index; share its scanner.
-        concurrent = find_inline_scanner(team=team, key=key)
-        if concurrent is None:
-            raise
-        return concurrent
+            "enabled": False,
+            "sampling_rate": 0.0,
+        },
+    )
+    return scanner

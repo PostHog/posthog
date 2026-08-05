@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Any, NoReturn, cast
 
 from django.db import IntegrityError
@@ -696,6 +697,20 @@ class ObserveResponseSerializer(serializers.Serializer):
 BULK_OBSERVE_MAX_SESSIONS = 200
 
 
+@dataclass(frozen=True, kw_only=True)
+class _Headroom:
+    """What `_scan_headroom` worked out, kept together so a request computes it once.
+
+    Keyword-only because `team_rows` and `scanner_rows` are both counts of in-flight observations, and
+    swapping them would silently loosen one of the two caps.
+    """
+
+    max_starts: int
+    skip_reason: str
+    team_rows: int
+    scanner_rows: int
+
+
 class BulkObserveRequestSerializer(serializers.Serializer):
     """Body of POST /vision/scanners/{id}/bulk_observe/."""
 
@@ -1303,7 +1318,13 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         session_ids = list(dict.fromkeys(body.validated_data["session_ids"]))
         user = cast(User, request.user)
 
-        started, results = self._start_observations(scanner, session_ids, user)
+        started, results = self._start_observations(
+            scanner,
+            session_ids,
+            user,
+            headroom=self._scan_headroom(model=scanner.model, scanner=scanner),
+            finished=self._finished_sessions(scanner, session_ids),
+        )
 
         report_user_action(
             user,
@@ -1362,19 +1383,19 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
         key = inline_scan_key(scanner_type=scanner_type, scanner_config=scanner_config, model=model)
         scanner = find_inline_scanner(team=self.team, key=key)
+        headroom = self._scan_headroom(model=model, scanner=scanner)
         if scanner is None:
             # Mint only once something can actually start, so an org with no headroom doesn't leave a
             # scanner behind for every question it was unable to answer.
-            headroom, skip_reason = self._inline_scan_headroom(model)
-            if headroom <= 0:
-                if skip_reason == "skipped_quota":
+            if headroom.max_starts <= 0:
+                if headroom.skip_reason == "skipped_quota":
                     self._report_quota_exhausted(None, "inline")
                 return Response(
                     InlineScanResponseSerializer(
                         {
                             "scan_id": None,
                             "started": 0,
-                            "results": [{"session_id": s, "scan_outcome": skip_reason} for s in session_ids],
+                            "results": [{"session_id": s, "scan_outcome": headroom.skip_reason} for s in session_ids],
                         }
                     ).data,
                     status=status.HTTP_202_ACCEPTED,
@@ -1386,8 +1407,12 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 scanner_config=scanner_config,
                 model=model,
             )
+            # A scanner that did not exist a statement ago has no observations to have settled.
+            finished: frozenset[str] = frozenset()
+        else:
+            finished = self._finished_sessions(scanner, session_ids)
 
-        started, results = self._start_observations(scanner, session_ids, user)
+        started, results = self._start_observations(scanner, session_ids, user, headroom=headroom, finished=finished)
 
         report_user_action(
             user,
@@ -1409,26 +1434,38 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             status=status.HTTP_202_ACCEPTED,
         )
 
-    def _start_observations(
-        self, scanner: ReplayScanner, session_ids: list[str], user: User
-    ) -> tuple[int, list[dict[str, str]]]:
-        """Start a scan per session, as many as fit. Returns (started, per-session outcomes).
+    def _finished_sessions(self, scanner: ReplayScanner, session_ids: list[str]) -> frozenset[str]:
+        """Sessions this scanner already settled on.
 
-        "Scan what fits": compute how many NEW scans can start once, up front. The tighter of the
-        in-flight caps and the remaining monthly quota bounds it; the loser names the skip reason so
-        the user knows which limit they hit. Decrementing a local counter as we start models each new
-        in-flight row without re-querying (a started scan consumes exactly one slot).
+        A terminal observation makes (scanner, session) permanently taken, so starting a workflow for one
+        would burn a run only to lose the INSERT and hand back the row we can already see.
         """
-        # A terminal observation makes (scanner, session) permanently taken, so starting a workflow for
-        # one would burn a run only to lose the INSERT and return the row we can already see.
-        finished = set(
+        return frozenset(
             ReplayObservation.objects.filter(
                 scanner_id=scanner.id,
                 session_id__in=session_ids,
                 status__in=TERMINAL_STATUSES,
             ).values_list("session_id", flat=True)
         )
-        max_starts, skip_reason, team_rows, scanner_rows = self._bulk_observe_headroom(scanner)
+
+    def _start_observations(
+        self,
+        scanner: ReplayScanner,
+        session_ids: list[str],
+        user: User,
+        *,
+        headroom: _Headroom,
+        finished: frozenset[str],
+    ) -> tuple[int, list[dict[str, str]]]:
+        """Start a scan per session, as many as fit. Returns (started, per-session outcomes).
+
+        "Scan what fits": the caller works out how many NEW scans can start once, up front, and passes it
+        in so one request takes the quota snapshot once. The tighter of the in-flight caps and the
+        remaining monthly quota bounds it; the loser names the skip reason so the user knows which limit
+        they hit. Decrementing a local counter as we start models each new in-flight row without
+        re-querying (a started scan consumes exactly one slot).
+        """
+        max_starts, skip_reason = headroom.max_starts, headroom.skip_reason
         results: list[dict[str, str]] = []
         started = 0
         for session_id in session_ids:
@@ -1445,8 +1482,8 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 trigger=ObservationTrigger.ON_DEMAND,
                 # Row counts are this request's snapshot; the atomic claim inside makes racing
                 # requests visible to each other, which the snapshot alone cannot.
-                team_in_flight_rows=team_rows,
-                scanner_in_flight_rows=scanner_rows,
+                team_in_flight_rows=headroom.team_rows,
+                scanner_in_flight_rows=headroom.scanner_rows,
             )
             if outcome is WorkflowStartOutcome.STARTED:
                 started += 1
@@ -1480,49 +1517,47 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             request=self.request,
         )
 
-    def _inline_scan_headroom(self, model: str) -> tuple[int, str]:
-        """(max_starts, skip_reason) for a config that has no scanner yet.
+    def _scan_headroom(self, *, model: str, scanner: ReplayScanner | None) -> _Headroom:
+        """How many new scans can start, the reason once that's used up, and the row counts the
+        per-start slot claims reuse.
 
-        Same limits as `_bulk_observe_headroom` minus the per-scanner ones, which are zero by definition
-        for a scanner that doesn't exist. Answers "is it worth minting one?" without minting one.
+        `scanner=None` asks the same question for a config that has no scanner yet, so an inline scan can
+        decide whether minting one is worth it. The per-scanner terms are zero by definition there, which
+        is also why the caller can pass the answer straight into `_start_observations`.
         """
         team_in_flight = ReplayObservation.in_flight_for_team(self.team_id).count()
+        scanner_in_flight = 0
+        scanner_claims = 0
+        if scanner is not None:
+            scanner_in_flight = ReplayObservation.in_flight_for_team(self.team_id).filter(scanner_id=scanner.id).count()
+            scanner_claims = pending_enqueue_claims_for_scanner(scanner.id)
+        # Enqueued-but-not-yet-persisted scans hold claims instead of rows.
         in_flight_limit = max(
             0,
             min(
-                MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
+                MAX_IN_FLIGHT_APPLIES_PER_SCANNER - scanner_in_flight - scanner_claims,
                 MAX_IN_FLIGHT_APPLIES_PER_TEAM - team_in_flight - pending_enqueue_claims_for_team(self.team_id),
             ),
         )
         snapshot = compute_quota_snapshot(self.team.organization_id)
         cost = observation_credits_for_model(model)
-        quota_limit = in_flight_limit if snapshot.remaining is None or cost <= 0 else snapshot.remaining // cost
-        if quota_limit < in_flight_limit:
-            return quota_limit, "skipped_quota"
-        return in_flight_limit, "skipped_limit"
-
-    def _bulk_observe_headroom(self, scanner: ReplayScanner) -> tuple[int, str, int, int]:
-        """(max_starts, skip_reason, team_rows, scanner_rows): how many new scans can start, the
-        reason once that's used up, and the row counts reused by the per-start slot claims."""
-        team_in_flight = ReplayObservation.in_flight_for_team(self.team_id).count()
-        scanner_in_flight = ReplayObservation.in_flight_for_team(self.team_id).filter(scanner_id=scanner.id).count()
-        # Enqueued-but-not-yet-persisted scans hold claims instead of rows.
-        in_flight_limit = max(
-            0,
-            min(
-                MAX_IN_FLIGHT_APPLIES_PER_SCANNER - scanner_in_flight - pending_enqueue_claims_for_scanner(scanner.id),
-                MAX_IN_FLIGHT_APPLIES_PER_TEAM - team_in_flight - pending_enqueue_claims_for_team(self.team_id),
-            ),
-        )
-        snapshot = compute_quota_snapshot(self.team.organization_id)
-        cost = observation_credits_for_model(scanner.model)
         # Uncapped org, or a free model that spends nothing: quota can't bind. Otherwise, how many of
         # THIS model's cost fit.
         quota_limit = in_flight_limit if snapshot.remaining is None or cost <= 0 else snapshot.remaining // cost
         # Report quota as the reason only when it's the strictly tighter limit.
         if quota_limit < in_flight_limit:
-            return quota_limit, "skipped_quota", team_in_flight, scanner_in_flight
-        return in_flight_limit, "skipped_limit", team_in_flight, scanner_in_flight
+            return _Headroom(
+                max_starts=quota_limit,
+                skip_reason="skipped_quota",
+                team_rows=team_in_flight,
+                scanner_rows=scanner_in_flight,
+            )
+        return _Headroom(
+            max_starts=in_flight_limit,
+            skip_reason="skipped_limit",
+            team_rows=team_in_flight,
+            scanner_rows=scanner_in_flight,
+        )
 
     @extend_schema(parameters=[ScannerImpactQuerySerializer], responses={200: ScannerImpactSerializer})
     @action(

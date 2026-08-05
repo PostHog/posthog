@@ -64,29 +64,23 @@ def initial_watermark() -> "datetime":
     return timezone.now() - SETTLE_INTERVAL
 
 
-class ReplayScannerQuerySet(models.QuerySet):
-    def configured(self) -> "ReplayScannerQuerySet":
-        """Only the scanners a team actually saved."""
-        return self.filter(origin=ScannerOrigin.CONFIGURED)
-
-
-class ReplayScannerManager(models.Manager.from_queryset(ReplayScannerQuerySet)):  # type: ignore[misc]
+class ReplayScannerManager(models.Manager["ReplayScanner"]):
     """Fail-closed: `objects` is configured-only, so a new call site can't leak inline scanners.
 
-    Anything that presents, counts, edits, or sweeps a team's scanners wants exactly this. Use
-    `ReplayScanner.all_origins` only to resolve a scanner by id or to read observations back, and
-    expect to justify it — those are the two places an inline scanner is legitimately visible.
+    Anything that presents, counts, edits, or sweeps a team's scanners wants exactly this. Reading
+    observations back is the one thing that doesn't; go through `scanner_access` for that rather than
+    naming `all_origins` yourself.
     """
 
-    def get_queryset(self) -> ReplayScannerQuerySet:
-        return super().get_queryset().configured()
+    def get_queryset(self) -> "models.QuerySet[ReplayScanner]":
+        return super().get_queryset().filter(origin=ScannerOrigin.CONFIGURED)
 
 
 class ReplayScanner(UUIDModel):
     """A configured probe that gets applied to completed session recordings (see README)."""
 
     objects = ReplayScannerManager()
-    all_origins = models.Manager.from_queryset(ReplayScannerQuerySet)()
+    all_origins = models.Manager()
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     name = models.CharField(
