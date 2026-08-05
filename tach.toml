@@ -524,7 +524,7 @@ layer = "modules"
 
 [[interfaces]]
 expose = [
-    "backend\\.facade.*",
+    "backend\\.facade\\.api.*",
     "backend\\.presentation\\.api.*",
 ]
 from = [
