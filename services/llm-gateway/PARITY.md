@@ -50,7 +50,7 @@ These are compatibility checks, not automatic blockers:
 
 - **Model:** it appears in `GET /v1/models` and supports the requested API shape and capabilities.
 - **Credential:** Go accepts the credential type and projects the correct team, scope, and revocation state.
-- **Billing:** identify which team owns the Go credential and should pay. Internal workloads can debit a PostHog-owned team wallet so spend stays attributable without charging a customer.
+- **Billing:** identify which team owns the Go credential and should pay, then confirm its wallet is funded for the expected usage. Internal workloads can debit a PostHog-owned team wallet so spend stays attributable without charging a customer.
 - **Attribution:** `X-PostHog-Distinct-Id`, `X-PostHog-Trace-Id`, and `X-PostHog-Properties` provide enough event context. Go does not derive the event distinct ID from OpenAI `user`, Anthropic `metadata.user_id`, or the OAuth user. Caller-supplied properties are not trusted policy.
 - **Provider behavior:** health-based routing or strict `X-PostHog-Provider` pinning matches the caller's fallback requirements.
 - **Wire behavior:** request fields, streaming chunks, errors, timeouts, and retries match what the caller handles.

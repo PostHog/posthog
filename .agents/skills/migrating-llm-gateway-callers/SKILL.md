@@ -51,7 +51,9 @@ Read [migration examples](references/migration-examples.md) for verified PRs cov
 
 For sandbox callers, follow the existing `SANDBOX_AI_GATEWAY_URL` and product rollout patterns rather than inventing another environment contract.
 
-If the target process does not have a Go credential, create a `phs_` project secret for the intended paying team in the PostHog dashboard, grant `llm_gateway:read`, and wire it through the existing deployment secret mechanism. Credential creation is normal migration work, not a parity exception.
+For internal products, check with the AI gateway team before adding deployment variables or secrets so existing shared configuration can be reused.
+
+If the target process does not have a Go credential, enable the `ai-gateway` feature flag for the intended paying team, then create a `phs_` project secret in the PostHog dashboard with `llm_gateway:read` and wire it through the existing deployment secret mechanism. Credential creation is normal migration work, not a parity exception.
 
 ## Update tests and docs
 
