@@ -1238,6 +1238,30 @@ class TestPostgresSourceRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Server-shutting-down error should not be non-retryable: {error_msg}"
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # SQLSTATE 53300: the source (or a pooler in front of it) refuses a new connection
+            # because only the superuser-reserved slots remain. `_connect_with_dropped_retry`
+            # already retries this in-process on the read/sync connect path; this is the
+            # whole-activity-retry fallback for when a sustained shortage outlasts that budget.
+            'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+            "FATAL:  remaining connection slots are reserved for roles with the SUPERUSER attribute",
+            "sorry, too many clients already",
+            "too many connections for role",
+        ],
+    )
+    def test_connection_limit_is_classified_retryable(self, source, error_msg):
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg.lower() for pattern in retryable)
+        assert is_retryable, f"Connection-limit error should be classified retryable: {error_msg}"
+
+    def test_connection_limit_is_not_also_non_retryable(self, source):
+        error_msg = "remaining connection slots are reserved for roles with the SUPERUSER attribute"
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Connection-limit error should not be non-retryable: {error_msg}"
+
 
 def _raise_eof() -> None:
     # Indirection so the `yield` below stays reachable under mypy's warn_unreachable — at runtime
