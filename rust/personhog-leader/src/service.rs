@@ -911,6 +911,11 @@ impl PersonHogLeader for PersonHogLeaderService {
                         "sealed_version is required for a committed release",
                     ));
                 }
+                if req.created_at <= 0 {
+                    return Err(Status::invalid_argument(
+                        "created_at is required for a committed release",
+                    ));
+                }
                 if Uuid::parse_str(&req.person_uuid).is_err() {
                     return Err(Status::invalid_argument(
                         "person_uuid must be a valid UUID for a committed release",
@@ -938,6 +943,19 @@ impl PersonHogLeader for PersonHogLeaderService {
                 if current.as_ref().is_some_and(|p| p.is_deleted) {
                     self.fences.remove(&cache_key);
                     return Ok(Response::new(ReleaseFenceResponse {}));
+                }
+
+                // The death document's identity comes from the request (a
+                // cold leader has nothing else), so when the leader DOES
+                // hold the person, the request must agree with it — the
+                // writer upserts uuid verbatim, and a mismatched request
+                // would rewrite the row's identity on its way out.
+                if let Some(person) = &current {
+                    if person.uuid != req.person_uuid {
+                        return Err(Status::failed_precondition(
+                            "person_uuid does not match the person being released",
+                        ));
+                    }
                 }
 
                 // The mark row — the fence's source of truth — must vouch
@@ -999,13 +1017,18 @@ impl PersonHogLeader for PersonHogLeaderService {
                     .map(|p| p.version)
                     .unwrap_or(0)
                     .max(req.sealed_version);
+                let death_version = base_version.checked_add(1).ok_or_else(|| {
+                    Status::invalid_argument("sealed_version leaves no room for the death version")
+                })?;
                 let death = CachedPerson {
                     id: req.person_id,
                     uuid: req.person_uuid.clone(),
                     team_id: req.team_id,
                     properties: serde_json::Value::Object(serde_json::Map::new()),
-                    created_at: current.as_ref().map(|p| p.created_at).unwrap_or(0),
-                    version: base_version + 1,
+                    // The sealed value, not the cached one: cold and warm
+                    // leaders must produce the same document.
+                    created_at: req.created_at,
+                    version: death_version,
                     is_identified: false,
                     is_deleted: true,
                 };

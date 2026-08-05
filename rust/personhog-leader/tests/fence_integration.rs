@@ -264,6 +264,7 @@ async fn fencing_seals_and_blocks_writes_until_an_aborted_release() {
                 op_id: op.to_string(),
                 outcome: ReleaseOutcome::Aborted.into(),
                 sealed_version: 0,
+                created_at: 0,
             },
             partition,
         ))
@@ -354,6 +355,7 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
                 op_id: op.to_string(),
                 outcome: ReleaseOutcome::Committed.into(),
                 sealed_version,
+                created_at: sealed.created_at,
             },
             partition,
         ))
@@ -369,6 +371,10 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
         "death version outranks the slipped write, not just the seal"
     );
     assert_eq!(death.uuid, person_uuid);
+    assert_eq!(
+        death.created_at, sealed.created_at,
+        "the death document carries the sealed creation time, not a cold-path zero"
+    );
     assert_eq!(
         serde_json::from_slice::<serde_json::Value>(&death.properties).unwrap(),
         serde_json::json!({}),
@@ -404,6 +410,7 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
                 op_id: op.to_string(),
                 outcome: ReleaseOutcome::Committed.into(),
                 sealed_version,
+                created_at: sealed.created_at,
             },
             partition,
         ))
@@ -459,6 +466,7 @@ async fn a_committed_release_without_a_live_mark_is_refused() {
                 op_id: op.to_string(),
                 outcome: ReleaseOutcome::Committed.into(),
                 sealed_version: sealed.version,
+                created_at: sealed.created_at,
             },
             partition,
         ))

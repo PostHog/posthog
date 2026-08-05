@@ -76,6 +76,7 @@ impl HarnessClient {
                 op_id: op_id.to_string(),
                 outcome: ReleaseOutcome::Aborted.into(),
                 sealed_version: 0,
+                created_at: 0,
             })
             .await
             .context("ReleaseFence failed")?;
