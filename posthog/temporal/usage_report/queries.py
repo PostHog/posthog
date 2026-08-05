@@ -59,6 +59,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_apm_tracing_usage_in_period,
     get_teams_with_billable_enhanced_persons_event_count_in_period,
     get_teams_with_billable_event_count_in_period,
+    get_teams_with_billable_sandbox_compute_usage_in_period,
     get_teams_with_cdp_billable_invocations_in_period,
     get_teams_with_dwh_mat_views_storage_in_s3,
     get_teams_with_dwh_tables_storage_in_s3,
@@ -213,6 +214,15 @@ def _task_sandbox_usage(begin: datetime, end: datetime) -> dict[str, list[tuple[
         "seconds": usage.seconds,
         "cpu_core_seconds": usage.cpu_core_seconds,
         "memory_gib_seconds": usage.memory_gib_seconds,
+    }
+
+
+def _sandbox_compute_usage(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
+    usage = get_teams_with_billable_sandbox_compute_usage_in_period(begin, end)
+    return {
+        "credits": usage.credits,
+        "cpu_millicore_seconds": usage.cpu_millicore_seconds,
+        "memory_mib_seconds": usage.memory_mib_seconds,
     }
 
 
@@ -486,6 +496,16 @@ QUERIES: list[QuerySpec] = [
             "seconds": "teams_with_task_sandbox_seconds_in_period",
             "cpu_core_seconds": "teams_with_task_sandbox_cpu_core_seconds_in_period",
             "memory_gib_seconds": "teams_with_task_sandbox_memory_gib_seconds_in_period",
+        },
+    ),
+    QuerySpec(
+        name="sandbox_compute_usage",
+        fn=_sandbox_compute_usage,
+        output="multi",
+        multi_keys_mapping={
+            "credits": "teams_with_sandbox_compute_credits_used_in_period",
+            "cpu_millicore_seconds": "teams_with_sandbox_compute_cpu_millicore_seconds_in_period",
+            "memory_mib_seconds": "teams_with_sandbox_compute_memory_mib_seconds_in_period",
         },
     ),
     # ---- ClickHouse: workflows / messaging ----------------------------------
