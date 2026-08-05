@@ -1,4 +1,4 @@
-import { type Segment, parseCitedSegments } from './citations'
+import { type Segment, citedTextToPlainText, parseCitedSegments } from './citations'
 
 describe('parseCitedSegments', () => {
     const text = (value: string): Segment => ({ kind: 'text', value })
@@ -37,5 +37,40 @@ describe('parseCitedSegments', () => {
         },
     ])('$name', ({ text: inputText, segments, expected }) => {
         expect(parseCitedSegments(inputText, segments)).toEqual(expected)
+    })
+})
+
+describe('citedTextToPlainText', () => {
+    it.each<{ name: string; text: string; segments: unknown; expected: string }>([
+        {
+            name: 'renders a leaked marker as a readable timestamp',
+            text: 'The user retried (t 12) twice.',
+            segments: undefined,
+            expected: 'The user retried (00:12) twice.',
+        },
+        {
+            name: 'splits comma-joined markers into one timestamp each',
+            text: 'Clicked twice (t 39, t 57) before it responded',
+            segments: [],
+            expected: 'Clicked twice (00:39) (00:57) before it responded',
+        },
+        {
+            name: 'serializes persisted chip segments',
+            text: 'ignored when segments exist',
+            segments: [
+                { kind: 'text', value: 'Abandoned the cart' },
+                { kind: 'chip', timestamp_ms: 161_000 },
+                { kind: 'text', value: ' and left.' },
+            ],
+            expected: 'Abandoned the cart (02:41) and left.',
+        },
+        {
+            name: 'keeps text without citations untouched',
+            text: 'No citations here.',
+            segments: [],
+            expected: 'No citations here.',
+        },
+    ])('$name', ({ text, segments, expected }) => {
+        expect(citedTextToPlainText(text, segments)).toBe(expected)
     })
 })

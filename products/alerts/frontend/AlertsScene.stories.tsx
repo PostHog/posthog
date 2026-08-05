@@ -215,3 +215,16 @@ export const LogAlerts: Story = {
         }),
     ],
 }
+
+export const EmptyLogAlerts: Story = {
+    parameters: {
+        pageUrl: `${urls.alerts()}?alert_type=logs`,
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/logs/alerts/': EMPTY_PAGINATED_RESPONSE,
+            },
+        }),
+    ],
+}

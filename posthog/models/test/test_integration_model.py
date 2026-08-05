@@ -3,8 +3,8 @@ import time
 import base64
 import hashlib
 from datetime import UTC, datetime, timedelta
-from typing import Optional
-from urllib.parse import parse_qs
+from typing import Optional, cast
+from urllib.parse import parse_qs, urlencode
 
 import pytest
 from freezegun import freeze_time
@@ -28,10 +28,14 @@ from posthog.egress.github.transport import (
     raise_if_github_rate_limited,
 )
 from posthog.egress.limiter.policies import Priority
+from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import GITHUB_BRANCH_CACHE_TTL_SECONDS, GITHUB_REPOSITORY_CACHE_TTL_SECONDS
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import (
+    CONFIG_LEGACY_OAUTH_CLIENT,
     MISSING_CERT_PATH,
+    POSTHOG_CONNECT_DEFAULT_SCOPES,
+    POSTHOG_CONNECT_IDENTITY_SCOPES,
     TLS,
     Authority,
     AwsS3Integration,
@@ -53,9 +57,11 @@ from posthog.models.integration import (
     SlackIntegration,
     SnowflakeIntegration,
     SnowflakeIntegrationError,
+    UndecryptedIntegrationSecretError,
     invalidate_github_repository_caches_for_installation,
     oauth_refresh_failure_reason,
     oauth_refresh_terminal_counter,
+    refresh_backoff_active,
 )
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -123,6 +129,39 @@ class TestIntegrationModel(BaseTest):
                     get_db_field_value("sensitive_config", integration.id)
                     == '{"id_token": null, "refresh_token": "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAHlWz9QOMnXDvmix-z5lNG4v0VcO9lGWejmcE_BXHXPZ1wNkb-38JupntWbshBrfFQ=="}'
                 )
+
+    @parameterized.expand([("access_token",), ("refresh_token",)])
+    def test_oauth_token_property_raises_if_still_encrypted(self, field_name: str) -> None:
+        # `sensitive_config` uses `ignore_decrypt_errors=True`, so a value that fails to decrypt
+        # under every configured key comes back as raw Fernet ciphertext instead of raising. If the
+        # `access_token`/`refresh_token` properties didn't check for that, this ciphertext would
+        # get sent straight to the third-party API as the live credential.
+        integration = Integration(team=self.team, kind="stripe", sensitive_config={field_name: "gAAAAABleftover=="})
+        with pytest.raises(UndecryptedIntegrationSecretError):
+            getattr(integration, field_name)
+
+    @parameterized.expand([("access_token",), ("refresh_token",)])
+    def test_oauth_token_property_passes_through_decrypted_value(self, field_name: str) -> None:
+        integration = Integration(team=self.team, kind="stripe", sensitive_config={field_name: "a-real-token"})
+        assert getattr(integration, field_name) == "a-real-token"
+
+    @parameterized.expand([("access_token",), ("refresh_token",)])
+    def test_oauth_token_property_recovers_an_over_encrypted_value(self, field_name: str) -> None:
+        # Saving an integration whose secret failed to decrypt re-encrypts the ciphertext, so the
+        # stored value ends up with an extra layer and one decrypt still leaves ciphertext behind.
+        # The secret is intact underneath, so the connection must keep working.
+        integration = self.create_integration("stripe", sensitive_config={field_name: "a-real-token"})
+        field = cast(EncryptedJSONField, Integration._meta.get_field("sensitive_config"))  # type: ignore[misc]
+        stored = json.loads(get_db_field_value("sensitive_config", integration.id))
+        update_db_field_value(
+            "sensitive_config",
+            integration.id,
+            json.dumps({**stored, field_name: field.encrypt(stored[field_name])}),
+        )
+
+        integration.refresh_from_db()
+
+        assert getattr(integration, field_name) == "a-real-token"
 
     def test_slack_integration_config(self):
         set_instance_setting("SLACK_APP_CLIENT_ID", None)
@@ -231,6 +270,21 @@ class TestOauthIntegrationModel(BaseTest):
                 "code_challenge": params["code_challenge"],
                 "code_challenge_method": "S256",
             }
+
+    def test_authorize_url_carries_initiating_team_id_in_state(self):
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url(
+                "salesforce", token="state_token", next="/projects/test", team_id=228502
+            )
+            params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+            state = {k: v[0] for k, v in parse_qs(params["state"]).items()}
+            assert state["team_id"] == "228502"
+
+    def test_authorize_url_omits_team_id_when_not_provided(self):
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url("salesforce", token="state_token", next="/projects/test")
+            params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+            assert "team_id" not in parse_qs(params["state"])
 
     def test_authorize_url_pkce_challenge_matches_cached_verifier(self):
         with self.settings(**self.mock_settings):
@@ -599,6 +653,41 @@ class TestOauthIntegrationModel(BaseTest):
 
         mock_reload.assert_not_called()
 
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_failed_refresh_leaves_stored_secrets_byte_identical(self, mock_post, mock_reload):
+        # A failed refresh has no new secrets to store, and rewriting the ones already there is how
+        # a secret that couldn't be decrypted (handed back as raw ciphertext by
+        # `ignore_decrypt_errors`) gains a permanent extra encryption layer.
+        mock_post.return_value.status_code = 401
+        mock_post.return_value.json.return_value = {"error": "BROKEN"}
+
+        integration = self.create_integration(kind="hubspot", config={"expires_in": 1000})
+        stored_before = get_db_field_value("sensitive_config", integration.id)
+
+        with self.settings(**self.mock_settings):
+            OauthIntegration(integration).refresh_access_token()
+
+        assert get_db_field_value("sensitive_config", integration.id) == stored_before
+        assert integration.errors == "TOKEN_REFRESH_FAILED"
+
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_with_unreadable_secret_goes_terminal_without_calling_the_provider(self, mock_post):
+        # Posting ciphertext as the refresh token just earns an invalid_grant every minute forever.
+        # Nothing about the stored secret can change, so the sweep must stop and the reconnect
+        # prompt must show instead.
+        integration = self.create_integration(kind="hubspot", sensitive_config={"refresh_token": "gAAAAAleftover=="})
+
+        with self.settings(**self.mock_settings):
+            OauthIntegration(integration).refresh_access_token()
+
+        mock_post.assert_not_called()
+        assert integration.errors == "TOKEN_REFRESH_FAILED"
+        assert refresh_backoff_active(integration) is True
+
+        integration.refresh_from_db()
+        assert integration.config["refresh_terminal"] is True
+
     def _mock_token_response(self, status_code: int, token: Optional[str]) -> MagicMock:
         response = MagicMock()
         response.status_code = status_code
@@ -608,21 +697,34 @@ class TestOauthIntegrationModel(BaseTest):
 
     @parameterized.expand(
         [
-            # Primary works: the fallback must not fire, even when configured.
-            ("primary_ok", True, [(200, "primary-token")], "primary-token", "", 1),
-            # A token issued by the previous app only refreshes with the fallback pair.
-            ("fallback_rescues", True, [(401, None), (200, "fallback-token")], "fallback-token", "", 2),
+            # Primary works: the fallback must not fire, even when configured, and the grant is no
+            # longer tied to the legacy app - so the reconnect prompt must stop showing.
+            ("primary_ok", True, [(200, "primary-token")], "primary-token", "", 1, True, False),
+            # A token issued by the previous app only refreshes with the fallback pair. Flagging it
+            # is what identifies the connections that break when the legacy app is retired.
+            ("fallback_rescues", True, [(401, None), (200, "fallback-token")], "fallback-token", "", 2, False, True),
             # Both credentials failing still marks the integration errored so the reconnect banner shows.
-            ("both_fail", True, [(401, None), (401, None)], None, "TOKEN_REFRESH_FAILED", 2),
+            ("both_fail", True, [(401, None), (401, None)], None, "TOKEN_REFRESH_FAILED", 2, True, True),
             # Without a fallback configured, behavior is identical to before: a single attempt, no retry.
-            ("no_fallback_no_retry", False, [(401, None)], None, "TOKEN_REFRESH_FAILED", 1),
+            ("no_fallback_no_retry", False, [(401, None)], None, "TOKEN_REFRESH_FAILED", 1, False, False),
         ]
     )
     def test_refresh_falls_back_to_previous_credentials(
-        self, _name, has_fallback, responses, expected_token, expected_errors, expected_calls
+        self,
+        _name,
+        has_fallback,
+        responses,
+        expected_token,
+        expected_errors,
+        expected_calls,
+        initial_legacy_flag,
+        expected_legacy_flag,
     ):
         fallbacks = {"bing-ads": {"client_id": "old-app-id", "client_secret": "old-app-secret"}} if has_fallback else {}
-        integration = self.create_integration(kind="bing-ads", config={"expires_in": 1000})
+        config = {"expires_in": 1000}
+        if initial_legacy_flag:
+            config[CONFIG_LEGACY_OAUTH_CLIENT] = True
+        integration = self.create_integration(kind="bing-ads", config=config)
 
         with (
             self.settings(
@@ -641,6 +743,7 @@ class TestOauthIntegrationModel(BaseTest):
         integration.refresh_from_db()
         assert mock_post.call_count == expected_calls
         assert integration.errors == expected_errors
+        assert integration.config.get(CONFIG_LEGACY_OAUTH_CLIENT, False) == expected_legacy_flag
         if expected_token is not None:
             assert integration.sensitive_config["access_token"] == expected_token
 
@@ -1201,6 +1304,148 @@ class TestOauthIntegrationModel(BaseTest):
         assert "is_sandbox" not in integration.config
 
 
+class TestPosthogConnectIntegration(BaseTest):
+    connect_settings = {
+        "POSTHOG_CONNECT_BASE_URL_US": "https://us.posthog.com",
+        "POSTHOG_CONNECT_OAUTH_CLIENT_ID_US": "us-client-id",
+        "POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_US": "us-secret",
+        "POSTHOG_CONNECT_BASE_URL_EU": "https://eu.posthog.com",
+        "POSTHOG_CONNECT_OAUTH_CLIENT_ID_EU": "eu-client-id",
+        "POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_EU": "eu-secret",
+        "POSTHOG_CONNECT_BASE_URL_DEV": "http://localhost:8000",
+        "POSTHOG_CONNECT_OAUTH_CLIENT_ID_DEV": "dev-client-id",
+        "POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_DEV": "dev-secret",
+    }
+
+    @parameterized.expand(
+        [
+            ("US", "https://us.posthog.com/oauth/authorize", "us-client-id"),
+            ("EU", "https://eu.posthog.com/oauth/authorize", "eu-client-id"),
+            ("DEV", "http://localhost:8000/oauth/authorize", "dev-client-id"),
+        ]
+    )
+    def test_authorize_url_targets_selected_region(self, region, expected_base, expected_client_id):
+        with self.settings(**self.connect_settings):
+            url = OauthIntegration.authorize_url(
+                "posthog", token="tok", next="/projects/test", region=region, scopes=["task:read", "task:write"]
+            )
+            base, _, query = url.partition("?")
+            params = {k: v[0] for k, v in parse_qs(query).items()}
+            assert base == expected_base
+            assert params["client_id"] == expected_client_id
+            # User-selected scopes plus the always-appended identity scopes needed for /oauth/userinfo.
+            assert params["scope"] == "task:read task:write openid email"
+            # Host comes from SITE_URL, which differs by environment; assert the stable callback suffix.
+            assert params["redirect_uri"].endswith("/integrations/posthog/callback")
+            # posthog uses PKCE
+            assert params["code_challenge_method"] == "S256"
+            # Region is carried in state so the callback (on the connecting cell) exchanges the code
+            # against the correct target cell.
+            state = {k: v[0] for k, v in parse_qs(params["state"]).items()}
+            assert state["region"] == region
+            assert state["token"] == "tok"
+
+    def test_authorize_url_lowercases_region_input(self):
+        with self.settings(**self.connect_settings):
+            url = OauthIntegration.authorize_url("posthog", token="tok", region="eu", scopes=["task:read"])
+            assert url.startswith("https://eu.posthog.com/oauth/authorize")
+            outer = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+            state = {k: v[0] for k, v in parse_qs(outer["state"]).items()}
+            assert state["region"] == "EU"
+
+    def test_authorize_url_defaults_to_task_scopes_when_none_selected(self):
+        with self.settings(**self.connect_settings):
+            url = OauthIntegration.authorize_url("posthog", token="tok", region="US", scopes=None)
+            params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+            expected = " ".join([*POSTHOG_CONNECT_DEFAULT_SCOPES, *POSTHOG_CONNECT_IDENTITY_SCOPES])
+            assert params["scope"] == expected
+
+    def test_authorize_url_unknown_region_raises(self):
+        with self.settings(**self.connect_settings):
+            with pytest.raises(NotImplementedError):
+                OauthIntegration.authorize_url("posthog", token="tok", region="ASIA", scopes=["task:read"])
+
+    def test_authorize_url_unconfigured_region_raises(self):
+        unconfigured = {
+            **self.connect_settings,
+            "POSTHOG_CONNECT_OAUTH_CLIENT_ID_EU": "",
+            "POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_EU": "",
+        }
+        with self.settings(**unconfigured):
+            with pytest.raises(NotImplementedError):
+                OauthIntegration.authorize_url("posthog", token="tok", region="EU", scopes=["task:read"])
+
+    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.integration.requests.post")
+    def test_integration_from_oauth_response_persists_region_and_namespaces_id(self, mock_post, mock_get):
+        with self.settings(**self.connect_settings):
+            mock_post.return_value = MagicMock(status_code=200)
+            mock_post.return_value.json.return_value = {
+                "access_token": "AT",
+                "refresh_token": "RT",
+                "expires_in": 3600,
+                "scope": "task:read task:write openid email",
+            }
+            mock_get.return_value = MagicMock(status_code=200)
+            mock_get.return_value.json.return_value = {"sub": "user-uuid-123", "email": "person@posthog.com"}
+
+            # posthog is a PKCE flow; the authorize step caches a verifier keyed on the state token.
+            cache.set("oauth_pkce_verifier/tok", "the-verifier")
+            state = urlencode({"next": "/", "token": "tok", "region": "EU"})
+            integration = OauthIntegration.integration_from_oauth_response(
+                "posthog", self.team.id, self.user, {"code": "auth-code", "state": state}
+            )
+
+            # Token exchange must hit the region carried in state.
+            assert mock_post.call_args[0][0] == "https://eu.posthog.com/oauth/token"
+            assert integration.kind == "posthog"
+            assert integration.config["region"] == "EU"
+            # Dedup key is namespaced by region so the same account in two cells doesn't collide.
+            assert integration.integration_id == "EU:user-uuid-123"
+            assert integration.config["email"] == "person@posthog.com"
+            # Only the resource scopes are persisted (identity scopes dropped), for the caller-scope check.
+            assert integration.config["granted_scopes"] == ["task:read", "task:write"]
+            assert integration.sensitive_config["access_token"] == "AT"
+            assert integration.sensitive_config["refresh_token"] == "RT"
+
+    @patch("posthog.models.integration.requests.post")
+    def test_integration_from_oauth_response_fails_closed_without_pkce_verifier(self, mock_post):
+        # No cached verifier (as if the authorize step was skipped / replayed). A first-party posthog
+        # flow must fail closed rather than exchange the code without PKCE.
+        with self.settings(**self.connect_settings):
+            cache.delete("oauth_pkce_verifier/tok")
+            state = urlencode({"next": "/", "token": "tok", "region": "EU"})
+            with pytest.raises(ValidationError):
+                OauthIntegration.integration_from_oauth_response(
+                    "posthog", self.team.id, self.user, {"code": "auth-code", "state": state}
+                )
+            mock_post.assert_not_called()
+
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_access_token_uses_persisted_region(self, mock_post):
+        with self.settings(**self.connect_settings):
+            integration = Integration.objects.create(
+                team=self.team,
+                kind="posthog",
+                integration_id="EU:user-uuid-123",
+                config={"region": "EU", "refreshed_at": int(time.time()) - 4000, "expires_in": 3600},
+                sensitive_config={"refresh_token": "RT", "access_token": "OLD"},
+            )
+            mock_post.return_value = MagicMock(status_code=200)
+            mock_post.return_value.json.return_value = {
+                "access_token": "NEW",
+                "refresh_token": "RT2",
+                "expires_in": 3600,
+            }
+
+            OauthIntegration(integration).refresh_access_token()
+
+            # Refresh must target the persisted region's token endpoint, not a static one.
+            assert mock_post.call_args[0][0] == "https://eu.posthog.com/oauth/token"
+            integration.refresh_from_db()
+            assert integration.sensitive_config["access_token"] == "NEW"
+
+
 class TestGoogleCloudIntegrationModel(BaseTest):
     mock_keyfile = {
         "type": "service_account",
@@ -1508,6 +1753,190 @@ class TestGitHubIntegrationModel(BaseTest):
         github = GitHubIntegration(integration)
         with patch.object(github, "_installation_authenticated_get", return_value=None):
             assert github.get_open_pr_base_for_head("PostHog/posthog", "posthog-code/fix") is None
+
+    def test_get_pull_request_comments_merges_conversation_and_review_sorted(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+
+        def fake_get(url, **kwargs):
+            response = MagicMock(status_code=200)
+            if "/issues/" in url:
+                response.json.return_value = [
+                    {
+                        "id": 2,
+                        "user": {"login": "bob", "avatar_url": "https://a/bob.png"},
+                        "body": "second",
+                        "created_at": "2026-07-06T10:00:00Z",
+                        "html_url": "https://github.com/PostHog/posthog/pull/1#issuecomment-2",
+                    }
+                ]
+            else:  # /pulls/{n}/comments — review comments
+                response.json.return_value = [
+                    {
+                        "id": 1,
+                        "user": {"login": "alice", "avatar_url": "https://a/alice.png"},
+                        "body": "first",
+                        "created_at": "2026-07-06T09:00:00Z",
+                        "html_url": "https://github.com/PostHog/posthog/pull/1#discussion_r1",
+                        "path": "posthog/models.py",
+                    }
+                ]
+            return response
+
+        with patch.object(github, "_installation_authenticated_get", side_effect=fake_get):
+            result = github.get_pull_request_comments("PostHog/posthog", 1)
+
+        assert result["success"] is True
+        # Merged and sorted oldest-first across both sources; review comment carries its file path,
+        # conversation comment does not.
+        assert [(c["author"], c["comment_type"], c["path"]) for c in result["comments"]] == [
+            ("alice", "review", "posthog/models.py"),
+            ("bob", "conversation", None),
+        ]
+
+    def test_get_pull_request_comments_best_effort_when_one_source_fails(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+
+        def fake_get(url, **kwargs):
+            if "/issues/" in url:
+                return None  # conversation fetch fails
+            response = MagicMock(status_code=200)
+            response.json.return_value = [
+                {"id": 1, "user": {"login": "alice"}, "body": "x", "created_at": "2026-07-06T09:00:00Z"}
+            ]
+            return response
+
+        with patch.object(github, "_installation_authenticated_get", side_effect=fake_get):
+            result = github.get_pull_request_comments("PostHog/posthog", 1)
+
+        assert result["success"] is True
+        assert [c["author"] for c in result["comments"]] == ["alice"]
+
+    @parameterized.expand(
+        [
+            ("success", "success", ("completed", "success")),
+            ("failure", "failure", ("completed", "failure")),
+            ("error", "error", ("completed", "failure")),
+            ("pending", "pending", ("in_progress", None)),
+            ("unknown", None, ("in_progress", None)),
+        ]
+    )
+    def test_map_commit_status_state(self, _name, state, expected):
+        assert GitHubIntegration._map_commit_status_state(state) == expected
+
+    def test_get_pull_request_checks_merges_check_runs_and_statuses(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+
+        def fake_get(url, **kwargs):
+            response = MagicMock(status_code=200)
+            if "/check-runs" in url:
+                response.json.return_value = {
+                    "check_runs": [
+                        {
+                            "name": "unit",
+                            "status": "completed",
+                            "conclusion": "failure",
+                            "html_url": "https://github.com/checks/1",
+                        }
+                    ]
+                }
+            else:  # /status — legacy commit statuses
+                response.json.return_value = {
+                    "statuses": [{"context": "buildkite", "state": "success", "target_url": "https://bk/1"}]
+                }
+            return response
+
+        with (
+            patch.object(github, "get_pull_request", return_value={"success": True, "head_sha": "abc123f"}),
+            patch.object(github, "_installation_authenticated_get", side_effect=fake_get),
+        ):
+            result = github.get_pull_request_checks("PostHog/posthog", 1)
+
+        assert result["success"] is True
+        assert result["checks"] == [
+            {"name": "unit", "status": "completed", "conclusion": "failure", "url": "https://github.com/checks/1"},
+            {"name": "buildkite", "status": "completed", "conclusion": "success", "url": "https://bk/1"},
+        ]
+
+    def test_get_pull_request_checks_follows_pagination(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+
+        def fake_get(url, **kwargs):
+            response = MagicMock(status_code=200)
+            response.links = {}
+            if "/check-runs" not in url:
+                response.json.return_value = {"statuses": []}
+            elif "page=2" in url:
+                response.json.return_value = {
+                    "check_runs": [
+                        {
+                            "name": "second page",
+                            "status": "completed",
+                            "conclusion": "success",
+                        }
+                    ]
+                }
+            else:
+                response.json.return_value = {
+                    "check_runs": [
+                        {
+                            "name": "first page",
+                            "status": "completed",
+                            "conclusion": "success",
+                        }
+                    ]
+                }
+                response.links = {
+                    "next": {"url": "https://api.github.com/repos/PostHog/posthog/commits/abc123f/check-runs?page=2"}
+                }
+            return response
+
+        with (
+            patch.object(github, "get_pull_request", return_value={"success": True, "head_sha": "abc123f"}),
+            patch.object(github, "_installation_authenticated_get", side_effect=fake_get),
+        ):
+            result = github.get_pull_request_checks("PostHog/posthog", 1)
+
+        assert [check["name"] for check in result["checks"]] == ["first page", "second page"]
+
+    @parameterized.expand([("check_runs",), ("statuses",)])
+    def test_get_pull_request_checks_fails_when_later_page_is_unavailable(self, failing_source):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+
+        def fake_get(url, **kwargs):
+            source = "check_runs" if "/check-runs" in url else "statuses"
+            if source == failing_source and "page=2" in url:
+                return None
+
+            response = MagicMock(status_code=200)
+            response.links = {}
+            response.json.return_value = {"check_runs": []} if source == "check_runs" else {"statuses": []}
+            if source == failing_source:
+                next_path = "check-runs" if source == "check_runs" else "status"
+                response.links = {
+                    "next": {"url": f"https://api.github.com/repos/PostHog/posthog/commits/abc123f/{next_path}?page=2"}
+                }
+            return response
+
+        with (
+            patch.object(github, "get_pull_request", return_value={"success": True, "head_sha": "abc123f"}),
+            patch.object(github, "_installation_authenticated_get", side_effect=fake_get),
+        ):
+            result = github.get_pull_request_checks("PostHog/posthog", 1)
+
+        expected_noun = "check run" if failing_source == "check_runs" else "commit status"
+        assert result == {"success": False, "error": f"GitHub could not return every {expected_noun}"}
+
+    def test_get_pull_request_checks_fails_when_pr_unavailable(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        with patch.object(github, "get_pull_request", return_value={"success": False, "error": "nope"}):
+            result = github.get_pull_request_checks("PostHog/posthog", 1)
+        assert result["success"] is False
 
     def test_get_diff_truncates_oversized_diff(self):
         from posthog.models.integration import _MAX_DIFF_CHARS
@@ -3105,6 +3534,35 @@ class TestGoogleAdsIntegrationModel(BaseTest):
 
         assert accounts == []
 
+    @override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
+    @patch("tenacity.nap.time.sleep")
+    @patch("posthog.models.integration.requests.request")
+    def test_accessible_accounts_rides_out_one_transient_read_timeout(self, mock_request, mock_sleep):
+        # The walk is a chain of sequential requests; a single timed-out request used to fail the whole
+        # walk. It must instead be retried once and succeed.
+        accessible = MagicMock(status_code=200)
+        accessible.json.return_value = {"resourceNames": ["customers/6501924158"]}
+        stream = MagicMock(status_code=200)
+        stream.json.return_value = [{"results": [self._customer_client("1234567890", "Client One", level="1")]}]
+        mock_request.side_effect = [accessible, requests.exceptions.ReadTimeout("read timed out"), stream]
+
+        accounts = GoogleAdsIntegration(self._integration()).list_google_ads_accessible_accounts()
+
+        assert [account["id"] for account in accounts] == ["1234567890"]
+
+    @override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
+    @patch("tenacity.nap.time.sleep")
+    @patch("posthog.models.integration.requests.request")
+    def test_accessible_accounts_raises_after_repeated_read_timeouts(self, mock_request, mock_sleep):
+        # Retries must be bounded: a persistently unreachable endpoint should still fail rather than
+        # retry forever or get silently swallowed.
+        mock_request.side_effect = requests.exceptions.ReadTimeout("read timed out")
+
+        with pytest.raises(requests.exceptions.ReadTimeout):
+            GoogleAdsIntegration(self._integration()).list_google_ads_accessible_accounts()
+
+        assert mock_request.call_count == 3
+
 
 class TestPinterestAdsIntegrationDisplayName(BaseTest):
     @parameterized.expand(
@@ -3993,3 +4451,76 @@ class TestResendIntegrationModel(BaseTest):
         assert sent["client_id"] == "resend-client-id"
         assert sent["client_secret"] == "resend-client-secret"
         assert sent["token_type_hint"] == "refresh_token"
+
+
+@override_settings(
+    SALESFORCE_CONSUMER_KEY="salesforce-client-id", SALESFORCE_CONSUMER_SECRET="salesforce-client-secret"
+)
+class TestPardotIntegrationModel(BaseTest):
+    def test_oauth_config_requests_the_account_engagement_scope(self):
+        config = OauthIntegration.oauth_config_for_kind("pardot")
+
+        assert config.authorize_url == "https://login.salesforce.com/services/oauth2/authorize"
+        assert config.token_url == "https://login.salesforce.com/services/oauth2/token"
+        assert config.token_revoke_url == "https://login.salesforce.com/services/oauth2/revoke"
+        assert config.client_id == "salesforce-client-id"
+        assert config.client_secret == "salesforce-client-secret"
+        assert config.pkce is True
+        assert config.id_path == "instance_url"
+        # Salesforce's `full` scope does not cover the Account Engagement API, so a token
+        # minted for the CRM kind cannot call it. That is why this kind exists at all.
+        assert config.scope == "pardot_api refresh_token"
+        assert config.scope != OauthIntegration.oauth_config_for_kind("salesforce").scope
+
+    def test_pardot_is_an_oauth_kind(self):
+        # Not being listed makes the authorize + callback endpoints reject the kind and drops
+        # it out of the scheduled token refresh sweep.
+        assert "pardot" in OauthIntegration.supported_kinds
+
+    @override_settings(SALESFORCE_CONSUMER_KEY="", SALESFORCE_CONSUMER_SECRET="")
+    def test_oauth_config_unconfigured_raises(self):
+        with pytest.raises(NotImplementedError, match="Salesforce app not configured"):
+            OauthIntegration.oauth_config_for_kind("pardot")
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_uses_the_org_instance_host_and_assumes_an_hour(self, mock_post, mock_reload):
+        # Account Engagement business units can live on a sandbox org, whose refresh token
+        # login.salesforce.com rejects, and Salesforce often omits expires_in — without the
+        # assumed hour the token is never treated as expired and syncs fail on a stale one.
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "REFRESHED_ACCESS_TOKEN"}
+
+        instance_url = "https://acme--sandbox.sandbox.my.salesforce.com"
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="pardot",
+            config={"instance_url": instance_url, "refreshed_at": int(time.time())},
+            sensitive_config={"refresh_token": "REFRESH"},
+        )
+
+        OauthIntegration(integration).refresh_access_token()
+
+        assert integration.errors == ""
+        assert mock_post.call_args.args[0] == f"{instance_url}/services/oauth2/token"
+        assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
+        assert integration.config["expires_in"] == 3600
+
+    @patch("posthog.models.integration.requests.post")
+    def test_expiry_is_assumed_when_the_token_response_omits_it(self, mock_post):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "at",
+            "refresh_token": "rt",
+            "instance_url": "https://acme.my.salesforce.com",
+        }
+
+        integration = OauthIntegration.integration_from_oauth_response(
+            "pardot",
+            self.team.id,
+            self.user,
+            {"code": "code", "state": "token=state_token"},
+        )
+
+        assert integration.integration_id == "https://acme.my.salesforce.com"
+        assert integration.config["expires_in"] == 3600

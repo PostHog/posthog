@@ -201,7 +201,7 @@ function buildMockSubscriptions(total: number): SubscriptionApi[] {
 const MOCK_SUBSCRIPTIONS_MULTI_PAGE = buildMockSubscriptions(45)
 
 const meta: Meta<typeof SubscriptionsTable> = {
-    title: 'Scenes-App/Subscriptions/SubscriptionsTable',
+    title: 'Products/Subscriptions/Subscriptions table',
     component: SubscriptionsTable,
     parameters: {
         layout: 'padded',

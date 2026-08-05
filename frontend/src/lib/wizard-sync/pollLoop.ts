@@ -41,6 +41,22 @@ export function isPermanentPollError(error: unknown): boolean {
     return error instanceof ApiError && [401, 403, 404, 410].includes(error.status ?? 0)
 }
 
+// A native EventSource only auto-reconnects after a cleanly dropped connection. Any non-200 response
+// on a (re)connect leaves it CLOSED for good, and posthog/api/streaming.py requires SSE consumers to
+// schedule their own reconnect from onerror. Consecutive attempts back off exponentially from the
+// base to the cap, with the same jitter as poll ticks so clients dropped together (a deploy, an
+// admission-control rejection wave) do not reconnect in lockstep.
+export const SSE_RECONNECT_BASE_MS = 2_000
+export const SSE_RECONNECT_MAX_MS = 30_000
+
+// Delay before reconnect attempt `attempt` (1-based count of consecutive failures since the last
+// successful open). Non-positive attempts are treated as the first.
+export function sseReconnectDelayMs(attempt: number, random: () => number = Math.random): number {
+    const exponent = Math.max(0, attempt - 1)
+    const baseMs = Math.min(SSE_RECONNECT_BASE_MS * 2 ** exponent, SSE_RECONNECT_MAX_MS)
+    return jitteredIntervalMs(baseMs, random)
+}
+
 export type PollTickOutcome = 'ok' | 'empty' | 'terminal'
 
 export interface PollLoopOptions {

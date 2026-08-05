@@ -1191,6 +1191,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "alert_id": str(instance.id),
                 "alert_name": instance.name,
                 "config_type": "LogsAlertConfig",
+                "check_interval_minutes": instance.check_interval_minutes,
                 "enabled": instance.enabled,
                 "threshold_count": instance.threshold_count,
                 "threshold_operator": instance.threshold_operator,

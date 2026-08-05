@@ -12,6 +12,7 @@ from posthog.hogql.base import _T_AST
 from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
@@ -258,6 +259,63 @@ def _unify_select_set_columns(
     return columns
 
 
+_BY_NAME_SUFFIX = " BY NAME"
+
+
+def _by_name_column_mismatch_error(canonical: list[str], names: list[str]) -> QueryError:
+    canonical_set, names_set = set(canonical), set(names)
+    details: list[str] = []
+    if missing := [name for name in canonical if name not in names_set]:
+        details.append(f"missing: {', '.join(missing)}")
+    if extra := [name for name in names if name not in canonical_set]:
+        details.append(f"unexpected: {', '.join(extra)}")
+    return QueryError(
+        f"BY NAME requires every branch of the set operation to have the same columns ({'; '.join(details)}). "
+        "Add the missing columns to each branch explicitly, e.g. `NULL AS column_name`."
+    )
+
+
+def _remap_positional_ordinals(leaf: ast.SelectQuery, new_index_by_old: dict[int, int]) -> None:
+    # ClickHouse resolves bare integer literals in these clauses positionally (enable_positional_arguments
+    # defaults to on), so a reordered select list must carry the ordinals along or `ORDER BY 2` silently
+    # comes to mean a different column.
+    referencing: list[ast.Expr] = [order.expr for order in leaf.order_by or []]
+    referencing.extend(leaf.group_by or [])
+    if leaf.limit_by:
+        referencing.extend(leaf.limit_by.exprs)
+    for expr in referencing:
+        if isinstance(expr, ast.Constant) and isinstance(expr.value, int) and not isinstance(expr.value, bool):
+            new_index = new_index_by_old.get(expr.value - 1)
+            if new_index is not None:
+                expr.value = new_index + 1
+
+
+def _permute_set_operand(branch: ast.SelectQuery | ast.SelectSetQuery, permutation: list[int]) -> None:
+    """Apply one positional permutation (new position -> old position) to every SELECT leaf of a set
+    operand. Each leaf is validated on the way down, so a nested branch whose select list does not line
+    up with the operand's columns raises instead of being silently truncated."""
+    if isinstance(branch, ast.SelectSetQuery):
+        for sub in branch.select_queries():
+            _permute_set_operand(sub, permutation)
+        branch_type = branch.type
+        if isinstance(branch_type, ast.SelectSetQueryType) and branch_type.columns:
+            names = list(branch_type.columns.keys())
+            branch_type.columns = {names[old]: branch_type.columns[names[old]] for old in permutation}
+        return
+    if len(branch.select) != len(permutation):
+        raise QueryError(
+            "BY NAME requires every branch of the set operation to have the same number of columns "
+            f"(expected {len(permutation)}, got {len(branch.select)})"
+        )
+    leaf_type = branch.type
+    if not isinstance(leaf_type, ast.SelectQueryType) or len(leaf_type.columns) != len(branch.select):
+        raise QueryError("BY NAME requires uniquely named columns in every branch of the set operation")
+    _remap_positional_ordinals(branch, {old: new for new, old in enumerate(permutation)})
+    branch.select = [branch.select[old] for old in permutation]
+    names = list(leaf_type.columns.keys())
+    leaf_type.columns = {names[old]: leaf_type.columns[names[old]] for old in permutation}
+
+
 class AliasCollector(TraversingVisitor):
     def __init__(self):
         super().__init__()
@@ -301,6 +359,10 @@ class Resolver(CloningVisitor):
         self._synthetic_using_join_aliases: set[str] = set()
         # Re-entrancy guard for argument-duplicating bot-lookup macros (see _expand_duplicating_macro).
         self._inside_posthog_macro_expansion: bool = False
+        # Marks whether the outermost SELECT has been entered. Used to keep a top-level `SELECT *`
+        # on a direct-connection table literal (so the external server expands the star); nested and
+        # CTE-body stars still expand to explicit columns so enclosing queries can read them.
+        self._entered_root_select: bool = False
 
     def _get_scope_table_names(self, scope: ast.SelectQueryType) -> dict[str, str]:
         return self._scope_table_names.setdefault(id(scope), {})
@@ -342,6 +404,8 @@ class Resolver(CloningVisitor):
             limit_percent=node.limit_percent,
             limit_with_ties=node.limit_with_ties,
         )
+        self._lower_by_name_operators(result)
+
         select_types = [
             result.initial_select_query.type,
             *(x.select_query.type for x in result.subsequent_select_queries),
@@ -354,6 +418,48 @@ class Resolver(CloningVisitor):
         self.ctes = parent_ctes
 
         return result
+
+    def _lower_by_name_operators(self, node: ast.SelectSetQuery) -> None:
+        """ClickHouse has no `UNION ... BY NAME` syntax, so the operator cannot be printed there. Lower
+        it instead: reorder each BY NAME operand's select lists to the first branch's column order and
+        emit the plain operator. Dialects with native support (DuckDB behind the postgres printer) keep
+        the operator untouched. Differing column sets raise here, where DuckDB's native BY NAME would
+        null-fill — the error tells the user how to close the gap.
+
+        Only UNION variants are lowered. INTERSECT/EXCEPT BY NAME bind tighter than UNION, so their
+        real set partner is the preceding operand rather than the first branch; aligning to the first
+        branch would silently misalign them. No engine we target supports them either, so they are
+        refused rather than lowered."""
+        if self.dialect != "clickhouse":
+            return
+        for sub in node.subsequent_select_queries:
+            if sub.set_operator.endswith(_BY_NAME_SUFFIX) and not sub.set_operator.startswith("UNION "):
+                raise QueryError(f"{sub.set_operator} is not supported in the '{self.dialect}' dialect")
+        if not any(sub.set_operator.endswith(_BY_NAME_SUFFIX) for sub in node.subsequent_select_queries):
+            return
+        initial = node.initial_select_query
+        if initial.type is None:
+            raise ImpossibleASTError("Set operation branch has no resolved type")
+        canonical = [name for name, _ in _select_type_columns(initial.type)]
+        if len(set(canonical)) != len(canonical) or (
+            isinstance(initial, ast.SelectQuery) and len(initial.select) != len(canonical)
+        ):
+            raise QueryError("BY NAME requires uniquely named columns in every branch of the set operation")
+        index_by_name = {name: index for index, name in enumerate(canonical)}
+        for sub in node.subsequent_select_queries:
+            if not sub.set_operator.endswith(_BY_NAME_SUFFIX):
+                continue
+            branch = sub.select_query
+            if branch.type is None:
+                raise ImpossibleASTError("Set operation branch has no resolved type")
+            names = [name for name, _ in _select_type_columns(branch.type)]
+            if len(set(names)) != len(names):
+                raise QueryError("BY NAME requires uniquely named columns in every branch of the set operation")
+            if set(names) != set(index_by_name):
+                raise _by_name_column_mismatch_error(canonical, names)
+            branch_index_by_name = {name: index for index, name in enumerate(names)}
+            _permute_set_operand(branch, [branch_index_by_name[name] for name in canonical])
+            sub.set_operator = cast(ast.SetOperator, sub.set_operator[: -len(_BY_NAME_SUFFIX)])
 
     def visit_values_query(self, node: ast.ValuesQuery):
         resolved_rows: list[list[ast.Expr]] = []
@@ -742,6 +848,11 @@ class Resolver(CloningVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery):
         """Visit each SELECT query or subquery."""
+        # Capture before visiting CTEs/subqueries (which re-enter here), so only the outermost query
+        # counts as root — a top-level `SELECT *` on a direct table is kept literal below.
+        is_root_select = not self._entered_root_select
+        self._entered_root_select = True
+
         # This "SelectQueryType" is also a new scope for variables in the SELECT query.
         # We will add fields to it when we encounter them. This is used to resolve fields later.
         node_type = ast.SelectQueryType()
@@ -822,6 +933,27 @@ class Resolver(CloningVisitor):
                 # keep `*` literal and let Snowflake expand it. (UNPIVOT output IS knowable, so it
                 # still expands normally.)
                 if self.dialect == "snowflake" and _select_from_is_pivot(new_node.select_from):
+                    select_nodes.append(new_expr)
+                    continue
+                # Direct-connect: keep a top-level `SELECT *` on a direct table literal so the
+                # external server expands the star natively, matching its live schema and skipping
+                # materialized/alias columns that a HogQL-expanded list would break on (CH error 47).
+                # Restricted to the root select (is_direct_query is only set in the direct render
+                # pass) so nested/CTE stars still expand and remain readable by enclosing queries.
+                # Gated on has_complete_columns: a column-picker restriction makes the table's fields
+                # a subset, so the star must expand from them — letting the server expand against the
+                # unrestricted physical table would leak the columns the restriction hides.
+                asterisk_direct_table = (
+                    new_expr.type.table_type.resolve_database_table(self.context)
+                    if isinstance(new_expr.type.table_type, ast.BaseTableType)
+                    else None
+                )
+                if (
+                    self.context.is_direct_query
+                    and is_root_select
+                    and isinstance(asterisk_direct_table, DirectClickHouseTable)
+                    and asterisk_direct_table.has_complete_columns
+                ):
                     select_nodes.append(new_expr)
                     continue
                 columns = self._asterisk_columns(new_expr.type, chain_prefix=new_expr.chain[:-1])

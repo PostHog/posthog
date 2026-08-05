@@ -7,12 +7,14 @@ import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import type { NotebookNodeRunTerminalStatus } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
 import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamBanner'
 import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { countTextLines, outputHeightForShape } from './notebookNodeOutputHeight'
 import type { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
 import { SQL_V2_DEFAULT_PAGE_SIZE, collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
@@ -21,16 +23,15 @@ import { NotebookDataframeResult } from './pythonExecution'
 // path, with sibling SQLV2 frames materialized as pandas frames. A separate node type from
 // the legacy ph-python cell (in-browser kernel) so the two flows never share run wiring.
 
-// The default node height only fits a couple of table rows; grow to this once output lands
-// so results and figures aren't clipped and the user doesn't have to resize by hand to read them.
-const RESULT_MIN_HEIGHT = 300
-
 export type NotebookNodePythonV2Attributes = {
     code: string
     // The dataframe name this cell's result is exposed as to later cells.
     returnVariable: string
     runId?: string | null
     result?: NotebookNodeSQLV2Result | null
+    // How the run that produced `result` ended. An interrupt persists whatever the cell printed
+    // before the stop landed, so the result alone can't tell the two apart on a reload.
+    runStatus?: NotebookNodeRunTerminalStatus | null
 }
 
 const toDataframeResult = (result: NotebookNodeSQLV2Result): NotebookDataframeResult => {
@@ -91,20 +92,27 @@ const Component = ({
 
     const hasStreamOutput = !!(result?.stdout || result?.stderr || result?.media?.length)
 
-    // Grow a still-default (too-short) node the first time output lands so it's readable without
-    // a manual resize. Only grows below the target and only on fresh output, so a deliberate
-    // resize (or a taller reload) is left untouched.
-    const hadOutputRef = useRef(hasStreamOutput || !!dataframeResult)
+    // Grow a still-too-short node to fit the output each run lands, so it's readable without a
+    // manual resize. Sized to what came back — a printed value stays compact, a table or figure
+    // grows up to a cap. Only grows, and only for a run we haven't sized yet, so a deliberate
+    // resize (or a reload of an already-sized cell) is left untouched.
+    const sizedRunIdRef = useRef<string | null | undefined>(result ? (attributes.runId ?? null) : undefined)
     useEffect(() => {
-        const hasOutput = hasStreamOutput || !!dataframeResult
-        if (hasOutput && !hadOutputRef.current) {
-            if (typeof attributes.height !== 'number' || attributes.height < RESULT_MIN_HEIGHT) {
-                updateAttributes({ height: RESULT_MIN_HEIGHT })
-            }
+        const runId = attributes.runId ?? null
+        if (!result || runId === sizedRunIdRef.current) {
+            return
         }
-        hadOutputRef.current = hasOutput
+        sizedRunIdRef.current = runId
+        const target = outputHeightForShape({
+            rowCount: result.columns?.length ? (result.first_page ?? []).length : 0,
+            textLines: countTextLines(result.stdout, result.stderr),
+            hasMedia: !!result.media?.length,
+        })
+        if (target !== null && (typeof attributes.height !== 'number' || attributes.height < target)) {
+            updateAttributes({ height: target })
+        }
         // oxlint-disable-next-line exhaustive-deps
-    }, [dataframeResult, hasStreamOutput])
+    }, [result, attributes.runId])
 
     if (!expanded) {
         return null
@@ -181,14 +189,11 @@ const Component = ({
                 ) : hasStreamOutput ? null : (
                     <div className="text-xs text-muted font-mono p-2">Run the cell to see execution results.</div>
                 )}
-                {attributes.runId ? (
-                    <div className="shrink-0 px-2 pb-2 text-[10px] uppercase tracking-wide text-muted select-text">
-                        run_id: {attributes.runId}
-                    </div>
-                ) : null}
             </div>
             <div
-                className="flex shrink-0 items-center gap-2 text-xs text-muted border-t p-2"
+                // Translucent overlay, not a surface token: the shell is surface-primary in light
+                // mode but surface-tertiary in dark, so a fixed surface vanishes against one of them.
+                className="flex shrink-0 items-center gap-2 text-xs text-muted border-t border-primary bg-fill-highlight-50 p-2"
                 onClick={(event) => event.stopPropagation()}
                 onMouseDown={(event) => event.stopPropagation()}
             >
@@ -198,9 +203,14 @@ const Component = ({
                 <input
                     type="text"
                     // The dataframe name this cell's result is exposed as to later cells.
-                    className="rounded border border-border px-1.5 py-0.5 text-xs font-mono bg-bg-light text-default focus:outline-none focus:ring-1 focus:ring-primary"
+                    // Optional: left empty, the cell binds nothing and later cells can't read it.
+                    // Wide enough for the placeholder to sit on one line without clipping. The name
+                    // carries weight through size and a faintly warm near-black rather than a hue —
+                    // a saturated color here competes with the accent the app spends on links.
+                    className="w-56 rounded border border-primary px-1.5 py-0.5 text-sm font-medium font-mono bg-surface-primary text-[oklch(0.27_0.022_345deg)] dark:text-[oklch(0.93_0.014_345deg)] focus:outline-none focus:ring-1 focus:ring-primary"
                     value={attributes.returnVariable ?? ''}
                     onChange={(event) => updateAttributes({ returnVariable: event.target.value })}
+                    placeholder="Output dataframe name"
                     spellCheck={false}
                 />
             </div>
@@ -301,13 +311,18 @@ export const NotebookNodePythonV2 = createPostHogWidgetNode<NotebookNodePythonV2
         code: {
             default: '',
         },
+        // Optional: empty means the cell binds no dataframe, so nothing downstream can read it.
+        // A cell that predates the optional name carries its persisted name and keeps exporting it.
         returnVariable: {
-            default: 'df',
+            default: '',
         },
         runId: {
             default: null,
         },
         result: {
+            default: null,
+        },
+        runStatus: {
             default: null,
         },
     },

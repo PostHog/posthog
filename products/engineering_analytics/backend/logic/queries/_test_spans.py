@@ -1,7 +1,7 @@
 """The one definition of the per-test CI span scan and what it proves (domain rules defined once, APOSD).
 
-Backend CI emits one OTel span per test into the Traces store (span name = reconstructed
-pytest nodeid, ``test.*`` attributes, ``ci.*`` resource attributes; see
+Backend and Frontend CI emit one OTel span per signal-bearing test into the Traces store
+(span name = runner-specific test identity, ``test.*`` attributes, ``ci.*`` resource attributes; see
 ``.github/scripts/report_test_timings.py``). Every query over that signal (the test-health
 queue and the per-team rollups) embeds ``run_evidence()``, so the service fence, the signal
 outcomes, the repository scoping, the ownership fallback, and above all the **grain** cannot
@@ -10,15 +10,16 @@ and they disagreed.
 
 The grain is the CI run, not the span and not the run attempt:
 
-- One run fans a test out across matrix legs (person-on-events, compat, and friends), so span-grain
+- One run fans a test out across matrix legs (person-on-events, FOSS/EE, and friends), so span-grain
   counting multiplies a single failure by the number of legs that ran it. At run grain a failure in
   any leg counts once, and outweighs a pass in another.
 - Every attempt of a run tests the same commit, so attempts are repeated trials: a run that both
   failed and passed a test has proven it nondeterministic, whichever attempt failed first. That is
-  what ``recovered_in_run`` means. Backend CI runs pytest without ``--reruns`` deliberately (failures
-  stay visible instead of being retried away), so a "re-run failed jobs" recovery is where that proof
-  comes from; ``rerun_passed`` is the same proof from the handful of tests hand-marked
-  ``@pytest.mark.flaky(reruns=N)``.
+  what ``recovered_in_run`` means. Recovery must happen in the same stable matrix job as the failure;
+  a pass under a different configuration proves nothing. Backend CI runs pytest without ``--reruns``
+  deliberately (failures stay visible instead of being retried away), so a "re-run failed jobs"
+  recovery is where that proof comes from; ``rerun_passed`` is the same proof from the handful of
+  tests hand-marked ``@pytest.mark.flaky(reruns=N)``.
 
 Failures with no recovery prove nothing about determinism. This surface answers how much a failing
 test costs us, so unproven failures are ranked by blast radius and never called flaky.
@@ -36,7 +37,9 @@ SIGNAL_OUTCOMES = ["failed", "error", "rerun_passed", "xfailed"]
 
 # Scope to the CI test-timing emitter (report_test_timings.py sets this as service.name);
 # without it any team span carrying a test.outcome attribute would pollute.
-CI_SERVICE_NAME = "ci-backend"
+PYTEST_CI_SERVICE_NAME = "ci-backend"
+JEST_CI_SERVICE_NAME = "ci-frontend"
+CI_SERVICE_NAMES = [PYTEST_CI_SERVICE_NAME, JEST_CI_SERVICE_NAME]
 
 # Spans emitted before the owner stamp existed (or from paths with no owner) group here.
 UNOWNED_TEAM = "unowned"
@@ -44,41 +47,63 @@ UNOWNED_TEAM = "unowned"
 
 _RUN_EVIDENCE = """
     SELECT
+        runner,
         nodeid,
         run_id,
-        argMax(owner_team, trial_at) AS owner_team,
+        argMax(owner_team, job_at) AS owner_team,
         anyIf(selector, selector != '') AS selector,
         anyIf(pr_number, pr_number != '') AS pr_number,
         anyIf(branch, branch != '') AS branch,
         max(is_current) AS is_current,
-        max(trial_failed) AS failed_in_run,
-        max(trial_quarantined) AS quarantined_in_run,
-        -- Proof of nondeterminism either way it lands: an in-job retry recovered the test, or one
-        -- attempt of the run failed it and another attempt (same commit) passed it.
-        max(trial_rerun_passed) OR (max(trial_failed) AND max(trial_passed)) AS recovered_in_run,
+        max(job_failed) AS failed_in_run,
+        max(job_quarantined) AS quarantined_in_run,
+        max(job_recovered) AS recovered_in_run,
         -- Recovery passes are not signal, so recency comes from the signal trials alone.
-        maxIf(trial_at, trial_failed OR trial_rerun_passed OR trial_quarantined) AS run_signal_at
+        max(job_signal_at) AS run_signal_at
     FROM (
-        -- One row per (test, run attempt). A test can appear in several matrix legs of one attempt
-        -- (and older data re-reported shards an attempt never re-executed); a failure in any leg
-        -- outweighs a pass in another, so a cross-leg pass never reads as recovery.
+        -- One row per stable matrix job and run. Recovery can only pair trials from this job; a
+        -- FOSS pass cannot recover an EE failure, nor can one backend matrix leg recover another.
         SELECT
+            runner,
             nodeid,
             run_id,
-            argMax(owner_team, span_timestamp) AS owner_team,
+            argMax(owner_team, trial_at) AS owner_team,
             anyIf(selector, selector != '') AS selector,
             anyIf(pr_number, pr_number != '') AS pr_number,
             anyIf(branch, branch != '') AS branch,
             max(is_current) AS is_current,
-            max(outcome IN ('failed', 'error')) AS trial_failed,
-            max(outcome = 'rerun_passed') AS trial_rerun_passed,
-            max(outcome = 'xfailed') AS trial_quarantined,
-            max(outcome = 'passed') AND NOT trial_failed AS trial_passed,
-            max(span_timestamp) AS trial_at
-        FROM (__SPAN_SCAN__)
-        GROUP BY nodeid, run_id, attempt
+            max(trial_failed) AS job_failed,
+            max(trial_quarantined) AS job_quarantined,
+            -- Proof of nondeterminism either way it lands: an in-job retry recovered the test, or
+            -- one attempt of this job failed it and another attempt (same commit) passed it.
+            max(trial_rerun_passed) OR (max(trial_failed) AND max(trial_passed)) AS job_recovered,
+            maxIf(trial_at, trial_failed OR trial_rerun_passed OR trial_quarantined) AS job_signal_at,
+            max(trial_at) AS job_at
+        FROM (
+            -- One row per (test, stable job, run attempt). A failure in one duplicate span
+            -- outweighs a pass in that same trial.
+            SELECT
+                runner,
+                nodeid,
+                run_id,
+                job_key,
+                argMax(owner_team, span_timestamp) AS owner_team,
+                anyIf(selector, selector != '') AS selector,
+                anyIf(pr_number, pr_number != '') AS pr_number,
+                anyIf(branch, branch != '') AS branch,
+                max(is_current) AS is_current,
+                max(outcome IN ('failed', 'error')) AS trial_failed,
+                max(outcome = 'rerun_passed') AS trial_rerun_passed,
+                max(outcome = 'xfailed') AS trial_quarantined,
+                max(outcome = 'passed') AND NOT trial_failed AS trial_passed,
+                max(span_timestamp) AS trial_at
+            FROM (__SPAN_SCAN__)
+            GROUP BY runner, nodeid, run_id, job_key, attempt
+        )
+        GROUP BY runner, nodeid, run_id, job_key
+        HAVING job_failed OR job_recovered OR job_quarantined
     )
-    GROUP BY nodeid, run_id
+    GROUP BY runner, nodeid, run_id
     -- The scan admits re-run passes so they can pair with a failure above; unpaired they are not
     -- evidence, and a pass-only row would surface as an all-zero test everywhere downstream.
     HAVING failed_in_run OR recovered_in_run OR quarantined_in_run
@@ -102,6 +127,7 @@ def run_evidence(*, bounded: bool) -> str:
 # caller without a prior window passes scan_from = date_from and ignores the column.
 _SCAN = """
     SELECT
+        if(attributes['test.runner'] = 'jest' OR service_name = 'ci-frontend', 'jest', 'pytest') AS runner,
         name AS nodeid,
         attributes['test.selector'] AS selector,
         attributes['test.outcome'] AS outcome,
@@ -112,10 +138,11 @@ _SCAN = """
         -- unstamped span from merging every execution of its test into one phantom run.
         coalesce(nullIf(resource_attributes['ci.run_id'], ''), trace_id) AS run_id,
         ifNull(accurateCastOrNull(resource_attributes['ci.run_attempt'], 'Int64'), 1) AS attempt,
+        coalesce(nullIf(attributes['test.job_key'], ''), 'legacy') AS job_key,
         timestamp AS span_timestamp,
         timestamp >= {date_from} AS is_current
     FROM posthog.trace_spans
-    WHERE service_name = {service_name}
+    WHERE service_name IN {service_names}
         AND lower(resource_attributes['ci.repository']) = lower({repository})
         AND timestamp >= {scan_from}__DATE_TO__
         -- Only re-run attempts' passes are read. Reading first-attempt passes too would mean
@@ -139,7 +166,7 @@ def scan_placeholders(
     date_to: datetime | None = None,
 ) -> dict[str, ast.Expr]:
     placeholders: dict[str, ast.Expr] = {
-        "service_name": ast.Constant(value=CI_SERVICE_NAME),
+        "service_names": ast.Constant(value=CI_SERVICE_NAMES),
         "signal_outcomes": ast.Constant(value=SIGNAL_OUTCOMES),
         "unowned_team": ast.Constant(value=UNOWNED_TEAM),
         "repository": ast.Constant(value=repository),

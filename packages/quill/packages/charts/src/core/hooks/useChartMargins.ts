@@ -53,6 +53,29 @@ interface UseChartMarginsOptions {
     yAxisHidden?: Record<string, boolean>
 }
 
+/** Apply per-side overrides, skipping sides left `undefined`. A plain spread would write the
+ *  `undefined` through and clobber the computed margin, which turns the whole plot geometry into
+ *  `NaN` and renders a blank chart — so a caller building an override object conditionally
+ *  (`{ top: reserveOrUndefined }`) gets "leave this side alone" rather than a silent wipeout. */
+export function applyMarginOverride(computed: ChartMargins, override: Partial<ChartMargins>): ChartMargins
+export function applyMarginOverride(
+    computed: Partial<ChartMargins>,
+    override: Partial<ChartMargins>
+): Partial<ChartMargins>
+export function applyMarginOverride(
+    computed: Partial<ChartMargins>,
+    override: Partial<ChartMargins>
+): Partial<ChartMargins> {
+    const result = { ...computed }
+    for (const side of ['top', 'right', 'bottom', 'left'] as const) {
+        const value = override[side]
+        if (value !== undefined) {
+            result[side] = value
+        }
+    }
+    return result
+}
+
 function widestCategoryLabelWidth(
     labels: string[],
     xTickFormatter: ((value: string, index: number) => string | null) | undefined,
@@ -232,7 +255,12 @@ export function useChartMargins({
         const rightLabelReserve = (gutterReserves?.right ?? 0) + titleReserve.right
         const right = Math.max(rightFloor, rightLabelReserve, xLabelHalfWidth + X_LABEL_EDGE_PADDING)
         const computed: ChartMargins = { top: DEFAULT_MARGINS.top, right, bottom, left }
-        return override ? { ...computed, ...override } : computed
+        return override ? applyMarginOverride(computed, override) : computed
+        // Depend on the individual sides, not `override` by identity — callers are expected to build
+        // the override object inline and conditionally (`{ top: reserveOrUndefined }`), which is a
+        // fresh identity every render, and keying off it here would reintroduce the referential churn
+        // this hook's memoization is meant to contain.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
         hideXAxis,
         hideYAxis,
@@ -242,6 +270,9 @@ export function useChartMargins({
         xLabelHalfWidth,
         normalizedXAxisLabel,
         titleReserve,
-        override,
+        override?.top,
+        override?.right,
+        override?.bottom,
+        override?.left,
     ])
 }

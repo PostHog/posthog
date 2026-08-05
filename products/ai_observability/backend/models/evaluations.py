@@ -50,6 +50,7 @@ class EvaluationQuerySet(models.QuerySet):
 class EvaluationTarget(models.TextChoices):
     GENERATION = "generation", "Generation"
     TRACE = "trace", "Trace"
+    SESSION = "session", "Session"
 
 
 class Evaluation(ModelActivityMixin, UUIDTModel):
@@ -267,6 +268,10 @@ def evaluation_saved(sender, instance, created, **kwargs):
 
     if instance.deleted:
         EvaluationReport.objects.filter(evaluation_id=instance.id, deleted=False).update(deleted=True, enabled=False)
+    elif instance.status == EvaluationStatus.PAUSED:
+        # A user pause should persist on the report too. Error states are only filtered from delivery
+        # temporarily so the report can resume when the evaluation recovers.
+        EvaluationReport.objects.filter(evaluation_id=instance.id, deleted=False, enabled=True).update(enabled=False)
 
     # Defer publishing to workers until the surrounding transaction commits — otherwise
     # workers can fire before the row is visible, especially now that perform_create wraps

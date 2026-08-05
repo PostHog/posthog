@@ -70,6 +70,30 @@ describe('image-scrub sidecar server', () => {
         expect(res.status).toBe(404)
     })
 
+    it('fails liveness once there is no scrub capacity left', async () => {
+        // Inference runs on worker threads, so a process that has lost all of them answers this
+        // listener as fast as a healthy one. Before that move a wedged inference blocked the event
+        // loop and the probe failed on its own; a static 200 would leave the kubelet with no way to
+        // tell a working pod from one that will never scrub again.
+        let hasCapacity = true
+        const probed = startServer(0, 0, 4, 1024, blurOnly, () => hasCapacity)
+        await once(probed.metrics, 'listening')
+        const probeBase = `http://127.0.0.1:${(probed.metrics.address() as AddressInfo).port}`
+        try {
+            expect((await fetch(`${probeBase}/_health`)).status).toBe(200)
+
+            hasCapacity = false
+            expect((await fetch(`${probeBase}/_health`)).status).toBe(503)
+            // Readiness holds, keeping the pod in the Service that Prometheus scrapes through.
+            expect((await fetch(`${probeBase}/_ready`)).status).toBe(200)
+        } finally {
+            for (const server of [probed.scrub, probed.metrics]) {
+                server.closeAllConnections()
+                server.close()
+            }
+        }
+    })
+
     it('does not serve health or metrics on the scrub listener', async () => {
         expect((await fetch(`${base}/_health`)).status).toBe(404)
         expect((await fetch(`${base}/_ready`)).status).toBe(404)

@@ -79,6 +79,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_recording_bytes_in_period,
     get_teams_with_recording_count_in_period,
     get_teams_with_replay_vision_credits_used_in_period,
+    get_teams_with_replay_vision_observation_count_in_period,
     get_teams_with_rows_exported_in_period,
     get_teams_with_rows_synced_in_period,
     get_teams_with_sdk_logs_records_in_period,
@@ -95,6 +96,7 @@ from posthog.tasks.usage_report import (
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.surveys.backend.models import Survey
 
 # ---- Postgres ORM / API helpers ---------------------------------------------
@@ -149,6 +151,16 @@ def _ff_active_count() -> list[dict[str, int]]:
 
 def _survey_count() -> list[dict[str, int]]:
     return list(Survey.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+
+
+def _replay_vision_scanner_count() -> list[dict[str, int]]:
+    return list(ReplayScanner.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+
+
+def _replay_vision_scanner_active_count() -> list[dict[str, int]]:
+    return list(
+        ReplayScanner.objects.filter(enabled=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
+    )
 
 
 def _issues_created_total() -> list[dict[str, int]]:
@@ -311,6 +323,10 @@ QUERIES: list[QuerySpec] = [
     QuerySpec(
         name="teams_with_replay_vision_credits_used_in_period",
         fn=get_teams_with_replay_vision_credits_used_in_period,
+    ),
+    QuerySpec(
+        name="teams_with_replay_vision_observation_count_in_period",
+        fn=get_teams_with_replay_vision_observation_count_in_period,
     ),
     # ---- ClickHouse: feature flag requests -----------------------------------
     QuerySpec(
@@ -622,6 +638,18 @@ QUERIES: list[QuerySpec] = [
     QuerySpec(
         name="teams_with_survey_count",
         fn=_survey_count,
+        timeout_minutes=5,
+        kind="snapshot",
+    ),
+    QuerySpec(
+        name="teams_with_replay_vision_scanner_count",
+        fn=_replay_vision_scanner_count,
+        timeout_minutes=5,
+        kind="snapshot",
+    ),
+    QuerySpec(
+        name="teams_with_replay_vision_scanner_active_count",
+        fn=_replay_vision_scanner_active_count,
         timeout_minutes=5,
         kind="snapshot",
     ),

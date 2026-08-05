@@ -186,12 +186,10 @@ A grouping rule is worth creating when both are true:
 
 The canonical exception properties (`$exception_types`, `$exception_values`
 for messages, `$exception_sources` for file paths, `$exception_functions` for
-function names) are arrays at capture time. The property filter compiler
-special-cases them (see `is_exception_string_array_property` in
-[`posthog/hogql/property.py`](https://github.com/PostHog/posthog/blob/master/posthog/hogql/property.py)) — it parses the JSON-materialized column
-and wraps the filter in `arrayExists(v -> ..., JSONExtract(...))`, so all
-the standard operators (`exact`, `is_not`, `icontains`, `not_icontains`,
-`regex`, `not_regex`) work against individual elements with the bare value:
+function names) are arrays at capture time. PostHog's property filters
+special-case them — each filter matches against the individual array
+elements, so all the standard operators (`exact`, `is_not`, `icontains`,
+`not_icontains`, `regex`, `not_regex`) work with the bare value:
 `exact "TypeError"`, not `exact '["TypeError"]'` or `regex '"TypeError"'`.
 
 The singular forms (`$exception_type`, `$exception_message`) and

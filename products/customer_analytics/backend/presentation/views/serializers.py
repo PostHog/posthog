@@ -27,12 +27,15 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import OrganizationMembership
 
+from products.customer_analytics.backend.facade.api import TicketSummary
 from products.customer_analytics.backend.facade.constants import (
     CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES,
     CUSTOM_PROPERTY_OPTION_COLORS,
+    SLACK_SUMMARY_CADENCE_CHOICES,
 )
 from products.customer_analytics.backend.facade.contracts import (
     AccountAssignment,
+    AccountChannelSummaryView,
     AccountNotebookView,
     AccountNoteView,
     AccountRelationship,
@@ -45,6 +48,7 @@ from products.customer_analytics.backend.facade.contracts import (
     CustomPropertyReference,
     CustomPropertySourceView,
     CustomPropertySyncRunView,
+    EventStreamView,
 )
 
 # Scope (value, label) pairs, kept in sync with ``CustomerProfileConfig.Scope``. Declared
@@ -59,25 +63,10 @@ _PROFILE_CONFIG_SCOPE_CHOICES = [
     ("group_4", "Group 4"),
 ]
 
-# JSON schema for the account ``properties`` field. Kept verbatim from the pre-isolation
-# serializer so the generated ``AccountApiProperties`` component is unchanged.
-_ACCOUNT_ASSIGNMENT_SCHEMA = {
-    "type": "object",
-    "nullable": True,
-    "properties": {
-        "id": {"type": "integer"},
-        "email": {"type": "string"},
-    },
-    "required": ["id", "email"],
-}
-
 _ACCOUNT_PROPERTIES_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "csm": _ACCOUNT_ASSIGNMENT_SCHEMA,
-        "account_executive": _ACCOUNT_ASSIGNMENT_SCHEMA,
-        "account_owner": _ACCOUNT_ASSIGNMENT_SCHEMA,
         "stripe_customer_id": {"type": "string", "nullable": True},
         "hubspot_deal_id": {"type": "string", "nullable": True},
         "billing_id": {"type": "string", "nullable": True},
@@ -85,6 +74,7 @@ _ACCOUNT_PROPERTIES_SCHEMA = {
         "zendesk_id": {"type": "string", "nullable": True},
         "slack_channel_id": {"type": "string", "nullable": True},
         "usage_dashboard_link": {"type": "string", "nullable": True},
+        "metabase_link": {"type": "string", "nullable": True},
     },
 }
 
@@ -169,10 +159,10 @@ class AccountSerializer(DataclassSerializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Typed account properties: assignment fields (csm, account_executive, account_owner) "
-            "and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, "
-            "sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty "
-            "object. Unknown keys are rejected."
+            "Typed account properties: external system identifiers (stripe_customer_id, "
+            "hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, "
+            "usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys "
+            "are rejected. User assignments live on account relationships, not here."
         ),
     )
     tags = serializers.ListField(
@@ -186,6 +176,15 @@ class AccountSerializer(DataclassSerializer):
         help_text=(
             "Short IDs of the internal notebooks linked to this account, used to persist investigations, "
             "call notes, and other free-form context. Empty list if no notebooks have been created for the account."
+        ),
+    )
+    slack_summary_cadence = serializers.ChoiceField(
+        choices=SLACK_SUMMARY_CADENCE_CHOICES,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "How often to generate an AI summary of the account's bound Slack channel "
+            "(daily, weekly, or monthly). Null means summaries are off."
         ),
     )
     created_at = serializers.DateTimeField(read_only=True)
@@ -202,6 +201,7 @@ class AccountSerializer(DataclassSerializer):
             "properties",
             "tags",
             "notebooks",
+            "slack_summary_cadence",
             "created_at",
             "created_by",
             "updated_at",
@@ -293,6 +293,77 @@ class AccountNoteSerializer(DataclassSerializer):
         fields = ["short_id", "title", "created_at", "last_modified_at", "account_id", "account_name", "created_by"]
 
 
+class ChannelSummaryMessageSerializer(serializers.Serializer):
+    """Metadata for one message a channel summary covered — never the message text."""
+
+    author = serializers.CharField(read_only=True, help_text="Display name of the message author.")
+    sent_at = serializers.DateTimeField(read_only=True, help_text="When the message was sent.")
+    permalink = serializers.CharField(read_only=True, help_text="Slack permalink to the message.")
+
+
+class AccountChannelSummarySerializer(DataclassSerializer):
+    """An AI summary of one closed period of the account's bound Slack channel (read-only)."""
+
+    id = serializers.UUIDField(read_only=True, help_text="UUID of the summary.")
+    slack_channel_id = serializers.CharField(
+        read_only=True, help_text="Slack channel the summary covered — kept even if the account is later rebound."
+    )
+    cadence = serializers.ChoiceField(
+        read_only=True,
+        choices=SLACK_SUMMARY_CADENCE_CHOICES,
+        help_text="Cadence the summarized period belongs to (daily, weekly, or monthly).",
+    )
+    period_start = serializers.DateTimeField(read_only=True, help_text="Start of the summarized period (inclusive).")
+    period_end = serializers.DateTimeField(read_only=True, help_text="End of the summarized period (exclusive).")
+    content = serializers.CharField(
+        read_only=True, help_text="Markdown summary citing the original Slack messages with permalinks."
+    )
+    message_count = serializers.IntegerField(
+        read_only=True, help_text="Number of channel messages the summary covered."
+    )
+    messages = ChannelSummaryMessageSerializer(
+        many=True,
+        read_only=True,
+        help_text="The messages the summary covered, in transcript order — metadata only, no message text.",
+    )
+    generated_at = serializers.DateTimeField(read_only=True, help_text="When the summary was generated.")
+
+    class Meta:
+        dataclass = AccountChannelSummaryView
+        ref_name = "AccountChannelSummary"
+        fields = [
+            "id",
+            "slack_channel_id",
+            "cadence",
+            "period_start",
+            "period_end",
+            "content",
+            "message_count",
+            "messages",
+            "generated_at",
+        ]
+
+
+class SupportTicketSerializer(DataclassSerializer):
+    """A support ticket linked to an account, sourced from the conversations product (read-only)."""
+
+    id = serializers.CharField(read_only=True, help_text="UUID of the support ticket.")
+    ticket_number = serializers.IntegerField(read_only=True, help_text="Human-readable ticket number.")
+    status = serializers.CharField(read_only=True, help_text="Current status of the ticket (e.g. 'new', 'open').")
+    last_message_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the most recent message was sent on this ticket."
+    )
+    last_message_text = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Truncated preview of the most recent message."
+    )
+    deep_link = serializers.CharField(read_only=True, help_text="Absolute URL to open this ticket in the app.")
+
+    class Meta:
+        dataclass = TicketSummary
+        ref_name = "SupportTicket"
+        fields = ["id", "ticket_number", "status", "last_message_at", "last_message_text", "deep_link"]
+
+
 class CustomPropertyReferenceSerializer(DataclassSerializer):
     """A place that uses a custom property definition (read-only)."""
 
@@ -330,7 +401,11 @@ class CustomPropertySyncRunSerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True)
     trigger = serializers.CharField(
         read_only=True,
-        help_text="What started the run: 'scheduled' (rode a warehouse sync), 'manual', or 'backfill'.",
+        help_text=(
+            "What started the run: 'scheduled' (rode a warehouse sync), 'sync' (a warehouse sync "
+            "started from the UI), 'manual' (a backfill started from the UI), or 'backfill' (the "
+            "automatic backfill run when a mapping is created or re-enabled)."
+        ),
     )
     status = serializers.CharField(read_only=True, help_text="Run status: 'running', 'completed', or 'failed'.")
     started_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When the run began.")
@@ -587,6 +662,13 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
         allow_null=True,
         help_text="The data-warehouse view-sync binding feeding this property, or null when values are set manually.",
     )
+    is_canonical = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True when PostHog writes this property itself. Its name and display type are fixed — "
+            "an update changing either is rejected."
+        ),
+    )
     created_at = serializers.DateTimeField(read_only=True)
     created_by = serializers.IntegerField(read_only=True, allow_null=True)
     updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
@@ -621,6 +703,7 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
             "target_type",
             "group_type_index",
             "is_big_number",
+            "is_canonical",
             "options",
             "source",
             "created_at",
@@ -772,4 +855,85 @@ class AccountRelationshipWriteSerializer(serializers.Serializer):
     definition = serializers.UUIDField(help_text="Id of the relationship definition to assign.")
     user = serializers.IntegerField(
         help_text="PostHog user id of the assignee. Must be a member of the account's organization."
+    )
+
+
+class EventStreamSerializer(DataclassSerializer):
+    """The caller's event stream — a live feed of selected accounts' events posted to a
+    Slack channel of their choice. One stream per user per project."""
+
+    id = serializers.UUIDField(read_only=True)
+    enabled = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Whether the stream delivers to Slack. Delivery also requires at least one event, "
+            "at least one member account with an external ID, and a Slack workspace + channel."
+        ),
+    )
+    event_names = serializers.ListField(
+        child=serializers.CharField(max_length=400),
+        required=False,
+        default=list,
+        help_text="Names of the events to stream (matched exactly). Duplicates and blanks are dropped.",
+    )
+    slack_integration = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="ID of the team's Slack workspace integration to deliver through.",
+    )
+    slack_channel_id = serializers.CharField(
+        max_length=200,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Slack channel ID to post to (e.g. C0123ABC).",
+    )
+    slack_channel_name = serializers.CharField(
+        max_length=200,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Display name of the Slack channel (e.g. #customer-events). Informational only.",
+    )
+    account_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        read_only=True,
+        help_text=(
+            "UUIDs of the member accounts whose users' events are streamed. "
+            "Managed via the add_account/remove_account endpoints."
+        ),
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    created_by = serializers.IntegerField(read_only=True, allow_null=True)
+    updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
+
+    class Meta:
+        dataclass = EventStreamView
+        ref_name = "EventStream"
+        fields = [
+            "id",
+            "enabled",
+            "event_names",
+            "slack_integration",
+            "slack_channel_id",
+            "slack_channel_name",
+            "account_ids",
+            "created_at",
+            "created_by",
+            "updated_at",
+        ]
+
+
+class EventStreamMemberWriteSerializer(serializers.Serializer):
+    """Request body for adding or removing an event-stream member account."""
+
+    account_id = serializers.UUIDField(help_text="UUID of the account to add to or remove from the stream.")
+
+
+class EventStreamTestMessageSerializer(serializers.Serializer):
+    """Result of posting an event-stream test message to Slack."""
+
+    channel_id = serializers.CharField(
+        read_only=True, help_text="Slack channel ID the test message was posted to (e.g. C0123ABC)."
     )

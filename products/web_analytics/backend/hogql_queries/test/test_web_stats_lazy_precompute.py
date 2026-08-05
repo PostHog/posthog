@@ -28,6 +28,8 @@ from posthog.models.utils import uuid7
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
+from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import SESSION_ID_SET_FEATURE_FLAG_KEY
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import ORG_FEATURE_FLAG_KEY
 from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import _breakdown_having_expr
 
 # Low-cardinality breakdowns with a generic seed that have data and are cheap to
@@ -60,12 +62,13 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         sync_execute("SYSTEM STOP TTL MERGES sharded_web_stats_preaggregated")
 
     def _enable_lazy(self):
-        # Mock the org-level feature flag check to True. Outside this context
-        # manager the default `posthoganalytics.feature_enabled` returns False
-        # (no API key in tests), which models a flag-disabled org.
+        # Mock the precompute feature flag checks to True. Outside this context manager
+        # the default `posthoganalytics.feature_enabled` returns False (no API key in
+        # tests), which models a flag-disabled org. The patch target is the shared
+        # `posthoganalytics` module, so an unscoped True would enable other rollouts too.
         return patch(
             "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common.posthoganalytics.feature_enabled",
-            return_value=True,
+            side_effect=lambda key, *args, **kwargs: key in (ORG_FEATURE_FLAG_KEY, SESSION_ID_SET_FEATURE_FLAG_KEY),
         )
 
     def _props(self, **overrides) -> dict:

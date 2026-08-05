@@ -36,7 +36,7 @@ pub enum Command {
     /// traffic anywhere the router does not serve the database this harness
     /// seeds, and every database operation is confined to the configured
     /// validation table.
-    Traffic(TrafficArgs),
+    Traffic(Box<TrafficArgs>),
 }
 
 #[derive(Args, Clone)]
@@ -124,6 +124,12 @@ pub struct ConsistencyArgs {
 
 #[derive(Args, Clone)]
 pub struct GateArgs {
+    /// Extra KEY=VALUE environment for spawned leaders — the lever for
+    /// benchmarking leader features (e.g. KAFKA_TRANSACTIONAL_FENCING)
+    /// without a harness change per flag. Repeatable.
+    #[arg(long = "leader-env", value_parser = parse_env_pair)]
+    pub leader_env: Vec<(String, String)>,
+
     /// Target an already-running stack at this router URL instead of
     /// spawning one. When unset, the harness spawns its own isolated stack
     /// (replica, leaders, leader-mode router, writer) against the
@@ -256,9 +262,10 @@ pub struct GateArgs {
     #[arg(long, default_value_t = false)]
     pub kill_handoff_target: bool,
 
-    /// Leader cache capacity in entries. Set below --persons to put the
-    /// cache under eviction pressure.
-    #[arg(long, default_value_t = 100_000)]
+    /// Leader per-partition cache budget in bytes (CACHE_MEMORY_CAPACITY_BYTES).
+    /// Set below the seeded pool's footprint to put the cache under
+    /// eviction pressure. Default matches the dev deployment (16 MiB).
+    #[arg(long, default_value_t = 16_777_216)]
     pub cache_capacity: usize,
 
     /// Recovery consumer pool size for spawned leaders
@@ -272,6 +279,22 @@ pub struct GateArgs {
     /// The heartbeat interval scales to a third of this.
     #[arg(long, default_value_t = 30)]
     pub leader_lease_ttl: i64,
+
+    /// Create the persons through the personhog-identity service
+    /// (GetOrCreatePersonsByDistinctIds with initial properties) instead of
+    /// seeding SQL directly. The create acks are journaled like any other
+    /// write, so the gate also asserts create visibility: the initial
+    /// properties must survive into strong reads and Postgres. A spawned
+    /// stack brings up its own identity service; with
+    /// --external-router-url, pass --external-identity-url too.
+    #[arg(long, default_value_t = false)]
+    pub create_via_identity: bool,
+
+    /// Identity service URL for --create-via-identity against an
+    /// already-running stack (the dev stack runs it at
+    /// http://127.0.0.1:50055). Ignored for spawned stacks.
+    #[arg(long)]
+    pub external_identity_url: Option<String>,
 
     /// Leave the spawned stack running after the gate finishes (for
     /// poking at it manually). Ignored with --external-router-url.
@@ -358,4 +381,96 @@ pub struct TrafficArgs {
     /// Prometheus metrics + liveness port.
     #[arg(long, env = "TRAFFIC_METRICS_PORT", default_value_t = 9110)]
     pub metrics_port: u16,
+
+    /// Continuous chaos: kill scenarios against the stack under test on
+    /// a randomized cadence. Ships false; the chart flips it once RBAC
+    /// is in place. Requires the harness ServiceAccount to hold pod
+    /// get/list/delete in the target namespaces.
+    #[arg(long, env = "CHAOS_ENABLED", default_value_t = false, action = clap::ArgAction::Set)]
+    pub chaos_enabled: bool,
+
+    /// Bounds of the randomized pause between chaos scenarios.
+    #[arg(long, env = "CHAOS_INTERVAL_MIN", default_value = "180s", value_parser = humantime::parse_duration)]
+    pub chaos_interval_min: Duration,
+
+    #[arg(long, env = "CHAOS_INTERVAL_MAX", default_value = "600s", value_parser = humantime::parse_duration)]
+    pub chaos_interval_max: Duration,
+
+    /// Namespaces of the target classes. Each class's app pods are
+    /// selected by `app.kubernetes.io/name=<namespace>` plus
+    /// `component=app`, which in the personhog charts matches the
+    /// namespace name and excludes pgbouncer sidecars.
+    #[arg(
+        long,
+        env = "CHAOS_LEADER_NAMESPACE",
+        default_value = "personhog-leader"
+    )]
+    pub chaos_leader_namespace: String,
+
+    #[arg(
+        long,
+        env = "CHAOS_ROUTER_NAMESPACE",
+        default_value = "personhog-router-leader"
+    )]
+    pub chaos_router_namespace: String,
+
+    #[arg(
+        long,
+        env = "CHAOS_WRITER_NAMESPACE",
+        default_value = "personhog-writer"
+    )]
+    pub chaos_writer_namespace: String,
+
+    /// etcd endpoints of the stack under test (comma-separated). Enables
+    /// the coordinator-targeted scenarios, which resolve the live
+    /// election holder; absent, those scenarios are excluded.
+    #[arg(long, env = "CHAOS_ETCD_ENDPOINTS")]
+    pub chaos_etcd_endpoints: Option<String>,
+
+    /// etcd key prefix, matching the routers' ETCD_PREFIX.
+    #[arg(long, env = "CHAOS_ETCD_PREFIX", default_value = "/personhog/")]
+    pub chaos_etcd_prefix: String,
+
+    /// Namespace of the etcd cluster's own pods. Enables the
+    /// `etcd_bounce` scenario (abruptly kill one member of a healthy
+    /// three-member cluster); absent, that scenario is excluded. The
+    /// harness ServiceAccount additionally needs pod list/delete RBAC in
+    /// this namespace.
+    #[arg(long, env = "CHAOS_ETCD_NAMESPACE")]
+    pub chaos_etcd_namespace: Option<String>,
+}
+
+/// Environment the stack assigns per leader; overriding any of these
+/// would break pod identity or point a spawned leader at the wrong
+/// topic or table, and the resulting run would look like a real result.
+const RESERVED_LEADER_ENV: &[&str] = &[
+    "POD_NAME",
+    "GRPC_ADDRESS",
+    "METRICS_PORT",
+    "ETCD_ENDPOINTS",
+    "ETCD_PREFIX",
+    "KAFKA_PERSON_STATE_TOPIC",
+    "FALLBACK_TABLE",
+    "FALLBACK_DATABASE_URL",
+    "WRITER_CONSUMER_GROUP",
+    // Derived fencing timeouts scale off the lease TTL, so overriding it
+    // here would silently contradict --leader-lease-ttl and can leave a
+    // fenced leader unable to start.
+    "LEASE_TTL",
+];
+
+/// Parse a `KEY=VALUE` pair for environment passthrough arguments.
+fn parse_env_pair(s: &str) -> Result<(String, String), String> {
+    let (key, value) = s
+        .split_once('=')
+        .ok_or_else(|| format!("expected KEY=VALUE, got {s:?}"))?;
+    if key.is_empty() {
+        return Err(format!("empty environment variable name in {s:?}"));
+    }
+    if RESERVED_LEADER_ENV.contains(&key) {
+        return Err(format!(
+            "{key} is assigned per leader by the harness and cannot be overridden"
+        ));
+    }
+    Ok((key.to_string(), value.to_string()))
 }

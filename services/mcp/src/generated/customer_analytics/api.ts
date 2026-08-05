@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 37 enabled ops
+ * PostHog API - MCP 49 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -114,19 +114,10 @@ export const AccountsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const AccountsListQueryParams = /* @__PURE__ */ zod.object({
-    account_executive: zod
-        .string()
-        .optional()
-        .describe("Filter by account executive. Use 'unassigned' or an integer user id."),
-    account_owner: zod.string().optional().describe("Filter by account owner. Use 'unassigned' or an integer user id."),
     all_roles_unassigned: zod
         .boolean()
         .optional()
-        .describe('When true, returns only accounts where CSM, account executive, and account owner are all unset.'),
-    csm: zod
-        .string()
-        .optional()
-        .describe("Filter by CSM. Use 'unassigned' for accounts with no CSM, or an integer user id."),
+        .describe('When true, returns only accounts where no user actively holds any relationship.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod.string().optional().describe("Sort order. Defaults to '-created_at'."),
@@ -163,24 +154,6 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             ),
         properties: zod
             .object({
-                csm: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
-                account_executive: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
-                account_owner: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
                 stripe_customer_id: zod.string().nullish(),
                 hubspot_deal_id: zod.string().nullish(),
                 billing_id: zod.string().nullish(),
@@ -188,15 +161,27 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
                 zendesk_id: zod.string().nullish(),
                 slack_channel_id: zod.string().nullish(),
                 usage_dashboard_link: zod.string().nullish(),
+                metabase_link: zod.string().nullish(),
             })
             .nullish()
             .describe(
-                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.'
+                'Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.'
             ),
         tags: zod
             .array(zod.string())
             .optional()
             .describe('Tag names attached to the account. Pass a list to replace existing tags.'),
+        slack_summary_cadence: zod
+            .union([
+                zod
+                    .enum(['daily', 'weekly', 'monthly'])
+                    .describe('\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.\n\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly"
+            ),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
@@ -364,24 +349,6 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             ),
         properties: zod
             .object({
-                csm: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
-                account_executive: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
-                account_owner: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
                 stripe_customer_id: zod.string().nullish(),
                 hubspot_deal_id: zod.string().nullish(),
                 billing_id: zod.string().nullish(),
@@ -389,20 +356,96 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
                 zendesk_id: zod.string().nullish(),
                 slack_channel_id: zod.string().nullish(),
                 usage_dashboard_link: zod.string().nullish(),
+                metabase_link: zod.string().nullish(),
             })
             .nullish()
             .describe(
-                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.'
+                'Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.'
             ),
         tags: zod
             .array(zod.string())
             .optional()
             .describe('Tag names attached to the account. Pass a list to replace existing tags.'),
+        slack_summary_cadence: zod
+            .union([
+                zod
+                    .enum(['daily', 'weekly', 'monthly'])
+                    .describe('\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.\n\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly"
+            ),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
 export const AccountsDestroyParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const AccountsSummariesListParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const AccountsSummariesListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const AnnouncementsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const AnnouncementsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const AnnouncementsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const AnnouncementsCreateBody = /* @__PURE__ */ zod.object({
+    message: zod.string().describe('Message body to send, rendered as Slack mrkdwn.'),
+    channels: zod
+        .array(zod.string())
+        .describe(
+            'Slack channel IDs to send to. Each must be a channel the SupportHog bot is a member of; names are resolved server-side.'
+        ),
+})
+
+export const AnnouncementsRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    short_id: zod.string(),
+})
+
+/**
+ * Slack channels the SupportHog bot can post to, labeled by customer account name.
+ */
+export const AnnouncementsChannelsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -804,6 +847,205 @@ export const CustomPropertySourcesRunsListQueryParams = /* @__PURE__ */ zod.obje
  */
 export const CustomPropertySourcesSyncParams = /* @__PURE__ */ zod.object({
     id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
+ */
+export const EventStreamsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
+ */
+export const EventStreamsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const eventStreamsCreateBodyEnabledDefault = false
+export const eventStreamsCreateBodyEventNamesItemMax = 400
+
+export const eventStreamsCreateBodySlackChannelIdDefault = ``
+export const eventStreamsCreateBodySlackChannelIdMax = 200
+
+export const eventStreamsCreateBodySlackChannelNameDefault = ``
+export const eventStreamsCreateBodySlackChannelNameMax = 200
+
+export const EventStreamsCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod
+            .boolean()
+            .default(eventStreamsCreateBodyEnabledDefault)
+            .describe(
+                'Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel.'
+            ),
+        event_names: zod
+            .array(zod.string().max(eventStreamsCreateBodyEventNamesItemMax))
+            .optional()
+            .describe('Names of the events to stream (matched exactly). Duplicates and blanks are dropped.'),
+        slack_integration: zod
+            .number()
+            .nullish()
+            .describe("ID of the team's Slack workspace integration to deliver through."),
+        slack_channel_id: zod
+            .string()
+            .max(eventStreamsCreateBodySlackChannelIdMax)
+            .default(eventStreamsCreateBodySlackChannelIdDefault)
+            .describe('Slack channel ID to post to (e.g. C0123ABC).'),
+        slack_channel_name: zod
+            .string()
+            .max(eventStreamsCreateBodySlackChannelNameMax)
+            .default(eventStreamsCreateBodySlackChannelNameDefault)
+            .describe('Display name of the Slack channel (e.g. #customer-events). Informational only.'),
+    })
+    .describe(
+        "The caller's event stream — a live feed of selected accounts' events posted to a\nSlack channel of their choice. One stream per user per project."
+    )
+
+/**
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
+ */
+export const EventStreamsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this event stream.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const eventStreamsPartialUpdateBodyEventNamesItemMax = 400
+
+export const eventStreamsPartialUpdateBodySlackChannelIdMax = 200
+
+export const eventStreamsPartialUpdateBodySlackChannelNameMax = 200
+
+export const EventStreamsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel.'
+            ),
+        event_names: zod
+            .array(zod.string().max(eventStreamsPartialUpdateBodyEventNamesItemMax))
+            .optional()
+            .describe('Names of the events to stream (matched exactly). Duplicates and blanks are dropped.'),
+        slack_integration: zod
+            .number()
+            .nullish()
+            .describe("ID of the team's Slack workspace integration to deliver through."),
+        slack_channel_id: zod
+            .string()
+            .max(eventStreamsPartialUpdateBodySlackChannelIdMax)
+            .optional()
+            .describe('Slack channel ID to post to (e.g. C0123ABC).'),
+        slack_channel_name: zod
+            .string()
+            .max(eventStreamsPartialUpdateBodySlackChannelNameMax)
+            .optional()
+            .describe('Display name of the Slack channel (e.g. #customer-events). Informational only.'),
+    })
+    .describe(
+        "The caller's event stream — a live feed of selected accounts' events posted to a\nSlack channel of their choice. One stream per user per project."
+    )
+
+/**
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
+ */
+export const EventStreamsDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this event stream.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
+ */
+export const EventStreamsAddAccountCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this event stream.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const EventStreamsAddAccountCreateBody = /* @__PURE__ */ zod
+    .object({
+        account_id: zod.string().describe('UUID of the account to add to or remove from the stream.'),
+    })
+    .describe('Request body for adding or removing an event-stream member account.')
+
+/**
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
+ */
+export const EventStreamsRemoveAccountCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this event stream.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const EventStreamsRemoveAccountCreateBody = /* @__PURE__ */ zod
+    .object({
+        account_id: zod.string().describe('UUID of the account to add to or remove from the stream.'),
+    })
+    .describe('Request body for adding or removing an event-stream member account.')
+
+/**
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
+ */
+export const EventStreamsSendTestMessageCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this event stream.'),
     project_id: zod
         .string()
         .describe(

@@ -1,4 +1,4 @@
-use std::{fmt, hash::Hash, str::FromStr, sync::LazyLock};
+use std::{borrow::Cow, fmt, hash::Hash, str::FromStr, sync::LazyLock};
 
 use chrono::{DateTime, Duration, DurationRound, RoundingError, Utc};
 use regex::Regex;
@@ -392,7 +392,20 @@ impl Event {
 }
 
 pub fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueType> {
-    let key = key.to_lowercase();
+    // This runs for every property of every event, so the allocation matters. Borrow when the key
+    // is already lowercase ASCII, which is effectively all real traffic. The ASCII gate is what
+    // makes the borrow equivalent to an unconditional `to_lowercase()`: over ASCII with no
+    // uppercase bytes, Unicode lowercasing is the identity, so no case analysis of the patterns
+    // below is needed to see that the result is unchanged. Gating on `char::is_uppercase` instead
+    // would reach the same answers, but only because every pattern below is an ASCII literal;
+    // that argument has to be redone whenever a pattern changes, and it costs a char decode plus
+    // a Unicode property lookup per character rather than a byte scan.
+    let lowered: Cow<str> = if key.is_ascii() && !key.bytes().any(|b| b.is_ascii_uppercase()) {
+        Cow::Borrowed(key)
+    } else {
+        Cow::Owned(key.to_lowercase())
+    };
+    let key: &str = &lowered;
 
     // There are a whole set of special cases here, taken from the TS
     if key.starts_with("utm_") || key.starts_with("$initial_utm_") {
@@ -428,7 +441,7 @@ pub fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueTyp
         return Some(PropertyValueType::String);
     }
 
-    if detect_timestamp_property_by_key_and_value(&key, value) {
+    if detect_timestamp_property_by_key_and_value(key, value) {
         return Some(PropertyValueType::DateTime);
     }
 

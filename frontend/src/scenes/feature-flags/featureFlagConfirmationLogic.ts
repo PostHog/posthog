@@ -5,6 +5,7 @@ import { objectsEqual } from 'lib/utils/objects'
 import { FeatureFlagType } from '~/types'
 
 import { openConfirmationModal } from './ConfirmationModal'
+import { openFeatureFlagDisableDialog } from './featureFlagDisableDialog'
 import { DependentFlag } from './featureFlagLogic'
 
 /**
@@ -112,7 +113,8 @@ export function checkFeatureFlagConfirmation(
     onConfirm: () => void,
     dependentFlags?: DependentFlag[],
     isBeingDisabled?: boolean,
-    requireStatusConfirmation = false
+    requireStatusConfirmation = false,
+    onDisableAndArchive?: () => void
 ): boolean {
     // Check if confirmation is needed
     const needsConfirmation = !!updatedFlag.id && shouldDisplayConfirmation
@@ -137,12 +139,29 @@ export function checkFeatureFlagConfirmation(
     }
 
     if (requireStatusConfirmation && originalFlag?.active !== updatedFlag.active) {
-        openConfirmationModal({
-            featureFlag: updatedFlag,
-            type: 'flag-status',
-            activeNewValue: updatedFlag.active,
-            onConfirm,
-        })
+        const openStatusConfirmationModal = (onConfirmModal?: () => void, onCancelModal?: () => void): void =>
+            openConfirmationModal({
+                featureFlag: updatedFlag,
+                type: 'flag-status',
+                activeNewValue: updatedFlag.active,
+                onConfirm: onConfirmModal ?? onConfirm,
+                onCancel: onCancelModal,
+            })
+
+        // Disabling can offer "Disable and archive" behind the disable-and-archive experiment.
+        // Deliberately below the confirmation gate: a flag with dependents, or a team that set up
+        // its own confirmation, gets that modal instead. Losing an experiment exposure beats
+        // archiving a flag others read from.
+        if (!updatedFlag.active && onDisableAndArchive) {
+            openFeatureFlagDisableDialog({
+                source: 'feature-flag-detail',
+                onDisable: onConfirm,
+                onDisableAndArchive,
+                openControlDialog: openStatusConfirmationModal,
+            })
+            return true
+        }
+        openStatusConfirmationModal()
         return true
     }
 

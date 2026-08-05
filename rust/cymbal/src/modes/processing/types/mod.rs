@@ -7,7 +7,7 @@ use std::ops::{Deref, DerefMut};
 use uuid::Uuid;
 
 use crate::fingerprinting::{FingerprintRecordPart, FingerprintVersion};
-use crate::frames::releases::{ReleaseInfo, ReleaseRecord};
+use crate::frames::releases::ReleaseInfo;
 use crate::frames::{Frame, RawFrame};
 use crate::langs::native::DebugImage;
 use crate::metric_consts::POSTHOG_SDK_EXCEPTION_RESOLVED;
@@ -87,10 +87,6 @@ impl ExceptionList {
         unique_by(self.get_in_app_frames(), |f| f.resolved_name.clone())
     }
 
-    pub fn get_release_map(&self) -> HashMap<String, ReleaseInfo> {
-        ReleaseRecord::collect_to_map(self.get_frames_iter().filter_map(|f| f.release.as_ref()))
-    }
-
     pub fn get_is_handled(&self) -> bool {
         self.first()
             .and_then(|e| e.mechanism.as_ref())
@@ -154,12 +150,13 @@ struct ProcessedExceptionPropertiesWire {
     other: HashMap<String, Value>,
     #[serde(rename = "$exception_handled")]
     handled: bool,
+    // The single release an event resolves to, from its `$release_id` or mobile app metadata.
     #[serde(
-        rename = "$exception_releases",
-        skip_serializing_if = "HashMap::is_empty",
+        rename = "$exception_release",
+        skip_serializing_if = "Option::is_none",
         default
     )]
-    releases: HashMap<String, ReleaseInfo>,
+    release: Option<ReleaseInfo>,
     #[serde(rename = "$exception_types")]
     types: Vec<String>,
     #[serde(rename = "$exception_values")]

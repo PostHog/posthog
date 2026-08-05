@@ -4,7 +4,6 @@ from typing import Any, Optional
 
 from requests.auth import HTTPBasicAuth
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.campaign_monitor.settings import (
     CAMPAIGN_MONITOR_ENDPOINTS,
     CampaignMonitorEndpointConfig,
@@ -26,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 CAMPAIGN_MONITOR_BASE_URL = "https://api.createsend.com/api/v3.3"
 DEFAULT_PAGE_SIZE = 1000  # Campaign Monitor's documented maximum page size.

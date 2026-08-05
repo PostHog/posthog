@@ -62,6 +62,8 @@ metadata:
           title: Authenticate to internal services
         - key: tools
           title: Developer tools and utilities
+        - key: desktop
+          title: Desktop app (products/desktop)
         - key: devex
           title: Developer experience feedback
         - key: utilities
@@ -238,6 +240,9 @@ devenv:
     dev:intents:
         click: hogli_commands.devenv.cli:dev_intents
         description: List available intents
+    dev:regenerate-mprocs:
+        click: hogli_commands.devenv.cli:dev_regenerate_mprocs
+        description: Sync bin/mprocs.yaml and bin/mprocs-e2e.yaml's docker-compose shells with generator.py
     dev:list-units:
         click: hogli_commands.devenv.cli:dev_list_units
         description: List autostart units for given intents (used by phrocs)
@@ -359,11 +364,11 @@ start:
         preserve_exit_code: true
     stop:
         cmd: phrocs stop
-        description: Stop the detached dev stack gracefully
+        description: Stop the detached dev stack processes (docker services stay up; use docker:services:down to stop them)
         preserve_exit_code: true
     down:
         cmd: phrocs stop
-        description: Alias for `hogli stop`
+        description: Alias for `hogli stop` (docker services stay up; use docker:services:down to stop them)
         preserve_exit_code: true
     start:backend:
         bin_script: start-backend
@@ -540,6 +545,10 @@ build:
         cmd: pnpm --filter=@posthog/mcp run generate-cli-agent-scopes
         description: Generate the CLI `agent` login use-case scope list from the MCP
             tool definitions (must run after build:openapi-mcp-tools)
+    build:openapi-exec-docs:
+        cmd: pnpm --filter=@posthog/mcp run generate-exec-docs
+        description: Render the MCP exec tool's command reference into the markdown
+            fragment posthog.com embeds in the tools reference page
     build:openapi:
         steps:
             - build:openapi-schema
@@ -550,6 +559,7 @@ build:
             - build:openapi-mcp-tools
             - build:openapi-mcp-scopes
             - build:openapi-cli-agent-scopes
+            - build:openapi-exec-docs
         description: Generate OpenAPI schema and TypeScript types from the backend
     build:grammar:
         cmd: pnpm grammar:build
@@ -860,6 +870,12 @@ tools:
     doctor:zombies:
         click: hogli_commands.doctor:doctor_zombies
         description: Find and kill orphaned PostHog dev processes
+    doctor:ports:
+        click: hogli_commands.doctor:doctor_ports
+        description: Pre-flight check for host ports the dev stack needs
+    doctor:migrate-volumes:
+        click: hogli_commands.doctor:doctor_migrate_volumes
+        description: Auto-migrate ClickHouse/ZooKeeper data to the new named docker volumes
     doctor:report:
         click: hogli_commands.doctor:doctor_report
         description: Dump a paste-ready dev-environment diagnostics report for devex triage
@@ -1005,6 +1021,23 @@ tools:
     ci:preflight:
         click: hogli_commands.ci_preflight:ci_preflight
         description: Catch deterministic CI failures reachable from your diff before you push (advisory; --fix, --strict)
+desktop:
+    desktop:dev:
+        cmd: pnpm --dir products/desktop dev
+        description: Run the desktop app dev stack (build deps, then phrocs with Electron)
+    desktop:test:
+        cmd: pnpm --dir products/desktop test
+        description: Run desktop unit tests (Vitest via turbo, nested workspace)
+    desktop:typecheck:
+        cmd: pnpm --dir products/desktop typecheck
+        description: Typecheck all desktop packages (turbo)
+    desktop:lint:
+        cmd: pnpm --dir products/desktop exec biome ci . && node products/desktop/scripts/check-host-boundaries.mjs
+        description: Check desktop code quality without writing (Biome + host boundaries, mirrors desktop-quality CI)
+    desktop:lint:fix:
+        cmd: pnpm --dir products/desktop run lint
+        description: Autofix desktop lint issues (biome check --write --unsafe)
+
 owners:
     owners:resolve:
         click: posthog_owners.cli:cmd_resolve
@@ -1043,7 +1076,7 @@ utilities:
         prompt: true
     worktrees:clean:
         click: hogli_commands.worktrees:worktrees_clean
-        description: Clear out unused Claude Code / Codex / PostHog Code worktrees by age
+        description: Clear out unused Claude Code / Codex / PostHog Desktop worktrees by age
     pr:upload-image:
         click: hogli_commands.upload_image:upload_image
         description: Upload screenshot(s) to the public PostHog/pr-assets repo and print embeddable PR markdown
@@ -1105,16 +1138,10 @@ environment:
         bin_script: rust-jumphost
         description: 'Shell into the flags-cache-jumphost pod (uses $KUBE_NAMESPACE, defaults to posthog)'
         hidden: true
-    run:agent:
-        bin_script: run-agent
-        description: 'POST a demo /run to local agent-ingress and tail /listen SSE events — exercises the full ingress → queue → runner path'
     wait:for:postgres:tables:
         bin_script: wait-for-postgres-tables
         description: 'Block until the named Postgres tables exist'
         hidden: true
-    agent:tunnel:
-        bin_script: agent-tunnel
-        description: 'Expose local agent-ingress on a public cloudflared URL and wire AGENT_INGRESS_PUBLIC_URL into .env.local so Slack/webhooks can reach your dev box'
     dev:sandbox:
         bin_script: dev-sandbox
         description: 'Run a command inside the dev filesystem sandbox (internal; used by hogli dev:generate by default unless POSTHOG_DEV_SANDBOX=0)'
@@ -1159,10 +1186,6 @@ environment:
         bin_script: dev-open-when-ready
         description: 'Open a URL in the browser once its server is listening (internal; runs unsandboxed so sandboxed procs can auto-open)'
         hidden: true
-    migrate:agent:test:db:
-        bin_script: migrate-agent-test-db
-        description: Create + migrate the agent_platform test database from the Django migrations (single source of truth)
-        hidden: true
     docker:agent:proxy:
         cmd: node dist/agent-proxy-server.mjs
         description: 'Production entrypoint: run the agent-proxy Node service'
@@ -1170,4 +1193,8 @@ environment:
     ensure:local:setup:
         bin_script: ensure-local-setup
         description: Idempotent local-dev bootstrap (e.g. the wizard OAuth app); runs automatically on hogli start
+        hidden: true
+    start:desktop:
+        bin_script: start-desktop
+        description: 'Install the nested products/desktop workspace and run its dev stack (Electron app plus package watchers via turbo); used by the desktop intent on hogli start'
         hidden: true

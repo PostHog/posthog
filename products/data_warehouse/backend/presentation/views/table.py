@@ -26,11 +26,13 @@ from posthog.tasks.warehouse import validate_data_warehouse_table_columns
 
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.facade.api import (
+    FILE_FORMAT_READ_HINTS,
     FILE_FORMAT_TO_TABLE_FORMAT,
     MAX_FILE_UPLOAD_SIZE_BYTES,
     SUPPORTED_FILE_FORMATS,
     build_file_upload_s3_path,
     build_file_upload_url_pattern,
+    hosted_upload_s3_path,
 )
 from products.warehouse_sources.backend.facade.hogql import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -53,6 +55,34 @@ from products.warehouse_sources.backend.presentation.views.external_data_source 
 # storage far past the per-file cap. The margin over the file cap covers the multipart envelope and
 # the small form fields sent alongside the file.
 MAX_UPLOAD_REQUEST_BODY_BYTES = MAX_FILE_UPLOAD_SIZE_BYTES + 1024 * 1024
+
+
+def _delete_hosted_upload_file(table: DataWarehouseTable) -> None:
+    """Best-effort removal of a self-managed table's backing file from PostHog's own bucket.
+
+    Only ever touches files we host: `hosted_upload_s3_path` returns `None` for a customer-linked
+    bucket, and a stored credential (the mark of a user-supplied bucket) is a further guard. Failures
+    are swallowed so a storage hiccup can't block the table delete — the object simply lingers.
+    """
+    if table.credential_id is not None:
+        return
+    path = hosted_upload_s3_path(table.url_pattern)
+    if path is None:
+        return
+    # The same uploaded file can back more than one table — `create_from_upload` doesn't claim
+    # exclusive ownership of an upload — so only reclaim the object once no live table still points
+    # at it. This keeps deleting one table from pulling the file out from under another, and stops a
+    # table whose file is still in use from having its object removed.
+    if (
+        DataWarehouseTable.objects.filter(team_id=table.team_id, url_pattern=table.url_pattern, deleted=False)
+        .exclude(pk=table.pk)
+        .exists()
+    ):
+        return
+    try:
+        get_s3_client().rm(path)
+    except Exception as e:
+        capture_exception(e)
 
 
 class CredentialSerializer(serializers.ModelSerializer):
@@ -209,7 +239,10 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
     def validate_url_pattern(self, url_pattern):
         s3_domain = settings.DATAWAREHOUSE_BUCKET_DOMAIN
         if s3_domain in url_pattern:
-            raise serializers.ValidationError("Cant use this bucket")
+            raise serializers.ValidationError(
+                "This URL points to PostHog's internal storage and can't be used as a source. "
+                "Enter the location of your own bucket instead."
+            )
 
         is_valid, error_message = validate_warehouse_table_url_pattern(url_pattern)
         if not is_valid:
@@ -352,6 +385,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             )
 
         instance.soft_delete()
+        _delete_hosted_upload_file(instance)
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -642,9 +676,14 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         try:
             table.columns = table.get_columns()
         except Exception as err:
+            # The raw column-detection failure is a ClickHouse error that's opaque to users, so keep it
+            # in error tracking and hand back plain, format-specific guidance on what to check instead.
+            capture_exception(err)
+            hint = FILE_FORMAT_READ_HINTS.get(file_format, "")
+            message = f"Couldn't read the columns from your file. {hint}".strip()
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Could not read columns from the uploaded file: {err}"},
+                data={"message": message},
             )
         table.save()
 
