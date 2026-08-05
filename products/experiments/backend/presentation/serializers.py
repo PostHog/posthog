@@ -9,6 +9,8 @@ ViewSet remains in experiments.py.
 from copy import deepcopy
 from typing import Any, TypeGuard
 
+from django.utils import timezone
+
 from drf_spectacular.utils import extend_schema_field
 from opentelemetry import trace
 from pydantic import RootModel as PydanticRootModel
@@ -32,6 +34,7 @@ from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import CreateExperimentInput
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
+from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_events import MetricSourceRole
@@ -375,6 +378,38 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "conditions)."
         ),
     )
+    resolved_exposure_event = serializers.SerializerMethodField(
+        help_text=(
+            "The event exposures are actually counted on when the experiment doesn't configure a "
+            "custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the "
+            "rollout and the experiment started at or after the cutoff. Resolved server-side so "
+            "clients display the same event the results queries read. For a draft, this is what the "
+            "experiment would resolve to if launched now."
+        ),
+    )
+    version = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optimistic-concurrency token. Reads return the experiment's current version, bumped on "
+            "every update. Send the version you last read with an update to detect concurrent edits: "
+            "a stale update that only touches the metric collections is merged per metric uuid when "
+            "`original_experiment` is also sent; anything else fails with HTTP 409. Omit to skip "
+            "the check."
+        ),
+    )
+    original_experiment = serializers.DictField(
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text=(
+            "The metric collections as the client last read them, used together with `version` to "
+            "resolve concurrent metric edits: changes made by other users are merged per metric uuid "
+            "where safe instead of failing. Relevant keys are metrics, metrics_secondary, and "
+            "saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails "
+            "with HTTP 409."
+        ),
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     flag_cleanup_task_id = serializers.UUIDField(
         read_only=True,
@@ -439,9 +474,12 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "secondary_metrics_ordered_uuids",
             "only_count_matured_users",
             "update_feature_flag_params",
+            "version",
+            "original_experiment",
             "status",
             "is_legacy",
             "can_freeze_exposure",
+            "resolved_exposure_event",
             "user_access_level",
         ]
         read_only_fields = [
@@ -455,6 +493,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "saved_metrics",
             "status",
             "can_freeze_exposure",
+            "resolved_exposure_event",
             "user_access_level",
         ]
 
@@ -470,6 +509,12 @@ class ExperimentSerializer(ExperimentBaseSerializer):
     @extend_schema_field(serializers.BooleanField())
     def get_can_freeze_exposure(self, obj: Experiment) -> bool:
         return obj.can_freeze_exposure
+
+    @extend_schema_field(serializers.CharField())
+    def get_resolved_exposure_event(self, obj: Experiment) -> str:
+        # A draft has no start_date yet, so resolve against now: that's the event it would get if
+        # launched today, which is what the setup UI needs to show.
+        return resolve_default_exposure_event(obj.team, obj.start_date or timezone.now())
 
     @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):
@@ -757,6 +802,9 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
         # Pop fields not needed for DTO but needed for validation
         validated_data.pop("update_feature_flag_params", None)
+        # Concurrency keys are update-only; ignore them on create so clients can share payload builders
+        validated_data.pop("version", None)
+        validated_data.pop("original_experiment", None)
 
         # Check for unexpected fields
         expected_fields = {
@@ -1068,7 +1116,17 @@ class EndExperimentSerializer(serializers.Serializer):
             "GitHub repository to open the cleanup pull request in, in `organization/repository` format. "
             "Only used when open_cleanup_pr is true. It must be one of the team's connected repositories "
             "(see the flag_cleanup_target action); it is then saved as the experiment's repository. When "
-            "omitted, the experiment's saved repository or the team's only connected repository is used."
+            "omitted, the experiment's saved repository, the team's default cleanup repository, or the "
+            "team's only connected repository is used."
+        ),
+    )
+    set_repository_as_team_default = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "When true, also save `repository` as this environment's default cleanup repository, used for "
+            "experiments that have no repository of their own. Only acts when open_cleanup_pr is true and "
+            "`repository` is provided and belongs to the team's GitHub installation. Requires project admin "
+            "access (403 otherwise)."
         ),
     )
 
@@ -1108,11 +1166,12 @@ class ExperimentFlagCleanupTargetSerializer(serializers.Serializer):
         help_text="Repository a flag-cleanup pull request would be opened in, or null when none can be determined.",
     )
     source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
-        choices=["explicit", "single_repo", "ambiguous", "no_integration"],
+        choices=["explicit", "team_default", "single_repo", "ambiguous", "no_integration"],
         help_text=(
-            "How the repository was determined: `explicit` (saved on the experiment), `single_repo` (the "
-            "team's only connected repository), `ambiguous` (several connected repositories and none saved — "
-            "pass one via repository on end/ship_variant), or `no_integration` (no GitHub integration or no "
+            "How the repository was determined: `explicit` (saved on the experiment), `team_default` (the "
+            "environment's default cleanup repository), `single_repo` (the team's only connected repository), "
+            "`ambiguous` (several connected repositories and none saved — pass one via repository on "
+            "end/ship_variant), or `no_integration` (no GitHub integration or no "
             "connected repositories, so no cleanup PR can be opened)."
         ),
     )
@@ -1697,9 +1756,10 @@ class ExperimentSessionBucketRequestSerializer(serializers.Serializer):
         help_text=(
             "Which question the returned session set answers. 'fired_any': the session fired at least one event "
             "of any listed metric (an OR the recordings query itself can't express). 'no_metric_activity': the "
-            "session fired none of them. 'funnel_dropoff': the session fired the funnel metric's first step and "
-            "never reached its last one. All three are session-scoped and goal-free: they say what happened in "
-            "the session, not whether it helped or hurt the metric."
+            "session fired none of them. 'funnel_dropoff': the session saw an exposure event but never fired the "
+            "funnel metric's last step; the exposure is the funnel's implicit first step, the same as in the "
+            "experiment analysis. All three are session-scoped and goal-free: they say what happened in the "
+            "session, not whether it helped or hurt the metric."
         ),
     )
     metric_uuids = serializers.ListField(

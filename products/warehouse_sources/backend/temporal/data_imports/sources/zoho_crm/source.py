@@ -54,6 +54,10 @@ class ZohoCRMSource(ResumableSource[ZohoCRMSourceConfig, ZohoCRMResumeConfig]):
         return {
             "Zoho CRM token refresh failed": REFRESH_TOKEN_REJECTED_MESSAGE,
             "400 Client Error: Bad Request for url: https://accounts.zoho": "Zoho CRM rejected your OAuth credentials. Check that the client ID, client secret, and refresh token all belong to the same self client.",
+            # Some responses carry no reason phrase (e.g. over HTTP/2, which has none), so
+            # `requests.raise_for_status()` renders it blank instead of "Bad Request" — match that
+            # variant too, or the same credential rejection retries the whole activity budget.
+            "400 Client Error:  for url: https://accounts.zoho": "Zoho CRM rejected your OAuth credentials. Check that the client ID, client secret, and refresh token all belong to the same self client.",
             "401 Client Error: Unauthorized for url": "Your Zoho CRM access token is invalid or expired. Reconnect the source to issue a new one.",
             "403 Client Error: Forbidden for url": "Your Zoho CRM token is missing a scope for this module. Re-authorize with the ZohoCRM.modules.ALL and ZohoCRM.settings.fields.READ scopes.",
         }

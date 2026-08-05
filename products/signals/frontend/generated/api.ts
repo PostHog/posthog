@@ -37,6 +37,8 @@ import type {
     PullRequestReviewCommentCreateResponseApi,
     PullRequestReviewCommentReactionCreateApi,
     PullRequestReviewCommentReactionCreateResponseApi,
+    RecordStructuredOutputRequestApi,
+    RecordStructuredOutputResponseApi,
     RememberRequestApi,
     ReportSignalsResponseApi,
     ScoutEmissionReportLinkApi,
@@ -52,6 +54,8 @@ import type {
     SignalReportArtefactWriteResponseApi,
     SignalReportBulkStateRequestApi,
     SignalReportBulkStateResponseApi,
+    SignalReportFeedbackRequestApi,
+    SignalReportFeedbackResponseApi,
     SignalReportRefundRequestApi,
     SignalReportRefundResponseApi,
     SignalReportRefundSummaryResponseApi,
@@ -224,6 +228,28 @@ export const signalsReportsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedSignalReportContentUpdateApi),
+    })
+}
+
+export const getSignalsReportsFeedbackCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/feedback/`
+}
+
+/**
+ * Record a note left with the thumbs rating at the end of a report. The rating itself is a product-analytics event; this endpoint exists to carry the note into the scout steering channel. For a report authored by a scout, the note is forwarded to that scout as a steering note it reads on its next run; for any other report there is nothing to steer and the call is a no-op success. The report's state is never changed.
+ * @summary Leave feedback on a report
+ */
+export const signalsReportsFeedbackCreate = async (
+    projectId: string,
+    id: string,
+    signalReportFeedbackRequestApi: SignalReportFeedbackRequestApi,
+    options?: RequestInit
+): Promise<SignalReportFeedbackResponseApi> => {
+    return apiMutator<SignalReportFeedbackResponseApi>(getSignalsReportsFeedbackCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportFeedbackRequestApi),
     })
 }
 
@@ -1087,6 +1113,28 @@ export const signalsScoutEmitSignal = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(emitFindingRequestApi),
+    })
+}
+
+export const getSignalsScoutRecordOutputUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/record-output/`
+}
+
+/**
+ * The structured-output channel: record schema-validated records this run produced. Opt-in via the scout config's `structured_output_schema` (a JSON Schema describing one record) — without it the call fails closed, as it does for a dry-run scout (emit off). All-or-nothing: any invalid record fails the whole call with nothing written, so fix and resubmit the batch. Each accepted record lands in the project's event stream as a `$scout_structured_output` event — query them like any event (insights, SQL over `events`). Recording is idempotent: event ids are deterministic, so resubmitting an identical batch (e.g. retrying after a 503) cannot double-count.
+ * @summary Record structured output for a run
+ */
+export const signalsScoutRecordOutput = async (
+    projectId: string,
+    runId: string,
+    recordStructuredOutputRequestApi: RecordStructuredOutputRequestApi,
+    options?: RequestInit
+): Promise<RecordStructuredOutputResponseApi> => {
+    return apiMutator<RecordStructuredOutputResponseApi>(getSignalsScoutRecordOutputUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(recordStructuredOutputRequestApi),
     })
 }
 

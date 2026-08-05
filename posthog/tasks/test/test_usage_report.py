@@ -5403,6 +5403,16 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
                 person_mode="full",
             )
 
+        for i in range(3):
+            _create_event(
+                event="$experiment_exposure",
+                team=self.team,
+                distinct_id=f"exposure_user_{i}",
+                timestamp=self.begin + relativedelta(hours=i),
+                properties={"$feature_flag": f"flag_{i}"},
+                person_mode="full",
+            )
+
         # Create various types of AI events that should NOT be counted in billable events
         # $ai_generation events
         for i in range(3):
@@ -5595,7 +5605,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         result = get_teams_with_billable_event_count_in_period(self.begin, self.end)
 
         # We should get 15 events for our team (10 test_event + 5 enhanced_event)
-        # NOT counting: 3 survey sent, 3 $feature_flag_called, 10 AI events
+        # NOT counting: 3 survey sent, 3 $feature_flag_called, 3 $experiment_exposure, 10 AI events
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][0], self.team.id)
         self.assertEqual(result[0][1], 15)

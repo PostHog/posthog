@@ -107,7 +107,13 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
                         label="Host",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
-                        placeholder="localhost",
+                        placeholder="db.example.com",
+                        caption=(
+                            "Must be reachable from the public internet. Add PostHog's egress IP addresses to your "
+                            "firewall allowlist (see the docs above) and use a public host. `localhost` and private "
+                            "IPs (10.x, 172.16-31.x, 192.168.x) can't be reached. For a database that can't be "
+                            "exposed publicly, enable the SSH tunnel below."
+                        ),
                         secret=False,
                     ),
                     SourceFieldInputConfig(
@@ -224,6 +230,18 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # retries forever. `connect` re-raises it as `_SSH_HANDSHAKE_EOF_ERROR` — same
             # gateway-configuration class as "Could not establish session to SSH gateway" above.
             _SSH_HANDSHAKE_EOF_ERROR: "Could not connect to your SSH tunnel — the gateway accepted the connection but closed it during the SSH handshake. Check that the SSH host and port point to an SSH server (not the database port), that the bastion is running and reachable, and that PostHog's IP addresses are allowed through its firewall, then re-enable the sync.",
+            # `_pinned_ssh_host` (common/mixins.py) re-checks the SSH tunnel host on every connect,
+            # since a host that resolved to a public address at setup can drift (DNS change, or a
+            # short-TTL record). It rejects the host if it doesn't resolve or resolves to a
+            # private/internal address, which is a config problem only the customer can fix, so
+            # retrying just re-hits the same rejection. Match the stable prefix and exclude the
+            # volatile host/IP details that follow it in `resolution.error`.
+            "SSH tunnel host not allowed": (
+                "PostHog rejected the SSH tunnel host for this source because it either couldn't "
+                "be resolved, or resolves to a private/internal address. Check that the SSH tunnel "
+                "host is spelled correctly and reachable from the public internet, then re-enable "
+                "the sync."
+            ),
             # MySQL/MariaDB error 1129 (ER_HOST_IS_BLOCKED): the server has blocked our import
             # host because aborted/interrupted connections from it exceeded `max_connect_errors`.
             # The block is server-side state that only a DB admin can clear (FLUSH HOSTS /

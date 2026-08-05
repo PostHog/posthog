@@ -24,10 +24,9 @@ interface ChatThreadFooterProps {
  * the last item in the thread. The legacy `ConversationView` renders the same `SessionFooter` the
  * same way. Context usage is not here — it sits in the composer's own toolbar.
  *
- * Re-derives the turn / usage / queue state from `events` with the same hooks `ConversationView`
- * uses — `ChatThread` runs its own `useConversationItems`, so this is a second (incremental,
- * memoized) parse pass, acceptable for a flag-gated surface. Gated behind
- * `settingsStore.useNewChatThread` at the call site.
+ * Re-derives the turn / usage / queue state from `events` with the same hooks the thread uses —
+ * `ChatThread` runs its own `useConversationItems`, so this is a second (incremental, memoized)
+ * parse pass.
  */
 export function ChatThreadFooter({
   events,

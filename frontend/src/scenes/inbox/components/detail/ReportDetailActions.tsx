@@ -112,7 +112,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         label: 'Refund',
         icon: <IconReceipt />,
         loading: isRefunding,
-        tooltip: "Refund this PR – you won't pay for it and it won't count toward your included PRs",
+        tooltip: "Refund this PR. You won't pay for it and it won't count toward your included PRs.",
         disabledReason: refundDisabledReason ?? undefined,
         onClick: onRefundClick,
     }
