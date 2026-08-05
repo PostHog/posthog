@@ -140,7 +140,7 @@ async def test_process_ai_subscription_picks_delivery_activity_from_patch(patch_
         if activity is validate_subscription_for_delivery:
             return None
         if activity is generate_ai_subscription_report:
-            return GenerateAIReportResult()
+            return GenerateAIReportResult(target_type="slack")
         if activity in (deliver_subscription, deliver_subscription_v2):
             picked = activity
             return DeliverSubscriptionResult()
@@ -156,8 +156,20 @@ async def test_process_ai_subscription_picks_delivery_activity_from_patch(patch_
         patch("temporalio.workflow.logger", MagicMock()),
     ):
         mock_info.return_value = MagicMock(workflow_id="wf-test-ai")
-        await ProcessAISubscriptionWorkflow().run(
-            TrackedSubscriptionInputs(subscription_id=1, team_id=1, distinct_id="u1")
+        inputs = TrackedSubscriptionInputs(
+            subscription_id=1,
+            team_id=1,
+            distinct_id="u1",
+            slo=SloConfig(
+                operation=SloOperation.SUBSCRIPTION_DELIVERY,
+                area=SloArea.ANALYTIC_PLATFORM,
+                team_id=1,
+                resource_id="1",
+                distinct_id="u1",
+            ),
         )
+        await ProcessAISubscriptionWorkflow().run(inputs)
 
     assert picked is (deliver_subscription_v2 if patch_active else deliver_subscription)
+    assert inputs.slo is not None
+    assert inputs.slo.completion_properties["target_type"] == "slack"

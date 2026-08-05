@@ -566,6 +566,8 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                     maximum_attempts=3,
                 ),
             )
+            if inputs.slo:
+                inputs.slo.completion_properties["target_type"] = generate_result.target_type
             if generate_result.aborted:
                 # Consent revoked or prompt invalid — generation already auto-disabled.
                 delivery_recipient_results = _to_recipient_dicts(generate_result.recipient_results)

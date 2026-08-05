@@ -254,6 +254,7 @@ class GenerateAIReportResult:
     failed_step_count: int = 0
     total_step_count: int = 0
     query_error_types: list[str] = dataclasses.field(default_factory=list)
+    target_type: str = ""
 
     @property
     def all_queries_failed(self) -> bool:
