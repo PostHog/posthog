@@ -85,6 +85,16 @@ export interface CyclotronV2DequeuedJob {
     reschedule(options?: CyclotronV2RescheduleOptions): Promise<void>
     cancel(): Promise<void>
     heartbeat(): Promise<void>
+    /**
+     * Persists `state` without releasing the row (status/lock_id untouched) and
+     * reports whether this worker still holds the lock. Called right after an
+     * outbound fetch resolves so a redelivery after a stall resumes past the
+     * fetch instead of reissuing it. Returns `false` if the janitor already
+     * reset the job out from under this worker (lock_id no longer matches, or
+     * status is no longer 'running') — the caller must stop processing rather
+     * than act on a result nobody will read.
+     */
+    checkpoint(state: Buffer | null): Promise<boolean>
     bulkCreateAndCheckIn(input: CyclotronV2BulkCreateAndCheckInInput): Promise<{ newJobIds: string[] }>
 }
 

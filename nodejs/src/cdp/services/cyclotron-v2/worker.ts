@@ -533,6 +533,19 @@ export class CyclotronV2Worker {
                 )
             },
 
+            async checkpoint(state: Buffer | null): Promise<boolean> {
+                if (released) {
+                    return false
+                }
+                const result = await pool.query(
+                    `UPDATE cyclotron_jobs
+                     SET state = $3, last_heartbeat = NOW()
+                     WHERE id = $1 AND lock_id = $2 AND status = 'running'`,
+                    [row.id, lockId, state]
+                )
+                return result.rowCount === 1
+            },
+
             async bulkCreateAndCheckIn(input: CyclotronV2BulkCreateAndCheckInInput): Promise<{ newJobIds: string[] }> {
                 releaseGuard('bulkCreateAndCheckIn')
 

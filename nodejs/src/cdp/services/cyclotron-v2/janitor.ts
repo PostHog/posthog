@@ -412,6 +412,7 @@ export class CyclotronV2Janitor {
             reschedule: () => Promise.resolve(),
             cancel: () => Promise.resolve(),
             heartbeat: () => Promise.resolve(),
+            checkpoint: () => Promise.resolve(false),
             bulkCreateAndCheckIn: () => Promise.resolve({ newJobIds: [] }),
         }
         const invocation = v2JobToInvocation(job)

@@ -262,6 +262,13 @@ export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
     // unworked), and messaging channels skip metrics/assets so a test doesn't pollute the workflow's
     // Metrics and Assets tabs.
     isTest?: boolean
+    // Persists the invocation's state right after an async function (fetch, push, email) resolves,
+    // before its response is handed to the continuation. Without this, a job whose lock the janitor
+    // reclaims mid-invocation (stalled heartbeat) is redelivered from its pre-fetch state and replays
+    // the outbound call — see executeWithAsyncFunctions. Returns `false` if this worker no longer
+    // owns the job, in which case the loop must stop: the response it's holding will never be
+    // persisted, so acting on it (e.g. queuing a follow-up fetch) would only be discarded work.
+    checkpoint?: (invocation: CyclotronJobInvocationHogFunction) => Promise<boolean>
 }
 
 export class HogExecutorService {
@@ -515,6 +522,28 @@ export class HogExecutorService {
 
             logs.push(...result.logs)
             metrics.push(...result.metrics)
+
+            // Checkpoint right after an async function call so a stall-triggered redelivery resumes
+            // past it instead of re-issuing it (e.g. a second fetch to the same webhook). Skipped once
+            // finished/rescheduled/rerouted below — those paths persist via the normal queue write and
+            // don't loop back into this worker.
+            if (
+                options?.checkpoint &&
+                ['fetch', 'sendPushNotification', 'email'].includes(queueParamsType ?? '') &&
+                !result.finished &&
+                !result.invocation.queueScheduledAt &&
+                result.invocation.queue === invocation.queue
+            ) {
+                const stillOwned = await options.checkpoint(result.invocation)
+                if (!stillOwned) {
+                    logger.warn(
+                        '🦔',
+                        '[HogExecutor] Lost job ownership after async function call, stopping invocation',
+                        { hogFunctionId: invocation.hogFunction.id, teamId: invocation.teamId }
+                    )
+                    break
+                }
+            }
 
             // If we have finished _or_ something has been scheduled to run later _or_ the job was routed to a different queue then we break the loop
             if (result.finished || result.invocation.queueScheduledAt || result.invocation.queue !== invocation.queue) {

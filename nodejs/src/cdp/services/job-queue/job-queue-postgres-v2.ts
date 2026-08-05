@@ -262,6 +262,19 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
         )
     }
 
+    public async checkpointInvocation(invocation: CyclotronJobInvocation): Promise<boolean> {
+        const job = this.pendingJobs.get(invocation.id)
+        if (!job) {
+            return false
+        }
+        try {
+            return await job.checkpoint(serializeState(invocation))
+        } catch (err) {
+            logger.warn('CyclotronV2 checkpoint failed', { id: invocation.id, error: String(err) })
+            return false
+        }
+    }
+
     public async heartbeatInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
         await Promise.all(
             invocations.map(async (inv) => {

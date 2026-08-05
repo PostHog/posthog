@@ -1318,6 +1318,41 @@ describe('Hog Executor', () => {
             expect(result.execResult).toEqual({ status: 200, body: 'Hello, world!' })
         })
 
+        it('checkpoints state after a successful fetch before running the continuation', async () => {
+            const invocation = await createFetchInvocation({
+                url: `${baseUrl}/test`,
+                method: 'GET',
+            })
+
+            const checkpoint = jest.fn().mockResolvedValue(true)
+            const result = await executor.executeWithAsyncFunctions(invocation, { checkpoint })
+
+            expect(mockRequest).toHaveBeenCalledTimes(1)
+            expect(checkpoint).toHaveBeenCalledTimes(1)
+            // Checkpointed invocation already carries the fetch response, proving it ran after the
+            // fetch and before the continuation that consumes it finished the invocation.
+            expect(checkpoint.mock.calls[0][0].state.vmState!.stack.slice(-1)).toEqual([
+                { status: 200, body: 'Hello, world!' },
+            ])
+            expect(result.finished).toBe(true)
+        })
+
+        it('stops the invocation instead of running the continuation when checkpoint reports lost ownership', async () => {
+            const invocation = await createFetchInvocation({
+                url: `${baseUrl}/test`,
+                method: 'GET',
+            })
+
+            const checkpoint = jest.fn().mockResolvedValue(false)
+            const result = await executor.executeWithAsyncFunctions(invocation, { checkpoint })
+
+            expect(mockRequest).toHaveBeenCalledTimes(1)
+            expect(checkpoint).toHaveBeenCalledTimes(1)
+            // The continuation (which finishes the invocation) never ran: a second worker that
+            // redelivered the job after a stall owns it now, so acting on this result would be discarded work.
+            expect(result.finished).toBe(false)
+        })
+
         it('handles failure status and retries', async () => {
             mockRequest.mockImplementation((req: any, res: any) => {
                 res.writeHead(500, { 'Content-Type': 'text/plain' })

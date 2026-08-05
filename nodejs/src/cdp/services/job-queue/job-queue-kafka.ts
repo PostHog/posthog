@@ -145,6 +145,11 @@ export class CyclotronJobQueueKafka implements JobQueue {
     public async cancelInvocations(_invocations: CyclotronJobInvocation[]): Promise<void> {}
     public async heartbeatInvocations(_invocations: CyclotronJobInvocation[]): Promise<void> {}
 
+    // No lock-stealing janitor on this backend, so there's nothing to fence against.
+    public async checkpointInvocation(_invocation: CyclotronJobInvocation): Promise<boolean> {
+        return true
+    }
+
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]) {
         // With kafka we are essentially re-queuing the work to the target topic if it isn't finished
         const invocations: CyclotronJobInvocation[] = []
