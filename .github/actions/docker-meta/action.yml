@@ -48,7 +48,7 @@ outputs:
         value: ${{ steps.meta.outputs.labels }}
     annotations:
         description: 'Docker metadata annotations'
-        value: ${{ steps.meta.outputs.annotations }}
+        value: ${{ steps.annotations.outputs.value }}
     ecr-registry:
         description: 'ECR registry URL'
         value: ${{ steps.aws-ecr.outputs.registry }}
@@ -148,8 +148,24 @@ runs:
                   type=sha,format=long
                   type=raw,value=${{ github.sha }}
                   type=raw,value=latest,enable={{is_default_branch}}
-              annotations: |
-                  com.posthog.image.author=${{ steps.commit.outputs.author }}
-                  com.posthog.image.committer=${{ steps.commit.outputs.committer }}
-                  com.posthog.image.message=${{ steps.commit.outputs.subject }}
-                  com.posthog.image.commit-timestamp=${{ steps.commit.outputs.timestamp }}
+
+        - name: Add commit annotations
+          id: annotations
+          shell: bash
+          env:
+              AUTHOR: ${{ steps.commit.outputs.author }}
+              COMMITTER: ${{ steps.commit.outputs.committer }}
+              MESSAGE: ${{ steps.commit.outputs.subject }}
+              METADATA_ANNOTATIONS: ${{ steps.meta.outputs.annotations }}
+              TIMESTAMP: ${{ steps.commit.outputs.timestamp }}
+          run: |
+              set -euo pipefail
+              {
+                echo "value<<ANNOTATIONS_EOF"
+                printf '%s\n' "$METADATA_ANNOTATIONS"
+                printf 'index:com.posthog.image.author=%s\n' "$AUTHOR"
+                printf 'index:com.posthog.image.committer=%s\n' "$COMMITTER"
+                printf 'index:com.posthog.image.message=%s\n' "$MESSAGE"
+                printf 'index:com.posthog.image.commit-timestamp=%s\n' "$TIMESTAMP"
+                echo "ANNOTATIONS_EOF"
+              } >> "$GITHUB_OUTPUT"
