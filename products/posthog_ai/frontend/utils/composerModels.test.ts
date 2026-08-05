@@ -5,7 +5,7 @@ import {
     ReasoningEffortEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
-import { buildRunCreateRequest } from './composerModels'
+import { buildRunCreateRequest, listRuntimeAdapters, modelsForRuntimeAdapter } from './composerModels'
 import { type PermissionMode } from './composerModes'
 
 describe('composerModels', () => {
@@ -59,5 +59,13 @@ describe('composerModels', () => {
         )
 
         expect(request).toMatchObject({ runtime_adapter: 'claude' })
+    })
+
+    // The picker groups by harness and offers one row per runtime, so both have to come off the catalogue rather
+    // than a hardcoded list — a runtime the gateway stops serving must stop being offered.
+    it("derives the harness list and each harness's models from the catalogue", () => {
+        expect(listRuntimeAdapters(CATALOGUE)).toEqual(['claude', 'codex'])
+        expect(modelsForRuntimeAdapter(CATALOGUE, 'codex').map((option) => option.model)).toEqual(['gpt-5.6-luna'])
+        expect(modelsForRuntimeAdapter(CATALOGUE, 'bedrock')).toEqual([])
     })
 })

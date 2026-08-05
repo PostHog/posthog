@@ -81,6 +81,7 @@ from products.tasks.backend.presentation.serializers import (
     TASK_RUN_ARTIFACT_MAX_SIZE_BYTES,
     TASK_RUN_PDF_ARTIFACT_MAX_SIZE_BYTES,
     TaskRunLivingArtifactChartRequestSerializer,
+    TaskSerializer,
 )
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
@@ -11446,3 +11447,25 @@ class TestModelCatalogueAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"models": []})
+
+
+class TestTaskSerializerResponseRoundTrip(BaseTaskAPITest):
+    def test_task_response_can_be_read_back(self):
+        # `@validated_request` re-reads its own response through `to_internal_value` whenever DEBUG is
+        # on (posthog/api/mixins.py). That read drops read-only fields, so declaring one that
+        # `TaskDetailDTO` requires makes the dataclass constructor raise pydantic's ValidationError —
+        # which `is_valid(raise_exception=False)` doesn't catch, 500ing the endpoint in local dev.
+        # CI runs with DEBUG off, so this round trip is the only thing guarding the response shape.
+        #
+        # The creator needs a surname: `created_by.last_name` rejects a blank string, and that
+        # field-level error short-circuits DRF before it builds the dataclass, masking the bug.
+        self.user.last_name = "Tester"
+        self.user.save()
+        task = self.create_task()
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        reread = TaskSerializer(data=response.json())
+        self.assertTrue(reread.is_valid(), reread.errors)
+        self.assertEqual(reread.validated_data.runtime, task.runtime)

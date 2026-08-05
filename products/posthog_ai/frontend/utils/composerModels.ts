@@ -68,6 +68,25 @@ export function getRuntimeAdapterForModel(catalogue: ModelChoiceApi[], model: st
     return catalogue.find((option) => option.model === model)?.runtime_adapter ?? 'claude'
 }
 
+// The harnesses the catalogue actually offers, in the order the models arrive. Derived rather than enumerated, so a
+// runtime the gateway stops serving disappears from the picker on its own.
+export function listRuntimeAdapters(catalogue: ModelChoiceApi[]): string[] {
+    return [...new Set(catalogue.map((option) => option.runtime_adapter))]
+}
+
+export function modelsForRuntimeAdapter(catalogue: ModelChoiceApi[], runtimeAdapter: string): ModelChoiceApi[] {
+    return catalogue.filter((option) => option.runtime_adapter === runtimeAdapter)
+}
+
+const RUNTIME_ADAPTER_LABELS: Record<string, string> = {
+    claude: 'Claude',
+    codex: 'Codex',
+}
+
+export function getRuntimeAdapterLabel(runtimeAdapter: string): string {
+    return RUNTIME_ADAPTER_LABELS[runtimeAdapter] ?? runtimeAdapter
+}
+
 export function getModelLabel(catalogue: ModelChoiceApi[], model: string | null | undefined): string {
     return catalogue.find((option) => option.model === model)?.display_name ?? model ?? 'Model'
 }

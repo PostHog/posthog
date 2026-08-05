@@ -10,6 +10,7 @@ import { Composer, QueuedMessageList } from 'products/posthog_ai/frontend/api/pr
 // flash. The inbox embeds keep the lazy `ReadonlyRunSurface`.
 import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
+import { getRuntimeAdapterForModel } from 'products/posthog_ai/frontend/utils/composerModels'
 import { cycleMode } from 'products/posthog_ai/frontend/utils/composerModes'
 
 import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
@@ -177,6 +178,11 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
                             selectedEffort={selectedEffort}
                             onModelChange={setModel}
                             onEffortChange={setEffort}
+                            // While the run is live its harness is fixed to whatever the sandbox booted; once
+                            // terminal the next send starts a fresh run, which may pick any harness.
+                            lockedRuntimeAdapter={
+                                isTerminal ? null : getRuntimeAdapterForModel(catalogue, logicProps.currentModel)
+                            }
                         />
                     </Composer.Footer>
                 </Composer.Frame>
