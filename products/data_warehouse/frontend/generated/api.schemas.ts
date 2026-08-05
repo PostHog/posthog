@@ -2602,6 +2602,10 @@ export interface CredentialApi {
  * * `Airbridge` - Airbridge
  * * `Snovio` - Snovio
  * * `GoogleMerchantCenter` - GoogleMerchantCenter
+ * * `Raisely` - Raisely
+ * * `WindsorAi` - WindsorAi
+ * * `Wix` - Wix
+ * * `Sevalla` - Sevalla
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3884,6 +3888,10 @@ export const ExternalDataSourceTypeEnumApi = {
     Airbridge: 'Airbridge',
     Snovio: 'Snovio',
     GoogleMerchantCenter: 'GoogleMerchantCenter',
+    Raisely: 'Raisely',
+    WindsorAi: 'WindsorAi',
+    Wix: 'Wix',
+    Sevalla: 'Sevalla',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

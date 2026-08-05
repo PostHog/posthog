@@ -56,6 +56,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DELTA_REPARTITION_DURATION_SECONDS,
     DELTA_REPARTITION_TOTAL,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
 
 LOGGER = get_logger(__name__)
 
@@ -300,6 +301,20 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             job_id=inputs.job_id,
         )
         return
+
+    # Attach the same source/schema identity the import activity does, so an exception captured
+    # anywhere below (budget exhaustion, an unexpected rewrite failure) can be attributed to a
+    # connector and table instead of landing in error tracking with no sync context.
+    bind_job_context(
+        team_id=inputs.team_id,
+        source_type=schema.source.source_type,
+        external_data_source_id=inputs.source_id,
+        external_data_schema_id=inputs.schema_id,
+        external_data_job_id=inputs.job_id,
+        schema_name=schema.name,
+        sync_type=schema.sync_type,
+        pipeline_version=job.pipeline_version,
+    )
 
     # `resolved_s3_folder_name` is authoritative for the Delta folder, not the row's own name: a row
     # renamed during the multi-schema migration keeps its folder pinned to the original path (name
