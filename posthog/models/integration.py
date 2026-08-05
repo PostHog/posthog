@@ -565,6 +565,7 @@ class Integration(models.Model):
         JIRA = "jira"
         LINEAR = "linear"
         LINKEDIN_ADS = "linkedin-ads"
+        LINKEDIN_PAGES = "linkedin-pages"
         META_ADS = "meta-ads"
         PARDOT = "pardot"
         PINTEREST_ADS = "pinterest-ads"
@@ -843,6 +844,7 @@ class OauthIntegration:
         "google-sheets",
         "snapchat",
         "linkedin-ads",
+        "linkedin-pages",
         "reddit-ads",
         "tiktok-ads",
         "bing-ads",
@@ -1091,6 +1093,27 @@ class OauthIntegration:
                 client_id=settings.LINKEDIN_APP_CLIENT_ID,
                 client_secret=settings.LINKEDIN_APP_CLIENT_SECRET,
                 scope="r_ads rw_conversions r_ads_reporting openid profile email",
+                id_path="sub",
+                name_path="email",
+            )
+        elif kind == "linkedin-pages":
+            # Same registered LinkedIn app as `linkedin-ads`, different consent screen: organization
+            # page data lives behind the Community Management API product, whose scopes are separate
+            # from the advertising ones. Keeping it a distinct kind means LinkedIn Ads users are never
+            # asked for page admin access, and page users are never asked for ads access.
+            if not settings.LINKEDIN_APP_CLIENT_ID or not settings.LINKEDIN_APP_CLIENT_SECRET:
+                raise NotImplementedError("LinkedIn Pages app not configured")
+
+            # As with linkedin-ads, the account label comes from the id_token JWT rather than
+            # /v2/userinfo, which intermittently answers REVOKED_ACCESS_TOKEN for valid tokens.
+            return OauthConfig(
+                authorize_url="https://www.linkedin.com/oauth/v2/authorization",
+                token_url="https://www.linkedin.com/oauth/v2/accessToken",
+                client_id=settings.LINKEDIN_APP_CLIENT_ID,
+                client_secret=settings.LINKEDIN_APP_CLIENT_SECRET,
+                # rw_organization_admin covers the page/follower/share statistics finders and the
+                # organizationAcls lookup; r_organization_social covers the posts finder.
+                scope="rw_organization_admin r_organization_social openid profile email",
                 id_path="sub",
                 name_path="email",
             )
@@ -1607,7 +1630,7 @@ class OauthIntegration:
 
         # LinkedIn id_token is a JWT, extract user ID and email from it
         # This avoids calling /v2/userinfo which has intermittent REVOKED_ACCESS_TOKEN errors
-        if kind == "linkedin-ads" and not integration_id:
+        if kind in ("linkedin-ads", "linkedin-pages") and not integration_id:
             try:
                 id_token = config.get("id_token")
                 if id_token:
@@ -1620,7 +1643,7 @@ class OauthIntegration:
                             config["email"] = linkedin_email
                             integration_id = linkedin_user_id
                 else:
-                    logger.error("LinkedIn Ads OAuth response missing id_token", config_keys=list(config.keys()))
+                    logger.error("LinkedIn OAuth response missing id_token", kind=kind, config_keys=list(config.keys()))
             except Exception:
                 logger.exception("Failed to decode LinkedIn JWT")
 
