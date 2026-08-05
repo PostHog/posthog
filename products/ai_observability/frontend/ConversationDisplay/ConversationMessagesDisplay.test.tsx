@@ -9,6 +9,7 @@ import { CompatMessage } from '../types'
 import {
     ConversationDisplayOption,
     ConversationMessagesDisplay,
+    ImageMessageDisplay,
     LLMMessageDisplay,
 } from './ConversationMessagesDisplay'
 
@@ -414,5 +415,25 @@ describe('ConversationMessagesDisplay', () => {
         for (const text of hidden) {
             expect(screen.queryByText(text)).not.toBeInTheDocument()
         }
+    })
+})
+
+describe('ImageMessageDisplay', () => {
+    beforeEach(() => {
+        initKeaTests()
+    })
+
+    afterEach(() => {
+        cleanup()
+    })
+
+    it('tags rendered images with a stable data-attr for e2e targeting', () => {
+        const { container } = render(
+            <ImageMessageDisplay message={{ content: { image: 'data:image/png;base64,iVBORw0KGgo=' } }} />
+        )
+
+        const image = container.querySelector('img')
+        expect(image).not.toBeNull()
+        expect(image).toHaveAttribute('data-attr', 'ai-message-image')
     })
 })

@@ -386,7 +386,13 @@ export const ImageMessageDisplay = ({ message }: { message: ImageDisplayMessage 
     if (typeof content === 'string') {
         return <span>{content}</span>
     } else if (content?.image) {
-        return <img src={resolveAiBlobUrl(content.image, currentTeamId)} alt="User sent image" />
+        return (
+            <img
+                src={resolveAiBlobUrl(content.image, currentTeamId)}
+                alt="User sent image"
+                data-attr="ai-message-image"
+            />
+        )
     }
 
     return <span>{String(content ?? '')}</span>
@@ -435,13 +441,21 @@ function renderContentItem(
                 src={resolveAiBlobUrl(item.image_url.url, currentTeamId)}
                 alt="Message content"
                 className="max-w-full max-h-[400px] rounded"
+                data-attr="ai-message-image"
             />
         )
     }
 
     if (isAnthropicImageMessage(item)) {
         const src = resolveDataUri(item.source.data, item.source.media_type, currentTeamId)
-        return <img src={src} alt="Message content" className="max-w-full max-h-[400px] rounded" />
+        return (
+            <img
+                src={src}
+                alt="Message content"
+                className="max-w-full max-h-[400px] rounded"
+                data-attr="ai-message-image"
+            />
+        )
     }
 
     if (isGeminiImageMessage(item)) {
@@ -450,7 +464,14 @@ function renderContentItem(
             return null
         }
         const src = resolveDataUri(inlineData.data, inlineData.mime_type, currentTeamId)
-        return <img src={src} alt="Message content" className="max-w-full max-h-[400px] rounded" />
+        return (
+            <img
+                src={src}
+                alt="Message content"
+                className="max-w-full max-h-[400px] rounded"
+                data-attr="ai-message-image"
+            />
+        )
     }
 
     if (isOpenAIFileMessage(item)) {
