@@ -45045,12 +45045,12 @@ export namespace Schemas {
     }
 
     export interface PaginatedActivityLogList {
-      count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
       results: ActivityLog[];
+      count?: number;
     }
 
     export interface PaginatedAlertList {
@@ -77630,6 +77630,10 @@ export namespace Schemas {
      */
     hogql_filter?: string;
     /**
+     * Include the previous and new values of changed fields. Only applies when schema is ocsf. Values can contain the content of the changed object, which makes responses larger and sends that content to your security tool.
+     */
+    include_values?: boolean;
+    /**
      * Filter by client IP addresses. Accepts exact IPv4/IPv6 values or wildcard patterns using `*` (e.g. `203.0.113.*`). Multiple entries are OR-combined.
      */
     ip_addresses?: string[];
@@ -77643,16 +77647,31 @@ export namespace Schemas {
      */
     item_ids?: string[];
     /**
+     * Sort by when the entry was created. Defaults to newest first. Use created_at for oldest first when polling for new entries, so a saved cursor picks up where the last request stopped.
+     *
+     * * `-created_at` - -created_at
+     * * `created_at` - created_at
+     * @minLength 1
+     */
+    ordering?: string;
+    /**
      * Page number for pagination. When provided, uses page-based pagination ordered by most recent first.
      * @minimum 1
      */
     page?: number;
     /**
-     * Number of results per page (default: 100, max: 1000). Only used with page-based pagination.
+     * Number of results per page (default: 100, max: 1000).
      * @minimum 1
      * @maximum 1000
      */
     page_size?: number;
+    /**
+     * Response format. Set to ocsf to return Open Cybersecurity Schema Framework events for ingestion into a security tool. Omit for the default PostHog format.
+     *
+     * * `ocsf` - ocsf
+     * @minLength 1
+     */
+    schema?: OrgOrganizationsAdvancedActivityLogsListSchema;
     /**
      * Filter by activity scopes (e.g. "FeatureFlag", "Insight").
      */
@@ -77679,6 +77698,13 @@ export namespace Schemas {
      */
     was_impersonated?: boolean | null;
     };
+
+    export type OrgOrganizationsAdvancedActivityLogsListSchema = typeof OrgOrganizationsAdvancedActivityLogsListSchema[keyof typeof OrgOrganizationsAdvancedActivityLogsListSchema];
+
+
+    export const OrgOrganizationsAdvancedActivityLogsListSchema = {
+      Ocsf: 'ocsf',
+    } as const;
 
     export type OrgOrganizationsBatchExportsListParams = {
     /**
@@ -78163,12 +78189,20 @@ export namespace Schemas {
      */
     item_id?: string;
     /**
+     * Sort by when the entry was created. Defaults to newest first. Use created_at for oldest first when polling for new entries, so a saved cursor picks up where the last request stopped.
+     *
+     * * `-created_at` - -created_at
+     * * `created_at` - created_at
+     * @minLength 1
+     */
+    ordering?: string;
+    /**
      * Page number for pagination. When provided, uses page-based pagination ordered by most recent first.
      * @minimum 1
      */
     page?: number;
     /**
-     * Number of results per page (default: 100, max: 1000). Only used with page-based pagination.
+     * Number of results per page (default: 100, max: 1000).
      * @minimum 1
      * @maximum 1000
      */
@@ -78529,6 +78563,10 @@ export namespace Schemas {
      */
     hogql_filter?: string;
     /**
+     * Include the previous and new values of changed fields. Only applies when schema is ocsf. Values can contain the content of the changed object, which makes responses larger and sends that content to your security tool.
+     */
+    include_values?: boolean;
+    /**
      * Filter by client IP addresses. Accepts exact IPv4/IPv6 values or wildcard patterns using `*` (e.g. `203.0.113.*`). Multiple entries are OR-combined.
      */
     ip_addresses?: string[];
@@ -78542,16 +78580,31 @@ export namespace Schemas {
      */
     item_ids?: string[];
     /**
+     * Sort by when the entry was created. Defaults to newest first. Use created_at for oldest first when polling for new entries, so a saved cursor picks up where the last request stopped.
+     *
+     * * `-created_at` - -created_at
+     * * `created_at` - created_at
+     * @minLength 1
+     */
+    ordering?: string;
+    /**
      * Page number for pagination. When provided, uses page-based pagination ordered by most recent first.
      * @minimum 1
      */
     page?: number;
     /**
-     * Number of results per page (default: 100, max: 1000). Only used with page-based pagination.
+     * Number of results per page (default: 100, max: 1000).
      * @minimum 1
      * @maximum 1000
      */
     page_size?: number;
+    /**
+     * Response format. Set to ocsf to return Open Cybersecurity Schema Framework events for ingestion into a security tool. Omit for the default PostHog format.
+     *
+     * * `ocsf` - ocsf
+     * @minLength 1
+     */
+    schema?: AdvancedActivityLogsListSchema;
     /**
      * Filter by activity scopes (e.g. "FeatureFlag", "Insight").
      */
@@ -78578,6 +78631,13 @@ export namespace Schemas {
      */
     was_impersonated?: boolean | null;
     };
+
+    export type AdvancedActivityLogsListSchema = typeof AdvancedActivityLogsListSchema[keyof typeof AdvancedActivityLogsListSchema];
+
+
+    export const AdvancedActivityLogsListSchema = {
+      Ocsf: 'ocsf',
+    } as const;
 
     export type AlertsListParams = {
     /**
