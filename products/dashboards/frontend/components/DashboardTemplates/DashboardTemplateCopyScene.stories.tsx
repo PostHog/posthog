@@ -3,13 +3,12 @@ import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM, 
 import { Meta, StoryObj } from '@storybook/react'
 import { useEffect } from 'react'
 
+import { DashboardTemplateCopyScene } from 'scenes/dashboard/dashboards/templates/DashboardTemplateCopyScene'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { InsightColor, type DashboardTemplateType, type OrganizationType, type TeamType } from '~/types'
-
-import { DashboardTemplateCopyScene } from './DashboardTemplateCopyScene'
 
 const SOURCE_TEMPLATE_ID = 'storybook-copy-source-template'
 
@@ -107,7 +106,7 @@ function WithOrganizationForStory({
 }
 
 const meta: Meta<typeof DashboardTemplateCopyScene> = {
-    title: 'Scenes-App/Dashboards/Templates/Dashboard template copy',
+    title: 'Products/Dashboards/Templates/Dashboard template copy',
     component: DashboardTemplateCopyScene,
     decorators: [
         mswDecorator(baseMocks),

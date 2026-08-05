@@ -3,7 +3,8 @@ import { router } from 'kea-router'
 
 import * as chartPng from '@posthog/brand/hoggies/png/chart'
 import { IconPlus } from '@posthog/icons'
-import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonTag } from '@posthog/lemon-ui'
+import { DashboardLoadingState } from '@posthog/products-dashboards/frontend/components/DashboardLoadingState/DashboardLoadingState'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -192,36 +193,7 @@ function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
 
 export function EmptyDashboardComponent({ loading, canEdit }: { loading: boolean; canEdit: boolean }): JSX.Element {
     if (loading) {
-        return (
-            <div className="flex flex-col gap-4" aria-label="Loading dashboard">
-                <div
-                    className="flex flex-wrap items-center justify-between gap-2"
-                    data-attr="dashboard-loading-controls"
-                >
-                    <div className="flex flex-wrap items-center gap-2">
-                        <LemonSkeleton className="h-8 w-36 rounded" />
-                        <LemonSkeleton className="h-8 w-24 rounded" />
-                        <LemonSkeleton className="h-8 w-20 rounded" />
-                        <LemonSkeleton className="h-8 w-28 rounded" />
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <LemonSkeleton className="h-4 w-32" />
-                        <LemonSkeleton className="h-8 w-24 rounded" />
-                    </div>
-                </div>
-                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                    {Array.from({ length: 8 }, (_, index) => (
-                        <div key={index} className="border rounded bg-surface-primary p-4 min-h-64">
-                            <div className="flex items-center justify-between gap-4 mb-6">
-                                <LemonSkeleton className="h-4 w-2/5" />
-                                <LemonSkeleton className="h-8 w-8 rounded" />
-                            </div>
-                            <LemonSkeleton className="h-40 w-full rounded" />
-                        </div>
-                    ))}
-                </div>
-            </div>
-        )
+        return <DashboardLoadingState />
     }
 
     return <EmptyDashboardContent canEdit={canEdit} />

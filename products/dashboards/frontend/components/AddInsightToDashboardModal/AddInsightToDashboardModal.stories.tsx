@@ -1,13 +1,13 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 
-import { mswDecorator } from '~/mocks/browser'
+import __dashboard1 from 'scenes/dashboard/__mocks__/dashboard1.json'
+import __dashboards from 'scenes/dashboard/__mocks__/dashboards.json'
+import { AddInsightToDashboardModal } from 'scenes/dashboard/addInsightToDashboardModal/AddInsightToDashboardModal'
+import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
-import __dashboard1 from '../__mocks__/dashboard1.json'
-import __dashboards from '../__mocks__/dashboards.json'
-import { addInsightToDashboardLogic } from '../addInsightToDashboardModalLogic'
-import { dashboardLogic } from '../dashboardLogic'
-import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
+import { mswDecorator } from '~/mocks/browser'
 
 const dashboardRaw = __dashboard1 as any
 
@@ -46,7 +46,7 @@ const DASHBOARD_ID = 1
 
 const meta: Meta = {
     component: AddInsightToDashboardModal,
-    title: 'Scenes-App/Dashboards/Add Insight to Dashboard Modal',
+    title: 'Products/Dashboards/Add Insight to Dashboard Modal',
     decorators: [
         mswDecorator({
             get: {

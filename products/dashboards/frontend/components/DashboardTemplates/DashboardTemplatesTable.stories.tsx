@@ -11,6 +11,10 @@ import {
 import { Meta, StoryObj, type Decorator } from '@storybook/react'
 import { useEffect } from 'react'
 
+import __dashboard_template_schema from 'scenes/dashboard/__mocks__/dashboard_template_schema.json'
+import { DashboardTemplateModal } from 'scenes/dashboard/dashboards/templates/DashboardTemplateModal'
+import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
+import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/DashboardTemplatesTable'
 import { DashboardTemplateEditor } from 'scenes/dashboard/DashboardTemplateEditor'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -26,16 +30,11 @@ import {
     type UserType,
 } from '~/types'
 
-import __dashboard_template_schema from '../../__mocks__/dashboard_template_schema.json'
-import { DashboardTemplateModal } from './DashboardTemplateModal'
-import { dashboardTemplatesLogic } from './dashboardTemplatesLogic'
-import { DashboardTemplatesTable } from './DashboardTemplatesTable'
-
 /** Same key as `DashboardTemplatesTable` — list load is driven by `/dashboard` urlToAction in-app; storybook calls `getAllTemplates` after mount so the table is not stuck empty. */
 const templatesTabListLogic = dashboardTemplatesLogic({ scope: 'default', templatesTabList: true })
 
 const meta: Meta<typeof DashboardTemplatesTable> = {
-    title: 'Scenes-App/Dashboards/Templates/Dashboard templates table',
+    title: 'Products/Dashboards/Templates/Dashboard templates table',
     component: DashboardTemplatesTable,
     decorators: [
         mswDecorator({

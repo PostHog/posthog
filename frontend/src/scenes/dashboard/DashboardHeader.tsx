@@ -30,6 +30,20 @@ export function DashboardHeader({ loading = false }: { loading?: boolean }): JSX
         return null
     }
 
+    let actions: JSX.Element | undefined
+    if (dashboard) {
+        switch (dashboardMode) {
+            case DashboardMode.Edit:
+                actions = <EditModeActions />
+                break
+            case DashboardMode.Fullscreen:
+                actions = <FullscreenModeActions />
+                break
+            default:
+                actions = <ViewModeActions />
+        }
+    }
+
     return (
         <>
             {dashboardMode === DashboardMode.Fullscreen && (
@@ -79,15 +93,7 @@ export function DashboardHeader({ loading = false }: { loading?: boolean }): JSX
                           }
                         : undefined
                 }
-                actions={
-                    !dashboard ? undefined : dashboardMode === DashboardMode.Edit ? (
-                        <EditModeActions />
-                    ) : dashboardMode === DashboardMode.Fullscreen ? (
-                        <FullscreenModeActions />
-                    ) : (
-                        <ViewModeActions />
-                    )
-                }
+                actions={actions}
             />
         </>
     )
