@@ -48,7 +48,7 @@ from posthog.hogql.constants import (
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
+from posthog.hogql.database.models import DateDatabaseField, ExpressionField, StringDatabaseField
 from posthog.hogql.errors import ExposedHogQLError, ImpossibleASTError, QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
 from posthog.hogql.hogqlx import convert_tag_to_hx
@@ -8055,6 +8055,18 @@ class TestDuckDBPrinter(SimpleTestCase):
             self._select("SELECT event FROM events"),
             "SELECT events.event FROM events LIMIT 50000",
         )
+
+    @parameterized.expand([("plain", False), ("isolate_scope", True)])
+    def test_expression_field_expands(self, _name: str, isolate_scope: bool) -> None:
+        # Virtual fields (events.person_id, warehouse created_at shims) are ExpressionFields.
+        # If the resolver skips expanding them for SQL dialects, the printer hits the raw
+        # untyped expr and fails with "Field ... has no type".
+        context = HogQLContext(team_id=self.team_id, enable_select_queries=True)
+        context.database = Database()
+        context.database.get_table("events").fields["upper_event"] = ExpressionField(
+            name="upper_event", expr=parse_expr("upper(event)"), isolate_scope=isolate_scope
+        )
+        self.assertEqual(self._expr("upper_event", context=context), "upper(events.event)")
 
     def test_identifier_no_truncation(self):
         # PG would truncate a >63-char generated alias containing double underscores into a SHA-suffixed

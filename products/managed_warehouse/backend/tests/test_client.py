@@ -58,6 +58,20 @@ class TestCompileHogQLToDuckLakeSQL:
         assert "purchase" in values.values()
         assert "variables" not in postgres_sql
 
+    def test_person_id_compiles_to_physical_column(self):
+        from posthog.models import Organization, Team
+
+        org = Organization.objects.create(name="ducklake-person-id")
+        team = Team.objects.create(organization=org)
+
+        query = HogQLQuery(query="SELECT person_id FROM events LIMIT 10")
+        postgres_sql, _values, _hogql = compile_hogql_to_ducklake_sql(team.pk, query)
+
+        # DuckLake events ducklings have a physical person_id column and no override or
+        # distinct-id tables, so the compile must not emit a person join.
+        assert "person_id" in postgres_sql
+        assert "person_distinct_id" not in postgres_sql
+
 
 class TestDuckLakeModelRedirect:
     def test_materialized_model_resolves_to_ducklake_table_not_s3(self):

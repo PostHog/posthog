@@ -70,6 +70,8 @@ def compile_hogql_to_ducklake_sql(
     ``postgres_sql``; callers must pass it to ``cursor.execute(sql, values)`` or
     the query will fail with an unbound-placeholder error.
     """
+    from posthog.schema import HogQLQueryModifiers
+
     from posthog.hogql.context import HogQLContext
     from posthog.hogql.database.database import Database
     from posthog.hogql.parser import parse_select
@@ -77,6 +79,7 @@ def compile_hogql_to_ducklake_sql(
     from posthog.hogql.variables import replace_variables
 
     from posthog.models.team.team import Team
+    from posthog.schema_enums import PersonsOnEventsMode
 
     parsed = parse_select(query.query)
     if query.variables:
@@ -87,6 +90,11 @@ def compile_hogql_to_ducklake_sql(
     database = Database.create_for(
         team_id,
         user=user,
+        # DuckLake events ducklings carry the physical person_id column and no override
+        # tables, so person_id must read the column rather than expand a person join.
+        modifiers=HogQLQueryModifiers(
+            personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+        ),
         bypass_warehouse_access_control=bypass_warehouse_access_control,
     )
     bind_tables_to_ducklake(database, team_id)
