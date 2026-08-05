@@ -427,6 +427,35 @@ class TestGetRows:
         assert len(requests_made) == expected_requests
         assert sum(len(batch) for batch in batches) == expected_rows
 
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.MAX_PAGES_PER_CHAIN", 3
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
+    def test_paging_stops_at_the_page_cap(self, mock_session):
+        # A cursor that mints a fresh URL for every page never repeats, so the seen-URL guard can't
+        # see it and only the page cap ends the chain.
+        pages_fetched = 0
+
+        def fake_get(url, **kwargs):
+            nonlocal pages_fetched
+            if "/v4/domains" in url:
+                return _response({"items": [{"name": "a.com"}]})
+            pages_fetched += 1
+            if pages_fetched > 10:
+                raise AssertionError("pagination did not terminate")
+            return _response(
+                _paging_page([{"tag": f"t{pages_fetched}"}], f"{US_BASE}/v3/a.com/tags?page=next&tag=t{pages_fetched}")
+            )
+
+        mock_session.return_value.get.side_effect = fake_get
+        logger = mock.MagicMock()
+
+        batches = list(get_rows("key", "us", "tags", logger, _make_manager()))
+
+        assert pages_fetched == 3
+        assert sum(len(batch) for batch in batches) == 3
+        assert "exceeded 3 pages" in logger.warning.call_args.args[0]
+
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
     def test_incremental_run_passes_begin_from_watermark(self, mock_session):
         domains_page = {"items": [{"name": "a.com"}]}
