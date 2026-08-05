@@ -7650,6 +7650,22 @@ snapshots:
         hash: v1.k794b7964.aaff710f4f8a004ff7bc73a2709377bd3ac83bccafec478086396c0beae1e832.jqsB3nXBYy8WbHSVAPz-o8Vu46etxe4uDx3zXbtlf-U
     scenes-other-onboarding-legacy-product-selection--base--light:
         hash: v1.k794b7964.d5a6e4d5e44b84e7a1b0a9eb095fb62a08eea227968860911c9e23757eb99d33.mrMEqKjXZgfMivqJdaamdN2nJVc-I_8Sccv6XXQylg8
+    scenes-other-onboarding-legacy-weekly-reports--engineering-report--dark:
+        hash: v1.k794b7964.5000ffcd0d6aabaac809d9a7635d4d3412ca0e3b4badccc48c31b5745fb3cdb0.fbrer1o3cGzKNcw4qqczs-F9_vacS5pDBHt8J__BIQM
+    scenes-other-onboarding-legacy-weekly-reports--engineering-report--light:
+        hash: v1.k794b7964.1d033ccaadfb5f96bc956c8534b019a32506f6980c8e692dfa165eb5cc7f043f.0yObLHtn7WRQJ1LPi0kS6D1Q2ZmFl1M7xZgzMWpoR4s
+    scenes-other-onboarding-legacy-weekly-reports--generic-report-without-role--dark:
+        hash: v1.k794b7964.f2de67ec965bc3d5b2196b70d73059af776f86c5c914ee032342e61582431ab6._wpybB79QCwmZCODvVgRkOBYptEI8khDRqffCCTRwtk
+    scenes-other-onboarding-legacy-weekly-reports--generic-report-without-role--light:
+        hash: v1.k794b7964.704912a40bd58c35f1f7aaf6ee48839df5d4a1b701a78f7e52b21fe3708c04dd.S-cqR_RG8f_M8MhhhjfM2qr9qH5PeciS8LgUcvdMW68
+    scenes-other-onboarding-legacy-weekly-reports--leadership-report--dark:
+        hash: v1.k794b7964.b4ff1a961b6b197d885a86847ab9284de9a6c9830f0a2e258cc7dedc27798657.sqaP5G7VHsoPm1rAHPAfAKF3_NUzFbDe8hYSdqCCsts
+    scenes-other-onboarding-legacy-weekly-reports--leadership-report--light:
+        hash: v1.k794b7964.a9a113d0f2e990d64744da3270aa89214fb12721e51c3959cf79a22aaee0f906.FZSSbp9g0joCSMGugwtARVHG6bS5n_Mo6a4bhVLovPk
+    scenes-other-onboarding-legacy-weekly-reports--marketing-report--dark:
+        hash: v1.k794b7964.000a1ac36e3d4a36f800e888ef2b21721eee0122e9a10f20c7da21214e2375fa.2eiPdwSJ15FNVd183gSPvbFq-ywaCwnSkIS9Q_L3Mrw
+    scenes-other-onboarding-legacy-weekly-reports--marketing-report--light:
+        hash: v1.k794b7964.0e2a8e49d86bf85201eab7a83383dc110b5bfa4e375cdd115d31aceec6851ace.mbj1QmZoty5ZryyE-hjsIp-VqV-X05nlVS0S_5Z3UP8
     scenes-other-onboarding-shared-installation-progress--all-states--dark:
         hash: v1.k794b7964.701a00d919735a8e926d138dbf37d3f999ffe860a38366ffad441d2ea9007dc3.At1SVb1kbXJdi1oQ6SNRG2h9FaXngLNhQiIfeDfBvag
     scenes-other-onboarding-shared-installation-progress--all-states--light:
