@@ -1840,6 +1840,25 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk)
         self.assertEqual(self._expr(expr, context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
 
+    @parameterized.expand(
+        [
+            ("toInt", "toInt('1')"),
+            ("toIntOrNull", "toIntOrNull('1')"),
+            ("toInt64", "toInt64('1')"),
+            ("toInt64OrNull", "toInt64OrNull('1')"),
+        ]
+    )
+    def test_to_int_aliases(self, _name: str, expr: str) -> None:
+        # toIntOrNull / toInt64 / toInt64OrNull are accepted ClickHouse-name aliases of toInt,
+        # all routing through accurateCastOrNull so unparseable input becomes NULL.
+        context = HogQLContext(team_id=self.team.pk)
+        self.assertEqual(self._expr(expr, context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
+
+    def test_to_int64_or_zero_alias(self) -> None:
+        # toInt64OrZero is an accepted ClickHouse-name alias of toIntOrZero.
+        context = HogQLContext(team_id=self.team.pk)
+        self.assertEqual(self._expr("toInt64OrZero('1')", context), "toInt64OrZero(%(hogql_val_0)s)")
+
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
         self._assert_expr_error("avg(bla)", "Unable to resolve field: bla")

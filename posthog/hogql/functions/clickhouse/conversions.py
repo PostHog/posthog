@@ -40,7 +40,13 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "accurateCast": HogQLFunctionMeta("accurateCast", 2, 2),
     "accurateCastOrNull": HogQLFunctionMeta("accurateCastOrNull", 2, 2),
     "toInt": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Int64")]),
+    # Aliases for the ClickHouse names — these map to the same nullable cast as toInt
+    # (accurateCastOrNull returns NULL on unparseable input, matching toInt64OrNull semantics).
+    "toIntOrNull": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Int64")]),
+    "toInt64": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Int64")]),
+    "toInt64OrNull": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Int64")]),
     "toIntOrZero": HogQLFunctionMeta("toInt64OrZero", 1, 1, signatures=[((StringType(),), IntegerType())]),
+    "toInt64OrZero": HogQLFunctionMeta("toInt64OrZero", 1, 1, signatures=[((StringType(),), IntegerType())]),
     "toIntOrDefault": HogQLFunctionMeta(
         # Mirror of toFloatOrDefault: ClickHouse's toInt64OrDefault requires the default value to
         # already be Int64, so cast it (any numeric/string literal then works). The 1-arg form is
