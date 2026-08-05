@@ -12,6 +12,7 @@ import { useLocalWizardRunActive } from '../../../../shared/wizard-sync/hooks'
 import { InstallationProgressView } from '../../../../shared/wizard-sync/InstallationProgressView'
 import { WizardCommandBlock } from '../../../../shared/wizard-sync/WizardCommandBlock'
 import { WizardInstallOptions } from '../../../../shared/wizard-sync/WizardInstallOptions'
+import { WizardFrameworkBadges } from '../../../../shared/wizard-sync/WizardModeShell'
 import { OnboardingStep } from '../../../OnboardingStep'
 import { AdblockWarning, RealtimeCheckIndicator } from '../../RealtimeCheckIndicator'
 import { SDKGrid } from '../SDKGrid'
@@ -31,6 +32,7 @@ function LegacyInstallOptions({ wizardOverrides }: { wizardOverrides?: WizardOve
             // The cloud runner only executes the base integration program, so any dedicated
             // subcommand (e.g. ai-observability) hides the cloud arm until it supports programs.
             offerCloudRun={!wizardOverrides}
+            badges={wizardOverrides?.supports ? <WizardFrameworkBadges items={wizardOverrides.supports} /> : undefined}
             localBlock={
                 <WizardCommandBlock
                     subcommand={wizardOverrides?.subcommand}

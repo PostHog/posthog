@@ -1,3 +1,5 @@
+import type { WizardBadgeItem } from 'scenes/onboarding/shared/wizard-sync/WizardModeShell'
+
 import { type SDK, SDKInstructionsMap, SDKTag } from '~/types'
 
 import { type AdblockDetectionResult } from '../hooks/useAdblockDetection'
@@ -24,6 +26,8 @@ export interface WizardOverrides {
     description: React.ReactNode
     /** Replaces the intro paragraph above the command block. */
     intro?: string
+    /** Replaces the framework "Supports:" badges (e.g. LLM providers). */
+    supports?: WizardBadgeItem[]
 }
 
 export interface VariantProps {

@@ -36,6 +36,9 @@ export function WizardCommandBlock({
                 decoration="rainbow"
                 className="bg-bg-light border border-border hover:border-primary"
                 onCopy={(key) => setCastKey(key)}
+                // A subcommand makes the full command too long for one line; hide the `-y`/`@latest`
+                // noise from the display (the copied command keeps them).
+                condensed={!!subcommand}
             />
             <p className="text-xs text-muted mb-0">
                 {description ?? (
