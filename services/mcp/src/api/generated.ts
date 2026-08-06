@@ -73714,7 +73714,8 @@ export namespace Schemas {
     export interface TaskRunArtifactsDismissRequest {
       /**
          * Manifest ids of the artifacts to update. Pass every version of a file together so the whole file is dismissed rather than a single upload of it.
-         * @items.maxLength 200
+         * @maxItems 100
+         * @items.maxLength 128
          */
       artifact_ids: string[];
       /** True to hide the artifacts from clients, false to show them again. */

@@ -2501,13 +2501,16 @@ export const TasksRunsArtifactsCreateBody = /* @__PURE__ */ zod.object({
  * Hides artifacts from clients without deleting them from storage, so a file dismissed by mistake can be restored.
  * @summary Dismiss or restore task run artifacts
  */
-export const tasksRunsArtifactsDismissCreateBodyArtifactIdsItemMax = 200
+export const tasksRunsArtifactsDismissCreateBodyArtifactIdsItemMax = 128
+
+export const tasksRunsArtifactsDismissCreateBodyArtifactIdsMax = 100
 
 export const tasksRunsArtifactsDismissCreateBodyDismissedDefault = true
 
 export const TasksRunsArtifactsDismissCreateBody = /* @__PURE__ */ zod.object({
     artifact_ids: zod
         .array(zod.string().max(tasksRunsArtifactsDismissCreateBodyArtifactIdsItemMax))
+        .max(tasksRunsArtifactsDismissCreateBodyArtifactIdsMax)
         .describe(
             'Manifest ids of the artifacts to update. Pass every version of a file together so the whole file is dismissed rather than a single upload of it.'
         ),

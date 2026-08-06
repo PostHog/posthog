@@ -1398,8 +1398,9 @@ class TaskRunArtifactPresignResponseSerializer(serializers.Serializer):
 
 class TaskRunArtifactsDismissRequestSerializer(serializers.Serializer):
     artifact_ids = serializers.ListField(
-        child=serializers.CharField(max_length=200),
+        child=serializers.CharField(max_length=128),
         allow_empty=False,
+        max_length=100,
         help_text=(
             "Manifest ids of the artifacts to update. Pass every version of a file together so the "
             "whole file is dismissed rather than a single upload of it."
