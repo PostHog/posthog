@@ -37,8 +37,8 @@ function makeReport(id: number, overrides: Partial<SubscriptionApi> = {}): Subsc
     } as SubscriptionApi
 }
 
-function listReturns(results: SubscriptionApi[]): void {
-    mockedList.mockResolvedValue({ next: null, previous: null, results } as any)
+function listReturns(results: SubscriptionApi[], next: string | null = null): void {
+    mockedList.mockResolvedValue({ next, previous: null, results } as any)
 }
 
 describe('mcpRecurringReportsLogic', () => {
@@ -80,10 +80,25 @@ describe('mcpRecurringReportsLogic', () => {
             .toFinishAllListeners()
             .toMatchValues({ reports: [mcpReport], reportsLoaded: true, reportsFailed: false })
 
+        // The prompt match happens server-side, so only MCP rows cross the wire; the client-side
+        // filter is the precise re-check (search also spans title and insight/dashboard names).
         expect(mockedList).toHaveBeenCalledWith(
             expect.any(String),
-            expect.objectContaining({ resource_type: 'ai_prompt' })
+            expect.objectContaining({ resource_type: 'ai_prompt', search: '$mcp_' })
         )
+    })
+
+    it.each([
+        ['flags truncation when the server has more', 'http://localhost/api/.../?offset=200', true],
+        ['does not flag a complete page', null, false],
+    ])('%s', async (_name, next, expected) => {
+        // A report the tab silently omits is the exact bug this section exists to fix, so a capped
+        // list has to say so rather than just ending.
+        listReturns([makeReport(1)], next as string | null)
+
+        await expectLogic(logic, () => logic.actions.loadReports())
+            .toFinishAllListeners()
+            .toMatchValues({ reportsTruncated: expected })
     })
 
     it('drops soft-deleted reports', async () => {

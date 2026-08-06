@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 
 import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
-import { mcpRecurringReportsLogic } from './mcpRecurringReportsLogic'
+import { AI_REPORT_LIST_LIMIT, mcpRecurringReportsLogic } from './mcpRecurringReportsLogic'
 import { MCP_RECURRING_REPORTS, MCPRecurringReport, urlForRecurringReport } from './recurringReportDefinitions'
 
 function SavedReportRow({ report }: { report: SubscriptionApi }): JSX.Element {
@@ -111,7 +111,7 @@ function ReportCard({
  */
 export function MCPRecurringReports(): JSX.Element {
     const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
-    const { reports, reportsLoaded, reportsFailed } = useValues(mcpRecurringReportsLogic)
+    const { reports, reportsLoaded, reportsFailed, reportsTruncated } = useValues(mcpRecurringReportsLogic)
     const { loadReports } = useActions(mcpRecurringReportsLogic)
 
     // Loaded even without the feature flag: a project can hold reports created before the flag was
@@ -155,6 +155,15 @@ export function MCPRecurringReports(): JSX.Element {
                 >
                     We couldn't load your MCP reports. Please try again in a moment.
                 </LemonBanner>
+            )}
+
+            {/* Say so rather than quietly dropping the tail — an invisible report is the bug this
+                whole section exists to fix. */}
+            {reportsTruncated && (
+                <p className="m-0 text-xs text-muted">
+                    Showing the first {AI_REPORT_LIST_LIMIT} reports.{' '}
+                    <Link to={urls.subscriptions()}>See all subscriptions</Link> for the rest.
+                </p>
             )}
 
             <div className="grid gap-2 md:grid-cols-2">
