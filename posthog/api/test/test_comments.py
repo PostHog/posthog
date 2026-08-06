@@ -194,6 +194,23 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         assert detail.json()["comments"][0]["canvas_version_id"] == "version-2"
         assert detail.json()["next"] is None
 
+    def test_task_comment_retrieval_tolerates_malformed_stored_context(self) -> None:
+        task = self._task_artifact_target()
+        root = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="task",
+            item_id=str(task.id),
+            item_context=[],
+            content="Legacy malformed context",
+        )
+        client = self._sandbox_task_comment_client(task.id)
+
+        response = client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/comments/{root.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["comments"][0]["anchor"] is None
+
     def test_task_comment_bodies_are_byte_bounded_and_continuable(self) -> None:
         task = self._task_artifact_target()
         root = Comment.objects.create(
@@ -694,6 +711,15 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             "detail": "This field is required.",
             "attr": "scope",
         }
+
+    def test_rejects_non_object_comment_context(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {"content": "This is a comment", "scope": "Notebook", "item_context": []},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "item_context"
 
     def test_creates_comment_successfully(self) -> None:
         response = self.client.post(

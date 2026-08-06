@@ -95,6 +95,14 @@ class TestCommentActivity(CommentActivityTestCase):
         assert activity.latest_comment_scope == "task_artifact"
         assert activity.latest_comment_item_id == "artifact-1"
 
+    def test_feed_bounds_comment_snippets(self):
+        comment = self._comment(content="a" * 2048)
+        self._record_activity(comment, [self.author.id])
+
+        activity = tasks_facade.list_task_activity(self.team.id, self.author.id).results[0]
+
+        assert activity.snippet == "a" * 1024
+
     def test_distinct_comments_on_one_task_remain_distinct_activity_entries(self):
         first = self._comment(content="first request")
         second = self._comment(content="second request")

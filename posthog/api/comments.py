@@ -11,6 +11,7 @@ import structlog
 import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import exceptions, pagination, serializers, viewsets
+from rest_framework.exceptions import ErrorDetail
 from rest_framework.generics import get_object_or_404
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -305,6 +306,10 @@ class CommentSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         instance = cast(Comment, self.instance)
 
+        item_context = data.get("item_context")
+        if item_context is not None and not isinstance(item_context, dict):
+            raise exceptions.ValidationError({"item_context": "Must be an object."})
+
         if instance:
             if instance.created_by != request.user:
                 raise exceptions.PermissionDenied("You can only modify your own comments")
@@ -317,7 +322,7 @@ class CommentSerializer(serializers.ModelSerializer):
             data["source_comment"] if "source_comment" in data else getattr(instance, "source_comment", None)
         )
         if not instance and source_comment is None and "scope" not in data:
-            raise exceptions.ValidationError({"scope": "This field is required."})
+            raise exceptions.ValidationError({"scope": ErrorDetail("This field is required.", code="required")})
         scope = data["scope"] if "scope" in data else getattr(instance, "scope", None)
         item_id = data["item_id"] if "item_id" in data else getattr(instance, "item_id", None)
         if source_comment is not None:
@@ -708,6 +713,27 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             # Match the list path, where a denied ticket's comments are simply absent.
             raise exceptions.NotFound()
 
+    def _require_task_comment_viewer_access_for_pk(self) -> None:
+        pk = self.kwargs.get("pk")
+        if not pk:
+            return
+        try:
+            comment = Comment.objects.filter(team_id=self.team_id, pk=pk).first()
+        except (ValueError, django_exceptions.ValidationError):
+            return
+        if comment is None or comment.scope not in {"task", "task_artifact", "desktop_canvas"}:
+            return
+        item_context = comment.item_context if isinstance(comment.item_context, dict) else {}
+        task_id = comment.item_id if comment.scope == "task" else item_context.get("taskId")
+        if not _task_comment_target_is_accessible(
+            team_id=self.team_id,
+            user_id=self.request.user.id,
+            task_id=task_id or "",
+            scope=comment.scope,
+            item_id=comment.item_id,
+        ):
+            raise exceptions.NotFound()
+
     def safely_get_object(self, queryset: QuerySet) -> Comment:
         lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
         lookup_value = self.kwargs[lookup_url_kwarg]
@@ -786,6 +812,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             queryset = queryset.exclude(scope__in=[*TICKET_COMMENT_SCOPES, "task", "task_artifact", "desktop_canvas"])
         else:
             self._require_ticket_viewer_access_for_pk()
+            self._require_task_comment_viewer_access_for_pk()
 
         if params.get("item_id"):
             queryset = queryset.filter(item_id=params.get("item_id"))
@@ -823,7 +850,6 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
 
     @action(methods=["GET"], detail=True)
     def thread(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        self.get_object()
         return self.list(request, *args, **kwargs)
 
     @action(methods=["GET"], detail=False)

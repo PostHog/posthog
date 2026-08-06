@@ -24,6 +24,10 @@ class InvalidTaskCommentCursor(ValueError):
     pass
 
 
+def _item_context(comment: Comment) -> dict:
+    return comment.item_context if isinstance(comment.item_context, dict) else {}
+
+
 def _content_chunk(content: str, *, limit: int, offset: int = 0) -> tuple[str, int | None]:
     encoded = content.encode("utf-8")
     end = min(len(encoded), offset + limit)
@@ -32,7 +36,7 @@ def _content_chunk(content: str, *, limit: int, offset: int = 0) -> tuple[str, i
 
 
 def _bounded_anchor(comment: Comment) -> dict | None:
-    anchor = (comment.item_context or {}).get("anchor")
+    anchor = _item_context(comment).get("anchor")
     if not isinstance(anchor, dict):
         return None
     kind = anchor.get("kind")
@@ -86,7 +90,7 @@ def _artifact_names(*, team_id: int, task_id: UUID, artifact_ids: Sequence[str])
 
 
 def _is_state_event(comment: Comment) -> bool:
-    return (comment.item_context or {}).get("threadState") in COMMENT_STATES
+    return _item_context(comment).get("threadState") in COMMENT_STATES
 
 
 def _encode_cursor(created_at: datetime, comment_id: UUID) -> str:
@@ -269,7 +273,8 @@ def list_comments(
             if resolved and not include_resolved:
                 continue
             content, content_next_offset = _content_chunk(root.content or "", limit=LIST_CONTENT_BYTES)
-            selected_text = ((root.item_context or {}).get("anchor") or {}).get("quote")
+            anchor = _item_context(root).get("anchor")
+            selected_text = anchor.get("quote") if isinstance(anchor, dict) else None
             if isinstance(selected_text, str):
                 selected_text = _content_chunk(selected_text, limit=SELECTED_TEXT_BYTES)[0]
             else:
@@ -307,7 +312,7 @@ def _entry(comment: Comment, *, content_budget: int, content_offset: int = 0) ->
         author=author,
         created_at=comment.created_at,
         anchor=_bounded_anchor(comment),
-        canvas_version_id=(comment.item_context or {}).get("canvasVersionId"),
+        canvas_version_id=_item_context(comment).get("canvasVersionId"),
     )
 
 
@@ -382,7 +387,7 @@ def retrieve_comment(
         target=_target(root, target_names),
         resolved=_resolved(
             root,
-            (latest_state_reply.item_context or {}).get("threadState") if latest_state_reply else None,
+            _item_context(latest_state_reply).get("threadState") if latest_state_reply else None,
         ),
         comments=comments,
         next=next_cursor,

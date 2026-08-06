@@ -6286,9 +6286,11 @@ def list_task_activity(
                 channel_name=row.task.channel.name if row.task.channel else None,
                 activity_at=row.activity_at,
                 activity_kind=row.kind,
-                snippet=(row.comment.content or "" if row.comment else "")
-                if isinstance(row, TaskCommentActivity)
-                else (row.message.content if row.message else ""),
+                snippet=_bounded_activity_snippet(
+                    (row.comment.content or "" if row.comment else "")
+                    if isinstance(row, TaskCommentActivity)
+                    else (row.message.content if row.message else "")
+                ),
                 latest_author=_user_basic_info(
                     row.comment.created_by
                     if isinstance(row, TaskCommentActivity)
@@ -6306,6 +6308,10 @@ def list_task_activity(
         next_before=next_row.activity_at if next_row else None,
         next_before_id=next_row.id if next_row else None,
     )
+
+
+def _bounded_activity_snippet(content: str, limit: int = 1024) -> str:
+    return content.encode("utf-8")[:limit].decode("utf-8", errors="ignore")
 
 
 def mark_task_activity_read(
