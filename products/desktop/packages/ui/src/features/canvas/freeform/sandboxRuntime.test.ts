@@ -75,6 +75,27 @@ describe("buildSandboxDocument", () => {
     expect(html).not.toContain("var(--background, #fff)");
     expect(html).toContain("html.dark { color-scheme: dark; }");
   });
+
+  it("renders persisted comment anchors with the CSS Highlights API", () => {
+    const html = buildSandboxDocument("edit");
+    expect(html).toContain('d.type === "set-comment-highlights"');
+    expect(html).toContain('CSS.highlights.set("posthog-canvas-comment"');
+    expect(html).toContain("posthog-canvas-comment-active");
+    expect(html).not.toContain("ph-canvas-comment-outline");
+    expect(html).toContain("renderCommentHighlights(currentCommentHighlights)");
+    expect(html).toContain('type: "comment-activate"');
+    expect(html).toContain("event.preventDefault()");
+    expect(html).toContain("event.stopPropagation()");
+    expect(html).toContain(
+      "if (!currentCommentHighlights.length || commentHighlightTimer) return",
+    );
+    expect(html).not.toContain("clearTimeout(commentHighlightTimer)");
+    expect(html).toContain('document.addEventListener("selectionchange"');
+    expect(html).not.toContain('document.addEventListener("mouseup"');
+    expect(html).toContain('d.type === "clear-text-selection"');
+    expect(html).toContain("window.getSelection()?.removeAllRanges()");
+    expect(html).toContain("if (selection && !selection.isCollapsed) return");
+  });
 });
 
 describe("resolveExternalAnchorUrl", () => {
