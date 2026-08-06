@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { CountedPaginatedResponse } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -109,11 +108,11 @@ export function RemoveDomainModal(): JSX.Element {
             }
         >
             <div className="space-y-2">
-                <LemonBanner type="warning">
+                <p>
                     {removeDomainPrompt?.is_verified
                         ? 'This cannot be undone. If you have SAML configured or SSO enforced, it will be immediately disabled.'
                         : 'This cannot be undone.'}
-                </LemonBanner>
+                </p>
                 {showImpact && (
                     <>
                         <p>
