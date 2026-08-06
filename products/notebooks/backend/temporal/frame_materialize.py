@@ -427,9 +427,9 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
     """
     # Dedicated `notebooks` CH user (server-side profile/quota backstop no application
     # bug can exceed); falls back to the default credentials where not provisioned.
-    ch_user, ch_password = get_clickhouse_creds(ClickHouseUser.NOTEBOOKS)
+    creds = get_clickhouse_creds(ClickHouseUser.NOTEBOOKS)
     FRAME_MATERIALIZATIONS_STARTED_COUNTER.labels(
-        ch_user="notebooks" if ch_user != settings.CLICKHOUSE_USER else "default",
+        ch_user="notebooks" if creds.user != settings.CLICKHOUSE_USER else "default",
         pool="offline" if settings.CLICKHOUSE_OFFLINE_HTTP_URL != settings.CLICKHOUSE_HTTP_URL else "online",
     ).inc()
     manager = QueryStatusManager(inputs.query_id, inputs.team_id)
@@ -467,8 +467,8 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
             # contend with interactive queries. Falls back to the online URL where no
             # offline cluster exists (EU, self-hosted, dev/test).
             url=settings.CLICKHOUSE_OFFLINE_HTTP_URL,
-            user=ch_user,
-            password=ch_password,
+            user=creds.user,
+            password=creds.password,
             database=settings.CLICKHOUSE_DATABASE,
             output_format_arrow_string_as_string="true",
             cancel_http_readonly_queries_on_client_close=1,
