@@ -45,6 +45,7 @@
 
 <!-- Definition of done (agents): not done until each gate below holds. Verify against the named artifact or skill — don't assume. Add gates as the PR touches more areas.
      - Patch coverage: the lines this PR changed are covered, or the uncovered ones are justified under "How did you test this code?". Don't pad untouched code to lift the number. Check the "🧪 Backend test coverage" PR comment (and its patch-coverage artifact).
+     - Public artifact: nothing in this PR — code, fixtures and sample data, comments, commit messages, or this description — carries material from the agent session that isn't already public. If the work drew on a customer conversation, ticket, or log, say so here and state that the committed data is invented. Renaming people, hosts, and identifiers does not clear real material; see AGENTS.md "Public open source repo guidance".
 -->
 
 <!-- Keep this short: 1-3 short paragraphs or a handful of bullets — not an exhaustive log. Include:
@@ -55,7 +56,7 @@
      Write reviewer-facing prose. Do not paste user prompts verbatim — paraphrase the intent in your own words.
      This is the ONLY section that should contain descriptions of what this PR might have looked like before its present final state.
      Don't duplicate info already present in preceding sections.
-     DO NOT INCLUDE sensitive data that may have been shared in an agent session.
+     DO NOT INCLUDE sensitive data that may have been shared in an agent session — that applies to every part of this PR, not just this section.
 -->
 
 <!-- Overall PR authoring rules for agents:

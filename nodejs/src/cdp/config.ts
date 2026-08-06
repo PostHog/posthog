@@ -69,16 +69,15 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_REDIS_READER_HOST: string
     CDP_REDIS_READER_PORT: number
 
-    // Shadow Valkey pool for dual-write/read load testing. When CDP_VALKEY_DUAL_ENABLED
-    // is true and CDP_VALKEY_HOST is set, every Redis call also runs against this pool;
-    // shadow results are discarded, errors/timeouts logged + counted but never affect
-    // the primary code path.
+    // Shadow Valkey pool for dual-write/read. CDP_VALKEY_HOST is required: every CDP
+    // Redis call also runs against this pool, and a process without it is misconfigured
+    // rather than degraded. Shadow results are discarded, and errors/timeouts are logged
+    // and counted but never affect the primary code path.
     CDP_VALKEY_HOST: string
     CDP_VALKEY_PORT: number
     CDP_VALKEY_PASSWORD: string
     CDP_VALKEY_READER_HOST: string
     CDP_VALKEY_READER_PORT: number
-    CDP_VALKEY_DUAL_ENABLED: boolean
     // AWS ElastiCache Valkey Serverless requires TLS; toggle off only for local non-TLS test setups.
     CDP_VALKEY_TLS: boolean
 
@@ -237,12 +236,13 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_REDIS_READER_HOST: '',
         CDP_REDIS_READER_PORT: 6379,
 
-        CDP_VALKEY_HOST: '',
-        CDP_VALKEY_PORT: 6379,
+        // Points at the `valkey-cluster` compose service, which publishes on 6390 to stay
+        // clear of the 6379 the primary CDP Redis already uses.
+        CDP_VALKEY_HOST: isTestEnv() || isDevEnv() ? '127.0.0.1' : '',
+        CDP_VALKEY_PORT: isTestEnv() || isDevEnv() ? 6390 : 6379,
         CDP_VALKEY_PASSWORD: '',
         CDP_VALKEY_READER_HOST: '',
         CDP_VALKEY_READER_PORT: 6379,
-        CDP_VALKEY_DUAL_ENABLED: false,
         CDP_VALKEY_TLS: false,
 
         SES_RATE_LIMITER_VALKEY_HOST: '',

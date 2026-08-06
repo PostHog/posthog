@@ -41,6 +41,7 @@ from products.product_analytics.backend.models.insight import Insight
 from ee.api.test.base import APILicensedTest
 from ee.models.rbac.access_control import AccessControl
 from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team
+from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
 
 
 class TestSubscriptionTemporal(APILicensedTest):
@@ -94,6 +95,18 @@ class TestSubscriptionTemporal(APILicensedTest):
         self.organization.save()
         response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/")
         assert response.status_code == status.HTTP_200_OK
+
+    @parameterized.expand(
+        [
+            ("daily", ["monday", "tuesday", "wednesday", "thursday", "friday"]),
+            ("weekly", ["monday", "wednesday", "friday"]),
+        ]
+    )
+    def test_accepts_multiple_delivery_weekdays(self, frequency: str, byweekday: list[str]) -> None:
+        response = self._create_subscription(frequency=frequency, byweekday=byweekday, bysetpos=None)
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["byweekday"] == byweekday
 
     def test_can_create_new_subscription(self):
         response = self._create_subscription()
@@ -541,9 +554,9 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "dashboard_export_insights"
 
-    def test_cannot_create_dashboard_subscription_with_too_many_insights(self):
+    def test_dashboard_subscription_enforces_maximum_insights(self):
         insights = []
-        for _ in range(7):
+        for _ in range(MAX_INSIGHTS + 1):
             insight = Insight.objects.create(
                 filters=Filter(data=self.insight_filter_dict).to_dict(),
                 team=self.team,
@@ -552,22 +565,31 @@ class TestSubscriptionTemporal(APILicensedTest):
             self.dashboard.tiles.create(insight=insight)
             insights.append(insight)
 
+        payload = {
+            "dashboard": self.dashboard.id,
+            "target_type": "email",
+            "target_value": "test@posthog.com",
+            "frequency": "weekly",
+            "interval": 1,
+            "start_date": "2022-01-01T00:00:00",
+            "title": "Dashboard Subscription",
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            {**payload, "dashboard_export_insights": [i.id for i in insights[:MAX_INSIGHTS]]},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
         response = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
             {
-                "dashboard": self.dashboard.id,
+                **payload,
                 "dashboard_export_insights": [i.id for i in insights],  # exceeds limit
-                "target_type": "email",
-                "target_value": "test@posthog.com",
-                "frequency": "weekly",
-                "interval": 1,
-                "start_date": "2022-01-01T00:00:00",
-                "title": "Dashboard Subscription",
             },
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "dashboard_export_insights"
-        assert "Cannot select more than 6 insights" in response.json()["detail"]
+        assert f"Cannot select more than {MAX_INSIGHTS} insights" in response.json()["detail"]
 
     def test_cannot_create_dashboard_subscription_with_insights_from_other_dashboard(self):
         # Create an insight that belongs to a different dashboard

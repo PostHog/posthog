@@ -4,7 +4,13 @@ from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.db import models
 from django.db.models.functions import Upper
 
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.activity_log import (
+    AuditableScope,
+    Change,
+    Detail,
+    field_with_masked_contents,
+    log_activity,
+)
 from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import RootTeamMixin, UUIDTModel
@@ -61,6 +67,13 @@ class Comment(UUIDTModel, RootTeamMixin):
         ]
 
 
+# Comment scopes that carry support-ticket data: customer-facing ticket messages
+# (conversations_ticket) and internal ticket discussions (Ticket). Reading or writing these
+# requires ticket access, not just comment access — and their content must not leak through
+# surfaces gated on weaker scopes (e.g. activity logs).
+TICKET_COMMENT_SCOPES = frozenset({"Ticket", "conversations_ticket"})
+
+
 def activity_log_scope_for(comment: Comment) -> str:
     # Map legacy "recording" → "Replay"; replies are logged under the parent thread.
     corrected = "Replay" if comment.scope == "recording" else comment.scope
@@ -90,6 +103,14 @@ def log_comment_activity(sender, instance: Comment, created: bool, **kwargs):
         scope = activity_log_scope_for(instance)
         activity = "created task" if instance.is_task else "commented"
 
+        # Ticket comment bodies are gated on ticket access; the activity log is readable with
+        # only activity_log:read, so the content must not ride along in the change record.
+        # Masking is driven by field_with_masked_contents, keyed by the comment's own scope
+        # (not the activity scope) so ticket replies — logged under the parent thread's
+        # "Comment" scope — are masked too.
+        masked_fields = field_with_masked_contents.get(cast(AuditableScope, instance.scope), [])
+        logged_content = "masked" if "content" in masked_fields else instance.content
+
         log_activity(
             organization_id=None,
             team_id=instance.team_id,
@@ -101,6 +122,6 @@ def log_comment_activity(sender, instance: Comment, created: bool, **kwargs):
             detail=Detail(
                 # name=TODO,
                 # short_id=TODO,
-                changes=[Change(type="Comment", field="content", action="created", after=instance.content)],
+                changes=[Change(type="Comment", field="content", action="created", after=logged_content)],
             ),
         )
