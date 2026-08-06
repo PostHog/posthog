@@ -28,6 +28,7 @@ pub fn prepared<E: SinkEvent + ?Sized>(events: &[&E], ctx: &RequestContext) -> V
             payload: e.serialize(ctx).expect("test payload must serialize"),
             headers: e.headers(ctx),
             partition_key: e.partition_key(ctx),
+            ordering: e.ordering(),
         })
         .collect()
 }
@@ -104,6 +105,7 @@ pub fn wrapped_event(event_name: &str, distinct_id: &str) -> WrappedEvent {
         details: None,
         destination: Destination::default(),
         force_disable_person_processing: false,
+        spread_partitions: false,
         is_gateway_verified: false,
     }
 }
@@ -128,6 +130,7 @@ pub fn wrapped_event_at(timestamp: DateTime<Utc>) -> WrappedEvent {
         details: None,
         destination: Destination::default(),
         force_disable_person_processing: false,
+        spread_partitions: false,
         is_gateway_verified: false,
     }
 }
@@ -152,6 +155,7 @@ pub fn malformed_wrapped_event() -> WrappedEvent {
         details: Some("missing_event_name"),
         destination: Destination::default(),
         force_disable_person_processing: false,
+        spread_partitions: false,
         is_gateway_verified: false,
     }
 }
@@ -226,6 +230,7 @@ pub fn realistic_pageview(distinct_id: &str) -> WrappedEvent {
         details: None,
         destination: Destination::AnalyticsMain,
         force_disable_person_processing: false,
+        spread_partitions: false,
         is_gateway_verified: false,
     }
 }
@@ -264,6 +269,7 @@ pub fn realistic_identify(distinct_id: &str) -> WrappedEvent {
         details: None,
         destination: Destination::AnalyticsMain,
         force_disable_person_processing: false,
+        spread_partitions: false,
         is_gateway_verified: false,
     }
 }
@@ -302,6 +308,7 @@ pub fn realistic_custom(distinct_id: &str, event_name: &str) -> WrappedEvent {
         details: None,
         destination: Destination::AnalyticsMain,
         force_disable_person_processing: false,
+        spread_partitions: false,
         is_gateway_verified: false,
     }
 }
@@ -452,6 +459,16 @@ pub fn assert_round_trip(
 // ---------------------------------------------------------------------------
 
 /// Serialize a list of Events into a valid V1 batch JSON payload.
+/// A non-historical batch wrapping `events`, the shape `process_batch` takes.
+pub fn valid_batch(events: Vec<Event>) -> crate::v1::analytics::types::Batch {
+    crate::v1::analytics::types::Batch {
+        created_at: "2026-03-19T14:30:00.000Z".to_string(),
+        historical_migration: false,
+        capture_internal: None,
+        batch: events,
+    }
+}
+
 pub fn batch_payload(events: &[Event]) -> Vec<u8> {
     let batch_json = serde_json::json!({
         "created_at": "2026-03-19T14:30:00.000Z",
@@ -678,6 +695,8 @@ pub struct TestState {
 pub struct TestStateBuilder {
     quota_limited: bool,
     overflow_limiter: Option<(NonZeroU32, NonZeroU32)>,
+    overflow_preserve_locality: bool,
+    overflow_forced_key: Option<String>,
     ai_events_overflow_limiter: Option<(NonZeroU32, NonZeroU32)>,
     historical_threshold_days: Option<i64>,
     restriction_service: Option<EventRestrictionService>,
@@ -700,6 +719,8 @@ impl TestStateBuilder {
         Self {
             quota_limited: false,
             overflow_limiter: None,
+            overflow_preserve_locality: false,
+            overflow_forced_key: None,
             ai_events_overflow_limiter: None,
             historical_threshold_days: None,
             restriction_service: None,
@@ -736,6 +757,20 @@ impl TestStateBuilder {
             NonZeroU32::new(per_second).expect("per_second must be > 0"),
             NonZeroU32::new(burst).expect("burst must be > 0"),
         ));
+        self
+    }
+
+    /// Keep partition keys when rerouting to overflow, as prod-US does via
+    /// `OVERFLOW_PRESERVE_PARTITION_LOCALITY`. Applies to both lanes' limiters
+    /// because production derives both from that one setting.
+    pub fn with_overflow_preserve_locality(mut self) -> Self {
+        self.overflow_preserve_locality = true;
+        self
+    }
+
+    /// Force-route this key outright, as an ops-configured hot key does.
+    pub fn with_overflow_forced_key(mut self, key: impl Into<String>) -> Self {
+        self.overflow_forced_key = Some(key.into());
         self
     }
 
@@ -836,13 +871,23 @@ impl TestStateBuilder {
             None => HistoricalConfig::new(false, 1),
         };
 
-        let overflow_limiter = self
-            .overflow_limiter
-            .map(|(per_sec, burst)| Arc::new(OverflowLimiter::new(per_sec, burst, None, false)));
+        let overflow_limiter = self.overflow_limiter.map(|(per_sec, burst)| {
+            Arc::new(OverflowLimiter::new(
+                per_sec,
+                burst,
+                self.overflow_forced_key.clone(),
+                self.overflow_preserve_locality,
+            ))
+        });
 
-        let ai_events_overflow_limiter = self
-            .ai_events_overflow_limiter
-            .map(|(per_sec, burst)| Arc::new(OverflowLimiter::new(per_sec, burst, None, false)));
+        let ai_events_overflow_limiter = self.ai_events_overflow_limiter.map(|(per_sec, burst)| {
+            Arc::new(OverflowLimiter::new(
+                per_sec,
+                burst,
+                self.overflow_forced_key.clone(),
+                self.overflow_preserve_locality,
+            ))
+        });
         let ai_events_overflow_enabled = ai_events_overflow_limiter.is_some();
 
         // Build the v1 sink router with a MockProducer-backed KafkaSink

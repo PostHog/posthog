@@ -1,13 +1,13 @@
-from collections.abc import Mapping
 from typing import NoReturn, cast
 from uuid import UUID
 
 from django.db.models import F, OuterRef, Q, QuerySet, Subquery
 from django.db.models.functions import Coalesce
 from django.http import Http404
+from django.http.response import HttpResponseBase
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import OpenApiParameter, extend_schema_field
 from rest_framework import serializers, status
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
@@ -24,6 +24,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import InternalAPIAuthentication
 from posthog.event_usage import report_user_action
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.permissions import (
     AccessControlPermission,
@@ -31,12 +32,28 @@ from posthog.permissions import (
     PostHogFeatureFlagPermission,
     TeamMemberAccessPermission,
 )
+from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.ai_observability.backend.api.dataset_exports import (
+    DatasetExportCreateSerializer,
+    DatasetExportErrorSerializer,
+    DatasetExportReadSerializer,
+    DatasetExportUnavailableError,
+    create_dataset_export,
+    get_dataset_export,
+    get_dataset_export_effective_exception,
+)
+from products.ai_observability.backend.api.dataset_serializers import StrictDatasetSerializer
 from products.ai_observability.backend.api.metrics import llma_track_latency
-from products.ai_observability.backend.dataset_queries import dataset_item_versions_at_revision
+from products.ai_observability.backend.dataset_queries import (
+    consistent_dataset_item_versions,
+    dataset_item_versions_at_revision,
+)
 from products.ai_observability.backend.dataset_service import (
     UNSET,
+    DatasetLimitExceeded,
     DatasetMutationConflict,
     DatasetValidationError,
     JSONValue,
@@ -50,6 +67,7 @@ from products.ai_observability.backend.dataset_service import (
     update_dataset_item,
 )
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItemVersion, DatasetRevision
+from products.exports.backend.facade.api import get_export_asset_content_response
 
 
 def _json_value_schema(*, nullable: bool = False) -> dict[str, object]:
@@ -109,13 +127,8 @@ class JSONObjectField(serializers.JSONField):
         return cast(dict[str, JSONValue], value)
 
 
-class DatasetMutationSerializer(serializers.Serializer):
-    def to_internal_value(self, data: object) -> dict[str, object]:
-        if isinstance(data, Mapping):
-            unknown_fields = sorted(set(data) - set(self.fields))
-            if unknown_fields:
-                raise serializers.ValidationError({field: ["This field is not supported."] for field in unknown_fields})
-        return cast(dict[str, object], super().to_internal_value(data))
+class DatasetMutationSerializer(StrictDatasetSerializer):
+    pass
 
 
 class DatasetConflictResponseSerializer(serializers.Serializer):
@@ -125,7 +138,8 @@ class DatasetConflictResponseSerializer(serializers.Serializer):
             "dataset_name_conflict",
             "dataset_item_archived",
             "dataset_item_active",
-            "external_id_conflict",
+            "client_item_id_conflict",
+            "limit_reached",
             "stale_version",
         ],
         help_text="Stable code identifying why the mutation was rejected.",
@@ -139,7 +153,20 @@ class DatasetConflictResponseSerializer(serializers.Serializer):
     current_item_id = serializers.UUIDField(
         required=False,
         allow_null=True,
-        help_text="Existing item ID when the conflict concerns an external ID.",
+        help_text="Existing item ID when the conflict concerns a client item ID.",
+    )
+    resource = serializers.ChoiceField(
+        choices=["datasets", "dataset_items", "dataset_item_versions"],
+        required=False,
+        help_text="Resource whose configured limit was reached.",
+    )
+    current_count = serializers.IntegerField(
+        required=False,
+        help_text="Number of resources that already exist.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        help_text="Maximum number of resources allowed.",
     )
 
 
@@ -157,7 +184,7 @@ def _resolved_dataset_revision_id(dataset: Dataset) -> UUID | None:
     return dataset.current_revision_id
 
 
-class DatasetReadSerializer(serializers.ModelSerializer):
+class DatasetReadSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True, allow_null=True)
     metadata = JSONObjectField(read_only=True, help_text="JSON object with descriptive dataset metadata.")
     current_revision = serializers.SerializerMethodField(
@@ -182,6 +209,7 @@ class DatasetReadSerializer(serializers.ModelSerializer):
             "updated_at",
             "created_by",
             "team_id",
+            "user_access_level",
         ]
         read_only_fields = fields
 
@@ -283,11 +311,11 @@ class DatasetItemReadSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Dataset that owns the item.",
     )
-    external_id = serializers.CharField(
-        source="dataset_item.external_id",
+    client_item_id = serializers.CharField(
+        source="dataset_item.client_item_id",
         read_only=True,
         allow_null=True,
-        help_text="Optional caller-owned stable key.",
+        help_text="Optional caller-owned stable key that cannot be changed.",
     )
     version_id = serializers.UUIDField(
         source="id",
@@ -344,7 +372,7 @@ class DatasetItemReadSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "dataset",
-            "external_id",
+            "client_item_id",
             "version",
             "version_id",
             "dataset_revision",
@@ -369,12 +397,12 @@ class DatasetItemReadSerializer(serializers.ModelSerializer):
 
 class DatasetItemCreateSerializer(DatasetMutationSerializer):
     dataset = serializers.UUIDField(help_text="Dataset that will own the item.")
-    external_id = serializers.CharField(
+    client_item_id = serializers.CharField(
         required=False,
         allow_null=True,
         allow_blank=False,
         max_length=255,
-        help_text="Optional case-sensitive stable key used for idempotent creates.",
+        help_text="Optional case-sensitive stable key used for idempotent creates. It cannot be changed.",
     )
     input = DatasetJSONField(
         allow_null=False,
@@ -469,6 +497,14 @@ class DatasetItemListQuerySerializer(serializers.Serializer):
     )
 
 
+class DatasetItemRetrieveQuerySerializer(serializers.Serializer):
+    revision = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Return the item as it appeared at this exact dataset revision.",
+    )
+
+
 class DatasetPagination(LimitOffsetPagination):
     default_limit = 50
     max_limit = 100
@@ -477,6 +513,26 @@ class DatasetPagination(LimitOffsetPagination):
 class DatasetItemPagination(LimitOffsetPagination):
     default_limit = 10
     max_limit = 25
+
+
+class DatasetItemVersionPagination(LimitOffsetPagination):
+    default_limit = 25
+    max_limit = 100
+
+
+class DatasetExportRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "dataset_export"
+    rate = "10/minute"
+
+
+def _parse_dataset_export_id(export_id: str | None) -> int:
+    if export_id is None:
+        raise Http404("Dataset export not found.")
+
+    try:
+        return int(export_id)
+    except ValueError:
+        raise Http404("Dataset export not found.") from None
 
 
 class DatasetItemParentAccessControlPermission(AccessControlPermission):
@@ -496,7 +552,7 @@ class DatasetItemParentAccessControlPermission(AccessControlPermission):
         if isinstance(obj, Dataset):
             dataset = obj
         elif isinstance(obj, DatasetItemVersion):
-            dataset = obj.dataset_item.dataset
+            dataset = obj.dataset
         else:
             return False
         return super().has_object_permission(request, view, dataset)
@@ -506,22 +562,31 @@ def _validation_error_response(error: DatasetValidationError) -> NoReturn:
     raise serializers.ValidationError({error.field: [error.detail]})
 
 
-def _conflict_response(error: DatasetMutationConflict) -> Response:
+def _conflict_response(error: DatasetMutationConflict | DatasetLimitExceeded) -> Response:
     payload: dict[str, object] = {"code": error.code, "detail": error.detail}
-    if error.current_version is not None:
-        payload["current_version"] = error.current_version
-    if error.current_item_id is not None:
-        payload["current_item_id"] = error.current_item_id
+    if isinstance(error, DatasetMutationConflict):
+        if error.current_version is not None:
+            payload["current_version"] = error.current_version
+        if error.current_item_id is not None:
+            payload["current_item_id"] = error.current_item_id
+    else:
+        payload.update(
+            resource=error.resource,
+            current_count=error.current_count,
+            limit=error.limit,
+        )
     return Response(payload, status=status.HTTP_409_CONFLICT)
 
 
 def _item_version_queryset() -> QuerySet[DatasetItemVersion, DatasetItemVersion]:
-    return DatasetItemVersion.objects.unscoped().select_related(
-        "created_by",
-        "dataset_revision",
-        "dataset_item",
-        "dataset_item__created_by",
-        "dataset_item__dataset",
+    return consistent_dataset_item_versions(
+        DatasetItemVersion.objects.unscoped().select_related(
+            "created_by",
+            "dataset",
+            "dataset_revision",
+            "dataset_item",
+            "dataset_item__created_by",
+        )
     )
 
 
@@ -560,7 +625,7 @@ def _current_item_version_queryset() -> QuerySet[DatasetItemVersion, DatasetItem
 
 class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericViewSet):
     scope_object = "dataset"
-    scope_object_read_actions = ["list", "retrieve", "revisions"]
+    scope_object_read_actions = ["list", "retrieve", "revisions", "exports", "export_status", "export_content"]
     scope_object_write_actions = ["create", "partial_update", "archive", "restore"]
     permission_classes = [PostHogFeatureFlagPermission]
     posthog_feature_flag = "llm-analytics-datasets"
@@ -590,7 +655,25 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         return DatasetReadSerializer
 
     @extend_schema(
-        parameters=[DatasetListQuerySerializer],
+        parameters=[
+            DatasetListQuerySerializer,
+            OpenApiParameter(
+                name="id__in",
+                type={
+                    "type": "array",
+                    "items": {"type": "string", "format": "uuid"},
+                    "minItems": 1,
+                    "maxItems": 100,
+                },
+                location=OpenApiParameter.QUERY,
+                required=False,
+                style="form",
+                explode=False,
+                description=(
+                    "Filter to these dataset IDs. Repeat the parameter or pass one comma-separated list, up to 100 IDs."
+                ),
+            ),
+        ],
         responses=DatasetReadSerializer(many=True),
         description="List active datasets by default, or archived datasets when requested.",
         tags=["AI observability"],
@@ -613,8 +696,10 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
 
         page = self.paginate_queryset(queryset)
         if page is not None:
-            return self.get_paginated_response(DatasetReadSerializer(page, many=True).data)
-        return Response(DatasetReadSerializer(queryset, many=True).data)
+            return self.get_paginated_response(
+                DatasetReadSerializer(page, many=True, context=self.get_serializer_context()).data
+            )
+        return Response(DatasetReadSerializer(queryset, many=True, context=self.get_serializer_context()).data)
 
     @extend_schema(
         responses=DatasetReadSerializer,
@@ -624,7 +709,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
     @llma_track_latency("llma_datasets_retrieve")
     @monitor(feature=None, endpoint="llma_datasets_retrieve", method="GET")
     def retrieve(self, request: Request, *args: object, **kwargs: object) -> Response:
-        return Response(DatasetReadSerializer(self.get_object()).data)
+        return Response(DatasetReadSerializer(self.get_object(), context=self.get_serializer_context()).data)
 
     @extend_schema(
         request=DatasetCreateSerializer,
@@ -651,7 +736,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
             )
         except DatasetValidationError as error:
             _validation_error_response(error)
-        except DatasetMutationConflict as error:
+        except (DatasetMutationConflict, DatasetLimitExceeded) as error:
             return _conflict_response(error)
 
         report_user_action(
@@ -665,7 +750,10 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
             team=self.team,
             request=request,
         )
-        return Response(DatasetReadSerializer(dataset).data, status=status.HTTP_201_CREATED)
+        return Response(
+            DatasetReadSerializer(dataset, context=self.get_serializer_context()).data,
+            status=status.HTTP_201_CREATED,
+        )
 
     @extend_schema(
         request=DatasetUpdateSerializer,
@@ -696,7 +784,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         except DatasetMutationConflict as error:
             return _conflict_response(error)
 
-        return Response(DatasetReadSerializer(dataset).data)
+        return Response(DatasetReadSerializer(dataset, context=self.get_serializer_context()).data)
 
     @extend_schema(
         operation_id="datasets_archive",
@@ -709,7 +797,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
     def archive(self, request: Request, *args: object, **kwargs: object) -> Response:
         current = self.get_object()
         dataset = archive_dataset(team_id=self.team.id, dataset_id=current.id)
-        return Response(DatasetReadSerializer(dataset).data)
+        return Response(DatasetReadSerializer(dataset, context=self.get_serializer_context()).data)
 
     @extend_schema(
         operation_id="datasets_restore",
@@ -722,7 +810,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
     def restore(self, request: Request, *args: object, **kwargs: object) -> Response:
         current = self.get_object()
         dataset = restore_dataset(team_id=self.team.id, dataset_id=current.id)
-        return Response(DatasetReadSerializer(dataset).data)
+        return Response(DatasetReadSerializer(dataset, context=self.get_serializer_context()).data)
 
     @extend_schema(
         operation_id="datasets_revisions_list",
@@ -743,6 +831,99 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         if page is not None:
             return self.get_paginated_response(DatasetRevisionReadSerializer(page, many=True).data)
         return Response(DatasetRevisionReadSerializer(queryset, many=True).data)
+
+    @extend_schema(
+        operation_id="datasets_exports_create",
+        request=DatasetExportCreateSerializer,
+        responses={
+            201: DatasetExportReadSerializer,
+            409: DatasetExportErrorSerializer,
+        },
+        description="Create an asynchronous JSONL export pinned to an immutable dataset revision.",
+        tags=["AI observability"],
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="exports",
+        throttle_classes=[DatasetExportRateThrottle],
+    )
+    def exports(self, request: Request, *args: object, **kwargs: object) -> Response:
+        dataset = self.get_object()
+        serializer = DatasetExportCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            asset = create_dataset_export(
+                dataset=dataset,
+                team=self.team,
+                created_by=cast(User, request.user),
+                was_impersonated=is_impersonated(request),
+                revision=serializer.validated_data.get("revision"),
+            )
+        except DatasetExportUnavailableError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_409_CONFLICT)
+        return Response(DatasetExportReadSerializer(asset).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        operation_id="datasets_exports_retrieve",
+        responses=DatasetExportReadSerializer,
+        description="Check the status of a dataset export created by the current user.",
+        tags=["AI observability"],
+    )
+    @action(detail=True, methods=["get"], url_path=r"exports/(?P<export_id>\d+)")
+    def export_status(
+        self,
+        request: Request,
+        export_id: str | None = None,
+        *args: object,
+        **kwargs: object,
+    ) -> Response:
+        dataset = self.get_object()
+        asset = get_dataset_export(
+            dataset=dataset,
+            team_id=self.team.id,
+            user_id=cast(User, request.user).id,
+            asset_id=_parse_dataset_export_id(export_id),
+        )
+        if asset is None:
+            raise Http404("Dataset export not found.")
+        return Response(DatasetExportReadSerializer(asset).data)
+
+    @extend_schema(
+        operation_id="datasets_exports_content_retrieve",
+        responses={
+            (200, "application/x-ndjson"): OpenApiTypes.BINARY,
+            409: DatasetExportErrorSerializer,
+        },
+        description="Download a completed dataset JSONL export.",
+        tags=["AI observability"],
+    )
+    @action(detail=True, methods=["get"], url_path=r"exports/(?P<export_id>\d+)/content")
+    def export_content(
+        self,
+        request: Request,
+        export_id: str | None = None,
+        *args: object,
+        **kwargs: object,
+    ) -> HttpResponseBase | Response:
+        dataset = self.get_object()
+        asset = get_dataset_export(
+            dataset=dataset,
+            team_id=self.team.id,
+            user_id=cast(User, request.user).id,
+            asset_id=_parse_dataset_export_id(export_id),
+        )
+        if asset is None:
+            raise Http404("Dataset export not found.")
+        effective_exception = get_dataset_export_effective_exception(asset)
+        if effective_exception:
+            return Response({"detail": effective_exception}, status=status.HTTP_409_CONFLICT)
+        if not asset.has_content:
+            return Response(
+                {"detail": "The export is still being prepared."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return get_export_asset_content_response(asset=asset, download=True)
 
 
 class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
@@ -782,8 +963,25 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         )
         return queryset.filter(
             team_id=self.team.id,
-            dataset_item__dataset_id__in=Subquery(accessible_datasets.values("id")),
+            dataset_id__in=Subquery(accessible_datasets.values("id")),
         )
+
+    def safely_get_object(
+        self,
+        queryset: QuerySet[DatasetItemVersion, DatasetItemVersion],
+    ) -> DatasetItemVersion:
+        if self.action != "retrieve" or self.request.query_params.get("revision") is None:
+            raise NotImplementedError
+        version = (
+            queryset.select_related(None)
+            .select_related("dataset")
+            .defer("input", "expected_output", "source_output", "metadata")
+            .filter(dataset_item_id=self.kwargs[self.lookup_field])
+            .first()
+        )
+        if version is None:
+            raise Http404("Dataset item not found.")
+        return version
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.action == "create":
@@ -822,12 +1020,18 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         revision: int | None = query.get("revision")
         if revision is None:
             queryset = self.get_queryset().filter(
-                dataset_item__dataset_id=dataset.id,
+                dataset_id=dataset.id,
                 archived=archived,
             )
         else:
-            current_revision = _resolved_dataset_revision(dataset)
-            if current_revision is None or revision > current_revision:
+            if (
+                not DatasetRevision.objects.for_team(self.team.id, canonical=True)
+                .filter(
+                    dataset_id=dataset.id,
+                    revision=revision,
+                )
+                .exists()
+            ):
                 raise Http404("Dataset revision not found.")
 
             version_ids = dataset_item_versions_at_revision(
@@ -847,14 +1051,46 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         return Response(DatasetItemReadSerializer(queryset, many=True).data)
 
     @extend_schema(
+        parameters=[DatasetItemRetrieveQuerySerializer],
         responses=DatasetItemReadSerializer,
-        description="Retrieve the current version of an active or archived item.",
+        description="Retrieve the current item version or the version visible at an exact dataset revision.",
         tags=["AI observability"],
     )
     @llma_track_latency("llma_dataset_items_retrieve")
     @monitor(feature=None, endpoint="llma_dataset_items_retrieve", method="GET")
     def retrieve(self, request: Request, *args: object, **kwargs: object) -> Response:
-        return Response(DatasetItemReadSerializer(self.get_object()).data)
+        query_serializer = DatasetItemRetrieveQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        revision: int | None = query_serializer.validated_data.get("revision")
+        current = self.get_object()
+        if revision is None:
+            return Response(DatasetItemReadSerializer(current).data)
+
+        dataset = current.dataset
+        if (
+            not DatasetRevision.objects.for_team(self.team.id, canonical=True)
+            .filter(
+                dataset_id=dataset.id,
+                revision=revision,
+            )
+            .exists()
+        ):
+            raise Http404("Dataset revision not found.")
+
+        version = (
+            _item_version_queryset()
+            .filter(
+                team_id=self.team.id,
+                dataset_id=dataset.id,
+                dataset_item_id=current.dataset_item_id,
+                dataset_revision__revision__lte=revision,
+            )
+            .order_by("-dataset_revision__revision")
+            .first()
+        )
+        if version is None:
+            raise Http404("Dataset item not found at this revision.")
+        return Response(DatasetItemReadSerializer(version).data)
 
     @extend_schema(
         request=DatasetItemCreateSerializer,
@@ -864,8 +1100,8 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             409: DatasetConflictResponseSerializer,
         },
         description=(
-            "Create an item and its first immutable version. An identical external ID retry returns the existing item. "
-            "If the matching item is archived, the submitted content is restored as a new active version."
+            "Create an item and its first immutable version. An identical client item ID retry returns the existing "
+            "item. A different payload or an archived match returns a conflict."
         ),
         tags=["AI observability"],
     )
@@ -885,14 +1121,14 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 expected_output=data["expected_output"],
                 source_output=data["source_output"],
                 metadata=data["metadata"],
-                external_id=data.get("external_id"),
+                client_item_id=data.get("client_item_id"),
                 source_trace_id=data.get("source_trace_id"),
                 source_event_id=data.get("source_event_id"),
                 source_timestamp=data.get("source_timestamp"),
             )
         except DatasetValidationError as error:
             _validation_error_response(error)
-        except DatasetMutationConflict as error:
+        except (DatasetMutationConflict, DatasetLimitExceeded) as error:
             return _conflict_response(error)
 
         if result.created:
@@ -941,7 +1177,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             )
         except DatasetValidationError as error:
             _validation_error_response(error)
-        except DatasetMutationConflict as error:
+        except (DatasetMutationConflict, DatasetLimitExceeded) as error:
             return _conflict_response(error)
         return Response(DatasetItemReadSerializer(result.version).data)
 
@@ -968,7 +1204,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 created_by=cast(User, request.user),
                 base_version=serializer.validated_data["base_version"],
             )
-        except DatasetMutationConflict as error:
+        except (DatasetMutationConflict, DatasetLimitExceeded) as error:
             return _conflict_response(error)
         return Response(DatasetItemReadSerializer(result.version).data)
 
@@ -998,7 +1234,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             )
         except DatasetItemVersion.DoesNotExist as error:
             raise Http404("Dataset item version not found.") from error
-        except DatasetMutationConflict as error:
+        except (DatasetMutationConflict, DatasetLimitExceeded) as error:
             return _conflict_response(error)
         return Response(DatasetItemReadSerializer(result.version).data)
 
@@ -1008,7 +1244,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         description="List every immutable version of an item, newest first.",
         tags=["AI observability"],
     )
-    @action(detail=True, methods=["get"])
+    @action(detail=True, methods=["get"], pagination_class=DatasetItemVersionPagination)
     def versions(self, request: Request, *args: object, **kwargs: object) -> Response:
         current = self.get_object()
         queryset = _item_version_queryset().filter(
