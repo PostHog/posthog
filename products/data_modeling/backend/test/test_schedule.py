@@ -455,12 +455,14 @@ class TestGetV2ScheduledDagIds:
         assert result == {"dag-on-v2"}
 
     def test_tiered_schedule_ids_resolve_to_the_dag_id(self):
-        # cadence-tier schedules are "{dag_id}:{seconds}"; returning them raw would make every
+        # cadence-tier schedules are "{dag_id}:{seconds}" or "{dag_id}:{seconds}:{anchor}";
+        # returning them raw (or mis-splitting the anchored form) would make every
         # v2-detection consumer treat migrated DAGs as v1 and recreate v1 schedules
         listings = [
             self._listing("dag-a:900", "data-modeling-execute-dag"),
             self._listing("dag-a:86400", "data-modeling-execute-dag"),
             self._listing("dag-b", "data-modeling-execute-dag"),
+            self._listing("dag-c:86400:120", "data-modeling-execute-dag"),
         ]
 
         async def fake_list_schedules(*args, **kwargs):
@@ -478,7 +480,7 @@ class TestGetV2ScheduledDagIds:
         ):
             result = get_v2_scheduled_dag_ids()
 
-        assert result == {"dag-a", "dag-b"}
+        assert result == {"dag-a", "dag-b", "dag-c"}
 
     def test_empty_candidates_skips_temporal(self):
         connect = mock.AsyncMock()
@@ -486,3 +488,65 @@ class TestGetV2ScheduledDagIds:
             result = get_v2_scheduled_dag_ids(set())
         assert result == set()
         connect.assert_not_called()
+
+
+class TestAnchoredSpec:
+    # anchored specs fire at t ≡ anchor (mod interval), t in minutes from Monday 00:00 UTC
+    @pytest.mark.parametrize(
+        "interval,anchor,expected_hours,expected_minutes",
+        [
+            # 24h @ 00:00: exactly midnight
+            (timedelta(hours=24), 0, {0}, {0}),
+            # 6h @ 07:30: phase 1:30, so 01:30 / 07:30 / 13:30 / 19:30
+            (timedelta(hours=6), 450, {1, 7, 13, 19}, {30}),
+            # 12h @ 14:00: phase 2:00, so 02:00 / 14:00
+            (timedelta(hours=12), 14 * 60, {2, 14}, {0}),
+            # 15min @ 07:00: minute phase 0, every quarter-hour of every hour
+            (timedelta(minutes=15), 420, set(range(24)), {0, 15, 30, 45}),
+            # 30min @ xx:40: minute phase 10
+            (timedelta(minutes=30), 40, set(range(24)), {10, 40}),
+            # 1h @ 01:30: minute phase 30
+            (timedelta(hours=1), 90, set(range(24)), {30}),
+            # the day part of a week-based anchor is inert below weekly cadence:
+            # Tuesday 02:00 (1560) on a daily schedule pins 02:00, same as anchor 120
+            (timedelta(hours=24), 1560, {2}, {0}),
+        ],
+    )
+    def test_fire_times(self, interval, anchor, expected_hours, expected_minutes):
+        spec = build_schedule_spec(uuid.uuid4(), interval, anchor_minutes=anchor)
+        calendar = spec.calendars[0]
+        hours = {h for r in calendar.hour for h in range(r.start, r.end + 1)}
+        minutes = {m for r in calendar.minute for m in range(r.start, r.end + 1)}
+        assert hours == expected_hours
+        assert minutes == expected_minutes
+
+    def test_weekly_anchor_pins_day_of_week(self):
+        # anchor counts days from Monday; Temporal counts day_of_week from Sunday (0),
+        # so Tuesday 02:00 (minute 1560) must land on Temporal day 2, not day 1
+        spec = build_schedule_spec(uuid.uuid4(), timedelta(days=7), anchor_minutes=1560)
+        calendar = spec.calendars[0]
+        assert [(r.start, r.end) for r in calendar.day_of_week] == [(2, 2)]
+        assert [(r.start, r.end) for r in calendar.hour] == [(2, 2)]
+        assert [(r.start, r.end) for r in calendar.minute] == [(0, 0)]
+
+    def test_monthly_anchor_pins_time_but_keeps_hashed_day(self):
+        entity_id = uuid.uuid4()
+        spec = build_schedule_spec(entity_id, timedelta(days=30), anchor_minutes=150)
+        calendar = spec.calendars[0]
+        assert [(r.start, r.end) for r in calendar.hour] == [(2, 2)]
+        assert [(r.start, r.end) for r in calendar.minute] == [(30, 30)]
+        day = calendar.day_of_month[0].start
+        assert 1 <= day <= 28
+        again = build_schedule_spec(entity_id, timedelta(days=30), anchor_minutes=150)
+        assert again.calendars[0].day_of_month == calendar.day_of_month
+
+    @pytest.mark.parametrize(
+        "interval",
+        [timedelta(minutes=15), timedelta(hours=24), timedelta(days=7), timedelta(days=30)],
+    )
+    def test_anchored_specs_are_utc_with_tight_jitter(self, interval):
+        # the hash paths jitter up to 1hr and honor team timezone; a pin of 00:00 that
+        # drifts an hour or shifts with DST is not a pin
+        spec = build_schedule_spec(uuid.uuid4(), interval, team_timezone="US/Eastern", anchor_minutes=0)
+        assert spec.time_zone_name == "UTC"
+        assert spec.jitter == timedelta(minutes=1)
