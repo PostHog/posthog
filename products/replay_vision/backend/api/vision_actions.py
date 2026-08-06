@@ -28,7 +28,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
-from posthog.models.user import User
 
 from products.replay_vision.backend.api.delivery import archive_delivery, provision_delivery
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
@@ -52,6 +51,7 @@ from products.replay_vision.backend.models.vision_action import (
 )
 from products.replay_vision.backend.rrule import validate_rrule, validate_timezone
 from products.replay_vision.backend.scanner_access import is_uuid, readable_scanner_ids
+from products.replay_vision.backend.scanner_config import acting_user
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 
 logger = structlog.get_logger(__name__)
@@ -559,9 +559,7 @@ class VisionActionSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: dict[str, Any]) -> VisionAction:
         team = self.context["get_team"]()
-        # Max has no DRF request, so it passes `user` in the context directly.
-        request = self.context.get("request")
-        user = cast(User, self.context.get("user") or (request.user if request is not None else None))
+        user = acting_user(self.context)
         if validated_data.get("is_scanner_digest"):
             self._demote_existing_digest(validated_data["scanner"])
             if self._has_derived_digest_name(validated_data):

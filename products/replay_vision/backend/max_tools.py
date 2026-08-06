@@ -40,7 +40,6 @@ from products.replay_vision.backend.scanner_access import (
     scanner_for_reading_observations,
     scanners_for_reading_observations,
 )
-from products.replay_vision.backend.scanner_config import scanner_config_error
 from products.replay_vision.backend.scanning import (
     MAX_SESSIONS_PER_SCAN,
     RetryOutcome,
@@ -184,8 +183,10 @@ class ReplayVisionGatesMixin:
         return is_replay_vision_enabled(self._user, self._team)
 
     @database_sync_to_async
-    def _ai_consent(self) -> bool:
-        return is_ai_data_processing_approved(self._team.id)
+    def _gates(self) -> tuple[bool, bool]:
+        """Both preconditions on one hop. `_is_enabled` can be a network flag evaluation, so running it
+        in series ahead of the consent read costs two dispatches for one decision."""
+        return is_replay_vision_enabled(self._user, self._team), is_ai_data_processing_approved(self._team.id)
 
     @staticmethod
     def _not_enabled() -> tuple[str, dict[str, Any]]:
@@ -652,8 +653,17 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
 # Everything a scan costs is priced per observation from this model unless a saved scanner names another.
 DEFAULT_SCAN_MODEL = ScannerModel.GEMINI_3_FLASH_PREVIEW
 
+# Pinned to the hour the built-in digest uses, so a summary Max sets up fires at the same time as
+# every UI-created one rather than at whatever `starts_at` happened to be.
+_SUMMARY_HOUR = 8
 # The two cadences worth offering in a chat; anything finer belongs in the UI's rrule editor.
-_CADENCE_RRULES = {"daily": "FREQ=DAILY", "weekly": "FREQ=WEEKLY"}
+# The scan tool takes no tags or scale, so it offers only the types a prompt alone configures.
+_INLINE_SCAN_TYPES = {ScannerType.MONITOR, ScannerType.SUMMARIZER}
+
+_CADENCE_RRULES = {
+    "daily": f"FREQ=DAILY;BYHOUR={_SUMMARY_HOUR};BYMINUTE=0",
+    "weekly": f"FREQ=WEEKLY;BYHOUR={_SUMMARY_HOUR};BYMINUTE=0",
+}
 
 
 def _dedup(session_ids: list[str]) -> list[str]:
@@ -699,10 +709,6 @@ def _scan_summary(started: int, results: list[dict[str, str]]) -> str:
     if started:
         parts.append("Each recording takes a few minutes. Results appear on the recordings when they finish.")
     return " ".join(parts)
-
-
-def _scan_artifact(scan_id: str, results: list[dict[str, str]]) -> dict[str, Any]:
-    return {"scan_id": scan_id, "results": results}
 
 
 SCAN_SESSIONS_TOOL_DESCRIPTION = """
@@ -787,7 +793,8 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
         scanner_id: str | None = None,
         scanner_type: str = "monitor",
     ) -> tuple[str, dict[str, Any]]:
-        if not await self._is_enabled():
+        enabled, consent = await self._gates()
+        if not enabled:
             return self._not_enabled()
         sessions = _dedup(session_ids)
         if not sessions:
@@ -798,7 +805,7 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
                 "Narrow the selection and try again.",
                 {"error": "too_many_sessions"},
             )
-        if not await self._ai_consent():
+        if not consent:
             return self._no_ai_consent()
         return await self._start_scan(sessions, prompt, scanner_id, scanner_type)
 
@@ -811,21 +818,20 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
             if scanner is None or not self.user_access_control.check_access_level_for_object(scanner, "editor"):
                 return f"Scanner {scanner_id} not found.", {"error": "not_found"}
             started, results = scan_existing_scanner(scanner=scanner, session_ids=sessions, user=self._user)
-            return _scan_summary(started, results), _scan_artifact(str(scanner.id), results)
+            return _scan_summary(started, results), {"scan_id": str(scanner.id), "results": results}
 
         if not prompt or not prompt.strip():
             return "Pass either a prompt or a scanner_id.", {"error": "no_prompt"}
-        resolved_type = scanner_type if scanner_type in VALID_SCANNER_TYPES else ScannerType.MONITOR
-        config: dict[str, Any] = {"prompt": prompt.strip()}
-        message = scanner_config_error(ScannerType(resolved_type), config)
-        if message is not None:
-            return message, {"error": "invalid_config"}
+        # Only the two types whose whole config is a prompt. A classifier or scorer would need tags or
+        # a scale, which this tool's schema deliberately doesn't take, and would fail validation with a
+        # message about a field the model was never offered.
+        resolved_type = scanner_type if scanner_type in _INLINE_SCAN_TYPES else ScannerType.MONITOR
         scan = run_inline_scan(
             team=self._team,
             user=self._user,
             session_ids=sessions,
             scanner_type=ScannerType(resolved_type),
-            scanner_config=config,
+            scanner_config={"prompt": prompt.strip()},
             model=DEFAULT_SCAN_MODEL,
         )
         if scan.scanner is None:
@@ -833,7 +839,7 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
                 "Nothing started: this project's monthly Replay Vision credits are used up.",
                 {"error": "quota_exhausted"},
             )
-        return _scan_summary(scan.started, scan.results), _scan_artifact(str(scan.scanner.id), scan.results)
+        return _scan_summary(scan.started, scan.results), {"scan_id": str(scan.scanner.id), "results": scan.results}
 
 
 QUOTA_TOOL_DESCRIPTION = """
@@ -935,9 +941,10 @@ class RetryReplayVisionObservationTool(ReplayVisionGatesMixin, MaxTool):
         return f"**Scan recording {observation.session_id} again**, replacing the failed result. This spends {spend}"
 
     async def _arun_impl(self, observation_id: str) -> tuple[str, dict[str, Any]]:
-        if not await self._is_enabled():
+        enabled, consent = await self._gates()
+        if not enabled:
             return self._not_enabled()
-        if not await self._ai_consent():
+        if not consent:
             return self._no_ai_consent()
         return await self._retry(observation_id)
 
@@ -1031,12 +1038,6 @@ spend. Create it disabled (`enabled: false`) to set it up without spending anyth
 
 Call get_replay_vision_quota first when proposing anything broad, and prefer a `sampling_rate` below 1.0
 over an unfiltered scanner.
-
-# Per-type configuration
-- monitor: nothing beyond the prompt
-- classifier: `tags`, the fixed vocabulary the model picks from
-- scorer: `scale_min` and `scale_max`
-- summarizer: optional `length`, one of short/medium/long
 """
 
 
@@ -1099,7 +1100,8 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         return [("replay_scanner", "editor"), ("session_recording", "viewer")]
 
     async def is_dangerous_operation(self, enabled: bool = False, **kwargs) -> bool:
-        # A disabled scanner has no schedule and spends nothing, so only an enabled one needs a decision.
+        # Argument-dependent, so the mixin's `spends_credits` doesn't decide it: a disabled scanner has
+        # no schedule and spends nothing, and only an enabled one needs a decision.
         return enabled is True
 
     async def format_dangerous_operation_preview(self, name: str = "", sampling_rate: float = 1.0, **kwargs) -> str:
@@ -1127,9 +1129,10 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         scale_max: float | None = None,
         length: str | None = None,
     ) -> tuple[str, dict[str, Any]]:
-        if not await self._is_enabled():
+        is_on, consent = await self._gates()
+        if not is_on:
             return self._not_enabled()
-        if enabled and not await self._ai_consent():
+        if enabled and not consent:
             return self._no_ai_consent()
         return await self._create(
             name, prompt, scanner_type, sampling_rate, enabled, tags, scale_min, scale_max, length
@@ -1261,7 +1264,9 @@ class CreateReplayVisionActionTool(ReplayVisionGatesMixin, MaxTool):
                 "trigger_config": {"rrule": rrule, "timezone": self._team.timezone or "UTC"},
                 "synthesis_config": {"prompt_guide": focus.strip()} if focus and focus.strip() else {},
             },
-            context={"get_team": lambda: self._team, "user": self._user},
+            # team_id is not optional: the scanner field is team-scoped and fails safe to .none(),
+            # so without it the scanner never resolves and every call fails validation.
+            context={"get_team": lambda: self._team, "team_id": self._team.id, "user": self._user},
         )
         if not serializer.is_valid():
             return _first_error(serializer.errors), {"error": "invalid_config"}

@@ -1598,22 +1598,26 @@ class TestObserveAction(_VisionAPITestCase):
     def observe_url(self, scanner_id: str) -> str:
         return f"{self.scanners_url}{scanner_id}/observe/"
 
-    def test_bulk_observe_stops_when_the_organization_has_not_allowed_ai(
+    def test_no_scan_entrypoint_starts_without_ai_consent(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:
-        # observe, inline_scan and retry all gate consent; bulk_observe did not, so a batch was accepted
-        # and then scanned nothing, because create_observation fails closed once the workflow is running.
+        # This gate went in per-endpoint and was missed twice, on bulk_observe and then observe. Both
+        # returned 202 for a scan that never ran, because create_observation fails closed on consent
+        # once the workflow is already going. Covering all of them together is what stops a third.
+        # Plain loop, not @parameterized: class-level @patch mis-orders expanded args.
         mock_sync_connect.return_value = MagicMock()
         start_workflow = MagicMock()
         mock_async_to_sync.return_value = start_workflow
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
-
-        resp = self.client.post(
-            f"{self.scanners_url}{self.scanner.id}/bulk_observe/", data={"session_ids": ["s1"]}, format="json"
-        )
-
-        self.assertEqual(resp.status_code, 400, resp.json())
+        cases = [
+            (f"{self.scanners_url}{self.scanner.id}/observe/", {"session_id": "s1"}),
+            (f"{self.scanners_url}{self.scanner.id}/bulk_observe/", {"session_ids": ["s1"]}),
+            (f"{self.scanners_url}inline_scan/", {"session_ids": ["s1"], "prompt": "did it fail?"}),
+        ]
+        for url, body in cases:
+            resp = self.client.post(url, data=body, format="json")
+            self.assertEqual(resp.status_code, 400, f"{url}: {resp.json()}")
         start_workflow.assert_not_called()
 
     def test_a_settled_session_returns_the_existing_observation_and_starts_nothing(

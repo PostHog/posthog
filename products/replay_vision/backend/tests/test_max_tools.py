@@ -11,6 +11,8 @@ from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
+from posthog.models.team import Team
+
 from products.replay_vision.backend.max_tools import (
     CreateReplayVisionActionTool,
     CreateReplayVisionScannerTool,
@@ -28,6 +30,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.vision_action import VisionAction
 from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN
 from products.replay_vision.backend.tags import slugify_tag
 
@@ -499,17 +502,6 @@ class TestReplayVisionChargeConfirmation(BaseTest):
         config: RunnableConfig = {"configurable": {"team": self.team, "user": self.user}}
         return tool_cls(team=self.team, user=self.user, config=config)
 
-    def _scanner(self, **overrides) -> ReplayScanner:
-        defaults = {
-            "team": self.team,
-            "name": "my-scanner",
-            "scanner_type": ScannerType.MONITOR,
-            "scanner_config": {"prompt": "did the user check out?"},
-            "model": ScannerModel.GEMINI_3_6_FLASH,
-        }
-        defaults.update(overrides)
-        return ReplayScanner.objects.create(**defaults)
-
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_every_charging_tool_asks_before_spending(self):
@@ -667,3 +659,57 @@ class TestCreateReplayVisionScannerTool(BaseTest):
 
         assert artifact["error"] == "invalid_config"
         assert not await sync_to_async(ReplayScanner.objects.filter(name="too-sparse").exists)()
+
+
+class TestCreateReplayVisionActionTool(BaseTest):
+    def _tool(self) -> CreateReplayVisionActionTool:
+        config: RunnableConfig = {"configurable": {"team": self.team, "user": self.user}}
+        return CreateReplayVisionActionTool(team=self.team, user=self.user, config=config)
+
+    def _scanner(self) -> ReplayScanner:
+        return ReplayScanner.objects.create(
+            team=self.team,
+            name="my-scanner",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "did the user check out?"},
+            model=ScannerModel.GEMINI_3_6_FLASH,
+        )
+
+    @parameterized.expand([("daily",), ("weekly",)])
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_creates_a_summary_on_the_given_cadence(self, cadence):
+        # The scanner field is team-scoped and fails safe to .none() without team_id in the serializer
+        # context, so without it every call failed validation and the tool could never create anything.
+        scanner = await sync_to_async(self._scanner)()
+
+        with patch(_FLAG_PATH, return_value=True):
+            content, artifact = await self._tool()._arun_impl(
+                scanner_id=str(scanner.id), name=f"{cadence}-summary", cadence=cadence
+            )
+
+        assert "error" not in artifact, artifact
+        action = await sync_to_async(
+            lambda: VisionAction.objects.for_team(self.team.id).get(id=artifact["vision_action_id"])
+        )()
+        assert action.scanner_id == scanner.id
+        # An hour is pinned so it fires at a stable time, like every UI-created action and the digest.
+        assert "BYHOUR" in action.trigger_config["rrule"]
+        assert cadence in content
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_rejects_a_scanner_from_another_team(self):
+        other_team = await sync_to_async(Team.objects.create)(organization=self.organization, name="other")
+        scanner = await sync_to_async(ReplayScanner.objects.create)(
+            team=other_team,
+            name="theirs",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_6_FLASH,
+        )
+
+        with patch(_FLAG_PATH, return_value=True):
+            _, artifact = await self._tool()._arun_impl(scanner_id=str(scanner.id), name="cross-team")
+
+        assert artifact["error"] == "not_found"
