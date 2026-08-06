@@ -245,7 +245,9 @@ def send_email_ai_subscription_report(
         template_context={
             "title": title,
             "rendered_html": html,
-            "subscription_url": f"{subscription_url}?{utm_tags}",
+            # `delivery` lets the frontend capture `ai_report_clicked` on landing — the
+            # click-through signal for whether delivered reports actually get read.
+            "subscription_url": f"{subscription_url}?{utm_tags}&delivery={delivery_id}",
             "unsubscribe_url": unsubscribe_url,
             "feedback_positive_url": _build_feedback_url(subscription_url, delivery_id, "positive", "email"),
             "feedback_negative_url": _build_feedback_url(subscription_url, delivery_id, "negative", "email"),

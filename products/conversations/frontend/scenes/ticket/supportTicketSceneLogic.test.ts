@@ -1,8 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { tagsModel } from '~/models/tagsModel'
 import { initKeaTests } from '~/test/init'
 import type { CommentType } from '~/types'
+import { ActivityScope } from '~/types'
 
 import type { TicketAssignee } from '../../components/Assignee'
 import type { Ticket, TicketStatus } from '../../types'
@@ -45,7 +49,14 @@ jest.mock('products/business_knowledge/frontend/generated/api', () => ({
     businessKnowledgeGapSuggestionsDismissCreate: jest.fn().mockResolvedValue(undefined),
 }))
 
+jest.mock('products/conversations/frontend/generated/api', () => ({
+    conversationsTicketsNotesPartialUpdate: jest.fn().mockResolvedValue(undefined),
+    conversationsTicketsNotesDestroy: jest.fn().mockResolvedValue(undefined),
+}))
+
 import api from '~/lib/api'
+
+import { conversationsTicketsNotesPartialUpdate } from 'products/conversations/frontend/generated/api'
 
 const submitAiFeedbackMock = api.conversationsTickets.submitAiFeedback as jest.Mock
 
@@ -476,5 +487,237 @@ describe('supportTicketSceneLogic loadPreviousTickets email gating', () => {
         }).toDispatchActions(['loadPreviousTicketsSuccess'])
 
         expect(ticketsListMock).toHaveBeenLastCalledWith(expectedParams)
+    })
+})
+
+describe('supportTicketSceneLogic private note editing', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    const ticketGetMock = api.conversationsTickets.get as jest.Mock
+    const noteUpdateMock = conversationsTicketsNotesPartialUpdate as jest.Mock
+    const commentsCreateMock = api.comments.create as jest.Mock
+
+    const loadedTicket = (): Ticket => ({ ...makeTicket(), priority: 'medium', assignee: null }) as Ticket
+
+    beforeEach(async () => {
+        localStorage.clear()
+        initKeaTests()
+        noteUpdateMock.mockReset().mockResolvedValue(undefined)
+        commentsCreateMock.mockReset().mockResolvedValue(undefined)
+        ticketGetMock.mockReset().mockResolvedValue(loadedTicket())
+        logic = supportTicketSceneLogic({ id: 42 })
+        logic.mount()
+        // Wait for ticket + initial message load so a late setMessages([]) can't cancel an edit.
+        await expectLogic(logic).toDispatchActions(['setTicket', 'setMessages'])
+    })
+
+    test('startEditingMessage stashes the in-progress draft and loads the note', async () => {
+        const draft = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'wip' }] }] }
+        logic.actions.setDraftContent(draft)
+        logic.actions.setDraftIsPrivate(false)
+
+        const noteRich = {
+            type: 'doc',
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'note body' }] }],
+        }
+        logic.actions.startEditingMessage({
+            id: 'note-1',
+            content: 'note body',
+            richContent: noteRich,
+            authorType: 'human',
+            authorName: 'Me',
+            createdBy: { id: 1 },
+            createdAt: '2026-01-01T00:00:00Z',
+            isPrivate: true,
+            version: 0,
+        })
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.editingMessageId).toBe('note-1')
+        expect(logic.values.draftIsPrivate).toBe(true)
+        expect(logic.values.draftContent).toEqual(noteRich)
+        expect(logic.values.stashedDraftContent).toEqual(draft)
+        expect(logic.values.stashedDraftIsPrivate).toBe(false)
+    })
+
+    test('cancelEditingMessage restores the stashed draft', async () => {
+        const draft = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'wip' }] }] }
+        logic.actions.setDraftContent(draft)
+        logic.actions.setDraftIsPrivate(false)
+        logic.actions.startEditingMessage({
+            id: 'note-1',
+            content: 'note',
+            richContent: { type: 'doc', content: [] },
+            authorType: 'human',
+            authorName: 'Me',
+            createdAt: '2026-01-01T00:00:00Z',
+            isPrivate: true,
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.cancelEditingMessage()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.editingMessageId).toBeNull()
+        expect(logic.values.draftContent).toEqual(draft)
+        expect(logic.values.draftIsPrivate).toBe(false)
+        expect(logic.values.stashedDraftContent).toBeNull()
+    })
+
+    test('sendMessage while editing hits the note update endpoint and restores the stashed draft', async () => {
+        const draft = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'wip' }] }] }
+        const updatedRich = {
+            type: 'doc',
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'updated' }] }],
+        }
+        const commentsListMock = api.comments.list as jest.Mock
+        commentsListMock.mockResolvedValue({
+            results: [
+                {
+                    id: 'note-1',
+                    content: 'updated',
+                    rich_content: updatedRich,
+                    version: 1,
+                    created_at: '2026-01-01T00:00:00Z',
+                    item_context: { author_type: 'support', is_private: true },
+                    created_by: { id: 1, uuid: 'u1', distinct_id: 'd1', first_name: 'Me', email: 'me@posthog.com' },
+                },
+            ],
+        })
+        logic.actions.setMessages([
+            {
+                id: 'note-1',
+                content: 'note',
+                rich_content: { type: 'doc', content: [] },
+                created_at: '2026-01-01T00:00:00Z',
+                item_context: { author_type: 'support', is_private: true },
+                created_by: { id: 1, uuid: 'u1', distinct_id: 'd1', first_name: 'Me', email: 'me@posthog.com' },
+                version: 0,
+            } as any,
+        ])
+        logic.actions.setDraftContent(draft)
+        logic.actions.setDraftIsPrivate(false)
+        logic.actions.startEditingMessage({
+            id: 'note-1',
+            content: 'note',
+            richContent: { type: 'doc', content: [] },
+            authorType: 'human',
+            authorName: 'Me',
+            createdAt: '2026-01-01T00:00:00Z',
+            isPrivate: true,
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        const onSuccess = jest.fn()
+        await expectLogic(logic, () => {
+            logic.actions.sendMessage('updated', updatedRich, true, onSuccess)
+        }).toFinishAllListeners()
+
+        expect(noteUpdateMock).toHaveBeenCalledWith(expect.any(String), 'ticket-1', 'note-1', {
+            message: 'updated',
+            rich_content: updatedRich,
+        })
+        expect(commentsCreateMock).not.toHaveBeenCalled()
+        expect(onSuccess).not.toHaveBeenCalled()
+        expect(logic.values.editingMessageId).toBeNull()
+        expect(logic.values.draftContent).toEqual(draft)
+        expect(logic.values.draftIsPrivate).toBe(false)
+        expect(logic.values.stashedDraftContent).toBeNull()
+        const updated = logic.values.chatMessages.find((m) => m.id === 'note-1')
+        expect(updated?.content).toBe('updated')
+        expect(updated?.richContent).toEqual(updatedRich)
+        expect(updated?.version).toBe(1)
+    })
+
+    test('setMessages aborts edit and restores the stashed draft when the note disappears', async () => {
+        const draft = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'wip' }] }] }
+        logic.actions.setDraftContent(draft)
+        logic.actions.setDraftIsPrivate(false)
+        logic.actions.startEditingMessage({
+            id: 'note-1',
+            content: 'note',
+            richContent: { type: 'doc', content: [] },
+            authorType: 'human',
+            authorName: 'Me',
+            createdAt: '2026-01-01T00:00:00Z',
+            isPrivate: true,
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setMessages([])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.editingMessageId).toBeNull()
+        expect(logic.values.draftContent).toEqual(draft)
+        expect(logic.values.draftIsPrivate).toBe(false)
+    })
+
+    test('switching notes while editing keeps the original stashed draft', async () => {
+        const draft = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'wip' }] }] }
+        logic.actions.setDraftContent(draft)
+        logic.actions.setDraftIsPrivate(false)
+        logic.actions.startEditingMessage({
+            id: 'note-1',
+            content: 'note one',
+            richContent: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'one' }] }] },
+            authorType: 'human',
+            authorName: 'Me',
+            createdAt: '2026-01-01T00:00:00Z',
+            isPrivate: true,
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.startEditingMessage({
+            id: 'note-2',
+            content: 'note two',
+            richContent: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'two' }] }] },
+            authorType: 'human',
+            authorName: 'Me',
+            createdAt: '2026-01-01T00:00:00Z',
+            isPrivate: true,
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.editingMessageId).toBe('note-2')
+        expect(logic.values.stashedDraftContent).toEqual(draft)
+
+        logic.actions.cancelEditingMessage()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.draftContent).toEqual(draft)
+    })
+})
+
+describe('supportTicketSceneLogic sidePanelContext', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = supportTicketSceneLogic({ id: 'new' })
+        logic.mount()
+        logic.actions.setTicket(makeTicket())
+    })
+
+    // Access control and discussions are separate consumers of the same selector key. Defining
+    // one selector per concern silently drops all but the last, so assert they coexist.
+    it('exposes access control and discussion context together', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC]: true })
+
+        expect(logic.values.sidePanelContext).toEqual({
+            access_control_resource: 'ticket',
+            access_control_resource_id: 'ticket-1',
+            activity_scope: ActivityScope.TICKET,
+            activity_item_id: 'ticket-1',
+        })
+    })
+
+    it('keeps access control context when the discussions flag is off', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC]: false })
+
+        expect(logic.values.sidePanelContext).toEqual({
+            access_control_resource: 'ticket',
+            access_control_resource_id: 'ticket-1',
+        })
     })
 })

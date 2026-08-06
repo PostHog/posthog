@@ -16,7 +16,7 @@ Do NOT:
 """
 
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import UUID
@@ -91,6 +91,7 @@ from products.customer_analytics.backend.models import (
     EventStream,
     EventStreamMember,
     SyncStatus,
+    SyncTrigger,
     TargetType,
 )
 from products.customer_analytics.backend.models.account import (
@@ -1344,6 +1345,7 @@ def _to_custom_property_source_view(
     if isinstance(enrichment, _ResolveEnrichmentInline):
         schema = _resolve_person_source_schema(source, user_access_control)
         latest = source.sync_runs.order_by("-created_at").first() if schema is not None else None
+        _expire_stale_running_runs(source.team_id, [latest])
     else:
         schema, latest = enrichment
     if schema is not None:
@@ -1406,6 +1408,7 @@ def _batch_source_enrichment(
         .distinct("source_id")
     }
     enrichment: dict[Any, tuple[Any, CustomPropertySyncRun | None]] = {}
+    authorized_runs: list[CustomPropertySyncRun | None] = []
     for source in person_sources:
         schema = schemas_by_id.get(source.external_data_schema_id)
         if (
@@ -1415,7 +1418,12 @@ def _batch_source_enrichment(
         ):
             schema = None
         latest = latest_run_by_source_id.get(source.id) if schema is not None else None
+        # Only mutate runs the caller can view; expiring runs for hidden schemas would let a
+        # denied viewer flip their status through the source-list endpoint.
+        if latest is not None:
+            authorized_runs.append(latest)
         enrichment[source.id] = (schema, latest)
+    _expire_stale_running_runs(team_id, authorized_runs)
     return enrichment
 
 
@@ -1489,11 +1497,40 @@ def _enqueue_sync_if_enabled(source: CustomPropertySource) -> None:
 _WAREHOUSE_PROFILE_TARGETS = (TargetType.PERSON.value, TargetType.GROUP.value)
 
 
+# A run row only reaches a terminal state when its activity records one, so a sync that died before
+# getting there — an import that failed ahead of the person-property step, a killed worker — would sit
+# "running" forever, misreporting the source and keeping its sync/backfill buttons disabled. Six hours
+# matches the sync activity's start_to_close timeout, so nothing live is behind an older row.
+STALE_RUNNING_RUN_AFTER = timedelta(hours=6)
+STALE_RUNNING_RUN_ERROR = "This run never reported a result. The sync may have failed before it ran."
+
+
+def _expire_stale_running_runs(team_id: int, runs: "Iterable[CustomPropertySyncRun | None]") -> None:
+    """Fail abandoned 'running' rows, both in the database and in the passed-in objects so the caller
+    serializes what it just wrote. Runs on the read paths the UI polls, so a stuck row self-heals."""
+    cutoff = timezone.now() - STALE_RUNNING_RUN_AFTER
+    stale = [
+        run
+        for run in runs
+        if run is not None and run.status == SyncStatus.RUNNING.value and (run.started_at or run.created_at) < cutoff
+    ]
+    if not stale:
+        return
+    finished_at = timezone.now()
+    CustomPropertySyncRun.objects.for_team(team_id).filter(id__in=[run.id for run in stale]).update(
+        status=SyncStatus.FAILED.value, finished_at=finished_at, error=STALE_RUNNING_RUN_ERROR
+    )
+    for run in stale:
+        run.status = SyncStatus.FAILED.value
+        run.finished_at = finished_at
+        run.error = STALE_RUNNING_RUN_ERROR
+
+
 def _create_running_runs(team_id: int, schema_id: str, trigger: str) -> list[Any]:
     """Insert a 'running' run for each enabled person/group source on the schema that isn't already
-    running. The UI shows these as in-progress and disables the trigger while they exist; the backfill
-    activity reconciles them to their terminal state (see record_sync_run). Skipping sources that
-    already have a running run makes this a no-op when a backfill for the table is already in flight
+    running. The UI shows these as in-progress and disables the trigger while they exist; the sync and
+    backfill activities reconcile them to their terminal state (see record_sync_run). Skipping sources
+    that already have a running run makes this a no-op when a run for the table is already in flight
     (coalesced). Returns the source ids a placeholder was created for, so the caller can reconcile them
     to FAILED if the workflow start never happens (see ``_fail_created_runs``)."""
     with transaction.atomic():
@@ -1510,11 +1547,12 @@ def _create_running_runs(team_id: int, schema_id: str, trigger: str) -> list[Any
         )
         if not sources:
             return []
-        already_running = set(
-            CustomPropertySyncRun.objects.for_team(team_id)
-            .filter(source__in=sources, status=SyncStatus.RUNNING.value)
-            .values_list("source_id", flat=True)
+        running = list(
+            CustomPropertySyncRun.objects.for_team(team_id).filter(source__in=sources, status=SyncStatus.RUNNING.value)
         )
+        # An abandoned row must not coalesce away a fresh trigger.
+        _expire_stale_running_runs(team_id, running)
+        already_running = {run.source_id for run in running if run.status == SyncStatus.RUNNING.value}
         to_create = [source for source in sources if source.id not in already_running]
         now = timezone.now()
         CustomPropertySyncRun.objects.bulk_create(
@@ -1641,10 +1679,18 @@ def trigger_person_property_sync(
         trigger_schema_sync,
     )
 
+    # Open the run rows before the sync starts, so the history shows it in progress right away and the
+    # trigger buttons stay disabled until it settles. The person-property activity reconciles them
+    # when the import reaches it (see record_sync_run).
+    created_source_ids = _create_running_runs(team_id, schema_id, SyncTrigger.SYNC.value)
     try:
         trigger_schema_sync(team_id=team_id, schema_id=schema_id)
     except ExternalDataSchemaSyncPausedError as e:
+        _fail_created_runs(team_id, created_source_ids, "Warehouse syncs are paused for this project")
         raise WarehouseSyncPausedError(str(e)) from e
+    except Exception:
+        _fail_created_runs(team_id, created_source_ids, "Failed to start sync")
+        raise
     return True
 
 
@@ -1837,7 +1883,8 @@ def list_custom_property_sync_runs(
         _assert_warehouse_source_viewer(team_id, source.external_data_schema_id, user_access_control)
     queryset = CustomPropertySyncRun.objects.for_team(team_id).filter(source_id=source_id).order_by("-created_at")
     total_count = queryset.count()
-    page = queryset[offset : offset + limit]
+    page = list(queryset[offset : offset + limit])
+    _expire_stale_running_runs(team_id, page)
     return [_to_sync_run_view(run) for run in page], total_count
 
 

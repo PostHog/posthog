@@ -324,7 +324,7 @@ export const saveToDatasetButtonLogic = kea<saveToDatasetButtonLogicType>([
                 try {
                     await datasetsApi.createItem({
                         dataset: datasetId,
-                        external_id: props.partialDatasetItem?.external_id,
+                        client_item_id: props.partialDatasetItem?.client_item_id,
                         input: props.partialDatasetItem?.input ?? {},
                         expected_output: props.partialDatasetItem?.expected_output,
                         source_output: props.partialDatasetItem?.source_output,

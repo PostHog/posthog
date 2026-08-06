@@ -43,6 +43,17 @@
             "description": "Optional description of what this evaluation checks.",
             "type": "string"
         },
+        "directory_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Directory containing the evaluation. Pass null to move the evaluation to the top level."
+        },
         "enabled": {
             "description": "Whether the evaluation runs automatically on new $ai_generation events.",
             "type": "boolean"

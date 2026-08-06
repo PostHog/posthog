@@ -169,12 +169,29 @@ function maybeShowWhatsNew(): void {
     );
 }
 
+// The changelog defers to flag-driven surfaces (billing announcement, remote
+// announcements), so wait for flags before auto-opening — otherwise it can
+// open and immediately vanish behind an announcement that arrives with the
+// flag payload. The timeout keeps offline and keyless dev builds working.
+const FLAGS_SETTLE_TIMEOUT_MS = 3_000;
+
+function maybeShowWhatsNewOnceFlagsSettle(): void {
+  let evaluated = false;
+  const evaluate = () => {
+    if (evaluated) return;
+    evaluated = true;
+    maybeShowWhatsNew();
+  };
+  posthogFeatureFlags.onFlagsLoaded(evaluate);
+  setTimeout(evaluate, FLAGS_SETTLE_TIMEOUT_MS);
+}
+
 function onSettingsReady(): void {
   syncAutoDownload(useSettingsStore.getState().downloadUpdatesAutomatically);
   useSettingsStore.subscribe((state) =>
     syncAutoDownload(state.downloadUpdatesAutomatically),
   );
-  maybeShowWhatsNew();
+  maybeShowWhatsNewOnceFlagsSettle();
 }
 
 if (useSettingsStore.persist.hasHydrated()) {

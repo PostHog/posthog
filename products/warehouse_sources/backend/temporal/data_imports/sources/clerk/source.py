@@ -14,7 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.cler
     clerk_source,
     validate_credentials as validate_clerk_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.settings import ENDPOINTS, RETIRED_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -105,6 +105,10 @@ The secret key starts with `sk_live_`.
         return {
             "401 Client Error: Unauthorized for url: https://api.clerk.com": "Your Clerk secret key is invalid or has been revoked. Please update the secret key in your Clerk dashboard and reconnect.",
             "403 Client Error: Forbidden for url: https://api.clerk.com": "Your Clerk secret key does not have permission to access this endpoint. Please check the key's permissions in your Clerk dashboard.",
+            # Clerk answers 410 for endpoints it has removed. Schema discovery retires the table
+            # within a few hours, so this only covers runs that start in between.
+            "410 Client Error: Gone for url: https://api.clerk.com": "Clerk removed this endpoint from its API, so this table can't sync any more. Turn off syncing for this table.",
+            **{reason: reason for reason in RETIRED_ENDPOINTS.values()},
         }
 
     def validate_credentials(
@@ -127,4 +131,5 @@ The secret key starts with `sk_live_`.
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            logger=inputs.logger,
         )
