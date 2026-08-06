@@ -3229,7 +3229,7 @@ async def test_worker_shutdown_desc_sort_order(team):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands):
+async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands, pipeline_mode):
     def mock_raise_if_is_worker_shutdown(self):
         raise WorkerShuttingDownError("test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type")
 
@@ -3267,9 +3267,101 @@ async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands
 
     assert run is not None
     assert run.status == ExternalDataJob.Status.COMPLETED
-    # This is the schema's first run and it never reached post-load, so no table was registered and
-    # nothing it extracted is queryable
-    assert run.billable is False
+    # On v2 this incremental run's committed chunks survive and the retrigger resumes from the
+    # per-batch watermark, so its rows are extracted once and stay billable. On v3 the watermark
+    # was only staged, so the retrigger re-extracts and re-bills them.
+    assert run.billable is (pipeline_mode != "v3")
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_worker_shutdown_on_first_incremental_sync_keeps_pre_shutdown_rows(
+    team, postgres_config, postgres_connection, pipeline_mode
+):
+    """A first incremental sync killed by a worker shutdown advances the watermark per chunk (v2),
+    so the buffer-one retrigger only extracts rows past it. The rows the killed run already wrote
+    must survive the retriggered run, or they are permanently absent from the destination."""
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.shutdown_first_sync (id integer primary key)".format(
+            schema=postgres_config["schema"]
+        )
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.shutdown_first_sync (id) VALUES (1), (2), (3)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
+    def mock_raise_if_is_worker_shutdown(self):
+        raise WorkerShuttingDownError("test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type")
+
+    with (
+        mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown", mock_raise_if_is_worker_shutdown),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
+        ) as mock_trigger_schedule_buffer_one,
+        # A single attempt, or the in-place activity retries would drain the table before the
+        # workflow ever hits its WorkerShuttingDownError branch.
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.MAX_INCREMENTAL_SOURCE_RETRIES",
+            1,
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.DEFAULT_CHUNK_SIZE", 1
+        ),
+    ):
+        _, inputs = await _run(
+            team=team,
+            schema_name="shutdown_first_sync",
+            table_name="postgres_shutdown_first_sync",
+            source_type="Postgres",
+            job_inputs={
+                "host": postgres_config["host"],
+                "port": postgres_config["port"],
+                "database": postgres_config["database"],
+                "user": postgres_config["user"],
+                "password": postgres_config["password"],
+                "schema": postgres_config["schema"],
+                "ssh_tunnel_enabled": "False",
+            },
+            mock_data_response=[],
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={
+                "incremental_field": "id",
+                "incremental_field_type": "integer",
+                # One row per postgres fetch, so the shutdown lands between chunks.
+                "chunk_size_override": 1,
+            },
+            ignore_assertions=True,
+        )
+
+    mock_trigger_schedule_buffer_one.assert_called_once()
+
+    # Precondition for the scenario: the killed run wrote row 1 and left the schema mid-first-sync.
+    # v2 persists the watermark per chunk; v3 only stages it, so its retrigger re-extracts everything.
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.initial_sync_complete is False
+    if pipeline_mode == "v3":
+        assert schema.sync_type_config.get("incremental_field_last_value") is None
+    else:
+        assert schema.sync_type_config.get("incremental_field_last_value") == 1
+
+    # The buffer-one retriggered run.
+    with mock.patch.object(DeltaMaintenance, "compact_table"):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
+
+    run_for_replay = await sync_to_async(
+        ExternalDataJob.objects.filter(team_id=team.pk, pipeline_id=inputs.external_data_source_id)
+        .order_by("-created_at")
+        .first
+    )()
+    await _replay_v3_consumer(
+        team_id=team.pk,
+        schema_id=inputs.external_data_schema_id,
+        job_id=str(run_for_replay.id) if run_for_replay else None,
+    )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id FROM postgres_shutdown_first_sync ORDER BY id ASC", team)
+    assert [row[0] for row in res.results] == [1, 2, 3]
 
 
 @pytest.mark.django_db(transaction=True)

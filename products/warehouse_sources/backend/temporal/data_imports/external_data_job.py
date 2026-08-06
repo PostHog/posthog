@@ -188,25 +188,21 @@ class UpdateExternalDataJobStatusInputs:
 def _shutdown_run_charge_should_drop(job_id: str, team_id: int) -> bool:
     """Whether a run cut short by a worker shutdown must lose its charge.
 
-    The customer pays once for rows that become queryable. Queries read the table's
-    `queryable_folder`, which only post-load repoints, and an interrupted extraction never reaches
-    post-load — so the cut-short run itself delivered nothing visible. Its rows are still worth
-    their charge only when the retriggered run picks up where this one stopped, which happens in
-    exactly one shape: a v2 sync whose watermark advances per batch (incremental/append/webhook,
-    plus cdc/xmin). Everything else re-extracts and re-bills the same rows — a full refresh starts
-    over by definition (read as the inverse of the cumulative sync types, since many live schemas
-    carry no sync_type at all), and v3 stages its watermark until the loader sees the final batch,
-    which a cut-short run never sends. A schema that never completed a first sync has no queryable
-    table at all, so there the charge drops regardless of sync type or pipeline.
+    The customer pays once for rows that become queryable, and rows become queryable at the next
+    completed run's post-load — so a cut-short run's charge follows what the retriggered run does
+    with its rows. A v2 cumulative sync (incremental/append/webhook, plus cdc/xmin) keeps them:
+    the watermark persists per batch and the committed chunks survive on S3, since the writer keys
+    `is_first_sync` on delta-table existence rather than table registration and so merges instead
+    of overwriting — even when this run was the schema's first. Those rows are extracted once and
+    the charge stands. Everything else re-extracts and re-bills the same rows: a full refresh
+    starts over by definition (read as the inverse of the cumulative sync types, since many live
+    schemas carry no sync_type at all), and v3 stages its watermark until the loader sees the
+    final batch, which a cut-short run never sends.
     """
     job = ExternalDataJob.objects.filter(id=job_id, team_id=team_id).select_related("schema").first()
     if job is None or job.schema is None:
         return False
-    never_loaded = job.schema.table_id is None or not job.schema.initial_sync_complete
-    re_extracted = (
-        job.pipeline_version == ExternalDataJob.PipelineVersion.V3 or not job.schema.table_row_count_is_cumulative
-    )
-    return never_loaded or re_extracted
+    return job.pipeline_version == ExternalDataJob.PipelineVersion.V3 or not job.schema.table_row_count_is_cumulative
 
 
 @activity.defn

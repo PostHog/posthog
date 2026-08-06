@@ -66,18 +66,20 @@ class TestTriggerScheduleBufferOneActivity(BaseTest):
 @pytest.mark.parametrize(
     "pipeline_version, sync_type, has_loaded_before, expected_billable",
     [
-        # The only shape that keeps its charge: the retrigger resumes from a per-batch watermark
+        # The shape that keeps its charge: the retrigger resumes from a per-batch watermark
         (ExternalDataJob.PipelineVersion.V2, ExternalDataSchema.SyncType.INCREMENTAL, True, True),
         (ExternalDataJob.PipelineVersion.V2, ExternalDataSchema.SyncType.APPEND, True, True),
+        # A cut-short v2 first sync also keeps it: its committed chunks survive on S3 and the
+        # retrigger merges from the persisted watermark, so these rows are extracted exactly once
+        (ExternalDataJob.PipelineVersion.V2, ExternalDataSchema.SyncType.INCREMENTAL, False, True),
         # A full refresh restarts, so the retrigger re-extracts and re-bills these rows
         (ExternalDataJob.PipelineVersion.V2, ExternalDataSchema.SyncType.FULL_REFRESH, True, False),
+        (ExternalDataJob.PipelineVersion.V2, ExternalDataSchema.SyncType.FULL_REFRESH, False, False),
         # Thousands of live schemas carry no sync_type and replace their table every run
         (ExternalDataJob.PipelineVersion.V2, None, True, False),
         # v3 stages its watermark until the final batch, which a cut-short run never sends
         (ExternalDataJob.PipelineVersion.V3, ExternalDataSchema.SyncType.INCREMENTAL, True, False),
-        # A first sync that never completed has no queryable table, whatever the sync type
-        (ExternalDataJob.PipelineVersion.V2, ExternalDataSchema.SyncType.INCREMENTAL, False, False),
-        (ExternalDataJob.PipelineVersion.V2, ExternalDataSchema.SyncType.FULL_REFRESH, False, False),
+        (ExternalDataJob.PipelineVersion.V3, ExternalDataSchema.SyncType.INCREMENTAL, False, False),
     ],
 )
 # transaction=True: the activity writes through database_sync_to_async_pool, which runs off this
