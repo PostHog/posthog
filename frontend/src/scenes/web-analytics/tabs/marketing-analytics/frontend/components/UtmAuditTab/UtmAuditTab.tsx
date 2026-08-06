@@ -513,9 +513,11 @@ export function UtmAuditTab(): JSX.Element {
             {/* Filter bar */}
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                    <LemonButton size="small" type="secondary" onClick={() => loadAuditData()}>
-                        Reload
-                    </LemonButton>
+                    {!auditDataFailure && (
+                        <LemonButton size="small" type="secondary" onClick={() => loadAuditData()}>
+                            Reload
+                        </LemonButton>
+                    )}
                 </div>
                 <LemonSelect
                     size="small"
@@ -542,9 +544,14 @@ export function UtmAuditTab(): JSX.Element {
 
             {/* Summary */}
             {auditDataFailure ? (
-                <LemonBanner type="error">
-                    Failed to load integration health data. This may be because the feature is not yet enabled for your
-                    account.
+                <LemonBanner
+                    type="error"
+                    action={{
+                        children: 'Reload',
+                        onClick: () => loadAuditData(),
+                    }}
+                >
+                    Failed to load integration health data: {auditDataFailure}
                 </LemonBanner>
             ) : (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

@@ -14,6 +14,7 @@ from rest_framework.viewsets import GenericViewSet
 from posthog.schema import DateRange, SourceMap
 
 from posthog.hogql import ast
+from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.documentation import _FallbackSerializer
@@ -527,6 +528,8 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             )
             response_data = UtmAuditResponseSerializer(asdict(audit_response)).data
             return Response(response_data)
+        except (ExposedHogQLError, ResolutionError) as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception:
             logger.exception("utm_audit_failed", team_id=self.team.pk, date_from=date_from, date_to=date_to)
             return Response(
