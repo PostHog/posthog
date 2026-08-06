@@ -819,6 +819,16 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 expect(logic.values.filters.session_ids).toBeUndefined()
                 expect(listSpy).toHaveBeenLastCalledWith(expect.objectContaining({ session_ids: undefined }))
             })
+
+            it('counts session_ids in totalFiltersCount so the badge and reset button reflect them', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setFilters({ session_ids: ['s1', 's2'] })
+                }).toMatchValues({ totalFiltersCount: 1 })
+
+                await expectLogic(logic, () => {
+                    logic.actions.setFilters({ session_ids: undefined })
+                }).toMatchValues({ totalFiltersCount: 0 })
+            })
         })
 
         describe('deleting recordings', () => {
