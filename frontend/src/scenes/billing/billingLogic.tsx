@@ -46,6 +46,15 @@ export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
 
 const BILLING_ALERT_DISMISS_PREFIX = 'scenes.billing.billingLogic.billingAlertDismissed.'
 
+const getFirstProductFromProductsParam = (productsParam: unknown): ProductKey | null => {
+    if (typeof productsParam !== 'string') {
+        return null
+    }
+
+    const [product] = productsParam.split(',')
+    return product ? (product as ProductKey) : null
+}
+
 export interface BillingAlertConfig {
     status: 'info' | 'warning' | 'error'
     title: string
@@ -1565,20 +1574,20 @@ export const billingLogic = kea<billingLogicType>([
     })),
     urlToAction(({ actions, values }) => {
         const handleBillingRoute = (
-            _params: Record<string, string>,
-            _search: Record<string, string>,
-            hash: Record<string, string>
+            _params: Record<string, string | undefined>,
+            _search: Record<string, unknown>,
+            hash: Record<string, unknown>
         ): void => {
-            if (hash.license) {
+            if (typeof hash.license === 'string') {
                 actions.setShowLicenseDirectInput(true)
                 actions.setActivateLicenseValues({ license: hash.license })
                 actions.submitActivateLicense()
             }
-            if (_search.products) {
-                const products = _search.products.split(',')
-                actions.setScrollToProductKey(products[0])
+            const product = getFirstProductFromProductsParam(_search.products)
+            if (product) {
+                actions.setScrollToProductKey(product)
             }
-            if (_search.billing_error) {
+            if (typeof _search.billing_error === 'string') {
                 actions.setBillingAlert({
                     status: 'error',
                     title: 'Error',
@@ -1624,16 +1633,16 @@ export const billingLogic = kea<billingLogicType>([
                 location.pathname.endsWith('/billing') || location.pathname.endsWith('/billing/overview')
 
             if (isBillingOverviewRoute) {
-                if (hashParams.license) {
+                if (typeof hashParams.license === 'string') {
                     actions.setShowLicenseDirectInput(true)
                     actions.setActivateLicenseValues({ license: hashParams.license })
                     actions.submitActivateLicense()
                 }
-                if (searchParams.products) {
-                    const products = searchParams.products.split(',')
-                    actions.setScrollToProductKey(products[0])
+                const product = getFirstProductFromProductsParam(searchParams.products)
+                if (product) {
+                    actions.setScrollToProductKey(product)
                 }
-                if (searchParams.billing_error) {
+                if (typeof searchParams.billing_error === 'string') {
                     actions.setBillingAlert({
                         status: 'error',
                         title: 'Error',
