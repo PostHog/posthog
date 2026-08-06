@@ -1,6 +1,7 @@
 import os
 import hashlib
 import tempfile
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +11,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.canvas.backend.build_service import run_cloud_builder, validate_builder_output
+from products.canvas.backend.build_service import node_executable, run_cloud_builder, validate_builder_output
 from products.canvas.backend.presentation.serializers import CanvasSourceProjectSerializer
 from products.canvas.backend.source import synthetic_source_project, validate_source_project
 
@@ -104,6 +105,70 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertIn('url.protocol!=="https:"', runtime)
         self.assertIn('url.hostname.endsWith(".posthog.com")', runtime)
         self.assertIn("serialized.length>16384", runtime)
+
+    def test_runtime_applies_the_host_theme(self) -> None:
+        result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
+
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+        harness = """
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+const classes = new Set();
+const toggles = [];
+const style = {};
+const listeners = { message: [] };
+globalThis.window = globalThis;
+globalThis.parent = {};
+globalThis.location = { hash: "#theme=dark" };
+globalThis.document = {
+    readyState: "complete",
+    documentElement: {
+        classList: {
+            toggle: (name, force) => {
+                toggles.push([name, force]);
+                force ? classes.add(name) : classes.delete(name);
+            },
+        },
+        style,
+    },
+};
+globalThis.addEventListener = (type, handler) => (listeners[type] ??= []).push(handler);
+
+new Function(readFileSync(new URL("./runtime.js", import.meta.url), "utf8"))();
+
+assert.ok(classes.has("dark"), "the theme fragment did not add the dark class before connect");
+assert.equal(style.colorScheme, "dark");
+
+const bridge = new MessageChannel();
+for (const handler of listeners.message) {
+    handler({ source: globalThis.parent, data: { channel: "posthog-canvas", type: "connect" }, ports: [bridge.port2] });
+}
+bridge.port1.postMessage({ channel: "posthog-canvas", type: "set-theme", theme: "solarized" });
+bridge.port1.postMessage({ channel: "posthog-canvas", type: "set-theme" });
+bridge.port1.postMessage({ channel: "posthog-canvas", type: "set-theme", theme: "light" });
+const deadline = Date.now() + 5000;
+while (classes.has("dark") && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+}
+assert.ok(!classes.has("dark"), "the set-theme frame did not remove the dark class");
+assert.equal(style.colorScheme, "light");
+// Port delivery is ordered, so by the light flip the invalid frames were
+// already processed — exactly two toggles proves they were ignored, not
+// coerced to light.
+assert.deepEqual(toggles, [["dark", true], ["dark", false]]);
+bridge.port1.close();
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "runtime.js").write_text(runtime)
+            (Path(directory) / "harness.mjs").write_text(harness)
+            process = subprocess.run(
+                [node_executable(), str(Path(directory) / "harness.mjs")],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        self.assertEqual(process.returncode, 0, process.stderr)
 
     def test_freezes_declared_capabilities_into_manifest(self) -> None:
         project = self._project('document.body.textContent = "Hello"')

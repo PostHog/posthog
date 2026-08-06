@@ -25,6 +25,7 @@ export const SHORTCUTS = {
   // takes slot 1 instead.
   SWITCH_STARRED_CHANNEL:
     "mod+1,mod+2,mod+3,mod+4,mod+5,mod+6,mod+7,mod+8,mod+9",
+  FOCUS_SPACE_SEARCH: "mod+shift+s",
   TOGGLE_FOCUS: "mod+r",
   PASTE_AS_FILE: "mod+shift+v",
   INBOX: "mod+i",
@@ -140,6 +141,14 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
     id: "switch-starred-channel",
     keys: "mod+1-9",
     description: "Switch to space (⌘1 = #me, ⌘2-9 = starred)",
+    category: "navigation",
+    context: "Spaces",
+    availability: "channels-layout",
+  },
+  {
+    id: "focus-space-search",
+    keys: SHORTCUTS.FOCUS_SPACE_SEARCH,
+    description: "Search spaces",
     category: "navigation",
     context: "Spaces",
     availability: "channels-layout",
