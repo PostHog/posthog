@@ -74,6 +74,7 @@ const meta: Meta<typeof DashboardStateStory> = {
     },
     parameters: {
         layout: 'fullscreen',
+        testOptions: { waitForLoadersToDisappear: false },
         viewMode: 'story',
     },
 }
