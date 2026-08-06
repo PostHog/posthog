@@ -162,8 +162,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(
             BillingPeriodResponseSerializer(
                 {
-                    "current_period_start": billing_period.start if billing_period else None,
-                    "current_period_end": billing_period.end if billing_period else None,
+                    "current_period_start": billing_period[0] if billing_period else None,
+                    "current_period_end": billing_period[1] if billing_period else None,
                 }
             ).data
         )
