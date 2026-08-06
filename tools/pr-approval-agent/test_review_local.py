@@ -291,6 +291,21 @@ def test_bot_authored_context_without_the_flag_is_refused(monkeypatch) -> None:
     assert "bot" in result["reviewer"]["reasoning"]
 
 
+@pytest.mark.parametrize("flag_value", ["true", "false", "1", 1, False, None])
+def test_non_boolean_flag_does_not_enable_the_carve_out(monkeypatch, flag_value) -> None:
+    # The carve-out gates on a literal boolean `true` only. A non-boolean truthy value (a stray
+    # string like "false", an int) must NOT enable the bot/draft bypass — otherwise a malformed
+    # context could grant a self-driving approval it was never linked to.
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    context = _selfdriving_context(False)
+    context["self_driving_review"] = flag_value
+
+    result = review_local.run(context)
+
+    assert result["final_verdict"] == "REFUSED"
+    assert "bot" in result["reviewer"]["reasoning"]
+
+
 def test_self_driving_flag_reviews_the_bot_authored_draft(monkeypatch) -> None:
     # The carve-out's engine half: with the flag set, the run must get PAST the bot-author refusal
     # AND the draft prerequisite (both would otherwise fire for a self-driving PR, which is a

@@ -317,8 +317,10 @@ def run(context: dict) -> dict:
     # only for runs positively linked to a PostHog Code signals implementation task (inbox
     # provenance). Absent — every Action-shaped context — it defaults closed and this entrypoint
     # refuses bot authors exactly as before; Pipeline applies the same guard to its draft
-    # prerequisite (engine parity: run() here mirrors review_pr.Pipeline.run()).
-    pipeline = Pipeline(0, context.get("repo") or "", self_driving=bool(context.get("self_driving_review")))
+    # prerequisite (engine parity: run() here mirrors review_pr.Pipeline.run()). Requires a literal
+    # boolean `true` (the server always stamps a real bool) rather than any truthy value, so a
+    # malformed context — a stray string, a non-empty value — fails closed on this security boundary.
+    pipeline = Pipeline(0, context.get("repo") or "", self_driving=context.get("self_driving_review") is True)
     pipeline.pr = _build_pr_data(context)
 
     if pipeline.pr.author_is_bot and not pipeline.self_driving:
