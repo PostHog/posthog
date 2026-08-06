@@ -11,7 +11,7 @@ from posthog.models.team.team import Team
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import get_logger
 
-from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
+from ee.billing.quota_limiting import QuotaResource, get_fresh_team_limited_resources
 
 LOGGER = get_logger(__name__)
 
@@ -70,7 +70,11 @@ def check_billing_limits_activity(inputs: CheckBillingLimitsActivityInputs) -> b
 
     team: Team = Team.objects.only("api_token").get(id=inputs.team_id)
 
-    if is_team_limited(team.api_token, QuotaResource.ROWS_SYNCED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY):
+    # Read the quota-limiter state straight from Redis rather than through `is_team_limited`, whose
+    # 30s per-worker memoization keeps returning "limited" for a stale window after an org raises or
+    # removes its limit. A user who lifts their limit and hits "Sync now" would otherwise have the
+    # run canceled off that stale snapshot even though the limit is already gone.
+    if get_fresh_team_limited_resources(team.api_token)[QuotaResource.ROWS_SYNCED]:
         logger.info("Billing limits hit. Canceling sync")
         return True
 

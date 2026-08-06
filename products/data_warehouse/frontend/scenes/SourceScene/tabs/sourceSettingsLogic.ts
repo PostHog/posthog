@@ -1413,6 +1413,10 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     } else {
                         lemonToast.error('Cant reload schema at this time')
                     }
+                } finally {
+                    // Refetch so the row reflects the real backend status instead of the optimistic
+                    // "Running" above, which otherwise sticks even when the sync was rejected or canceled.
+                    actions.loadSource()
                 }
             },
             resyncSchema: async ({ schema }) => {
@@ -1434,6 +1438,8 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     } else {
                         lemonToast.error('Cant refresh schema at this time')
                     }
+                } finally {
+                    actions.loadSource()
                 }
             },
             cancelSchema: async ({ schema }) => {

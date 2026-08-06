@@ -1,5 +1,10 @@
+import { expectLogic } from 'kea-test-utils'
+
+import api from 'lib/api'
+
 import type { SourceFieldConfig } from '~/queries/schema/schema-general'
-import type { ExternalDataSourceSchema } from '~/types'
+import { initKeaTests } from '~/test/init'
+import { type ExternalDataSource, type ExternalDataSourceSchema, ExternalDataSchemaStatus } from '~/types'
 
 import { clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
 
@@ -10,7 +15,10 @@ import {
     removeEmptySensitiveValues,
     runBulkSchemaAction,
     schemasEligibleForSync,
+    sourceSettingsLogic,
 } from './sourceSettingsLogic'
+
+jest.mock('lib/api')
 
 function makeSchema(overrides: Partial<ExternalDataSourceSchema>): ExternalDataSourceSchema {
     return {
@@ -270,5 +278,58 @@ describe('runBulkSchemaAction', () => {
         const failed = await runBulkSchemaAction(schemas, action)
         expect(failed).toBe(1)
         expect(action).toHaveBeenCalledTimes(3)
+    })
+})
+
+describe('sourceSettingsLogic sync refetch', () => {
+    let logic: ReturnType<typeof sourceSettingsLogic.build>
+
+    const makeSource = (): ExternalDataSource =>
+        ({
+            id: 'source-1',
+            source_type: 'Postgres',
+            status: ExternalDataSchemaStatus.Completed,
+            job_inputs: {},
+            schemas: [makeSchema({ id: 'schema-1', status: ExternalDataSchemaStatus.Completed })],
+        }) as ExternalDataSource
+
+    beforeEach(() => {
+        initKeaTests()
+        jest.spyOn(api.externalDataSources, 'get').mockResolvedValue(makeSource())
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+        jest.restoreAllMocks()
+    })
+
+    // Regression: reloadSchema/resyncSchema optimistically set the row to "Running" but had no
+    // finally-refetch, so a rejected or immediately-canceled sync left the row stuck showing Running
+    // (or a stale limit badge) until a full page reload. Assert each re-fetches the source afterwards.
+    it.each([
+        ['reloadSchema', 'reload'],
+        ['resyncSchema', 'resync'],
+    ] as const)('%s refetches the source after the request settles', async (action, apiMethod) => {
+        await expectLogic(logic).toFinishAllListeners()
+        jest.spyOn(api.externalDataSchemas, apiMethod).mockResolvedValue(undefined as any)
+        const getSpy = jest.spyOn(api.externalDataSources, 'get').mockResolvedValue(makeSource())
+
+        logic.actions[action](makeSchema({ id: 'schema-1' }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(getSpy).toHaveBeenCalled()
+    })
+
+    it('refetches the source even when the sync request fails', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        jest.spyOn(api.externalDataSchemas, 'reload').mockRejectedValue(new Error('Monthly sync limit reached'))
+        const getSpy = jest.spyOn(api.externalDataSources, 'get').mockResolvedValue(makeSource())
+
+        logic.actions.reloadSchema(makeSchema({ id: 'schema-1' }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(getSpy).toHaveBeenCalled()
     })
 })
