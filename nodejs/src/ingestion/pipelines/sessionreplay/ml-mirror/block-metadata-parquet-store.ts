@@ -10,6 +10,10 @@ import { rowsToParquetBuffer } from './parquet-writer'
 
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
 
+const DAY_MS = 86_400_000
+// The `dt=` partition is a UTC date, so measure lag and span in whole UTC days to match it.
+const utcDay = (ms: number): number => Math.floor(ms / DAY_MS)
+
 export class BlockMetadataParquetStore {
     private seq = 0
     private readonly nodeId: string
@@ -33,11 +37,13 @@ export class BlockMetadataParquetStore {
         rows.sort((a, b) => cmp(a.team_id, b.team_id) || cmp(a.session_id, b.session_id))
         let body: Buffer
         let key: string
+        let bounds: { minMs: number; maxMs: number }
         try {
             // Encoding, key derivation, and upload all count as write failures: each leaves the batch to
             // replay from Kafka, so the counter must see them, not just the S3 send.
             body = await rowsToParquetBuffer(rows)
-            key = this.objectKey(minEventDate(rows))
+            bounds = eventTimeBounds(rows)
+            key = this.objectKey(new Date(bounds.minMs).toISOString().slice(0, 10))
             await this.s3Client.send(
                 new PutObjectCommand({
                     Bucket: this.bucket,
@@ -51,6 +57,12 @@ export class BlockMetadataParquetStore {
             throw error
         }
         MlParquetSinkMetrics.observeWrite(rows.length, body.length)
+        // The object's partition date is its oldest event day, so a mixed-date batch (span > 0) lands most
+        // of its rows under an understated dt. Expose both so a stale partition from a straggler is visible.
+        MlParquetSinkMetrics.observePartition(
+            utcDay(Date.now()) - utcDay(bounds.minMs),
+            utcDay(bounds.maxMs) - utcDay(bounds.minMs)
+        )
         logger.info('🪶', 'ml_parquet_metadata_written', { rows: rows.length, bytes: body.length, key })
     }
 
@@ -61,13 +73,20 @@ export class BlockMetadataParquetStore {
     }
 }
 
-/** Partition by the earliest event time in the batch (rows can span a window, so the min wins). */
-function minEventDate(rows: MlBlockMetadataRow[]): string {
+/**
+ * Earliest and latest event time in the batch. The earliest sets the object's `dt=` partition (rows can
+ * span a window, so the min wins); the latest lets the caller measure how far the batch's dates spread.
+ */
+function eventTimeBounds(rows: MlBlockMetadataRow[]): { minMs: number; maxMs: number } {
     let minMs = rows[0].first_ts_ms
+    let maxMs = rows[0].first_ts_ms
     for (const row of rows) {
         if (row.first_ts_ms < minMs) {
             minMs = row.first_ts_ms
         }
+        if (row.first_ts_ms > maxMs) {
+            maxMs = row.first_ts_ms
+        }
     }
-    return new Date(minMs).toISOString().slice(0, 10)
+    return { minMs, maxMs }
 }

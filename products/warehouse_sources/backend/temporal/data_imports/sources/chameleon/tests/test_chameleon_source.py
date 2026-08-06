@@ -114,13 +114,16 @@ class TestChameleonPipelineWiring:
     def test_source_for_pipeline_passes_secret_and_schema_through(self) -> None:
         inputs = MagicMock()
         inputs.schema_name = "profiles"
+        inputs.team_id = 1
+        inputs.job_id = "job-1"
         manager = MagicMock()
         with patch.object(source_module, "chameleon_source") as chameleon_source_mock:
             self.source.source_for_pipeline(_config("my-secret"), manager, inputs)
         chameleon_source_mock.assert_called_once_with(
             account_secret="my-secret",
             endpoint="profiles",
-            logger=inputs.logger,
+            team_id=1,
+            job_id="job-1",
             resumable_source_manager=manager,
         )
 

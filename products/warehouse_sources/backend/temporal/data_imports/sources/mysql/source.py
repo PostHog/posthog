@@ -28,7 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
     _SSH_HANDSHAKE_EOF_ERROR,
     MySQLImplementation,
@@ -107,7 +107,13 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
                         label="Host",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
-                        placeholder="localhost",
+                        placeholder="db.example.com",
+                        caption=(
+                            "Must be reachable from the public internet. Add PostHog's egress IP addresses to your "
+                            "firewall allowlist (see the docs above) and use a public host. `localhost` and private "
+                            "IPs (10.x, 172.16-31.x, 192.168.x) can't be reached. For a database that can't be "
+                            "exposed publicly, enable the SSH tunnel below."
+                        ),
                         secret=False,
                     ),
                     SourceFieldInputConfig(
@@ -179,6 +185,15 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # source — so the user fixes credentials instead of the generic "check connection
             # details" message sending them to check the host/port.
             "Access denied for user": "Invalid user or password",
+            # MySQL/MariaDB error 1049 (ER_BAD_DB_ERROR): the configured database doesn't exist on
+            # the server — it was renamed or dropped after the source was set up, or the connection
+            # was reconfigured to point at a different server. `validate_credentials` already
+            # catches this at create time via `_VALIDATE_CONNECTION_HINTS`, but that hint only fires
+            # on the create-time probe; a database dropped later only surfaces here, mid-sync. Every
+            # retry connects with the same database name and fails identically. Match the
+            # locale-independent error code (the database name is volatile and the message text is
+            # translated on non-English servers).
+            "(1049,": "The database configured for this source no longer exists (MySQL error 1049). It may have been renamed or dropped. Update the database name in your source settings, or restore it, then resync.",
             "sqlstate 42S02": None,  # Table not found error
             # MySQL/MariaDB error 1146 (ER_NO_SUCH_TABLE): a table the sync reads no longer exists
             # in the source — it was renamed or dropped after the schema was set up. The streaming
@@ -215,6 +230,18 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # retries forever. `connect` re-raises it as `_SSH_HANDSHAKE_EOF_ERROR` — same
             # gateway-configuration class as "Could not establish session to SSH gateway" above.
             _SSH_HANDSHAKE_EOF_ERROR: "Could not connect to your SSH tunnel — the gateway accepted the connection but closed it during the SSH handshake. Check that the SSH host and port point to an SSH server (not the database port), that the bastion is running and reachable, and that PostHog's IP addresses are allowed through its firewall, then re-enable the sync.",
+            # `_pinned_ssh_host` (common/mixins.py) re-checks the SSH tunnel host on every connect,
+            # since a host that resolved to a public address at setup can drift (DNS change, or a
+            # short-TTL record). It rejects the host if it doesn't resolve or resolves to a
+            # private/internal address, which is a config problem only the customer can fix, so
+            # retrying just re-hits the same rejection. Match the stable prefix and exclude the
+            # volatile host/IP details that follow it in `resolution.error`.
+            "SSH tunnel host not allowed": (
+                "PostHog rejected the SSH tunnel host for this source because it either couldn't "
+                "be resolved, or resolves to a private/internal address. Check that the SSH tunnel "
+                "host is spelled correctly and reachable from the public internet, then re-enable "
+                "the sync."
+            ),
             # MySQL/MariaDB error 1129 (ER_HOST_IS_BLOCKED): the server has blocked our import
             # host because aborted/interrupted connections from it exceeded `max_connect_errors`.
             # The block is server-side state that only a DB admin can clear (FLUSH HOSTS /
@@ -230,11 +257,11 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # usually signals — so match only the stable SSL token, never the generic 2013 text.
             "[SSL: WRONG_VERSION_NUMBER]": "We couldn't establish an SSL connection to your MySQL server — it responded as if SSL is not enabled. If your server (or a proxy in front of it) doesn't support SSL, set 'Use SSL?' to No; otherwise check that you're connecting to an SSL-enabled host and port.",
             # Raised from the shared `_decimal_array_from_values` fallback in
-            # `pipelines/pipeline/utils.py` when a numeric/decimal value exceeds Delta Lake's
+            # `pipelines/core/arrow_utils.py` when a numeric/decimal value exceeds Delta Lake's
             # decimal budget (precision > 76 or scale > 32). Fixed source-data shape — retrying
             # won't help.
             "Cannot build decimal array from values": "One of your numeric columns contains values that exceed our decimal storage limits (max precision 76, max scale 32). Please constrain the column with a lower precision/scale, cast it to text in a view, or round the values at the source.",
-            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
+            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/core/arrow_utils.py`
             # when an integer column's source type was widened (e.g. `INT` → `BIGINT`) after the
             # destination table was created with the narrower type. Delta Lake can't widen an
             # existing column in place, so retrying won't help — the table must be reset and
@@ -271,7 +298,41 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # locale-independent error code (the trailing message text is translated on non-English
             # servers) so it catches both the raw pymysql string and the wrapped `(1038, ...)` form.
             "(1038,": "Your MySQL/MariaDB server ran out of sort buffer memory while ordering this table by its incremental field (error 1038). We try to avoid the sort by forcing the incremental field's index, but this table has no usable index on that field. Add an index on the incremental field, raise the server's 'sort_buffer_size', or switch this table to a full re-sync, then resync.",
+            # MySQL/MariaDB error 3 (EE_WRITE): the server hit ENOSPC writing a temporary file to
+            # its own temp directory (e.g. `/rdsdbdata/tmp/...`) — almost always a large filesort
+            # spilling the `ORDER BY <incremental_field>` sort to disk. The server's temp filesystem
+            # being full is static customer-side state, so every retry filesorts the same rows and
+            # fails identically. Match only the errno marker MySQL/MariaDB itself renders in English
+            # (`OS errno 28 -` / `Errcode: 28`), not the trailing OS `strerror(28)` text, which is
+            # locale-dependent and translated on non-English servers (e.g. French renders "No space
+            # left on device" as "Aucun espace disponible sur le périphérique") — matching that text
+            # would leave the sync retrying forever on exactly the servers this entry targets. Also
+            # deliberately excludes a Python `OSError` (`[Errno 28] No space left on device`) — a
+            # full *worker* disk is our own transient infra problem that must stay retryable, not the
+            # customer's server running out of space.
+            "OS errno 28 -": "Your MySQL/MariaDB server ran out of disk space while writing a temporary file for this sync ('No space left on device'). Syncing a large table can spill a big sort to the server's temporary directory. Free up disk space on your database server, add an index on this table's incremental field so the sync avoids the large sort, or switch the table to a full re-sync, then resync.",
+            "Errcode: 28": "Your MySQL/MariaDB server ran out of disk space while writing a temporary file for this sync ('No space left on device'). Syncing a large table can spill a big sort to the server's temporary directory. Free up disk space on your database server, add an index on this table's incremental field so the sync avoids the large sort, or switch the table to a full re-sync, then resync.",
+            # pymysql encodes the handshake fields (host, user, password, database) as latin-1;
+            # a value carrying a non-latin-1 character — most often an invisible zero-width space
+            # (U+200B) pasted in from another app — raises UnicodeEncodeError before any packet is
+            # sent, so the connect fails identically on every retry. Match the codec's stable
+            # range-256 reason, not the volatile character/position: it appears in the raw str(exc)
+            # the sync path classifies and in the " ".join(e.args) form validate_credentials builds
+            # (the formatted "codec can't encode character" text is reconstructed in neither).
+            "ordinal not in range(256)": "One of your connection details contains an invisible or unsupported character (for example a zero-width space pasted in from another app). Retype the affected field — host, database, user, or password — by hand instead of pasting it, then re-enable the sync.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_connect_with_transient_retry` already retries this exact drop in-process (see
+        # `_is_transient_connect_drop` in mysql.py) before re-raising once its attempt budget is
+        # exhausted; the streaming path's FORCE INDEX fallback does the same for a mid-query drop
+        # (see `_is_bad_plan_error`). Either way, Temporal retries the whole activity next and the
+        # failure is transient and self-recovering, so don't surface it as tracked exception noise.
+        #
+        # "Too many connections" (MySQL error 1040) shares the same contract: `_connect_with_transient_retry`
+        # retries it in-process too (see `_is_transient_too_many_connections`) — a slot frees the moment
+        # another connection closes, mirroring the Postgres source's connection-limit handling.
+        return {"Lost connection to MySQL server during query", "Too many connections"}
 
     def reconcile_schema_metadata(
         self,
@@ -291,7 +352,7 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             return get_mysql_connection_metadata(conn, database=config.database)
 
     def validate_credentials(
-        self, config: MySQLSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: MySQLSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
         if not is_ssh_valid:
@@ -310,12 +371,19 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             return valid_host, host_errors
 
         try:
-            self.get_schemas(config, team_id)
+            self.get_schemas(config, team_id, api_version=api_version)
         except BaseSSHTunnelForwarderError as e:
+            # sshtunnel surfaces raw library strings (e.g. "Could not establish session to SSH
+            # gateway"); map them to the friendly guidance in `get_non_retryable_errors` — which the
+            # generic `except Exception` branch below already applies — instead of leaking the
+            # internal wording to the wizard.
+            ssh_error = e.value or ""
+            for pattern, friendly_error in self.get_non_retryable_errors().items():
+                if friendly_error and pattern in ssh_error:
+                    return False, friendly_error
             return (
                 False,
-                e.value
-                or f"Could not connect to {self.get_source_config.name} via the SSH tunnel. Please check all connection details are valid.",
+                f"Could not connect to {self.get_source_config.name} via the SSH tunnel. Please check all connection details are valid.",
             )
         except Exception as e:
             # Connection/credential failures we already classify as non-retryable during sync
@@ -350,5 +418,6 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         team_id: int,
         access_method: str,
         schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return self.validate_credentials(config, team_id, schema_name=schema_name)
+        return self.validate_credentials(config, team_id, schema_name=schema_name, api_version=api_version)

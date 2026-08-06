@@ -1,3 +1,4 @@
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
 import { experimentsFlagCleanupTaskRetrieve } from 'products/experiments/frontend/generated/api'
@@ -18,6 +19,7 @@ describe('flagCleanupTaskLogic', () => {
     })
 
     afterEach(() => {
+        resumeKeaLoadersErrors()
         jest.useRealTimers()
     })
 
@@ -28,12 +30,14 @@ describe('flagCleanupTaskLogic', () => {
                 run_status: 'in_progress',
                 is_terminal: false,
                 pr_url: null,
+                can_view_task: true,
             })
             .mockResolvedValue({
                 task_id: 'a',
                 run_status: 'completed',
                 is_terminal: true,
                 pr_url: 'https://github.com/PostHog/posthog/pull/1',
+                can_view_task: true,
             })
 
         const logic = flagCleanupTaskLogic({ experimentId: 1 })
@@ -51,6 +55,7 @@ describe('flagCleanupTaskLogic', () => {
     })
 
     it('keeps polling through transient failures', async () => {
+        silenceKeaLoadersErrors()
         mockRetrieve
             .mockRejectedValueOnce(new Error('502'))
             .mockRejectedValueOnce(new Error('timeout'))
@@ -59,6 +64,7 @@ describe('flagCleanupTaskLogic', () => {
                 run_status: 'completed',
                 is_terminal: true,
                 pr_url: null,
+                can_view_task: true,
             })
 
         const logic = flagCleanupTaskLogic({ experimentId: 1 })
@@ -72,6 +78,22 @@ describe('flagCleanupTaskLogic', () => {
         expect(mockRetrieve).toHaveBeenCalledTimes(3)
         expect(logic.values.cleanupTask?.is_terminal).toBe(true)
 
+        await jest.advanceTimersByTimeAsync(120000)
+        expect(mockRetrieve).toHaveBeenCalledTimes(3)
+    })
+
+    it('stops polling after three consecutive failures', async () => {
+        silenceKeaLoadersErrors()
+        mockRetrieve.mockRejectedValue(new Error('502'))
+
+        const logic = flagCleanupTaskLogic({ experimentId: 1 })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+        await jest.advanceTimersByTimeAsync(30000)
+        await jest.advanceTimersByTimeAsync(30000)
+        expect(mockRetrieve).toHaveBeenCalledTimes(3)
+
+        // Persistent failure — the interval is disposed, no further requests.
         await jest.advanceTimersByTimeAsync(120000)
         expect(mockRetrieve).toHaveBeenCalledTimes(3)
     })

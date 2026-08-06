@@ -9,9 +9,9 @@ import { IngestionOverflowMode } from '~/ingestion/config'
 import { BatchingContext, BatchingPipeline } from '~/ingestion/framework/batching-pipeline'
 import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { TopHogRegistry, createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
-import { createBatch } from '~/ingestion/framework/helpers'
+import { aggregateKafkaDebugContexts, createBatch } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
-import { ok } from '~/ingestion/framework/results'
+import { isOkResult, ok } from '~/ingestion/framework/results'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
@@ -241,19 +241,30 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
         // One batch in flight at a time (also the framework default): a feed's elements carry the
         // recorder current when it was fed, so a concurrent batch could span a flush and record into a
         // stale recorder.
-        { concurrentBatches: 1 }
+        { concurrentBatches: 1 },
+        { aggregateDebugContexts: aggregateKafkaDebugContexts }
     )
 }
 
+/** The Kafka progress and lag inputs a processed batch yields for the caller to act on after it drains. */
+export interface SessionReplayBatchProgress {
+    /** Highest Kafka offset reached per partition, across every terminal result — advances the commit. */
+    maxOffsets: Map<number, number>
+    /** Source messages of the OK (recorded) results only, for ingestion-lag sampling after the flush. */
+    okMessages: Message[]
+}
+
 /**
- * Runs a batch of messages through the session replay pipeline and returns the highest Kafka offset
- * reached per partition.
+ * Runs a batch of messages through the session replay pipeline and returns the Kafka progress it made:
+ * the highest offset reached per partition, plus the source messages of the OK results.
  *
  * Every message ends the pipeline with a terminal result — OK (recorded), DROP, DLQ, or REDIRECT —
  * and each result still carries its source message in the context. Draining them here and taking the
  * max offset per partition is the single place Kafka progress is tracked: the recorder no longer
  * tracks offsets while recording, and drop/dlq steps no longer have to remember to. The caller feeds
- * the returned offsets to the offset manager, which commits them on the next flush.
+ * the returned offsets to the offset manager, which commits them on the next flush. Every disposition
+ * advances the offset, but only OK results are collected for lag sampling — those are the messages
+ * actually recorded, matching the per-event `record-ingestion-lag` step's ingested-only semantics.
  *
  * Relies on the pipeline draining the whole fed batch before it returns null, so every fed message
  * yields exactly one terminal result here.
@@ -268,10 +279,11 @@ export async function runSessionReplayPipeline(
     messages: Message[],
     sessionBatchRecorder: SessionBatchRecorder,
     promiseScheduler: PromiseScheduler
-): Promise<Map<number, number>> {
-    const maxOffsetByPartition = new Map<number, number>()
+): Promise<SessionReplayBatchProgress> {
+    const maxOffsets = new Map<number, number>()
+    const okMessages: Message[] = []
     if (messages.length === 0) {
-        return maxOffsetByPartition
+        return { maxOffsets, okMessages }
     }
 
     // Stamp the caller's current recorder onto every message, so the record step folds into the batch
@@ -289,15 +301,18 @@ export async function runSessionReplayPipeline(
         for (const sideEffect of batchResult.sideEffects ?? []) {
             void promiseScheduler.schedule(sideEffect)
         }
-        for (const { context } of batchResult.elements) {
+        for (const { result, context } of batchResult.elements) {
             const { partition, offset } = context.message
-            const current = maxOffsetByPartition.get(partition)
+            const current = maxOffsets.get(partition)
             if (current === undefined || offset > current) {
-                maxOffsetByPartition.set(partition, offset)
+                maxOffsets.set(partition, offset)
+            }
+            if (isOkResult(result)) {
+                okMessages.push(context.message)
             }
         }
         batchResult = await pipeline.next()
     }
 
-    return maxOffsetByPartition
+    return { maxOffsets, okMessages }
 }

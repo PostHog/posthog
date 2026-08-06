@@ -11,10 +11,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -22,7 +18,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OpsgenieSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.opsgenie import (
+    OpsgenieSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.opsgenie.opsgenie import (
     OpsgenieResumeConfig,
     opsgenie_source,
@@ -97,6 +96,7 @@ Note that Atlassian has announced Opsgenie's end of support: its APIs are schedu
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -113,7 +113,11 @@ Note that Atlassian has announced Opsgenie's end of support: its APIs are schedu
         return schemas
 
     def validate_credentials(
-        self, config: OpsgenieSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: OpsgenieSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         ok, status, error = validate_opsgenie_credentials(config.api_key, config.region, schema_name)
         if ok:
@@ -152,7 +156,8 @@ Note that Atlassian has announced Opsgenie's end of support: its APIs are schedu
             api_key=config.api_key,
             region=config.region,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

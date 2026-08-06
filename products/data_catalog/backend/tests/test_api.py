@@ -19,7 +19,11 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, HogQLQueryThrottle
 from products.data_catalog.backend.facade.enums import MetricStatus
 from products.data_catalog.backend.logic.metrics import upsert_metric
 from products.data_catalog.backend.models import Metric
-from products.data_catalog.backend.presentation.serializers import MetricRunQuerySerializer, MetricRunRequestSerializer
+from products.data_catalog.backend.presentation.serializers import (
+    MetricRunQuerySerializer,
+    MetricRunRequestSerializer,
+    MetricSerializer,
+)
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.models.rbac.access_control import AccessControl
@@ -91,6 +95,10 @@ class TestMetricAPI(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        # The agent-facing envelope must carry the actual problem, not just the field name.
+        body = response.json()
+        assert body["attr"] == "definition"
+        assert "Unsupported definition kind" in body["detail"]
 
     def test_markdown_definition_accepted(self) -> None:
         response = self.client.post(
@@ -252,6 +260,9 @@ class TestMetricLifecycleAPI(APIBaseTest):
         upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL)
         response = self.client.post(f"{self.url}mrr/run/", {"date_from": "-7d"}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["attr"] == "date_from"
+        assert "fixed in its SQL" in body["detail"]
 
     def test_run_requires_query_read_scope(self) -> None:
         upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL)
@@ -401,3 +412,10 @@ class TestMetricRunInputValidation(SimpleTestCase):
         assert serializer.is_valid() is valid
         if not valid:
             assert "refresh" in serializer.errors
+
+    @parameterized.expand([(0.0, True), (1.0, True), (-0.5, False), (1.5, False)])
+    def test_confidence_bounds(self, value: float, valid: bool) -> None:
+        serializer = MetricSerializer(data={"name": "mrr", "description": "d", "confidence": value})
+        assert serializer.is_valid() is valid, serializer.errors
+        if not valid:
+            assert "confidence" in serializer.errors

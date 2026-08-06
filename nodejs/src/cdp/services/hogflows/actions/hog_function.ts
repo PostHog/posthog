@@ -9,7 +9,7 @@ import {
     CyclotronJobInvocationResult,
     MinimalLogEntry,
 } from '../../../types'
-import { HogExecutorExecuteAsyncOptions } from '../../hog-executor.service'
+import { HogExecutorExecuteAsyncOptions } from '../../hog-executor-async.service'
 import { EmailValidationService } from '../../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { trackHogFlowBillableInvocation } from '../billing-utils'
@@ -27,7 +27,7 @@ export class HogFunctionHandler implements ActionHandler {
         private hogFlowFunctionsService: HogFlowFunctionsService,
         private recipientPreferencesService: RecipientPreferencesService,
         private emailValidationService: EmailValidationService,
-        private hogFlowActionBillingType: 'fetch' | 'email'
+        private hogFlowActionBillingType: 'fetch' | 'email' | 'push'
     ) {}
 
     async execute({
@@ -61,7 +61,7 @@ export class HogFunctionHandler implements ActionHandler {
             ...functionResult.warehouseWebhookPayloads,
         ]
         result.metrics = [...result.metrics, ...functionResult.metrics]
-        result.emailAssets = [...result.emailAssets, ...functionResult.emailAssets]
+        result.messageAssets = [...result.messageAssets, ...functionResult.messageAssets]
 
         if (!functionResult.finished) {
             // Set the state of the function result on the substate of the flow for the next execution
@@ -95,6 +95,15 @@ export class HogFunctionHandler implements ActionHandler {
                 invocation: functionResult.invocation,
                 billingMetricType: this.hogFlowActionBillingType,
             })
+
+            // Re-pin the attribution version to the one that actually sent. Live edits reach runs
+            // already in flight, so a run that entered on v2 can send its email after v3 is
+            // published — and the conversion belongs to the version whose message the person
+            // received, which is also the version `email_sent` was counted under. Leaving the
+            // run-start stamp here would split a rate across two versions.
+            if (this.hogFlowActionBillingType === 'email' || this.hogFlowActionBillingType === 'push') {
+                result.invocation.state.flowVersion = invocation.hogFlow.version
+            }
         }
 
         return {
@@ -124,26 +133,41 @@ export class HogFunctionHandler implements ActionHandler {
                 })
         )
 
-        const shouldSkip = await instrumentFn(
+        const skipReason = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.recipientPreferences', sendException: false },
             () => this.recipientPreferencesService.shouldSkipAction(hogFunctionInvocation, action)
         )
-        if (shouldSkip) {
+        if (skipReason) {
+            // Suppression and opt-out both short-circuit the send, but a customer reading the run
+            // log needs to know which one — the operator response is different (fix the recipient
+            // list vs. respect the unsubscribe). `email_suppressed` mirrors the metric name the
+            // send-time choke point in email.service.ts emits, so both entry points aggregate.
+            const message =
+                skipReason === 'suppressed'
+                    ? `Skipping send: recipient is on the suppression list.`
+                    : `Recipient has opted out, skipping message delivery.`
+            const metrics =
+                skipReason === 'suppressed'
+                    ? [
+                          {
+                              team_id: hogFunctionInvocation.teamId,
+                              app_source_id: hogFunctionInvocation.functionId,
+                              instance_id: action.id,
+                              metric_kind: 'email' as const,
+                              metric_name: 'email_suppressed' as const,
+                              count: 1,
+                          },
+                      ]
+                    : []
             return {
                 finished: true,
                 skipped: true,
                 invocation: hogFunctionInvocation,
-                logs: [
-                    {
-                        level: 'info',
-                        timestamp: DateTime.now(),
-                        message: `Recipient has opted out, skipping message delivery.`,
-                    },
-                ],
-                metrics: [],
+                logs: [{ level: 'info', timestamp: DateTime.now(), message }],
+                metrics,
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],
-                emailAssets: [],
+                messageAssets: [],
             }
         }
 
@@ -172,7 +196,7 @@ export class HogFunctionHandler implements ActionHandler {
                 ],
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],
-                emailAssets: [],
+                messageAssets: [],
             }
         }
 

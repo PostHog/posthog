@@ -12,33 +12,14 @@ from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
+from products.data_modeling.backend.test.helpers import (
+    no_existing_schedules as _no_existing_schedules,
+    saved_query_node as _saved_query_node,
+    table_node as _table_node,
+)
 
 M15 = timedelta(minutes=15)
 H6 = timedelta(hours=6)
-
-
-def _no_existing_schedules():
-    async def fake_list_schedules(*_args, **_kwargs):
-        async def gen():
-            return
-            yield  # pragma: no cover — empty async generator
-
-        return gen()
-
-    temporal = mock.Mock()
-    temporal.list_schedules = fake_list_schedules
-    return temporal
-
-
-def _table_node(team, dag, name, properties):
-    return Node.objects.create(team=team, dag=dag, name=name, type=NodeType.TABLE, properties=properties)
-
-
-def _saved_query_node(team, dag, name, node_type):
-    saved_query = DataWarehouseSavedQuery.objects.create(
-        name=name, team=team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
-    )
-    return Node.objects.create(team=team, dag=dag, saved_query=saved_query, type=node_type)
 
 
 @pytest.mark.django_db

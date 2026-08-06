@@ -8,7 +8,7 @@ from posthog.schema import (
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OracleSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.oracle import OracleSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -23,6 +23,7 @@ class OracleSource(SimpleSource[OracleSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.ORACLE,
             category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["sql"],
             label="Oracle",
             iconPath="/static/services/oracle.png",
             fields=cast(list[FieldType], []),

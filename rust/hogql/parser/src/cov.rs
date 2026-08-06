@@ -76,12 +76,12 @@ pub unsafe extern "C" fn __sanitizer_cov_trace_pc_guard(guard: *mut u32) {
 /// `target()` call. A 64KiB copy per example is well inside the per-example
 /// budget (microseconds vs the millisecond per-parse cost).
 #[pyfunction]
-pub fn cov_snapshot(py: Python<'_>) -> PyObject {
+pub fn cov_snapshot(py: Python<'_>) -> Py<PyAny> {
     let mut buf = [0u8; BITMAP_SIZE];
     for (i, cell) in COVERAGE.iter().enumerate() {
         buf[i] = cell.load(Ordering::Relaxed);
     }
-    PyBytes::new_bound(py, &buf).into()
+    PyBytes::new(py, &buf).into()
 }
 
 /// Zero the bitmap. The diagnostic calls this before each example so the

@@ -1,7 +1,15 @@
 """Wrap a user message with a `<posthog_context>` block built from per-message
 attached context. See `ContextService`.
 
-The template lives only here, in Python — the frontend never builds it.
+DEPRECATED PATH — do not extend. The attached-context wrap here (`wrap_user_message`,
+`prune_repeated_entity_refs`, `_render_posthog_context_block`) serves only the legacy Max
+conversations bridge (`ee/api/conversation.py` open + `message_routing.py`) and is removed with it.
+The live path builds richer `<posthog_trusted_context>` / `<posthog_untrusted_context>` blocks on
+the frontend (`products/posthog_ai/frontend/utils/posthogContextBlock.ts`); do not port that tiering
+here — the frontend replay stripper keeps understanding this legacy `<posthog_context>` tag until
+the bridge is deleted.
+
+NOT deprecated: `abuild_resumed_legacy_context` (the conversation migration service) stays.
 """
 
 import json
@@ -164,14 +172,14 @@ class ContextService:
         from ee.hogai.utils.types import AssistantState  # noqa: PLC0415 — keeps LangGraph off the sandbox import path
 
         started_at = time.monotonic()
-        state, _, _ = await aget_conversation_state(conversation, team, user)
+        state_result = await aget_conversation_state(conversation, team, user)
         # Legacy conversions are assistant conversations (see CONVERSATION_TYPE_MAP); the broad
         # AssistantMaxGraphState union also admits TaxonomyAgentState, which carries no window anchor.
-        if not isinstance(state, AssistantState):
+        if not isinstance(state_result.state, AssistantState):
             return None
 
         window = AnthropicConversationCompactionManager().get_messages_in_window(
-            state.messages, state.root_conversation_start_id
+            state_result.state.messages, state_result.state.root_conversation_start_id
         )
         transcript = self._render_legacy_transcript(window)
 
@@ -180,7 +188,7 @@ class ContextService:
             event="phai_legacy_conversion",
             properties={
                 "conversation_id": str(conversation.id),
-                "messages_total": len(state.messages),
+                "messages_total": len(state_result.state.messages),
                 "window_messages": len(window),
                 "duration_ms": int((time.monotonic() - started_at) * 1000),
             },

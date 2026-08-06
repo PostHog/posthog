@@ -1,7 +1,7 @@
 database "posthog" {
   table "adhoc_events_deletion" {
     order_by = ["team_id", "uuid"]
-    ttl      = "deleted_at + toIntervalMonth(3)"
+    ttl      = "deleted_at + toIntervalMonth(3) WHERE is_deleted = 1"
     settings = {
       index_granularity = "8192"
     }
@@ -1685,6 +1685,119 @@ database "posthog" {
     }
   }
 
+  table "flag_evaluations" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "uuid" {
+      type = "UUID"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "inserted_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "timestamp"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "session_id" {
+      type = "String"
+    }
+    column "device_id" {
+      type = "String"
+    }
+    column "flag_key" {
+      type = "String"
+    }
+    column "response" {
+      type = "LowCardinality(String)"
+    }
+    column "flag_id" {
+      type = "UInt64"
+    }
+    column "flag_version" {
+      type = "UInt32"
+    }
+    column "reason" {
+      type = "LowCardinality(String)"
+    }
+    column "request_id" {
+      type = "String"
+    }
+    column "evaluated_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "timestamp"
+    }
+    column "error" {
+      type = "String"
+    }
+    column "locally_evaluated" {
+      type = "Bool"
+    }
+    column "lib" {
+      type = "LowCardinality(String)"
+    }
+    column "lib_version" {
+      type = "LowCardinality(String)"
+    }
+    column "is_server" {
+      type = "Bool"
+    }
+    column "os" {
+      type = "LowCardinality(String)"
+    }
+    column "os_version" {
+      type = "LowCardinality(String)"
+    }
+    column "app_version" {
+      type = "LowCardinality(String)"
+    }
+    column "current_url" {
+      type = "String"
+    }
+    column "pathname" {
+      type = "String"
+    }
+    column "country_code" {
+      type = "LowCardinality(String)"
+    }
+    column "subdivision_1_code" {
+      type = "LowCardinality(String)"
+    }
+    column "group_0" {
+      type = "String"
+    }
+    column "group_1" {
+      type = "String"
+    }
+    column "group_2" {
+      type = "String"
+    }
+    column "group_3" {
+      type = "String"
+    }
+    column "group_4" {
+      type = "String"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog"
+      remote_database = "posthog"
+      remote_table    = "sharded_flag_evaluations"
+      sharding_key    = "sipHash64(distinct_id)"
+    }
+  }
+
   table "groups" {
     order_by = ["team_id", "group_type_index", "group_key"]
     settings = {
@@ -1715,7 +1828,7 @@ database "posthog" {
       type = "Bool"
     }
     index "is_deleted_idx" {
-      expr        = "(is_deleted)"
+      expr        = "is_deleted"
       type        = "minmax"
       granularity = 1
     }
@@ -3256,7 +3369,7 @@ database "posthog" {
     }
     column "version" {
       type         = "UInt64"
-      materialized = "(bitShiftLeft(toUInt64(NOT isNull(property_type)), 48) + toUInt64(toUnixTimestamp(last_seen_at)))"
+      materialized = "bitShiftLeft(toUInt64(NOT isNull(property_type)), 48) + toUInt64(toUnixTimestamp(last_seen_at))"
     }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.property_definitions"
@@ -5159,7 +5272,7 @@ database "posthog" {
       granularity = 1
     }
     index "is_deleted_idx" {
-      expr        = "(is_deleted)"
+      expr        = "is_deleted"
       type        = "minmax"
       granularity = 1
     }
@@ -5194,7 +5307,7 @@ database "posthog" {
       granularity = 1
     }
     index "minmax_historical_migration" {
-      expr        = "(historical_migration)"
+      expr        = "historical_migration"
       type        = "minmax"
       granularity = 1
     }
@@ -5993,6 +6106,144 @@ database "posthog" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.experiment_exposures_preaggregated"
       replica_name   = "{replica}"
       version_column = "computed_at"
+    }
+  }
+
+  table "sharded_flag_evaluations" {
+    order_by     = ["team_id", "flag_key", "toDate(timestamp)", "cityHash64(distinct_id)"]
+    partition_by = "toYYYYMM(timestamp)"
+    ttl          = "toDate(timestamp) + toIntervalDay(90)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "uuid" {
+      type = "UUID"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "inserted_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "timestamp"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "session_id" {
+      type = "String"
+    }
+    column "device_id" {
+      type = "String"
+    }
+    column "flag_key" {
+      type = "String"
+    }
+    column "response" {
+      type = "LowCardinality(String)"
+    }
+    column "flag_id" {
+      type = "UInt64"
+    }
+    column "flag_version" {
+      type = "UInt32"
+    }
+    column "reason" {
+      type = "LowCardinality(String)"
+    }
+    column "request_id" {
+      type = "String"
+    }
+    column "evaluated_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "timestamp"
+    }
+    column "error" {
+      type = "String"
+    }
+    column "locally_evaluated" {
+      type = "Bool"
+    }
+    column "lib" {
+      type = "LowCardinality(String)"
+    }
+    column "lib_version" {
+      type = "LowCardinality(String)"
+    }
+    column "is_server" {
+      type = "Bool"
+    }
+    column "os" {
+      type = "LowCardinality(String)"
+    }
+    column "os_version" {
+      type = "LowCardinality(String)"
+    }
+    column "app_version" {
+      type = "LowCardinality(String)"
+    }
+    column "current_url" {
+      type = "String"
+    }
+    column "pathname" {
+      type = "String"
+    }
+    column "country_code" {
+      type = "LowCardinality(String)"
+    }
+    column "subdivision_1_code" {
+      type = "LowCardinality(String)"
+    }
+    column "group_0" {
+      type = "String"
+    }
+    column "group_1" {
+      type = "String"
+    }
+    column "group_2" {
+      type = "String"
+    }
+    column "group_3" {
+      type = "String"
+    }
+    column "group_4" {
+      type = "String"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    index "distinct_id_idx" {
+      expr        = "distinct_id"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "session_id_idx" {
+      expr        = "session_id"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "request_id_idx" {
+      expr        = "request_id"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "inserted_at_idx" {
+      expr        = "inserted_at"
+      type        = "minmax"
+      granularity = 1
+    }
+    engine "replicated_merge_tree" {
+      zoo_path     = "/clickhouse/tables/{shard}/posthog.flag_evaluations"
+      replica_name = "{replica}"
     }
   }
 
@@ -11317,8 +11568,8 @@ SQL
   view "persons_batch_export" {
     query = <<SQL
 WITH
-  new_persons AS (SELECT id, max(version) AS version, argMax(_timestamp, person.version) AS _timestamp2 FROM posthog.person WHERE (team_id = {team_id: Int64}) AND (id IN (SELECT id FROM posthog.person WHERE (team_id = {team_id: Int64}) AND (_timestamp >= {interval_start: DateTime64}) AND (_timestamp < {interval_end: DateTime64}))) GROUP BY id HAVING ((_timestamp2 >= {interval_start: DateTime64}) AND (_timestamp2 < {interval_end: DateTime64}))),
-  new_distinct_ids AS (SELECT argMax(person_id, person_distinct_id2.version) AS person_id FROM posthog.person_distinct_id2 WHERE (team_id = {team_id: Int64}) AND (distinct_id IN (SELECT distinct_id FROM posthog.person_distinct_id2 WHERE (team_id = {team_id: Int64}) AND (_timestamp >= {interval_start: DateTime64}) AND (_timestamp < {interval_end: DateTime64}))) GROUP BY distinct_id HAVING ((argMax(_timestamp, person_distinct_id2.version) >= {interval_start: DateTime64}) AND (argMax(_timestamp, person_distinct_id2.version) < {interval_end: DateTime64}))),
+  new_persons AS (SELECT id, max(version) AS version, argMax(_timestamp, person.version) AS _timestamp2 FROM posthog.person WHERE (team_id = {team_id: Int64}) AND (id IN (SELECT id FROM posthog.person WHERE (team_id = {team_id: Int64}) AND (_timestamp >= {interval_start: DateTime64}) AND (_timestamp < {interval_end: DateTime64}))) GROUP BY id HAVING (_timestamp2 >= {interval_start: DateTime64}) AND (_timestamp2 < {interval_end: DateTime64})),
+  new_distinct_ids AS (SELECT argMax(person_id, person_distinct_id2.version) AS person_id FROM posthog.person_distinct_id2 WHERE (team_id = {team_id: Int64}) AND (distinct_id IN (SELECT distinct_id FROM posthog.person_distinct_id2 WHERE (team_id = {team_id: Int64}) AND (_timestamp >= {interval_start: DateTime64}) AND (_timestamp < {interval_end: DateTime64}))) GROUP BY distinct_id HAVING (argMax(_timestamp, person_distinct_id2.version) >= {interval_start: DateTime64}) AND (argMax(_timestamp, person_distinct_id2.version) < {interval_end: DateTime64})),
   all_new_persons AS (SELECT id, version FROM new_persons UNION ALL SELECT id, max(version) FROM posthog.person WHERE (team_id = {team_id: Int64}) AND (id IN (new_distinct_ids)) GROUP BY id)
 SELECT
   p.team_id AS team_id,

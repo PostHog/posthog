@@ -66,9 +66,10 @@ async def get_data_str_from_redis(redis_client: aioredis.Redis, redis_key: str) 
     try:
         return decompress(raw)
     except Exception as err:
-        msg = f"Failed to decompress Redis payload at {redis_key}: {err}"
-        logger.exception(msg, redis_key=redis_key)
-        raise ValueError(msg) from err
+        # Keep the log event a fixed identifier: the exception detail can embed payload-derived text,
+        # so it rides the raised error (Temporal-internal), not the log body mirrored to Logs.
+        logger.exception("replay_vision.redis_payload_decompress_failed", redis_key=redis_key)
+        raise ValueError(f"Failed to decompress Redis payload at {redis_key}: {err}") from err
 
 
 async def get_data_class_from_redis(
@@ -83,9 +84,13 @@ async def get_data_class_from_redis(
         return target_class.model_validate_json(data_str)
     except ValidationError as err:
         # Stale-schema payloads will never parse — fail-fast instead of retrying for the full Redis TTL.
-        msg = f"Failed to parse Redis payload at {redis_key} into {target_class.__name__}: {err}"
-        logger.exception(msg, redis_key=redis_key)
-        raise ApplicationError(msg, non_retryable=True) from err
+        # Fixed log event: the ValidationError text embeds the offending input_value, so it rides the
+        # raised error (Temporal-internal), not the log body mirrored to Logs.
+        logger.exception("replay_vision.redis_payload_parse_failed", redis_key=redis_key)
+        raise ApplicationError(
+            f"Failed to parse Redis payload at {redis_key} into {target_class.__name__}: {err}",
+            non_retryable=True,
+        ) from err
 
 
 async def load_scanner_llm_inputs(observation_id: str) -> ScannerLlmInputs | None:

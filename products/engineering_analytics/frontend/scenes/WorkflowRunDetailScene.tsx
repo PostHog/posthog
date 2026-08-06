@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 
 import { IconCheckCircle, IconExternal, IconHourglass, IconPause, IconXCircle } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
@@ -18,7 +18,7 @@ import { EntityHeader, VerdictPill } from '../components/EntityHeader'
 import { FailureLogGroups } from '../components/FailureLogs'
 import { GroupedJobsTable } from '../components/GroupedJobsTable'
 import { MetricTile } from '../components/MetricTile'
-import { formatCost, formatMinutes } from '../components/runTables'
+import { formatCost, formatMinutes, runPrNumber } from '../components/runTables'
 import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
 import { githubCommitUrl, githubRunUrl } from '../lib/github'
 import { isDecisiveFailure } from '../lib/lifecycle'
@@ -55,7 +55,7 @@ export function WorkflowRunDetailScene(): JSX.Element {
 
     if (!isValidRunId) {
         return (
-            <SceneContent>
+            <SceneContent className="pb-16">
                 <SceneTitleSection name="Workflow run" resourceType={{ type: 'health' }} />
                 <span className="text-secondary">That run id isn't valid.</span>
             </SceneContent>
@@ -64,12 +64,14 @@ export function WorkflowRunDetailScene(): JSX.Element {
 
     const githubUrl = run ? githubRunUrl(run.repo.owner, run.repo.name, run.id) : null
     const verdict = run ? verdictTag(run.conclusion) : null
+    const prNumber = run ? runPrNumber(run.pr_number, run.commit_pr_number) : null
     const prUrl =
-        run && run.pr_number > 0
-            ? combineUrl(
-                  urls.engineeringAnalyticsPullRequest(run.repo.owner, run.repo.name, run.pr_number),
-                  sourceId ? { source: sourceId } : {}
-              ).url
+        prNumber != null && run
+            ? withScope(
+                  urls.engineeringAnalyticsPullRequest(run.repo.owner, run.repo.name, prNumber),
+                  searchParams,
+                  sourceId
+              )
             : null
     // Run started → first job started: the runner-capacity wait before anything executed.
     const jobStarts = (jobs ?? []).map((job) => job.started_at).filter((at): at is string => !!at)
@@ -96,7 +98,7 @@ export function WorkflowRunDetailScene(): JSX.Element {
 
     if (loadFailed) {
         return (
-            <SceneContent>
+            <SceneContent className="pb-16">
                 <SceneTitleSection name="Workflow run" resourceType={{ type: 'health' }} />
                 <div className="flex items-center gap-3">
                     <span className="text-secondary">
@@ -111,7 +113,7 @@ export function WorkflowRunDetailScene(): JSX.Element {
     }
 
     return (
-        <SceneContent>
+        <SceneContent className="pb-16">
             {/* Scene chrome keeps the generic label; the EntityHeader below owns the title. */}
             <SceneTitleSection
                 name="Workflow run"
@@ -189,7 +191,7 @@ export function WorkflowRunDetailScene(): JSX.Element {
                                 {prUrl && (
                                     <>
                                         <span>· pull request</span>
-                                        <Link to={prUrl}>#{run.pr_number}</Link>
+                                        <Link to={prUrl}>#{prNumber}</Link>
                                     </>
                                 )}
                                 {run.run_attempt > 1 && <span>· attempt {run.run_attempt}</span>}

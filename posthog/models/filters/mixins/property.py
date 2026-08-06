@@ -1,12 +1,14 @@
 import json
 from typing import Any, Optional, Union, cast
 
+import posthoganalytics
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PROPERTIES, PropertyOperatorType
+from posthog.exceptions_capture import capture_exception
 from posthog.models.filters.mixins.base import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict, include_query_tags
-from posthog.models.property import Property, PropertyGroup
+from posthog.models.property import Property, PropertyGroup, PropertyValidationError
 
 
 class PropertyMixin(BaseParamMixin):
@@ -72,7 +74,30 @@ class PropertyMixin(BaseParamMixin):
                     try:
                         new_prop = Property(**prop_params)
                         _properties.append(new_prop)
-                    except:
+                    except (PropertyValidationError, ValidationError, TypeError) as e:
+                        # PropertyValidationError covers every failure Property.__init__ itself
+                        # raises; ValidationError covers validate_group_type_index's own DRF
+                        # error, which Property.__init__ leaves unwrapped so it still reaches
+                        # direct callers as a 400; TypeError covers `Property(**prop_params)`
+                        # failing to unpack prop_params as a mapping before __init__ even runs.
+                        # Dropping an unparsable property changes validation behavior for every
+                        # caller (e.g. cohort.properties.flat missing a behavioral leaf lets
+                        # behavioral-cohort checks pass silently), so this must stay visible
+                        # instead of failing silent. Report structure only — never the
+                        # property's own value/event_filters — since those can carry real user
+                        # data (e.g. an exact-match email filter). Code-variable capture would
+                        # otherwise attach those same values from this frame's locals regardless
+                        # of what we pass as additional_properties, so it's disabled for this call.
+                        prop_dict = prop_params if isinstance(prop_params, dict) else {}
+                        with posthoganalytics.new_context():
+                            posthoganalytics.set_capture_exception_code_variables_context(False)
+                            capture_exception(
+                                e,
+                                additional_properties={
+                                    "property_type": prop_dict.get("type"),
+                                    "property_fields": sorted(prop_dict.keys()) or None,
+                                },
+                            )
                         continue
             return _properties
         if not properties:

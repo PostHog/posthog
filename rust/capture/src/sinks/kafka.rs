@@ -19,9 +19,11 @@
 //! + topics) rather than deep copies of limiter state.
 use crate::api::CaptureError;
 use crate::config::{EnvelopeCompression, KafkaConfig};
+use crate::ordering::{person_ordering, OrderingGuarantee};
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
+use crate::sinks::registry::{Output, OutputRegistry};
 use crate::sinks::Event;
-use crate::v0_request::{DataType, OverflowReason, ProcessedEvent};
+use crate::v0_request::{DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata};
 use async_trait::async_trait;
 use metrics::{counter, gauge, histogram};
 use rdkafka::producer::{FutureProducer, Producer};
@@ -169,36 +171,6 @@ impl rdkafka::ClientContext for KafkaContext {
     }
 }
 
-/// Topic configuration for the Kafka sink
-#[derive(Clone)]
-pub struct KafkaTopicConfig {
-    pub main_topic: String,
-    pub overflow_topic: String,
-    pub historical_topic: String,
-    pub client_ingestion_warning_topic: String,
-    pub heatmaps_topic: String,
-    pub replay_overflow_topic: String,
-    pub dlq_topic: String,
-    pub error_tracking_topic: String,
-    pub traces_topic: String,
-}
-
-impl From<&KafkaConfig> for KafkaTopicConfig {
-    fn from(config: &KafkaConfig) -> Self {
-        Self {
-            main_topic: config.kafka_topic.clone(),
-            overflow_topic: config.kafka_overflow_topic.clone(),
-            historical_topic: config.kafka_historical_topic.clone(),
-            client_ingestion_warning_topic: config.kafka_client_ingestion_warning_topic.clone(),
-            heatmaps_topic: config.kafka_heatmaps_topic.clone(),
-            replay_overflow_topic: config.kafka_replay_overflow_topic.clone(),
-            dlq_topic: config.kafka_dlq_topic.clone(),
-            error_tracking_topic: config.kafka_error_tracking_topic.clone(),
-            traces_topic: config.kafka_traces_topic.clone(),
-        }
-    }
-}
-
 /// Generic Kafka sink that can use any producer implementation.
 ///
 /// Holds only the producer handle, the topic config, and the replay envelope
@@ -210,7 +182,7 @@ impl From<&KafkaConfig> for KafkaTopicConfig {
 /// is cloned once per spawned prep task.
 pub struct KafkaSinkBase<P: KafkaProducer> {
     producer: Arc<P>,
-    topics: Arc<KafkaTopicConfig>,
+    topics: Arc<OutputRegistry>,
     replay_envelope_compression: EnvelopeCompression,
 }
 
@@ -224,6 +196,455 @@ impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
     }
 }
 
+/// The pure routing decision for a single event: which output, and which
+/// ordering guarantee. Depends only on [`ProcessedEventMetadata`] (stamped
+/// upstream by the pipeline) and the AI overflow valve — the one piece of
+/// sink config that changes a routing decision rather than a topic name.
+/// Side effects are not part of the decision: the dlq header set and the
+/// reroute counters follow from the target, and the person-processing header
+/// follows from [`ProcessedEventMetadata::person_processing_disabled`] —
+/// the stamped flag, or a `ForceLimited` reason, which implies the skip on
+/// its own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Route {
+    target: Output,
+    ordering: OrderingGuarantee,
+}
+
+/// Decide an event's route from its metadata. DLQ and custom-topic redirects
+/// take priority over per-datatype and overflow routing. Consulted by the
+/// sink, which resolves the target to a topic string and the ordering
+/// guarantee to a partition key, and applies the target-implied side effects.
+/// A replay event with no session id is rejected here, so every returned
+/// `Route` is realizable by the sink.
+fn route(
+    metadata: &ProcessedEventMetadata,
+    ai_events_overflow_armed: bool,
+) -> Result<Route, CaptureError> {
+    // redirect_to_dlq takes priority over all other routing.
+    if metadata.redirect_to_dlq {
+        return Ok(Route {
+            target: Output::Dlq,
+            ordering: OrderingGuarantee::PerDistinctId,
+        });
+    }
+
+    if let Some(ref topic) = metadata.redirect_to_topic {
+        return Ok(Route {
+            target: Output::Custom(topic.clone()),
+            ordering: OrderingGuarantee::PerDistinctId,
+        });
+    }
+
+    Ok(match metadata.data_type {
+        DataType::AnalyticsHistorical => Route {
+            // Historical events never overflow — force_overflow and
+            // overflow_reason are deliberately ignored here.
+            target: Output::AnalyticsHistorical,
+            ordering: OrderingGuarantee::PerDistinctId,
+        },
+        DataType::AnalyticsMain => {
+            // Precedence: force_overflow (restrictions) -> overflow_reason
+            // (pipeline-stamped) -> default main-topic routing.
+            if metadata.force_overflow {
+                Route {
+                    target: Output::AnalyticsOverflow,
+                    ordering: person_ordering(metadata.person_processing_disabled()),
+                }
+            } else {
+                match &metadata.overflow_reason {
+                    Some(OverflowReason::ForceLimited) => Route {
+                        target: Output::AnalyticsOverflow,
+                        ordering: OrderingGuarantee::None,
+                    },
+                    // The person flag alone decides the key here, in both
+                    // directions. A burst keeps its key while person processing
+                    // is on — the overflow consumer updates persons keyed on
+                    // distinct id, so spreading one distinct id across
+                    // partitions turns a hot key into contended person-row
+                    // updates — which makes the locality preference irrelevant
+                    // on this lane. And a key whose person processing is
+                    // already off (the global rate limiter stamps its verdict
+                    // before the overflow limiter overwrites the reason) must
+                    // not get its partition back.
+                    Some(OverflowReason::RateLimited { .. }) => Route {
+                        target: Output::AnalyticsOverflow,
+                        ordering: person_ordering(metadata.person_processing_disabled()),
+                    },
+                    // ReplayLimited is stamped only by the recordings pipeline,
+                    // so an analytics event cannot carry it — the shared
+                    // OverflowReason enum forces the arm, which treats the
+                    // impossible stamp as unstamped.
+                    Some(OverflowReason::ReplayLimited) | None => Route {
+                        target: Output::AnalyticsMain,
+                        ordering: person_ordering(metadata.person_processing_disabled()),
+                    },
+                }
+            }
+        }
+        DataType::AiEvents => {
+            // Valve armed: the AI lanes route overflow like analytics, except
+            // that a burst may spread while person processing is on — the AI
+            // consumer reads persons without writing them, so keyless
+            // person-on records cause no person-update contention there.
+            // Valve unarmed: AI events never overflow —
+            // force_overflow and stamped reasons are deliberately ignored
+            // (the pipeline never stamps a reason on this lane anyway). The
+            // default route keeps the event key regardless of
+            // skip_person_processing (v1 only nulls keys for
+            // Main/Overflow-shaped destinations). AI events never reroute
+            // historical.
+            if ai_events_overflow_armed && metadata.force_overflow {
+                Route {
+                    target: Output::AiOverflow,
+                    ordering: person_ordering(metadata.person_processing_disabled()),
+                }
+            } else if ai_events_overflow_armed {
+                match &metadata.overflow_reason {
+                    Some(OverflowReason::ForceLimited) => Route {
+                        target: Output::AiOverflow,
+                        ordering: OrderingGuarantee::None,
+                    },
+                    Some(OverflowReason::RateLimited {
+                        preserve_locality: true,
+                    }) => Route {
+                        target: Output::AiOverflow,
+                        // Same precedence as the analytics overflow lane above.
+                        ordering: person_ordering(metadata.person_processing_disabled()),
+                    },
+                    Some(OverflowReason::RateLimited {
+                        preserve_locality: false,
+                    }) => Route {
+                        target: Output::AiOverflow,
+                        ordering: OrderingGuarantee::None,
+                    },
+                    // ReplayLimited cannot be stamped on the AI lane either;
+                    // treated as unstamped, as above.
+                    Some(OverflowReason::ReplayLimited) | None => Route {
+                        target: Output::AiMain,
+                        ordering: OrderingGuarantee::PerDistinctId,
+                    },
+                }
+            } else {
+                Route {
+                    target: Output::AiMain,
+                    ordering: OrderingGuarantee::PerDistinctId,
+                }
+            }
+        }
+        DataType::ClientIngestionWarning => Route {
+            target: Output::ClientWarningsMain,
+            ordering: OrderingGuarantee::PerDistinctId,
+        },
+        DataType::HeatmapMain => Route {
+            target: Output::HeatmapsMain,
+            ordering: OrderingGuarantee::PerDistinctId,
+        },
+        DataType::ExceptionErrorTracking => Route {
+            target: Output::ErrorTrackingMain,
+            ordering: OrderingGuarantee::PerDistinctId,
+        },
+        DataType::SnapshotMain => {
+            // Precedence: force_overflow (restrictions) -> overflow_reason
+            // (pipeline-stamped ReplayLimited) -> default main-topic routing.
+            // Partition key is always session_id for replay to keep per-session
+            // ordering on the overflow topic; a missing id makes the decision
+            // unrealizable, so it is rejected as part of the decision.
+            if metadata.session_id.is_none() {
+                return Err(CaptureError::MissingSessionId);
+            }
+            let target = if metadata.force_overflow
+                || matches!(
+                    metadata.overflow_reason,
+                    Some(OverflowReason::ReplayLimited)
+                ) {
+                Output::SessionReplayOverflow
+            } else {
+                Output::SessionReplayMain
+            };
+            Route {
+                target,
+                ordering: OrderingGuarantee::PerSession,
+            }
+        }
+    })
+}
+
+#[cfg(test)]
+mod route_tests {
+    use super::*;
+    use rstest::rstest;
+
+    fn meta(data_type: DataType) -> ProcessedEventMetadata {
+        ProcessedEventMetadata {
+            data_type,
+            session_id: Some("session123".to_string()),
+            computed_timestamp: None,
+            event_name: "test_event".to_string(),
+            force_overflow: false,
+            skip_person_processing: false,
+            redirect_to_dlq: false,
+            redirect_to_topic: None,
+            skip_heatmap_processing: false,
+            overflow_reason: None,
+            distinct_id_truncated_from: None,
+        }
+    }
+
+    #[test]
+    fn dlq_wins_over_custom_topic_and_datatype() {
+        // redirect_to_dlq set alongside redirect_to_topic and an overflow
+        // reason: DLQ still wins, keyed on the event key, with the DLQ effect.
+        let mut m = meta(DataType::AnalyticsMain);
+        m.redirect_to_dlq = true;
+        m.redirect_to_topic = Some("custom".to_string());
+        m.force_overflow = true;
+        assert_eq!(
+            route(&m, false).unwrap(),
+            Route {
+                target: Output::Dlq,
+                ordering: OrderingGuarantee::PerDistinctId,
+            }
+        );
+    }
+
+    #[test]
+    fn custom_topic_wins_over_datatype() {
+        // Custom-topic redirect beats per-datatype/overflow routing (but not DLQ).
+        let mut m = meta(DataType::AnalyticsMain);
+        m.redirect_to_topic = Some("my_topic".to_string());
+        m.force_overflow = true;
+        assert_eq!(
+            route(&m, false).unwrap(),
+            Route {
+                target: Output::Custom("my_topic".to_string()),
+                ordering: OrderingGuarantee::PerDistinctId,
+            }
+        );
+    }
+
+    #[test]
+    fn per_datatype_targets() {
+        for (dt, target) in [
+            (DataType::AnalyticsMain, Output::AnalyticsMain),
+            (DataType::AnalyticsHistorical, Output::AnalyticsHistorical),
+            (DataType::ClientIngestionWarning, Output::ClientWarningsMain),
+            (DataType::HeatmapMain, Output::HeatmapsMain),
+            (DataType::ExceptionErrorTracking, Output::ErrorTrackingMain),
+            (DataType::AiEvents, Output::AiMain),
+            (DataType::SnapshotMain, Output::SessionReplayMain),
+        ] {
+            let m = meta(dt);
+            let r = route(&m, false).unwrap();
+            assert_eq!(r.target, target, "wrong target for {dt:?}");
+        }
+    }
+
+    #[test]
+    fn analytics_main_overflow_ordering() {
+        // force_overflow -> overflow topic; key policy follows skip_person.
+        let mut m = meta(DataType::AnalyticsMain);
+        m.force_overflow = true;
+        assert_eq!(
+            route(&m, false).unwrap().ordering,
+            OrderingGuarantee::PerDistinctId
+        );
+        m.skip_person_processing = true;
+        assert_eq!(route(&m, false).unwrap().ordering, OrderingGuarantee::None);
+        assert_eq!(route(&m, false).unwrap().target, Output::AnalyticsOverflow);
+    }
+
+    #[test]
+    fn analytics_main_overflow_reason_precedence() {
+        let base = meta(DataType::AnalyticsMain);
+
+        let mut force_limited = base.clone();
+        force_limited.overflow_reason = Some(OverflowReason::ForceLimited);
+        assert_eq!(
+            route(&force_limited, false).unwrap(),
+            Route {
+                target: Output::AnalyticsOverflow,
+                ordering: OrderingGuarantee::None,
+            }
+        );
+
+        let mut preserve = base.clone();
+        preserve.overflow_reason = Some(OverflowReason::RateLimited {
+            preserve_locality: true,
+        });
+        assert_eq!(
+            route(&preserve, false).unwrap().ordering,
+            OrderingGuarantee::PerDistinctId
+        );
+        assert_eq!(
+            route(&preserve, false).unwrap().target,
+            Output::AnalyticsOverflow
+        );
+
+        // The locality preference is irrelevant on the analytics lane: a
+        // person-on burst keeps its key either way, because the overflow
+        // consumer writes persons keyed on distinct id.
+        let mut no_preserve = base.clone();
+        no_preserve.overflow_reason = Some(OverflowReason::RateLimited {
+            preserve_locality: false,
+        });
+        assert_eq!(
+            route(&no_preserve, false).unwrap().ordering,
+            OrderingGuarantee::PerDistinctId
+        );
+        assert_eq!(
+            route(&no_preserve, false).unwrap().target,
+            Output::AnalyticsOverflow
+        );
+        no_preserve.skip_person_processing = true;
+        assert_eq!(
+            route(&no_preserve, false).unwrap().ordering,
+            OrderingGuarantee::None
+        );
+
+        // ReplayLimited cannot be stamped on analytics events (only the
+        // recordings pipeline produces it); the impossible combination is
+        // treated as unstamped.
+        let mut replay = base;
+        replay.overflow_reason = Some(OverflowReason::ReplayLimited);
+        assert_eq!(route(&replay, false).unwrap().target, Output::AnalyticsMain);
+    }
+
+    /// The global rate limiter stamps `skip_person_processing` before the
+    /// overflow limiter runs, and the overflow limiter overwrites the reason it
+    /// stamped. Without this precedence a key the rate limiter declared too hot
+    /// would go back to hashing onto a single overflow partition whenever the
+    /// limiter preserves locality, which is how prod-US is configured.
+    #[rstest]
+    #[case::analytics(DataType::AnalyticsMain, Output::AnalyticsOverflow)]
+    #[case::ai(DataType::AiEvents, Output::AiOverflow)]
+    fn person_processing_off_outranks_preserve_locality(
+        #[case] data_type: DataType,
+        #[case] expected_target: Output,
+    ) {
+        let armed = data_type == DataType::AiEvents;
+        let mut m = meta(data_type);
+        m.overflow_reason = Some(OverflowReason::RateLimited {
+            preserve_locality: true,
+        });
+
+        assert_eq!(
+            route(&m, armed).unwrap().ordering,
+            OrderingGuarantee::PerDistinctId,
+            "locality is preserved while person processing is on"
+        );
+
+        m.skip_person_processing = true;
+        assert_eq!(
+            route(&m, armed).unwrap(),
+            Route {
+                target: expected_target,
+                ordering: OrderingGuarantee::None,
+            }
+        );
+    }
+
+    #[test]
+    fn ai_events_overflow_gated_on_valve() {
+        // Valve unarmed: force_overflow and stamped reasons are ignored — the
+        // AI lane never overflows and keeps its event key.
+        let mut m = meta(DataType::AiEvents);
+        m.force_overflow = true;
+        assert_eq!(
+            route(&m, false).unwrap(),
+            Route {
+                target: Output::AiMain,
+                ordering: OrderingGuarantee::PerDistinctId,
+            }
+        );
+
+        // Valve armed: mirrors the analytics main lane's overflow handling.
+        assert_eq!(route(&m, true).unwrap().target, Output::AiOverflow);
+        assert_eq!(
+            route(&m, true).unwrap().ordering,
+            OrderingGuarantee::PerDistinctId
+        );
+        m.skip_person_processing = true;
+        assert_eq!(route(&m, true).unwrap().ordering, OrderingGuarantee::None);
+
+        let mut force_limited = meta(DataType::AiEvents);
+        force_limited.overflow_reason = Some(OverflowReason::ForceLimited);
+        assert_eq!(
+            route(&force_limited, true).unwrap(),
+            Route {
+                target: Output::AiOverflow,
+                ordering: OrderingGuarantee::None,
+            }
+        );
+        assert_eq!(route(&force_limited, false).unwrap().target, Output::AiMain);
+    }
+
+    #[test]
+    fn ai_events_default_route_keeps_event_key() {
+        // skip_person_processing must not null the key on the AI default
+        // route: v1 only nulls keys for Main/Overflow-shaped destinations.
+        let mut m = meta(DataType::AiEvents);
+        m.skip_person_processing = true;
+        for armed in [false, true] {
+            assert_eq!(
+                route(&m, armed).unwrap(),
+                Route {
+                    target: Output::AiMain,
+                    ordering: OrderingGuarantee::PerDistinctId,
+                },
+                "armed={armed}"
+            );
+        }
+    }
+
+    #[test]
+    fn snapshot_routing_uses_session_id_key() {
+        let mut m = meta(DataType::SnapshotMain);
+        assert_eq!(
+            route(&m, false).unwrap(),
+            Route {
+                target: Output::SessionReplayMain,
+                ordering: OrderingGuarantee::PerSession,
+            }
+        );
+
+        m.force_overflow = true;
+        assert_eq!(
+            route(&m, false).unwrap().target,
+            Output::SessionReplayOverflow
+        );
+        assert_eq!(
+            route(&m, false).unwrap().ordering,
+            OrderingGuarantee::PerSession
+        );
+
+        m.force_overflow = false;
+        m.overflow_reason = Some(OverflowReason::ReplayLimited);
+        assert_eq!(
+            route(&m, false).unwrap().target,
+            Output::SessionReplayOverflow
+        );
+    }
+
+    /// A replay event with no session id has no realizable route — the
+    /// decision itself rejects, rather than handing the sink a `PerSession`
+    /// guarantee it cannot key.
+    #[test]
+    fn snapshot_without_session_id_is_rejected() {
+        let mut m = meta(DataType::SnapshotMain);
+        m.session_id = None;
+        assert!(matches!(
+            route(&m, false),
+            Err(CaptureError::MissingSessionId)
+        ));
+
+        // A dlq redirect keys on the event key, so it stays realizable
+        // without a session id.
+        m.redirect_to_dlq = true;
+        assert_eq!(route(&m, false).unwrap().target, Output::Dlq);
+    }
+}
+
 /// The default KafkaSink using rdkafka's FutureProducer
 pub type KafkaSink = KafkaSinkBase<RdKafkaProducer<KafkaContext>>;
 
@@ -232,6 +653,17 @@ impl KafkaSink {
         config: KafkaConfig,
         liveness: Option<lifecycle::Handle>,
     ) -> anyhow::Result<KafkaSink> {
+        // Refuse to boot on incomplete output wiring: a blank topic fails
+        // here, at startup, instead of at first produce. Config-only, so it
+        // runs before the producer is built and the broker is pinged — the
+        // refusal is instant, not one connect attempt later.
+        let registry = OutputRegistry::from(&config);
+        if config.outputs_completeness_check_enabled {
+            registry.check_complete()?;
+        } else {
+            info!("outputs completeness check disabled; a blank output topic will fail at first produce instead of at boot");
+        }
+
         info!("connecting to Kafka brokers at {}...", config.kafka_hosts);
 
         let mut client_config = ClientConfig::new();
@@ -349,7 +781,7 @@ impl KafkaSink {
             info!("connected to Kafka brokers");
         };
 
-        let topics = Arc::new(KafkaTopicConfig::from(&config));
+        let topics = Arc::new(registry);
         let rd_producer = RdKafkaProducer::new(producer);
 
         Ok(KafkaSinkBase {
@@ -364,7 +796,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// Create a new KafkaSinkBase with a custom producer (useful for testing).
     /// No limiters — the sink is a mechanism layer; overflow stamping happens
     /// upstream in the pipeline. See the module header for details.
-    pub fn with_producer(producer: P, topics: KafkaTopicConfig) -> Self {
+    pub fn with_producer(producer: P, topics: OutputRegistry) -> Self {
         Self {
             producer: Arc::new(producer),
             topics: Arc::new(topics),
@@ -375,7 +807,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// Same as `with_producer` but with envelope compression enabled. Used in tests.
     pub fn with_producer_and_compression(
         producer: P,
-        topics: KafkaTopicConfig,
+        topics: OutputRegistry,
         replay_envelope_compression: EnvelopeCompression,
     ) -> Self {
         Self {
@@ -394,9 +826,9 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// Routing policy is read from `ProcessedEventMetadata` (stamped upstream
     /// by the pipeline). This function does not consult any limiter — it is
     /// pure mechanism. DLQ and custom-topic redirects take priority over
-    /// overflow routing, matching the pre-refactor ordering.
+    /// overflow routing.
     ///
-    /// Not `async`: post-refactor there are no await points, and keeping it
+    /// Not `async`: there are no await points, and keeping it
     /// synchronous lets `send_batch`'s serial fast path call it inline without
     /// any runtime indirection.
     fn prepare_record(&self, event: ProcessedEvent) -> Result<ProduceRecord, CaptureError> {
@@ -429,134 +861,73 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
             _ => json.into_bytes(),
         };
 
-        let data_type = metadata.data_type;
         let event_key = event.key();
-        let session_id = metadata.session_id.clone();
-        let force_overflow = metadata.force_overflow;
-        let skip_person_processing = metadata.skip_person_processing;
-        let redirect_to_dlq = metadata.redirect_to_dlq;
-        let redirect_to_topic = metadata.redirect_to_topic;
-        let skip_heatmap_processing = metadata.skip_heatmap_processing;
-        let overflow_reason = metadata.overflow_reason;
 
         // Use the event's to_headers() method for consistent header serialization
         let mut headers = event.to_headers();
 
         drop(event); // Events can be EXTREMELY memory hungry
 
-        // Apply skip_person_processing from event restrictions / upstream decisions
-        if skip_person_processing {
+        // The stamped flag (event restrictions / upstream decisions) or a
+        // ForceLimited reason, which implies the skip on its own.
+        if metadata.person_processing_disabled() {
             headers.set_force_disable_person_processing(true);
         }
 
-        if skip_heatmap_processing {
+        if metadata.skip_heatmap_processing {
             headers.set_skip_heatmap_processing(true);
         }
 
-        // Check for redirect_to_dlq first - takes priority over all other routing
-        let (topic, partition_key): (&str, Option<&str>) = if redirect_to_dlq {
-            counter!(
-                "capture_events_rerouted_dlq",
-                &[("reason", "event_restriction")]
-            )
-            .increment(1);
+        // The routing decision is pure metadata policy; the sink resolves the
+        // target against its topic config, the key policy against the values
+        // it owns, and applies the target-implied side effects.
+        let decision = route(&metadata, self.topics.ai_events_overflow_armed())?;
 
-            // Set DLQ specific headers
-            // DLQ reason cannot be known beyond being triggered by an event restriction.
-            headers.set_dlq_reason("event_restriction".to_string());
-            // Unlike with our node code, DLQ step will always be static.
-            headers.set_dlq_step("capture".to_string());
-            headers.set_dlq_timestamp(
-                chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-            );
+        let topic: &str = self.topics.topic_for(&decision.target);
 
-            (&self.topics.dlq_topic, Some(event_key.as_str()))
-        } else if let Some(ref topic) = redirect_to_topic {
-            counter!(
-                "capture_events_rerouted_custom_topic",
-                &[("reason", "event_restriction")]
-            )
-            .increment(1);
-            (topic.as_str(), Some(event_key.as_str()))
-        } else {
-            match data_type {
-                DataType::AnalyticsHistorical => {
-                    // Historical events never overflow — force_overflow and
-                    // overflow_reason are deliberately ignored here.
-                    (&self.topics.historical_topic, Some(event_key.as_str()))
-                }
-                DataType::AnalyticsMain => {
-                    // Precedence: force_overflow (restrictions) -> overflow_reason
-                    // (pipeline-stamped) -> default main-topic routing.
-                    if force_overflow {
-                        // Drop partition key if skip_person_processing is set
-                        let key = if skip_person_processing {
-                            None
-                        } else {
-                            Some(event_key.as_str())
-                        };
-                        (&self.topics.overflow_topic, key)
-                    } else {
-                        match &overflow_reason {
-                            Some(OverflowReason::ForceLimited) => {
-                                // Redundant with the generic skip-person path
-                                // above (the pipeline stamps
-                                // `metadata.skip_person_processing = true`
-                                // alongside `OverflowReason::ForceLimited`), but
-                                // kept as defense against a future caller that
-                                // stamps the reason without the side-effect.
-                                headers.set_force_disable_person_processing(true);
-                                (&self.topics.overflow_topic, None)
-                            }
-                            Some(OverflowReason::RateLimited {
-                                preserve_locality: true,
-                            }) => (&self.topics.overflow_topic, Some(event_key.as_str())),
-                            Some(OverflowReason::RateLimited {
-                                preserve_locality: false,
-                            }) => (&self.topics.overflow_topic, None),
-                            // ReplayLimited never applies to AnalyticsMain; fall through to main.
-                            Some(OverflowReason::ReplayLimited) | None => {
-                                // Drop partition key if skip_person_processing is set
-                                let key = if skip_person_processing {
-                                    None
-                                } else {
-                                    Some(event_key.as_str())
-                                };
-                                (&self.topics.main_topic, key)
-                            }
-                        }
-                    }
-                }
-                DataType::ClientIngestionWarning => (
-                    &self.topics.client_ingestion_warning_topic,
-                    Some(event_key.as_str()),
-                ),
-                DataType::HeatmapMain => (&self.topics.heatmaps_topic, Some(event_key.as_str())),
-                DataType::ExceptionErrorTracking => {
-                    (&self.topics.error_tracking_topic, Some(event_key.as_str()))
-                }
-                DataType::SnapshotMain => {
-                    let session_id = session_id
-                        .as_deref()
-                        .ok_or(CaptureError::MissingSessionId)?;
-
-                    // Precedence: force_overflow (restrictions) -> overflow_reason
-                    // (pipeline-stamped ReplayLimited) -> default main-topic
-                    // routing. Partition key is always session_id for replay
-                    // to keep per-session ordering on the overflow topic.
-                    if force_overflow
-                        || matches!(overflow_reason, Some(OverflowReason::ReplayLimited))
-                    {
-                        (&self.topics.replay_overflow_topic, Some(session_id))
-                    } else {
-                        (&self.topics.main_topic, Some(session_id))
-                    }
-                }
-            }
+        let partition_key: Option<&str> = match decision.ordering {
+            OrderingGuarantee::PerDistinctId => Some(event_key.as_str()),
+            OrderingGuarantee::None => None,
+            // route() rejects replay events without a session id, so the id
+            // is present whenever PerSession is decided.
+            OrderingGuarantee::PerSession => Some(
+                metadata
+                    .session_id
+                    .as_deref()
+                    .ok_or(CaptureError::MissingSessionId)?,
+            ),
         };
 
+        // Output-implied side effects: the dlq output's contract includes the
+        // dlq header set, and both redirect outputs count their reroutes.
+        match decision.target {
+            Output::Dlq => {
+                counter!(
+                    "capture_events_rerouted_dlq",
+                    &[("reason", "event_restriction")]
+                )
+                .increment(1);
+
+                // DLQ reason cannot be known beyond being triggered by an event restriction.
+                headers.set_dlq_reason("event_restriction".to_string());
+                // Unlike with our node code, DLQ step will always be static.
+                headers.set_dlq_step("capture".to_string());
+                headers.set_dlq_timestamp(
+                    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+                );
+            }
+            Output::Custom(_) => {
+                counter!(
+                    "capture_events_rerouted_custom_topic",
+                    &[("reason", "event_restriction")]
+                )
+                .increment(1);
+            }
+            _ => {}
+        }
+
         if matches!(self.replay_envelope_compression, EnvelopeCompression::Lz4)
-            && matches!(data_type, DataType::SnapshotMain)
+            && matches!(metadata.data_type, DataType::SnapshotMain)
         {
             headers.set_content_encoding("lz4".to_string());
         }
@@ -778,23 +1149,8 @@ async fn drain_acks(mut ack_set: JoinSet<Result<(), CaptureError>>) -> Result<()
     .await
 }
 
-/// Shared `KafkaTopicConfig` fixture for tests across the capture crate. Used
-/// by sink-side routing tests and pipeline-to-sink E2E tests to ensure every
-/// test site asserts against the same canonical topic names.
 #[cfg(test)]
-pub(crate) fn test_topics() -> KafkaTopicConfig {
-    KafkaTopicConfig {
-        main_topic: "events_plugin_ingestion".to_string(),
-        overflow_topic: "events_plugin_ingestion_overflow".to_string(),
-        historical_topic: "events_plugin_ingestion_historical".to_string(),
-        client_ingestion_warning_topic: "client_ingestion_warning".to_string(),
-        heatmaps_topic: "heatmaps".to_string(),
-        replay_overflow_topic: "replay_overflow".to_string(),
-        dlq_topic: "events_plugin_ingestion_dlq".to_string(),
-        error_tracking_topic: "error_tracking_events".to_string(),
-        traces_topic: "tracing_ingestion".to_string(),
-    }
-}
+pub(crate) use crate::sinks::registry::test_topics;
 
 #[cfg(test)]
 mod tests {
@@ -844,6 +1200,9 @@ mod tests {
             kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
             kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
             kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
+            outputs_completeness_check_enabled: true,
+            capture_analytics_ai_events_topic: None,
+            capture_analytics_ai_events_overflow_topic: None,
             kafka_traces_topic: "traces_ingestion".to_string(),
             kafka_metrics_topic: "metrics_ingestion".to_string(),
             kafka_tls: false,
@@ -930,6 +1289,7 @@ mod tests {
             redirect_to_topic: None,
             skip_heatmap_processing: false,
             overflow_reason: None,
+            distinct_id_truncated_from: None,
         };
 
         let event = ProcessedEvent {
@@ -1188,6 +1548,7 @@ mod tests {
         use super::*;
         use crate::sinks::kafka::{test_topics, KafkaSinkBase, SCATTER_GATHER_MIN_BATCH};
         use crate::sinks::producer::MockKafkaProducer;
+        use rstest::rstest;
 
         const MAIN_TOPIC: &str = "events_plugin_ingestion";
         const OVERFLOW_TOPIC: &str = "events_plugin_ingestion_overflow";
@@ -1197,14 +1558,28 @@ mod tests {
         const CLIENT_INGESTION_WARNING_TOPIC: &str = "client_ingestion_warning";
         const REPLAY_OVERFLOW_TOPIC: &str = "replay_overflow";
         const ERROR_TRACKING_TOPIC: &str = "error_tracking_events";
+        const AI_EVENTS_TOPIC: &str = "ai_events";
+        const AI_EVENTS_OVERFLOW_TOPIC: &str = "ai_events_overflow";
+
+        /// Which reroute counter (if any) an event must increment. DLQ and
+        /// custom-topic redirects are mutually exclusive at the sink because DLQ
+        /// takes strict priority, so a single event fires at most one counter.
+        #[derive(Clone, Copy, PartialEq, Debug)]
+        enum Rerouted {
+            None,
+            Dlq,
+            CustomTopic,
+        }
 
         struct EventInput {
             data_type: DataType,
             force_overflow: bool,
             skip_person_processing: bool,
+            skip_heatmap_processing: bool,
             redirect_to_dlq: bool,
             redirect_to_topic: Option<String>,
             overflow_reason: Option<OverflowReason>,
+            compression: EnvelopeCompression,
         }
 
         impl Default for EventInput {
@@ -1213,9 +1588,11 @@ mod tests {
                     data_type: DataType::AnalyticsMain,
                     force_overflow: false,
                     skip_person_processing: false,
+                    skip_heatmap_processing: false,
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    compression: EnvelopeCompression::None,
                 }
             }
         }
@@ -1246,55 +1623,195 @@ mod tests {
                 skip_person_processing: input.skip_person_processing,
                 redirect_to_dlq: input.redirect_to_dlq,
                 redirect_to_topic: input.redirect_to_topic.clone(),
-                skip_heatmap_processing: false,
+                skip_heatmap_processing: input.skip_heatmap_processing,
                 overflow_reason: input.overflow_reason.clone(),
+                distinct_id_truncated_from: None,
             };
 
             ProcessedEvent { event, metadata }
         }
 
+        /// The full routing fingerprint of one event: topic + partition key +
+        /// every header the sink can stamp + which reroute counter (if any)
+        /// fires. This is the golden oracle produce-path refactors prove wire
+        /// parity against, so each field is stated explicitly rather than
+        /// re-derived from the input. Fields default to the "normal main-topic" outcome so
+        /// each case only spells out what makes it different.
         struct ExpectedRouting<'a> {
             topic: &'a str,
             has_key: bool,
             force_disable_person_processing: Option<bool>,
+            skip_heatmap_processing: Option<bool>,
+            content_encoding: Option<&'a str>,
+            dlq_headers: bool,
+            rerouted: Rerouted,
+        }
+
+        impl Default for ExpectedRouting<'_> {
+            fn default() -> Self {
+                Self {
+                    topic: "",
+                    has_key: true,
+                    force_disable_person_processing: None,
+                    skip_heatmap_processing: None,
+                    content_encoding: None,
+                    dlq_headers: false,
+                    rerouted: Rerouted::None,
+                }
+            }
         }
 
         async fn assert_routing(input: EventInput, expected: ExpectedRouting<'_>) {
+            // Capture reroute counters on a thread-local recorder. `assert_routing`
+            // runs on the default current-thread test runtime and `send` prepares
+            // the record inline before the first await, so the guard stays visible
+            // when `prepare_record` increments the counter.
+            let recorder = metrics_util::debugging::DebuggingRecorder::new();
+            let snapshotter = recorder.snapshotter();
+            let _guard = metrics::set_default_local_recorder(&recorder);
+
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+            let sink = KafkaSinkBase::with_producer_and_compression(
+                producer.clone(),
+                test_topics(),
+                input.compression,
+            );
 
             let event = create_test_event(&input);
             sink.send(event).await.unwrap();
 
             let records = producer.get_records();
             assert_eq!(records.len(), 1, "Expected exactly one record");
-            assert_eq!(
-                records[0].topic,
-                expected.topic,
-                "Wrong topic for {:?} (overflow={}, skip_person={}, dlq={})",
+            let record = &records[0];
+            let headers = &record.headers;
+
+            let ctx = format!(
+                "{:?} (force_overflow={}, skip_person={}, skip_heatmap={}, dlq={}, redirect_to_topic={:?}, overflow_reason={:?})",
                 input.data_type,
                 input.force_overflow,
                 input.skip_person_processing,
-                input.redirect_to_dlq
+                input.skip_heatmap_processing,
+                input.redirect_to_dlq,
+                input.redirect_to_topic,
+                input.overflow_reason,
             );
+
+            assert_eq!(record.topic, expected.topic, "wrong topic for {ctx}");
             assert_eq!(
-                records[0].key.is_some(),
+                record.key.is_some(),
                 expected.has_key,
-                "Wrong key presence for {:?} (overflow={}, skip_person={}, dlq={})",
-                input.data_type,
-                input.force_overflow,
-                input.skip_person_processing,
-                input.redirect_to_dlq
+                "wrong key presence for {ctx}"
             );
             assert_eq!(
-                records[0].headers.force_disable_person_processing,
-                expected.force_disable_person_processing,
-                "Wrong header for {:?} (overflow={}, skip_person={}, dlq={})",
-                input.data_type,
-                input.force_overflow,
-                input.skip_person_processing,
-                input.redirect_to_dlq
+                headers.force_disable_person_processing, expected.force_disable_person_processing,
+                "wrong force_disable_person_processing header for {ctx}"
             );
+            assert_eq!(
+                headers.skip_heatmap_processing, expected.skip_heatmap_processing,
+                "wrong skip_heatmap_processing header for {ctx}"
+            );
+            assert_eq!(
+                headers.content_encoding.as_deref(),
+                expected.content_encoding,
+                "wrong content_encoding header for {ctx}"
+            );
+
+            // DLQ headers travel as a set: a reason, a step, and a valid RFC-3339
+            // timestamp when the event is routed to the DLQ; all three absent on
+            // every other route.
+            if expected.dlq_headers {
+                assert_eq!(
+                    headers.dlq_reason.as_deref(),
+                    Some("event_restriction"),
+                    "wrong dlq_reason for {ctx}"
+                );
+                assert_eq!(
+                    headers.dlq_step.as_deref(),
+                    Some("capture"),
+                    "wrong dlq_step for {ctx}"
+                );
+                let ts = headers
+                    .dlq_timestamp
+                    .as_deref()
+                    .unwrap_or_else(|| panic!("dlq_timestamp missing for {ctx}"));
+                chrono::DateTime::parse_from_rfc3339(ts).unwrap_or_else(|e| {
+                    panic!("dlq_timestamp '{ts}' is not valid RFC 3339 for {ctx}: {e}")
+                });
+            } else {
+                assert_eq!(
+                    headers.dlq_reason, None,
+                    "dlq_reason must be absent for {ctx}"
+                );
+                assert_eq!(headers.dlq_step, None, "dlq_step must be absent for {ctx}");
+                assert_eq!(
+                    headers.dlq_timestamp, None,
+                    "dlq_timestamp must be absent for {ctx}"
+                );
+            }
+
+            // Exactly one reroute counter fires per redirected event; neither
+            // fires on the normal per-datatype or overflow paths.
+            let snapshot = snapshotter.snapshot().into_vec();
+            let count = |name: &str| -> Option<u64> {
+                snapshot.iter().find_map(|(key, _, _, value)| {
+                    if key.key().name() != name {
+                        return None;
+                    }
+                    match value {
+                        metrics_util::debugging::DebugValue::Counter(v) => Some(*v),
+                        _ => None,
+                    }
+                })
+            };
+            // Recorder liveness: enqueue emits the bytes counter for every
+            // record, on the same inline pre-await path as the reroute
+            // counters. If it is absent, the thread-local recorder is no
+            // longer observing prep (e.g. prep moved to a spawned thread)
+            // and every absence assertion below would pass vacuously — so
+            // fail here first, in every case.
+            assert_eq!(
+                count("capture_kafka_produce_bytes_total"),
+                Some(record.payload.len() as u64),
+                "recorder did not observe the produce path for {ctx}; \
+                 the counter assertions below cannot be trusted"
+            );
+
+            let dlq_count = count("capture_events_rerouted_dlq");
+            let custom_count = count("capture_events_rerouted_custom_topic");
+            match expected.rerouted {
+                Rerouted::None => {
+                    assert_eq!(
+                        dlq_count, None,
+                        "capture_events_rerouted_dlq must not fire for {ctx}"
+                    );
+                    assert_eq!(
+                        custom_count, None,
+                        "capture_events_rerouted_custom_topic must not fire for {ctx}"
+                    );
+                }
+                Rerouted::Dlq => {
+                    assert_eq!(
+                        dlq_count,
+                        Some(1),
+                        "capture_events_rerouted_dlq must fire once for {ctx}"
+                    );
+                    assert_eq!(
+                        custom_count, None,
+                        "capture_events_rerouted_custom_topic must not fire for {ctx}"
+                    );
+                }
+                Rerouted::CustomTopic => {
+                    assert_eq!(
+                        custom_count,
+                        Some(1),
+                        "capture_events_rerouted_custom_topic must fire once for {ctx}"
+                    );
+                    assert_eq!(
+                        dlq_count, None,
+                        "capture_events_rerouted_dlq must not fire for {ctx}"
+                    );
+                }
+            }
         }
 
         // ==================== AnalyticsMain ====================
@@ -1309,11 +1826,13 @@ mod tests {
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: MAIN_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1329,11 +1848,13 @@ mod tests {
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: OVERFLOW_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1350,11 +1871,13 @@ mod tests {
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: OVERFLOW_TOPIC,
                     has_key: false,
                     force_disable_person_processing: Some(true),
+                    ..Default::default()
                 },
             )
             .await;
@@ -1371,11 +1894,13 @@ mod tests {
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: MAIN_TOPIC,
                     has_key: false,
                     force_disable_person_processing: Some(true),
+                    ..Default::default()
                 },
             )
             .await;
@@ -1391,11 +1916,15 @@ mod tests {
                     redirect_to_dlq: true,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1412,11 +1941,15 @@ mod tests {
                     redirect_to_dlq: true,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1432,11 +1965,15 @@ mod tests {
                     redirect_to_dlq: true,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
                     has_key: true,
                     force_disable_person_processing: Some(true),
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1453,11 +1990,15 @@ mod tests {
                     redirect_to_dlq: true,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
                     has_key: true,
                     force_disable_person_processing: Some(true),
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1476,11 +2017,13 @@ mod tests {
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: HISTORICAL_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1497,11 +2040,13 @@ mod tests {
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: HISTORICAL_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1517,11 +2062,13 @@ mod tests {
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: HISTORICAL_TOPIC,
                     has_key: true,
                     force_disable_person_processing: Some(true),
+                    ..Default::default()
                 },
             )
             .await;
@@ -1537,11 +2084,15 @@ mod tests {
                     redirect_to_dlq: true,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1558,11 +2109,15 @@ mod tests {
                     redirect_to_dlq: true,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
                     has_key: true,
                     force_disable_person_processing: Some(true),
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1580,11 +2135,13 @@ mod tests {
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: MAIN_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1600,11 +2157,13 @@ mod tests {
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: REPLAY_OVERFLOW_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1621,11 +2180,13 @@ mod tests {
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: REPLAY_OVERFLOW_TOPIC,
                     has_key: true,
                     force_disable_person_processing: Some(true),
+                    ..Default::default()
                 },
             )
             .await;
@@ -1641,11 +2202,13 @@ mod tests {
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: MAIN_TOPIC,
                     has_key: true,
                     force_disable_person_processing: Some(true),
+                    ..Default::default()
                 },
             )
             .await;
@@ -1661,11 +2224,15 @@ mod tests {
                     redirect_to_dlq: true,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1681,11 +2248,54 @@ mod tests {
                     redirect_to_dlq: true,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn snapshot_lz4_sets_content_encoding_header() {
+            // With envelope compression on, a snapshot event carries the
+            // `content-encoding: lz4` header alongside its normal main-topic
+            // routing. The compressed-payload bytes are covered by the lz4
+            // payload goldens below; here the oracle pins just the header.
+            assert_routing(
+                EventInput {
+                    data_type: DataType::SnapshotMain,
+                    compression: EnvelopeCompression::Lz4,
+                    ..Default::default()
+                },
+                ExpectedRouting {
+                    topic: MAIN_TOPIC,
+                    content_encoding: Some("lz4"),
+                    ..Default::default()
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn analytics_main_lz4_leaves_content_encoding_unset() {
+            // Envelope compression only applies to snapshots: a non-snapshot
+            // event under the same sink config carries no content-encoding.
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    compression: EnvelopeCompression::Lz4,
+                    ..Default::default()
+                },
+                ExpectedRouting {
+                    topic: MAIN_TOPIC,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1704,11 +2314,13 @@ mod tests {
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: HEATMAPS_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1724,11 +2336,13 @@ mod tests {
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: HEATMAPS_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1744,11 +2358,13 @@ mod tests {
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: HEATMAPS_TOPIC,
                     has_key: true,
                     force_disable_person_processing: Some(true),
+                    ..Default::default()
                 },
             )
             .await;
@@ -1764,11 +2380,56 @@ mod tests {
                     redirect_to_dlq: true,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn heatmap_skip_heatmap_processing_sets_header() {
+            // The skip_heatmap_processing metadata flag stamps its own header,
+            // independent of the routing topic and the person-processing flag.
+            assert_routing(
+                EventInput {
+                    data_type: DataType::HeatmapMain,
+                    skip_heatmap_processing: true,
+                    ..Default::default()
+                },
+                ExpectedRouting {
+                    topic: HEATMAPS_TOPIC,
+                    skip_heatmap_processing: Some(true),
+                    ..Default::default()
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn analytics_main_skip_heatmap_processing_sets_header() {
+            // skip_heatmap_processing is not gated on data type: it rides through
+            // for AnalyticsMain too, orthogonally to skip_person_processing.
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    skip_heatmap_processing: true,
+                    skip_person_processing: true,
+                    ..Default::default()
+                },
+                ExpectedRouting {
+                    topic: MAIN_TOPIC,
+                    has_key: false,
+                    force_disable_person_processing: Some(true),
+                    skip_heatmap_processing: Some(true),
+                    ..Default::default()
                 },
             )
             .await;
@@ -1787,11 +2448,13 @@ mod tests {
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: ERROR_TRACKING_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1807,11 +2470,13 @@ mod tests {
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: ERROR_TRACKING_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1827,11 +2492,13 @@ mod tests {
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: ERROR_TRACKING_TOPIC,
                     has_key: true,
                     force_disable_person_processing: Some(true),
+                    ..Default::default()
                 },
             )
             .await;
@@ -1847,11 +2514,15 @@ mod tests {
                     redirect_to_dlq: true,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1870,11 +2541,13 @@ mod tests {
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: CLIENT_INGESTION_WARNING_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1890,11 +2563,13 @@ mod tests {
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: CLIENT_INGESTION_WARNING_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1910,11 +2585,13 @@ mod tests {
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: CLIENT_INGESTION_WARNING_TOPIC,
                     has_key: true,
                     force_disable_person_processing: Some(true),
+                    ..Default::default()
                 },
             )
             .await;
@@ -1930,14 +2607,312 @@ mod tests {
                     redirect_to_dlq: true,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
                 },
             )
             .await;
+        }
+
+        // ==================== AiEvents ====================
+        // The dedicated $ai_* lane routes to its own topic, keyed on the
+        // event key. test_topics() arms the AI overflow valve
+        // (CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC), so overflow handling mirrors the
+        // AnalyticsMain arm onto the AI topics; the unarmed tests below
+        // override the valve off.
+
+        #[tokio::test]
+        async fn ai_events_normal() {
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AiEvents,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                    redirect_to_topic: None,
+                    overflow_reason: None,
+                    ..Default::default()
+                },
+                ExpectedRouting {
+                    topic: AI_EVENTS_TOPIC,
+                    has_key: true,
+                    force_disable_person_processing: None,
+                    ..Default::default()
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn ai_events_force_overflow_reroutes_when_armed() {
+            // With the valve armed, restriction-driven force_overflow behaves
+            // exactly like the analytics main lane: rerouted, key kept.
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AiEvents,
+                    force_overflow: true,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                    redirect_to_topic: None,
+                    overflow_reason: None,
+                    ..Default::default()
+                },
+                ExpectedRouting {
+                    topic: AI_EVENTS_OVERFLOW_TOPIC,
+                    has_key: true,
+                    force_disable_person_processing: None,
+                    ..Default::default()
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn ai_events_force_overflow_with_skip_person_drops_key() {
+            // Mirrors analytics_main_force_overflow_with_skip_person.
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AiEvents,
+                    force_overflow: true,
+                    skip_person_processing: true,
+                    redirect_to_dlq: false,
+                    redirect_to_topic: None,
+                    overflow_reason: None,
+                    ..Default::default()
+                },
+                ExpectedRouting {
+                    topic: AI_EVENTS_OVERFLOW_TOPIC,
+                    has_key: false,
+                    force_disable_person_processing: Some(true),
+                    ..Default::default()
+                },
+            )
+            .await;
+        }
+
+        /// Stamped overflow reasons on the AI lane, where — unlike the
+        /// analytics lane — a burst without locality preservation spreads
+        /// while person processing is on: the AI consumer reads persons
+        /// without writing them, so keyless person-on records contend
+        /// nothing downstream. `ForceLimited` implies the person-processing
+        /// header on its own, flag or no flag.
+        #[rstest]
+        #[case::force_limited(OverflowReason::ForceLimited, false, Some(true))]
+        #[case::rate_limited_preserving(
+            OverflowReason::RateLimited {
+                preserve_locality: true
+            },
+            true,
+            None
+        )]
+        #[case::rate_limited_spreading(
+            OverflowReason::RateLimited {
+                preserve_locality: false
+            },
+            false,
+            None
+        )]
+        #[tokio::test]
+        async fn ai_events_stamped_overflow_routing(
+            #[case] reason: OverflowReason,
+            #[case] has_key: bool,
+            #[case] force_disable_person_processing: Option<bool>,
+        ) {
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AiEvents,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                    redirect_to_topic: None,
+                    overflow_reason: Some(reason),
+                    ..Default::default()
+                },
+                ExpectedRouting {
+                    topic: AI_EVENTS_OVERFLOW_TOPIC,
+                    has_key,
+                    force_disable_person_processing,
+                    ..Default::default()
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn ai_events_unarmed_never_overflows() {
+            // Without CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC the lane keeps today's
+            // behavior: force_overflow and any stamped reason (which the
+            // gated pipeline would not produce anyway) are ignored.
+            let producer = MockKafkaProducer::new();
+            let mut topics = test_topics();
+            topics.ai_events_overflow = None;
+            let sink = KafkaSinkBase::with_producer(producer.clone(), topics);
+
+            let mut event = create_test_event(&EventInput {
+                data_type: DataType::AiEvents,
+                force_overflow: true,
+                skip_person_processing: false,
+                redirect_to_dlq: false,
+                redirect_to_topic: None,
+                overflow_reason: None,
+                ..Default::default()
+            });
+            event.metadata.overflow_reason = Some(OverflowReason::ForceLimited);
+            sink.send(event).await.unwrap();
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), 1);
+            assert_eq!(records[0].topic, AI_EVENTS_TOPIC);
+            assert_eq!(records[0].key.as_deref(), Some("test_token:test_user"));
+        }
+
+        #[tokio::test]
+        async fn ai_events_skip_person_keeps_key() {
+            // skip_person_processing sets the header but must not null the
+            // key: v1's sink only nulls keys for Main/Overflow destinations.
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AiEvents,
+                    force_overflow: false,
+                    skip_person_processing: true,
+                    redirect_to_dlq: false,
+                    redirect_to_topic: None,
+                    overflow_reason: None,
+                    ..Default::default()
+                },
+                ExpectedRouting {
+                    topic: AI_EVENTS_TOPIC,
+                    has_key: true,
+                    force_disable_person_processing: Some(true),
+                    ..Default::default()
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn ai_events_redirect_to_dlq() {
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AiEvents,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: true,
+                    redirect_to_topic: None,
+                    overflow_reason: None,
+                    ..Default::default()
+                },
+                ExpectedRouting {
+                    topic: DLQ_TOPIC,
+                    has_key: true,
+                    force_disable_person_processing: None,
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn ai_events_redirect_to_topic_wins() {
+            // A restriction-driven redirect beats the AI lane, matching v1
+            // where Destination::Custom overwrites Destination::AiEvents.
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AiEvents,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                    redirect_to_topic: Some("custom_topic".to_string()),
+                    overflow_reason: None,
+                    ..Default::default()
+                },
+                ExpectedRouting {
+                    topic: "custom_topic",
+                    has_key: true,
+                    force_disable_person_processing: None,
+                    rerouted: Rerouted::CustomTopic,
+                    ..Default::default()
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn ai_events_record_matches_other_lanes_byte_for_byte() {
+            // The AI lane must only change the topic: for the same event, the
+            // record key is the event key (token:distinct_id) and the headers
+            // are identical to what another dedicated lane produces.
+            let producer = MockKafkaProducer::new();
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+
+            let base = create_test_event(&EventInput::default());
+            let mut ai_event = base.clone();
+            ai_event.metadata.data_type = DataType::AiEvents;
+            let mut exception_event = base;
+            exception_event.metadata.data_type = DataType::ExceptionErrorTracking;
+
+            sink.send(ai_event).await.unwrap();
+            sink.send(exception_event).await.unwrap();
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), 2);
+            assert_eq!(records[0].topic, AI_EVENTS_TOPIC);
+            assert_eq!(records[1].topic, ERROR_TRACKING_TOPIC);
+            assert_eq!(records[0].key.as_deref(), Some("test_token:test_user"));
+            assert_eq!(records[0].key, records[1].key);
+            assert_eq!(records[0].payload, records[1].payload);
+            assert_eq!(
+                format!("{:?}", records[0].headers),
+                format!("{:?}", records[1].headers)
+            );
+        }
+
+        #[tokio::test]
+        async fn ai_events_missing_topic_falls_back_to_main() {
+            // Should be impossible in production (startup validation), but a
+            // misconfigured sink must degrade to the main topic, not error.
+            let producer = MockKafkaProducer::new();
+            let mut topics = test_topics();
+            topics.ai_events = None;
+            let sink = KafkaSinkBase::with_producer(producer.clone(), topics);
+
+            let input = EventInput {
+                data_type: DataType::AiEvents,
+                ..Default::default()
+            };
+            sink.send(create_test_event(&input)).await.unwrap();
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), 1);
+            assert_eq!(records[0].topic, MAIN_TOPIC);
+            assert_eq!(records[0].key.as_deref(), Some("test_token:test_user"));
+        }
+
+        #[tokio::test]
+        async fn ai_events_empty_topic_falls_back_to_main() {
+            let producer = MockKafkaProducer::new();
+            let mut topics = test_topics();
+            topics.ai_events = Some(String::new());
+            let sink = KafkaSinkBase::with_producer(producer.clone(), topics);
+
+            let input = EventInput {
+                data_type: DataType::AiEvents,
+                ..Default::default()
+            };
+            sink.send(create_test_event(&input)).await.unwrap();
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), 1);
+            assert_eq!(records[0].topic, MAIN_TOPIC);
         }
 
         // ==================== RedirectToTopic ====================
@@ -1953,11 +2928,14 @@ mod tests {
                     redirect_to_dlq: false,
                     redirect_to_topic: Some("custom_topic".to_string()),
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: "custom_topic",
                     has_key: true,
                     force_disable_person_processing: None,
+                    rerouted: Rerouted::CustomTopic,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1973,11 +2951,15 @@ mod tests {
                     redirect_to_dlq: true,
                     redirect_to_topic: Some("custom_topic".to_string()),
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1993,11 +2975,14 @@ mod tests {
                     redirect_to_dlq: false,
                     redirect_to_topic: Some("custom_topic".to_string()),
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: "custom_topic",
                     has_key: true,
                     force_disable_person_processing: None,
+                    rerouted: Rerouted::CustomTopic,
+                    ..Default::default()
                 },
             )
             .await;
@@ -2013,11 +2998,14 @@ mod tests {
                     redirect_to_dlq: false,
                     redirect_to_topic: Some("custom_topic".to_string()),
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: "custom_topic",
                     has_key: true,
                     force_disable_person_processing: Some(true),
+                    rerouted: Rerouted::CustomTopic,
+                    ..Default::default()
                 },
             )
             .await;
@@ -2033,72 +3021,17 @@ mod tests {
                     redirect_to_dlq: false,
                     redirect_to_topic: Some("custom_topic".to_string()),
                     overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: "custom_topic",
                     has_key: true,
                     force_disable_person_processing: None,
+                    rerouted: Rerouted::CustomTopic,
+                    ..Default::default()
                 },
             )
             .await;
-        }
-
-        // ==================== DLQ Header Tests ====================
-        // Verify that DLQ-specific headers (reason, step, timestamp) are set
-        // when routing to DLQ, and absent for all other routes.
-
-        #[tokio::test]
-        async fn dlq_headers_set_when_redirect_to_dlq() {
-            let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
-
-            let event = create_test_event(&EventInput {
-                data_type: DataType::AnalyticsMain,
-                force_overflow: false,
-                skip_person_processing: false,
-                redirect_to_dlq: true,
-                redirect_to_topic: None,
-                overflow_reason: None,
-            });
-            sink.send(event).await.unwrap();
-
-            let records = producer.get_records();
-            assert_eq!(records.len(), 1);
-            let headers = &records[0].headers;
-
-            assert_eq!(headers.dlq_reason.as_deref(), Some("event_restriction"));
-            assert_eq!(headers.dlq_step.as_deref(), Some("capture"));
-            assert!(
-                headers.dlq_timestamp.is_some(),
-                "dlq_timestamp should be set"
-            );
-
-            // Verify the timestamp is a valid RFC 3339 string
-            let ts = headers.dlq_timestamp.as_deref().unwrap();
-            chrono::DateTime::parse_from_rfc3339(ts)
-                .unwrap_or_else(|e| panic!("dlq_timestamp '{ts}' is not valid RFC 3339: {e}"));
-        }
-
-        #[tokio::test]
-        async fn dlq_headers_absent_for_normal_analytics() {
-            let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
-
-            let event = create_test_event(&EventInput {
-                data_type: DataType::AnalyticsMain,
-                force_overflow: false,
-                skip_person_processing: false,
-                redirect_to_dlq: false,
-                redirect_to_topic: None,
-                overflow_reason: None,
-            });
-            sink.send(event).await.unwrap();
-
-            let records = producer.get_records();
-            let headers = &records[0].headers;
-            assert_eq!(headers.dlq_reason, None);
-            assert_eq!(headers.dlq_step, None);
-            assert_eq!(headers.dlq_timestamp, None);
         }
 
         // ==================== overflow_reason routing tests ====================
@@ -2109,11 +3042,21 @@ mod tests {
         // analytics_main_force_overflow / snapshot_main_force_overflow cases
         // above (force_overflow short-circuits the overflow_reason branch).
 
+        /// `ForceLimited` implies person processing is off on its own: the
+        /// header is set whether or not the stamping site also set the flag,
+        /// so a keyless force-limited record can never reach person
+        /// processing with identity resolution still on.
+        #[rstest]
+        #[case::stamped_with_flag(true)]
+        #[case::reason_only(false)]
         #[tokio::test]
-        async fn overflow_reason_force_limited_routes_to_overflow_with_null_key_and_flag() {
+        async fn overflow_reason_force_limited_routes_to_overflow_with_null_key(
+            #[case] skip_person_processing: bool,
+        ) {
             assert_routing(
                 EventInput {
                     data_type: DataType::AnalyticsMain,
+                    skip_person_processing,
                     overflow_reason: Some(OverflowReason::ForceLimited),
                     ..Default::default()
                 },
@@ -2121,44 +3064,66 @@ mod tests {
                     topic: OVERFLOW_TOPIC,
                     has_key: false,
                     force_disable_person_processing: Some(true),
+                    ..Default::default()
                 },
             )
             .await;
         }
 
+        /// A person-on burst keeps its key on the analytics lane regardless of
+        /// the locality preference: the overflow consumer updates persons
+        /// keyed on distinct id, and spreading one distinct id across
+        /// partitions contends those updates.
+        #[rstest]
+        #[case::preserving_locality(true)]
+        #[case::spreading(false)]
         #[tokio::test]
-        async fn overflow_reason_rate_limited_preserves_key_when_preserve_locality() {
+        async fn overflow_reason_rate_limited_keeps_key_while_person_processing_on(
+            #[case] preserve_locality: bool,
+        ) {
             assert_routing(
                 EventInput {
                     data_type: DataType::AnalyticsMain,
-                    overflow_reason: Some(OverflowReason::RateLimited {
-                        preserve_locality: true,
-                    }),
+                    overflow_reason: Some(OverflowReason::RateLimited { preserve_locality }),
                     ..Default::default()
                 },
                 ExpectedRouting {
                     topic: OVERFLOW_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
         }
 
+        /// The wire outcome for the combination the global rate limiter and the
+        /// overflow limiter produce together (the GRL stamps the person flag,
+        /// the burst limiter overwrites the reason): the record keeps the
+        /// person-processing header and loses the partition key, on either
+        /// locality setting.
+        #[rstest]
+        #[case::analytics_preserving(DataType::AnalyticsMain, true, OVERFLOW_TOPIC)]
+        #[case::analytics_spreading(DataType::AnalyticsMain, false, OVERFLOW_TOPIC)]
+        #[case::ai_preserving(DataType::AiEvents, true, AI_EVENTS_OVERFLOW_TOPIC)]
         #[tokio::test]
-        async fn overflow_reason_rate_limited_drops_key_when_not_preserve_locality() {
+        async fn overflow_reason_rate_limited_drops_key_when_person_off(
+            #[case] data_type: DataType,
+            #[case] preserve_locality: bool,
+            #[case] expected_topic: &str,
+        ) {
             assert_routing(
                 EventInput {
-                    data_type: DataType::AnalyticsMain,
-                    overflow_reason: Some(OverflowReason::RateLimited {
-                        preserve_locality: false,
-                    }),
+                    data_type,
+                    skip_person_processing: true,
+                    overflow_reason: Some(OverflowReason::RateLimited { preserve_locality }),
                     ..Default::default()
                 },
                 ExpectedRouting {
-                    topic: OVERFLOW_TOPIC,
+                    topic: expected_topic,
                     has_key: false,
-                    force_disable_person_processing: None,
+                    force_disable_person_processing: Some(true),
+                    ..Default::default()
                 },
             )
             .await;
@@ -2180,6 +3145,7 @@ mod tests {
                     topic: HISTORICAL_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -2197,6 +3163,7 @@ mod tests {
                     topic: REPLAY_OVERFLOW_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -2221,6 +3188,7 @@ mod tests {
                     topic: OVERFLOW_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -2229,7 +3197,10 @@ mod tests {
         #[tokio::test]
         async fn overflow_reason_redirect_to_dlq_wins_over_overflow_reason() {
             // DLQ routing is the highest-priority routing decision: it wins
-            // over both force_overflow and overflow_reason.
+            // over both force_overflow and overflow_reason. The
+            // person-processing header still travels with the ForceLimited
+            // reason — routing precedence changes the topic, not the skip
+            // (production stamps the flag alongside the reason anyway).
             assert_routing(
                 EventInput {
                     data_type: DataType::AnalyticsMain,
@@ -2240,7 +3211,10 @@ mod tests {
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
                     has_key: true,
-                    force_disable_person_processing: None,
+                    force_disable_person_processing: Some(true),
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
                 },
             )
             .await;
@@ -2261,7 +3235,11 @@ mod tests {
                 ExpectedRouting {
                     topic: "custom_topic",
                     has_key: true,
-                    force_disable_person_processing: None,
+                    // The header travels with the reason regardless of the
+                    // routing precedence, as in the dlq case above.
+                    force_disable_person_processing: Some(true),
+                    rerouted: Rerouted::CustomTopic,
+                    ..Default::default()
                 },
             )
             .await;
@@ -2290,6 +3268,7 @@ mod tests {
                         redirect_to_dlq: false,
                         redirect_to_topic: None,
                         overflow_reason: None,
+                        ..Default::default()
                     })
                 })
                 .collect();
@@ -2353,6 +3332,7 @@ mod tests {
                         redirect_to_dlq: false,
                         redirect_to_topic: None,
                         overflow_reason: None,
+                        ..Default::default()
                     })
                 })
                 .collect();
@@ -2367,6 +3347,7 @@ mod tests {
                 redirect_to_dlq: false,
                 redirect_to_topic: None,
                 overflow_reason: None,
+                ..Default::default()
             });
             bad.metadata.session_id = None;
             events[2] = bad;

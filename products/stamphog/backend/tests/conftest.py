@@ -25,6 +25,7 @@ from products.stamphog.backend.temporal.activities import (
     mark_review_failed,
     post_verdict,
     run_review_in_sandbox,
+    signal_review_started,
 )
 from products.stamphog.backend.tests import fakes
 
@@ -107,12 +108,14 @@ def _inline_review_workflow(review_run_id: str, team_id: int) -> None:
     """Stand in for the Temporal client by driving the real activities in order.
 
     Mirrors StamphogReviewWorkflow: dismiss stale approvals FIRST (fail-closed — even a context-fetch
-    failure must not leave an earlier head's approval standing), then fetch context, run in the (faked)
-    sandbox, post the verdict; on any error mark the run failed, exactly like the workflow's failure path.
+    failure must not leave an earlier head's approval standing), signal the review has started (the
+    "review in flight" 👀), then fetch context, run in the (faked) sandbox, post the verdict; on any
+    error mark the run failed, exactly like the workflow's failure path.
     """
     inp = StamphogReviewInput(review_run_id=review_run_id, team_id=team_id)
     try:
         _run_activity(dismiss_stale_approvals, inp)
+        _run_activity(signal_review_started, inp)
         _run_activity(fetch_review_context, inp)
         # One bot-wait poll, no sleeping: mirrors the workflow's loop semantics (refresh the
         # reactions snapshot, then proceed) without its durable timers.
@@ -182,7 +185,7 @@ def stamphog_chain() -> Iterator[StamphogChain]:
     with ExitStack() as stack:
         stack.enter_context(
             override_settings(
-                STAMPHOG_GITHUB_WEBHOOK_SECRET=WEBHOOK_SECRET,
+                STAMPHOG_GITHUB_APP_WEBHOOK_SECRET=WEBHOOK_SECRET,
                 STAMPHOG_GITHUB_APP_ID="123456",
                 STAMPHOG_GITHUB_APP_PRIVATE_KEY=_generate_app_private_key(),
             )

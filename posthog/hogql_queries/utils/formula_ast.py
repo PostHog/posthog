@@ -25,7 +25,7 @@ class FormulaAST:
             map = {}
             for index, value in enumerate(consts):
                 map[chr(ord("`") + index + 1)] = value
-            result = self._evaluate(node.lower(), map)
+            result = self._evaluate(node.strip().lower(), map)
             res.append(result)
         return res
 
@@ -61,7 +61,9 @@ class FormulaAST:
             except ZeroDivisionError:
                 return 0
             except KeyError:
-                raise ValueError(f"Operator {op.__class__.__name__} not supported")
+                raise ExposedHogQLError(
+                    f"Formulas only support arithmetic ( + - * / % ** ) between series, not {op.__class__.__name__}"
+                )
 
         elif isinstance(node, ast.UnaryOp):
             operand = self._evaluate(node.operand, const_map)
@@ -73,7 +75,9 @@ class FormulaAST:
                 return -operand
             elif isinstance(unary_op, ast.UAdd):
                 return operand
-            raise ValueError(f"Operator {unary_op.__class__.__name__} not supported")
+            raise ExposedHogQLError(
+                f"Formulas only support arithmetic ( + - * / % ** ) between series, not {unary_op.__class__.__name__}"
+            )
 
         elif (
             isinstance(node, ast.Constant) and isinstance(node.value, int | float) and not isinstance(node.value, bool)
@@ -91,4 +95,11 @@ class FormulaAST:
                     f"but only {len(available)} {series_word} defined ({', '.join(available) or 'none'})"
                 )
 
-        raise TypeError(f"Unsupported operation: {node.__class__.__name__}")
+        elif isinstance(node, ast.Call):
+            called = f"{node.func.id.upper()}()" if isinstance(node.func, ast.Name) else "function calls"
+            raise ExposedHogQLError(
+                f"Formulas only support arithmetic between series (like (A + B) / 2), not {called}. "
+                f"To aggregate a series, set its measurement (for example median or p95) on the series itself."
+            )
+
+        raise ExposedHogQLError(f"Formulas only support arithmetic between series, not {node.__class__.__name__}")

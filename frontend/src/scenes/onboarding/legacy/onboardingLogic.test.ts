@@ -1,9 +1,12 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -103,6 +106,16 @@ describe('onboardingLogic — flow composition', () => {
             expect(logic.values.flow).toEqual([])
             expect(logic.values.currentFlowStep).toBeNull()
         })
+
+        it('includes the web analytics path cleaning step only when its flag is enabled', () => {
+            featureFlagLogic
+                .findMounted()
+                ?.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS], {
+                    [FEATURE_FLAGS.WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS]: true,
+                })
+            logic.actions.setProductKey(ProductKey.WEB_ANALYTICS)
+            expect(flowIds()).toContain('path_cleaning:web_analytics')
+        })
     })
 
     describe('install-step dedup — POSTHOG_JS', () => {
@@ -193,6 +206,18 @@ describe('onboardingLogic — flow composition', () => {
                 INSTALL_DEDUP_KEYS.POSTHOG_JS,
                 INSTALL_DEDUP_KEYS.OPENTELEMETRY,
             ])
+        })
+
+        // Metrics and Logs both send over OTel, but their install steps are NOT
+        // functionally identical (Metrics is OTLP/scrape-agent only; Logs offers 10
+        // SDK-specific flows). Collapsing them would drop the loser's instruction map,
+        // so picking both must keep both install steps regardless of which is primary.
+        it('Metrics primary + Logs secondary keeps both install steps (no dedup)', () => {
+            logic.actions.setProductKey(ProductKey.METRICS)
+            logic.actions.setSecondaryProductKeys([ProductKey.LOGS])
+
+            const installs = logic.values.flow.filter((s) => s.stepKey === OnboardingStepKey.INSTALL)
+            expect(installs.map((s) => s.id)).toEqual(['install:metrics', 'install:logs'])
         })
     })
 
@@ -422,6 +447,16 @@ describe('onboardingLogic — flow composition', () => {
                     type: logic.actionTypes.recordProductIntentOnboardingComplete,
                     payload: { product_type: ProductKey.PRODUCT_ANALYTICS } as any,
                 },
+                (action) => {
+                    if (action.type !== logic.actionTypes.updateCurrentTeam) {
+                        return false
+                    }
+                    expect(action.payload).toMatchObject({
+                        completed_snippet_onboarding: true,
+                        has_completed_onboarding_for: { [ProductKey.PRODUCT_ANALYTICS]: true },
+                    })
+                    return true
+                },
             ])
         })
 
@@ -474,6 +509,25 @@ describe('onboardingLogic — flow composition', () => {
             await expectLogic(logic, () => {
                 logic.actions.completeOnboarding()
             }).toNotHaveDispatchedActions(['recordProductIntentOnboardingComplete', 'setIsCompleting'])
+        })
+    })
+
+    describe('completeSelfDrivingOnboarding', () => {
+        it('persists both onboarding completion signals', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.completeSelfDrivingOnboarding()
+            }).toDispatchActions([
+                (action) => {
+                    if (action.type !== logic.actionTypes.updateCurrentTeam) {
+                        return false
+                    }
+                    expect(action.payload).toMatchObject({
+                        completed_snippet_onboarding: true,
+                        has_completed_onboarding_for: { [ProductKey.PRODUCT_ANALYTICS]: true },
+                    })
+                    return true
+                },
+            ])
         })
     })
 
@@ -663,6 +717,57 @@ describe('onboardingLogic — flow composition', () => {
             // The flow now reflects just WA.
             expect(logic.values.secondaryProductKeys).toEqual([])
             expect(flowStepKeys()).not.toContain(OnboardingStepKey.LINK_DATA)
+        })
+    })
+
+    // Gate regressions here invalidate the experiment: leaking the step to control users breaks the
+    // readout, hiding it from test users ships a dead experiment.
+    describe('AI reports step gating', () => {
+        const setFlags = (variants: Record<string, string | boolean>): void => {
+            featureFlagLogic.findMounted()?.actions.setFeatureFlags(Object.keys(variants), variants)
+        }
+
+        it('includes the step last when AI subscriptions are available and the arm is test', () => {
+            setFlags({
+                [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true,
+                [FEATURE_FLAGS.ONBOARDING_AI_REPORTS]: 'test',
+            })
+            // The org load is async in the test env; the gate needs is_ai_data_processing_approved.
+            organizationLogic.findMounted()?.actions.loadCurrentOrganizationSuccess(MOCK_DEFAULT_ORGANIZATION)
+            logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
+
+            expect(flowIds()[flowIds().length - 1]).toBe('ai_reports:product_analytics')
+        })
+
+        it.each([
+            ['the arm is control', { [FEATURE_FLAGS.ONBOARDING_AI_REPORTS]: 'control' }],
+            ['the experiment flag is unset', {}],
+            [
+                'AI subscriptions are unavailable',
+                {
+                    [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: false,
+                    [FEATURE_FLAGS.ONBOARDING_AI_REPORTS]: 'test',
+                },
+            ],
+        ])('excludes the step when %s', (_label, extraVariants) => {
+            setFlags({ [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true, ...extraVariants })
+            logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
+
+            expect(flowStepKeys()).not.toContain(OnboardingStepKey.AI_REPORTS)
+        })
+
+        it('excludes the step when the organization has not approved AI data processing', async () => {
+            setFlags({
+                [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true,
+                [FEATURE_FLAGS.ONBOARDING_AI_REPORTS]: 'test',
+            })
+            organizationLogic.findMounted()?.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: false,
+            })
+            logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
+
+            expect(flowStepKeys()).not.toContain(OnboardingStepKey.AI_REPORTS)
         })
     })
 })

@@ -9,6 +9,7 @@ _ACCOUNTS = [
     IntegrationAccount(value="PostHog/posthog", display_name="PostHog/posthog"),
     IntegrationAccount(value="PostHog/code", display_name="PostHog/code"),
     IntegrationAccount(value="123", display_name="Acme Ads", secondary_text="ACC-987"),
+    IntegrationAccount(value="456", display_name="Client One", group="Umbrella Corp"),
 ]
 
 
@@ -28,6 +29,12 @@ class TestFilterIntegrationAccounts:
     def test_matches_secondary_text(self):
         result = filter_integration_accounts(_ACCOUNTS, "acc-987")
         assert [a.value for a in result] == ["123"]
+
+    def test_matches_group(self):
+        # The client folds `group` into its own search text, but it can only match rows the server
+        # returned — so searching a manager's name has to survive this filter first.
+        result = filter_integration_accounts(_ACCOUNTS, "umbrella")
+        assert [a.value for a in result] == ["456"]
 
     def test_no_match_returns_empty(self):
         assert filter_integration_accounts(_ACCOUNTS, "nonexistent") == []

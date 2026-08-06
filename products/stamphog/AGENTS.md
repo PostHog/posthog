@@ -20,9 +20,27 @@ head-changing event must retract standing approvals itself:
   `_retract_stale_approvals_on_skip`.
 - `post_verdict` persists `posted_review_id` the moment GitHub accepts the review, and any path
   that abandons the run _after_ posting (lost terminal save, superseded/head-moved guards on
-  retry) dismisses its own orphan (`_dismiss_orphaned_approval`).
+  retry) dismisses its own orphan (`_dismiss_orphaned_approval`). Before posting it also
+  ADOPTS-then-persists: if this App already has an active APPROVE pinned to exactly `run.head_sha`
+  on GitHub (a prior attempt that posted, then crashed before the immediate persist), it takes that
+  review's id instead of stacking a second approval the DB-keyed sweep could never see.
 - The sweep in [`logic/approvals.py`](backend/logic/approvals.py) keys off `posted_review_id`
   alone — filtering on a saved verdict would miss crashed runs' orphans.
+- `dismiss_stale_approvals` also runs a GitHub-side belt-and-braces sweep after the DB sweep: it
+  lists this App's still-active APPROVED reviews and dismisses every one regardless of head, catching
+  an orphan that has no `ReviewRun` row at all (the DB sweep is blind to it). Both write-adjacent
+  paths (this sweep and `post_verdict`'s adopt) identify "ours" via the exact `<slug>[bot]` login and
+  do NOTHING when `STAMPHOG_GITHUB_APP_SLUG` is unset — a fuzzy "any Bot" match must never dismiss or
+  adopt another bot's review.
+- A run that reaches a **non-approve terminal** (`post_verdict`'s gated/refused/escalate/wait branch,
+  or `mark_review_failed`) re-runs the GitHub-side own-approvals sweep at its own end
+  (`_sweep_orphan_approvals_at_terminal`). This closes the supersession race: an older run can clear
+  `post_verdict`'s final guards, get superseded, then land its GitHub approval AFTER the newer run's
+  STARTUP sweep — and if the newer run refuses (or fails), nothing lists our approvals again, so the
+  orphan stands over a refusing verdict. The keep-set excludes every OTHER live run's persisted
+  `posted_review_id` (writer-pinned read), so a slow run at terminal never dismisses a newer run's
+  legit approval. UNLIKE the fail-closed startup sweep, the terminal sweep is fail-open: a GitHub error
+  must not block the terminal save (the integrity gap on error is the pre-existing exposure, no worse).
 
 ## Supersession and terminal states
 
@@ -58,6 +76,61 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
   `STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS`, not code edits.
 - Everything posted to GitHub goes through `_scrub_credentials` AND `_neutralize_active_markdown`
   (GitHub's camo proxy auto-fetches images — a markdown image URL is an exfiltration channel).
+
+## The self-driving inbox carve-out (the one exception to the bot-author refusal)
+
+Bot-authored PRs are refused at every layer — the webhook pre-filter (`_review_skip_reason`),
+the engine (`review_pr.py::_refuse_bot_author`, mirrored by `review_local.py`), and the
+Action's job gates — with ONE deliberate exception: a PR **positively linked** to a
+self-driving Inbox implementation run (a signal-report-carrying TaskRun at
+`ai_stage="implementation"`, matched through the tasks facade), one of whose assigned reviewers
+opted in via ReviewHog's per-user `stamphog_review_inbox_prs` toggle. Rules that keep the exception
+narrow:
+
+- Identification is **server-attested task linkage plus server-attested PR identity** — both
+  required, neither trusted alone. The task link is unforgeable by construction: signals'
+  auto_start generates the head branch name (`posthog-self-driving/<slug>-<hex>`) before the
+  agent runs and stamps it into PATCH-protected run state (`state.self_driving_head_branch`),
+  and `find_signal_implementation_run` matches the PR's GitHub-attested head ref against that
+  stamp — never against the API-writable `output.pr_url` / `output.head_branch`. The identity
+  half, `_is_self_driving_pr`, requires two facts only GitHub attests — the PR is authored
+  by this instance's PostHog GitHub App machine user (`<GITHUB_APP_SLUG>[bot]`) on a repo-native head
+  (never a fork) — enforced on **both** the receiver leg (`process_inbox_pr_review`) and the
+  webhook leg (`_inbox_rereview_carve_out`), failing closed when the App slug is unconfigured.
+  The fork exclusion is load-bearing for the linkage too: a head ref is only GitHub's word when
+  the head lives in the base repo. This is a positive App-identity match, not the general "any
+  bot" rule: `github.py::is_bot_author` must not be weakened, and dependabot / renovate /
+  posthog-bot / any foreign App fail it.
+- **What a malicious teammate can still do, and what they can't.** Rewriting `output.pr_url`,
+  `TaskRun.branch`, `Task.repository`, or `suggested_reviewers` no longer aims the carve-out at a
+  different PR: matching reads none of them, and the stamped branch plus `ai_stage` and
+  `signal_report_id` are not PATCHable. What remains team-internal and accepted: an opted-in
+  assigned reviewer's existence is still the gate (see the reviewer-authorization discussion on
+  PR #72680), and a teammate who can edit the _report_ before auto-start still influences what
+  the implementation agent builds — that is the product working as designed, reviewed as any PR.
+- The engine flag (`self_driving_review` in the hosted context JSON →
+  `Pipeline(self_driving=...)`) defaults closed and the Action never sets it, so Action
+  behavior is unchanged by construction. It relaxes exactly two gates — the bot-author
+  refusal and the draft prerequisite (the verdict must exist at Inbox triage time, while the
+  PR is still a draft) — and swaps human-author trust context for a TRUSTED provenance block
+  in the prompt. The hosted server sets the flag exclusively from the run's persisted inbox
+  provenance (`ReviewRun.output["inbox_review"]`), which only the two linkage-verified
+  trigger paths stamp.
+- The initial review is the receiver leg (`process_inbox_pr_review`, entered via the
+  `queue_inbox_pr_review` facade after review_hog checked the toggles); the webhook leg
+  re-reviews only on synchronize / reopen / base retarget, re-checking them through the
+  `facade/inbox_hooks.py` resolver (registered by review_hog at app-ready — a direct import
+  of review_hog would be a dependency cycle). No registered resolver means fail-closed: no
+  re-review. The gate is **any** assigned reviewer's opt-in, and both legs must resolve it
+  identically: if one fired while the other saw "opted out", a push would retract a standing
+  approval with somebody still opted in.
+- Dismissal is never preference-gated. Every toggle switched off mid-PR stops new runs, but the
+  skip paths' head-changing retraction still voids the standing approval (the stale-approval
+  invariant above is untouched), and every carved-out run still enters the workflow through
+  `dismiss_stale_approvals` first.
+- These runs bypass the review-mode and author-write-permission gates: the reviewers' toggle is
+  the gate, and the App's machine user is not a collaborator (the permission lookup would always
+  deny). `review_mode` keeps governing human PRs only.
 
 ## Trust boundaries
 

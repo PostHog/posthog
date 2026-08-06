@@ -115,12 +115,17 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
 
         # posthog.tasks.team_metadata sits under posthog.tasks, whose __init__ is a celery
         # autoimport aggregator that pulls in every task module — keep that off the API
-        # router's import path by deferring it to call time.
+        # router's import path by deferring it to call time. The local tasks module is
+        # deferred for the same reason (it imports celery machinery).
         from posthog.tasks.team_metadata import update_team_metadata_cache_task  # noqa: PLC0415
 
-        # /flags and /decide read this value out of team_metadata_hypercache, not the DB, so the
-        # write above has no effect until that cache is rebuilt.
+        from products.feature_flags.backend.tasks import update_team_flags_cache  # noqa: PLC0415
+
+        # /flags and /decide read this value out of team_metadata_hypercache, and local-eval
+        # SDKs read it out of the flag-definitions blob — neither reads the DB, so the write
+        # above has no effect until both caches are rebuilt.
         update_team_metadata_cache_task.delay(team.id)
+        update_team_flags_cache.delay(team.id)
 
         logger.info(
             "flags_staff_team_config_updated",

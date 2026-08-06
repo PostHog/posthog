@@ -5,7 +5,7 @@ from parameterized import parameterized
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HeightSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.height import HeightSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.height.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.height.source import HeightSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType

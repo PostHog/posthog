@@ -9,6 +9,12 @@ SNAPCHAT_APP_CLIENT_SECRET = get_from_env("SNAPCHAT_APP_CLIENT_SECRET", "")
 INTERCOM_APP_CLIENT_ID = get_from_env("INTERCOM_APP_CLIENT_ID", "")
 INTERCOM_APP_CLIENT_SECRET = get_from_env("INTERCOM_APP_CLIENT_SECRET", "")
 
+# Resend registers a confidential OAuth client (token_endpoint_auth_method=client_secret_post) via
+# its dynamic client registration API (POST https://api.resend.com/oauth/register). Empty defaults
+# keep the app importable and the OAuth auth method dormant until the client is provisioned.
+RESEND_APP_CLIENT_ID = get_from_env("RESEND_APP_CLIENT_ID", "")
+RESEND_APP_CLIENT_SECRET = get_from_env("RESEND_APP_CLIENT_SECRET", "")
+
 SALESFORCE_CONSUMER_KEY = get_from_env("SALESFORCE_CONSUMER_KEY", "")
 SALESFORCE_CONSUMER_SECRET = get_from_env("SALESFORCE_CONSUMER_SECRET", "")
 
@@ -44,7 +50,7 @@ GITHUB_APP_CLIENT_SECRET = get_from_env("GITHUB_APP_CLIENT_SECRET", "")
 # webhook secret. Empty defaults keep the app importable when Stamphog is unconfigured.
 STAMPHOG_GITHUB_APP_ID = get_from_env("STAMPHOG_GITHUB_APP_ID", "")
 STAMPHOG_GITHUB_APP_PRIVATE_KEY = get_from_env("STAMPHOG_GITHUB_APP_PRIVATE_KEY", "")
-STAMPHOG_GITHUB_WEBHOOK_SECRET = get_from_env("STAMPHOG_GITHUB_WEBHOOK_SECRET", "")
+STAMPHOG_GITHUB_APP_WEBHOOK_SECRET = get_from_env("STAMPHOG_GITHUB_APP_WEBHOOK_SECRET", "")
 # OAuth client id/secret for the Stamphog App's user-to-server authorization flow (enabled via
 # "Request user authorization during installation"). Used to exchange the post-install `code` for a
 # user access token and prove the caller actually owns the installation before its repos are bound to
@@ -101,7 +107,6 @@ STRIPE_APP_OVERRIDE_AUTHORIZE_URL = get_from_env("STRIPE_APP_OVERRIDE_AUTHORIZE_
 STRIPE_APP_SECRET_KEY = get_from_env("STRIPE_APP_SECRET_KEY", "")
 STRIPE_POSTHOG_OAUTH_CLIENT_ID = get_from_env("STRIPE_POSTHOG_OAUTH_CLIENT_ID", "")
 STRIPE_SIGNING_SECRET = get_from_env("STRIPE_SIGNING_SECRET", "")
-STRIPE_ORCHESTRATOR_CALLBACK_URL = get_from_env("STRIPE_ORCHESTRATOR_CALLBACK_URL", "")
 
 # WorkOS Radar (bot/fraud detection for auth flows)
 WORKOS_RADAR_API_KEY = get_from_env("WORKOS_RADAR_API_KEY", "")
@@ -144,6 +149,27 @@ HEATMAP_BROWSERLESS_TOKEN = get_from_env("HEATMAP_BROWSERLESS_TOKEN", "")
 HEATMAP_BROWSERLESS_TIMEOUT_MS = get_from_env("HEATMAP_BROWSERLESS_TIMEOUT_MS", 180000, type_cast=int)
 HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS = get_from_env("HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS", 30000, type_cast=int)
 HEATMAP_BROWSERLESS_BLOCK_ADS = get_from_env("HEATMAP_BROWSERLESS_BLOCK_ADS", False, type_cast=str_to_bool)
+
+# PostHog connect — lets a user connect (via the target's OAuth consent flow) to another PostHog
+# project to drive its APIs, e.g. dispatching a Task that must run in that project (including one in
+# another region, to reach region-resident data). The target may be in a different region OR the
+# same one as the connecting project — same-region is just "target region == your region". The
+# connecting side is the OAuth *client*: it redirects to the target region's /oauth/authorize and
+# exchanges the code against its /oauth/token, so it needs that region's registered app credentials
+# plus its public base URL. One entry per region a user may connect TO (your own included). Empty
+# defaults keep the app importable until the OAuthApplications are provisioned in each region, in
+# which case the connect flow fails closed for the unconfigured region.
+POSTHOG_CONNECT_OAUTH_CLIENT_ID_US = get_from_env("POSTHOG_CONNECT_OAUTH_CLIENT_ID_US", "")
+POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_US = get_from_env("POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_US", "")
+POSTHOG_CONNECT_OAUTH_CLIENT_ID_EU = get_from_env("POSTHOG_CONNECT_OAUTH_CLIENT_ID_EU", "")
+POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_EU = get_from_env("POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_EU", "")
+POSTHOG_CONNECT_OAUTH_CLIENT_ID_DEV = get_from_env("POSTHOG_CONNECT_OAUTH_CLIENT_ID_DEV", "")
+POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_DEV = get_from_env("POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_DEV", "")
+# Public base URL of each target cell's OAuth server. DEV points at the local instance so the flow
+# is exercisable end to end against a single dev stack; override via env for a custom dev host.
+POSTHOG_CONNECT_BASE_URL_US = get_from_env("POSTHOG_CONNECT_BASE_URL_US", "https://us.posthog.com")
+POSTHOG_CONNECT_BASE_URL_EU = get_from_env("POSTHOG_CONNECT_BASE_URL_EU", "https://eu.posthog.com")
+POSTHOG_CONNECT_BASE_URL_DEV = get_from_env("POSTHOG_CONNECT_BASE_URL_DEV", "http://localhost:8000")
 
 # Legacy OAuth client credentials kept alive during an app or secret rotation.
 # Refreshes fall back to these when the primary credentials fail, so tokens issued

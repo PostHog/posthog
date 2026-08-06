@@ -92,6 +92,9 @@ export interface metricsUsageTrackingLogicActions {
         viewMode: MetricsViewMode
     } // metricsViewerLogic
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
+    exemplarDotClicked: (hasSpanId: boolean) => {
+        hasSpanId: boolean
+    }
     sampleRowExpanded: (sample: _MetricEventSampleApi) => {
         sample: _MetricEventSampleApi
     }
@@ -144,6 +147,7 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
         // Component-only interactions with no source-logic action to listen to.
         sampleRowExpanded: (sample: _MetricEventSampleApi) => ({ sample }),
         tracePivotClicked: (sample: _MetricEventSampleApi) => ({ sample }),
+        exemplarDotClicked: (hasSpanId: boolean) => ({ hasSpanId }),
     }),
     listeners(({ actions, values, cache }) => ({
         sceneTabChanged: ({ activeTab }) => {
@@ -253,6 +257,9 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
         },
         tracePivotClicked: ({ sample }) => {
             posthog.capture('metrics trace pivot clicked', { has_span_id: !!sample.span_id })
+        },
+        exemplarDotClicked: ({ hasSpanId }) => {
+            posthog.capture('metrics exemplar dot clicked', { has_span_id: hasSpanId })
         },
     })),
 ])

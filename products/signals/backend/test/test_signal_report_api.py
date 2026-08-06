@@ -18,15 +18,45 @@ from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
 
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
+from posthog.egress.limiter.policies import Priority
+from posthog.models import OAuthApplication
 from posthog.models.team.team import Team
+from posthog.models.user_integration import UserIntegration
+from posthog.temporal.oauth import (
+    ARRAY_APP_CLIENT_ID_DEV,
+    ARRAY_APP_CLIENT_ID_EU,
+    ARRAY_APP_CLIENT_ID_US,
+    create_oauth_access_token_for_user,
+)
 
-from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
+from products.signals.backend.implementation_pr import (
+    fetch_implementation_pr_state_for_reports,
+    fetch_implementation_pr_urls_for_reports,
+)
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
 from products.signals.backend.signal_metadata import ReportSignalMeta
 from products.signals.backend.task_run_artefacts import append_task_run_artefact, record_implementation_task
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import Task, TaskRun
+
+
+def authenticate_as_sandbox_token(test: APIBaseTest) -> None:
+    for client_id in (ARRAY_APP_CLIENT_ID_DEV, ARRAY_APP_CLIENT_ID_US, ARRAY_APP_CLIENT_ID_EU):
+        OAuthApplication.objects.get_or_create(
+            client_id=client_id,
+            defaults={
+                "name": "Array Test App",
+                "client_type": OAuthApplication.CLIENT_PUBLIC,
+                "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                "redirect_uris": "https://app.posthog.com/callback",
+                "algorithm": "RS256",
+            },
+        )
+    token = create_oauth_access_token_for_user(test.user, test.team.id, scopes=["task:read", "task:write"])
+    test.client.logout()
+    test.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
 
 class TestSignalReportDeleteAPI(APIBaseTest):
@@ -615,6 +645,41 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["implementation_pr_url"] == "https://github.com/o/r/pull/7"
 
+    @parameterized.expand(
+        [
+            # The badge reads this flag, so it must track the webhook's merge record rather than the
+            # report status — a resolved report may have been resolved directly, PR still open.
+            ("merged_pr", SignalReport.Status.READY, {"pr_url": "https://github.com/o/r/pull/7", "pr_merged": True}),
+            ("resolved_without_merge", SignalReport.Status.RESOLVED, {"pr_url": "https://github.com/o/r/pull/7"}),
+            ("no_pr_run", SignalReport.Status.RESOLVED, None),
+        ]
+    )
+    def test_implementation_pr_merged_reflects_merge_flag_not_status(self, _name, report_status, output):
+        report = self._create_report(status=report_status)
+        if output is not None:
+            self._create_implementation_task_with_run(report, output=output)
+        expected = bool(output and output.get("pr_merged"))
+
+        list_row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
+        detail = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/").json()
+
+        assert list_row["implementation_pr_merged"] is expected
+        assert detail["implementation_pr_merged"] is expected
+
+    def test_implementation_pr_merged_describes_the_surfaced_pr_not_a_sibling_task(self):
+        # A retried report has several implementation tasks but surfaces one PR. The merge flag must
+        # come from that same task — otherwise a sibling task's merged PR vouches for the PR whose
+        # URL is on screen, and the badge shows "merged" over an open PR.
+        report = self._create_report()
+        self._create_implementation_task_with_run(report, output={"pr_url": "https://github.com/o/r/pull/1"})
+        self._create_implementation_task_with_run(
+            report, output={"pr_url": "https://github.com/o/r/pull/2", "pr_merged": True}
+        )
+
+        row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
+
+        assert row["implementation_pr_merged"] is (row["implementation_pr_url"] == "https://github.com/o/r/pull/2")
+
     def test_implementation_pr_url_null_when_no_implementation_task(self):
         report = self._create_report()
 
@@ -703,17 +768,18 @@ class TestSignalReportListAPI(APIBaseTest):
 
         single = seed(1)
         with CaptureQueriesContext(connection) as for_one:
-            fetch_implementation_pr_urls_for_reports(single)
+            fetch_implementation_pr_state_for_reports(single)
         baseline = len(for_one.captured_queries)
 
         page = single + seed(5)
         with CaptureQueriesContext(connection) as for_many:
-            result = fetch_implementation_pr_urls_for_reports(page)
+            result = fetch_implementation_pr_state_for_reports(page)
 
         assert len(result) == 6
-        # Constant in the page size, and a small fixed cost (artefacts + gate rows + PR lookup).
+        # Constant in the page size, and a small fixed cost (artefacts + gate rows + PR url lookup +
+        # merge-flag lookup).
         assert len(for_many.captured_queries) == baseline
-        assert baseline <= 3
+        assert baseline <= 4
 
     # --- has_implementation_pr filter ---
 
@@ -918,7 +984,7 @@ class TestSignalReportListAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("source_products", "fetch_source_products_for_reports"),
-            ("implementation_pr_urls", "fetch_implementation_pr_urls_for_reports"),
+            ("implementation_pr_urls", "fetch_implementation_pr_state_for_reports"),
         ]
     )
     def test_list_resilient_to_supplementary_fetch_failure(self, _name, fetch_fn):
@@ -1293,6 +1359,17 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 "wontfix_irrelevant",
                 "snoozing for now",
             ),
+            (
+                "resolve_with_reason_and_note",
+                {
+                    "state": "resolved",
+                    "dismissal_reason": "already_fixed",
+                    "dismissal_note": "shipped a fix by hand",
+                },
+                SignalReport.Status.RESOLVED,
+                "already_fixed",
+                "shipped a fix by hand",
+            ),
         ]
     )
     def test_state_transition_with_dismissal(self, _name, body, expected_final_status, expected_reason, expected_note):
@@ -1322,6 +1399,32 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert content["note"] == expected_note
         assert content["user_id"] == self.user.id
         assert content["user_uuid"] == str(self.user.uuid)
+
+    @parameterized.expand(
+        [
+            ("resolve_with_reason", {"state": "resolved", "dismissal_reason": "already_fixed"}, "already_fixed"),
+            # A resolve carrying no feedback must not pick a reason up from anywhere.
+            ("resolve_without_reason", {"state": "resolved"}, None),
+        ]
+    )
+    def test_resolve_feedback_reaches_the_status_change_label(self, _name, body, expected_reason):
+        # The state API writes the dismissal artefact, but the label stream is produced by a separate
+        # post_save receiver — feedback that never reaches the label is invisible to inbox ranking.
+        report = self._create_report()
+        with patch("products.signals.backend.receivers.posthoganalytics.capture") as mock_capture:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(
+                    self._state_url(str(report.id)), data=json.dumps(body), content_type="application/json"
+                )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        label = next(
+            call.kwargs
+            for call in mock_capture.call_args_list
+            if call.kwargs["event"] == "signal_report_status_changed"
+        )
+        assert label["properties"]["status"] == SignalReport.Status.RESOLVED
+        assert label["properties"]["dismissal_reason"] == expected_reason
 
     def test_state_transition_response_includes_source_products(self):
         report = self._create_report()
@@ -1452,6 +1555,86 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         report.refresh_from_db()
         assert report.status == SignalReport.Status.POTENTIAL
+
+    @parameterized.expand(
+        [
+            # initial status, status before suppression, expected HTTP code, expected status after.
+            # Resolve is allowed only from a researched status, or from an archive that holds a
+            # researched report; every other status keeps returning 409 (the model state machine is
+            # not loosened).
+            ("ready", SignalReport.Status.READY, None, status.HTTP_200_OK, SignalReport.Status.RESOLVED),
+            (
+                "pending_input",
+                SignalReport.Status.PENDING_INPUT,
+                None,
+                status.HTTP_200_OK,
+                SignalReport.Status.RESOLVED,
+            ),
+            (
+                "suppressed_from_ready",
+                SignalReport.Status.SUPPRESSED,
+                SignalReport.Status.READY,
+                status.HTTP_200_OK,
+                SignalReport.Status.RESOLVED,
+            ),
+            # Archived before it was ever researched: resolving would land it in RESOLVED with no
+            # title or summary, so the archive can't launder an unresearched report to resolved.
+            (
+                "suppressed_from_candidate",
+                SignalReport.Status.SUPPRESSED,
+                SignalReport.Status.CANDIDATE,
+                status.HTTP_409_CONFLICT,
+                SignalReport.Status.SUPPRESSED,
+            ),
+            (
+                "suppressed_without_prior_status",
+                SignalReport.Status.SUPPRESSED,
+                None,
+                status.HTTP_409_CONFLICT,
+                SignalReport.Status.SUPPRESSED,
+            ),
+            # The model refuses failed -> resolved directly, so archiving must not launder a failed
+            # pipeline run into looking successfully resolved.
+            (
+                "suppressed_from_failed",
+                SignalReport.Status.SUPPRESSED,
+                SignalReport.Status.FAILED,
+                status.HTTP_409_CONFLICT,
+                SignalReport.Status.SUPPRESSED,
+            ),
+            (
+                "suppressed_from_pending_input",
+                SignalReport.Status.SUPPRESSED,
+                SignalReport.Status.PENDING_INPUT,
+                status.HTTP_200_OK,
+                SignalReport.Status.RESOLVED,
+            ),
+            ("candidate", SignalReport.Status.CANDIDATE, None, status.HTTP_409_CONFLICT, SignalReport.Status.CANDIDATE),
+            (
+                "in_progress",
+                SignalReport.Status.IN_PROGRESS,
+                None,
+                status.HTTP_409_CONFLICT,
+                SignalReport.Status.IN_PROGRESS,
+            ),
+            ("potential", SignalReport.Status.POTENTIAL, None, status.HTTP_409_CONFLICT, SignalReport.Status.POTENTIAL),
+        ]
+    )
+    def test_resolve_state_transition_by_status(
+        self, _name, initial_status, prior_status, expected_code, expected_status
+    ):
+        report = self._create_report(report_status=initial_status)
+        if prior_status is not None:
+            report.status_before_suppression = prior_status
+            report.save(update_fields=["status_before_suppression"])
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "resolved"}),
+            content_type="application/json",
+        )
+        assert response.status_code == expected_code, response.json()
+        report.refresh_from_db()
+        assert report.status == expected_status
 
     @parameterized.expand(
         [
@@ -1697,6 +1880,28 @@ class TestSignalReportBulkStateAPI(APIBaseTest):
         assert response.json()["transitioned_count"] == 1
         report.refresh_from_db()
         assert report.status == SignalReport.Status.READY
+
+    def test_bulk_resolve_mixed_statuses(self):
+        ready = self._create_report(report_status=SignalReport.Status.READY)
+        pending = self._create_report(report_status=SignalReport.Status.PENDING_INPUT)
+        # candidate can't resolve, so it comes back skipped while the rest still go through.
+        candidate = self._create_report(report_status=SignalReport.Status.CANDIDATE)
+
+        response = self._post({"ids": [str(ready.id), str(pending.id), str(candidate.id)], "state": "resolved"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["transitioned_count"] == 2
+        assert body["skipped_count"] == 1
+        outcomes = {row["id"]: row["outcome"] for row in body["results"]}
+        assert outcomes[str(ready.id)] == "transitioned"
+        assert outcomes[str(pending.id)] == "transitioned"
+        assert outcomes[str(candidate.id)] == "skipped"
+
+        ready.refresh_from_db()
+        candidate.refresh_from_db()
+        assert ready.status == SignalReport.Status.RESOLVED
+        assert candidate.status == SignalReport.Status.CANDIDATE
 
     @parameterized.expand(
         [
@@ -2146,3 +2351,225 @@ class TestSignalReportContentUpdateAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "read-only" in response.json()["error"]
+
+
+class TestSignalReportPrEndpoints(APIBaseTest):
+    def _create_report(self) -> SignalReport:
+        return SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Test report",
+            summary="Test summary",
+            signal_count=1,
+        )
+
+    def _checks_url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/pr_checks/"
+
+    def _comments_url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/pr_comments/"
+
+    def _review_comment_url(self, report_id: str, comment_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/pr_review_comments/{comment_id}/"
+
+    @parameterized.expand(
+        [
+            ("edit_other_pr", "patch", "", {"body": "edited"}, "8", status.HTTP_404_NOT_FOUND),
+            ("delete_other_pr", "delete", "", None, "8", status.HTTP_404_NOT_FOUND),
+            ("react_other_pr", "post", "reactions/", {"content": "+1"}, "8", status.HTTP_404_NOT_FOUND),
+            ("unreact_other_pr", "delete", "reactions/5/", None, "8", status.HTTP_404_NOT_FOUND),
+            ("delete_own_pr", "delete", "", None, "7", status.HTTP_204_NO_CONTENT),
+        ]
+    )
+    def test_review_comment_writes_are_scoped_to_the_reports_pr(
+        self, _name, method, suffix, payload, comment_pr, expected_status
+    ):
+        report = self._create_report()
+        UserIntegration.objects.create(user=self.user, kind=UserIntegration.IntegrationKind.GITHUB, integration_id="42")
+        user_github = patch("products.signals.backend.views.UserGitHubIntegration").start()
+        self.addCleanup(patch.stopall)
+        user_github.return_value.get_pull_request_review_comment.return_value = {
+            "success": True,
+            "comment": {
+                "id": 99,
+                "pull_request_url": f"https://api.github.com/repos/PostHog/posthog/pulls/{comment_pr}",
+            },
+        }
+        user_github.return_value.delete_pull_request_review_comment.return_value = {"success": True}
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+        ):
+            response = getattr(self.client, method)(
+                self._review_comment_url(str(report.id), "99") + suffix, data=payload, format="json"
+            )
+        assert response.status_code == expected_status
+
+    @parameterized.expand(
+        [
+            ("create", "post", "", {"body": "hi", "in_reply_to": "1"}),
+            ("edit", "patch", "99/", {"body": "edited"}),
+            ("delete", "delete", "99/", None),
+            ("react", "post", "99/reactions/", {"content": "+1"}),
+            ("unreact", "delete", "99/reactions/5/", None),
+        ]
+    )
+    def test_sandbox_oauth_token_cannot_write_review_comments_as_the_user(self, _name, method, suffix, payload):
+        # These writes reach GitHub under the requesting human's personal connection. A sandbox/agent
+        # token is minted as the task actor and carries task:write, so without the guard a prompt-injected
+        # run could comment, edit, delete, or react as the person who started it.
+        report = self._create_report()
+        UserIntegration.objects.create(user=self.user, kind=UserIntegration.IntegrationKind.GITHUB, integration_id="42")
+        user_github = patch("products.signals.backend.views.UserGitHubIntegration").start()
+        self.addCleanup(patch.stopall)
+        authenticate_as_sandbox_token(self)
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+        ):
+            response = getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/signals/reports/{report.id}/pr_review_comments/{suffix}",
+                data=payload,
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        user_github.assert_not_called()
+
+    def test_personal_api_key_cannot_write_review_comments_as_the_user(self):
+        # A personal API key is issued to automate against the API, not to act as its owner on
+        # GitHub. Only a browser session is admitted, so holding task:write must not be enough to
+        # reach the user's linked GitHub account. One endpoint is enough: every write resolves the
+        # caller through the same guard.
+        report = self._create_report()
+        UserIntegration.objects.create(user=self.user, kind=UserIntegration.IntegrationKind.GITHUB, integration_id="42")
+        user_github = patch("products.signals.backend.views.UserGitHubIntegration").start()
+        self.addCleanup(patch.stopall)
+        key_value = self.create_personal_api_key_with_scopes(["task:read", "task:write"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key_value}")
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/signals/reports/{report.id}/pr_review_comments/",
+                data={"body": "hi", "in_reply_to": "1"},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        user_github.assert_not_called()
+
+    def test_pr_checks_404_when_report_has_no_implementation_pr(self):
+        report = self._create_report()
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={},
+        ):
+            response = self.client.get(self._checks_url(str(report.id)))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_pr_checks_404_when_no_integration_can_access_repo(self):
+        report = self._create_report()
+        with (
+            patch(
+                "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+                return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+            ),
+            patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository", return_value=None),
+        ):
+            response = self.client.get(self._checks_url(str(report.id)))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_pr_checks_503_when_egress_budget_sheds_request(self):
+        report = self._create_report()
+        with (
+            patch(
+                "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+                return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+            ),
+            patch(
+                "products.signals.backend.views.GitHubIntegration.first_for_team_repository",
+                side_effect=GitHubEgressBudgetExhausted("shed"),
+            ),
+        ):
+            response = self.client.get(self._checks_url(str(report.id)))
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    def test_pr_checks_503_when_egress_budget_sheds_fetch(self):
+        report = self._create_report()
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        github.return_value.get_pull_request_checks.side_effect = GitHubEgressBudgetExhausted("shed")
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+        ):
+            response = self.client.get(self._checks_url(str(report.id)))
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    def test_pr_checks_success_returns_checks(self):
+        report = self._create_report()
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        checks = [{"name": "unit", "status": "completed", "conclusion": "success", "url": "https://gh/1"}]
+        github.return_value.get_pull_request_checks.return_value = {"success": True, "checks": checks}
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+        ):
+            response = self.client.get(self._checks_url(str(report.id)))
+            cached_response = self.client.get(self._checks_url(str(report.id)))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"checks": checks}
+        assert cached_response.status_code == status.HTTP_200_OK
+        assert cached_response.json() == {"checks": checks}
+        # The PR number is parsed off the stored URL and passed through to the integration.
+        assert github.return_value.get_pull_request_checks.call_args.args == ("PostHog/posthog", 7)
+        github.return_value.get_pull_request_checks.assert_called_once()
+        github.assert_called_once_with(
+            self.team.id,
+            "PostHog/posthog",
+            source="signals_pr_detail",
+            priority=Priority.NORMAL,
+        )
+
+    def test_pr_checks_maps_upstream_failure_to_502(self):
+        report = self._create_report()
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        github.return_value.get_pull_request_checks.return_value = {"success": False, "error": "boom"}
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+        ):
+            response = self.client.get(self._checks_url(str(report.id)))
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+
+    def test_pr_comments_success_returns_comments(self):
+        report = self._create_report()
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        comments = [
+            {
+                "id": "1",
+                "author": "alice",
+                "author_avatar_url": None,
+                "body": "lgtm",
+                "created_at": "2026-07-06T09:00:00Z",
+                "url": "https://gh/c/1",
+                "comment_type": "conversation",
+                "path": None,
+            }
+        ]
+        github.return_value.get_pull_request_comments.return_value = {"success": True, "comments": comments}
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+        ):
+            response = self.client.get(self._comments_url(str(report.id)))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"comments": comments}

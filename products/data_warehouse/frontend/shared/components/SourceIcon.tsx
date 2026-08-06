@@ -13,6 +13,7 @@ import IconAwsS3 from 'public/services/aws-s3.png'
 import Iconazure from 'public/services/azure.png'
 import IconCloudflare from 'public/services/cloudflare.png'
 import IconDuckDB from 'public/services/duckdb.svg'
+import IconFileUpload from 'public/services/file-upload.svg'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
@@ -69,6 +70,11 @@ function SourceIconImage({ src, alt, sizePx }: { src: string; alt: string; sizeP
             alt={alt}
             height={sizePx}
             width={sizePx}
+            // The catalog renders every source's icon at once (1000+ tiles). Without lazy loading the
+            // browser eagerly requests all of them on mount, flooding the network and delaying paint —
+            // only the icons scrolled into view need to load.
+            loading="lazy"
+            decoding="async"
             className="object-contain max-w-none rounded"
             onError={(e) => {
                 const img = e.currentTarget
@@ -86,6 +92,8 @@ export const DATA_WAREHOUSE_SOURCE_ICON_MAP: Record<string, string> = {
     'google-cloud': IconGoogleCloudStorage,
     'cloudflare-r2': IconCloudflare,
     azure: Iconazure,
+    // File upload has no backend SourceConfig (its `iconPath`), so map its icon here directly.
+    FileUpload: IconFileUpload,
     BlushingHog: BlushingHog, // fallback, we don't know what this is
     PostHog: IconPostHog,
 }

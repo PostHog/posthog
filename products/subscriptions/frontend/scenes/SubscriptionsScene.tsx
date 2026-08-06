@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -34,14 +34,28 @@ import { SubscriptionsTab, subscriptionsSceneLogic } from './subscriptionsSceneL
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
+function SubscriptionEnabledSwitch({ sub }: { sub: SubscriptionApi }): JSX.Element {
+    const { setSubscriptionEnabled } = useActions(subscriptionsSceneLogic)
+    const { togglingEnabledIds } = useValues(subscriptionsSceneLogic)
+    const enabled = isSubscriptionEnabled(sub)
+    return (
+        <LemonSwitch
+            checked={enabled}
+            onChange={(newEnabled) => setSubscriptionEnabled(sub.id, newEnabled)}
+            loading={Boolean(togglingEnabledIds[sub.id])}
+            aria-label={`${enabled ? 'Disable' : 'Enable'} ${subscriptionName(sub)}`}
+            data-attr="subscription-row-toggle-enabled"
+        />
+    )
+}
+
 function SubscriptionsRowActions({ sub }: { sub: SubscriptionApi }): JSX.Element {
     const { push } = useActions(router)
-    const { deleteSubscriptionSuccess, deliverSubscription, setSubscriptionEnabled } =
-        useActions(subscriptionsSceneLogic)
-    const { deliveringSubscriptionId, togglingEnabledId } = useValues(subscriptionsSceneLogic)
+    const { deleteSubscriptionSuccess, deliverSubscription } = useActions(subscriptionsSceneLogic)
+    const { deliveringSubscriptionId, togglingEnabledIds } = useValues(subscriptionsSceneLogic)
     const href = subscriptionEditHref(sub)
     const isDelivering = deliveringSubscriptionId === sub.id
-    const isToggling = togglingEnabledId === sub.id
+    const isToggling = Boolean(togglingEnabledIds[sub.id])
     const enabled = isSubscriptionEnabled(sub)
 
     return (
@@ -55,12 +69,6 @@ function SubscriptionsRowActions({ sub }: { sub: SubscriptionApi }): JSX.Element
                           },
                       ]
                     : []),
-                {
-                    label: enabled ? 'Disable subscription' : 'Enable subscription',
-                    'data-attr': 'subscription-list-item-toggle-enabled',
-                    disabledReason: isToggling ? 'Updating…' : null,
-                    onClick: () => setSubscriptionEnabled(sub.id, !enabled),
-                },
                 ...(enabled
                     ? [
                           {
@@ -108,9 +116,9 @@ export function SubscriptionsScene(): JSX.Element {
         subscriptionsSorting,
         targetTypeFilter,
         subscriptionModalId,
+        aiSubscriptionsAvailable,
     } = useValues(subscriptionsSceneLogic)
     const { setCurrentTab, setSubscriptionsSorting } = useActions(subscriptionsSceneLogic)
-    const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
 
     const isFiltered =
         Boolean(search.trim()) ||
@@ -123,10 +131,25 @@ export function SubscriptionsScene(): JSX.Element {
         { key: SubscriptionsTab.Mine, label: 'My subscriptions' },
         { key: SubscriptionsTab.Dashboard, label: 'Dashboard' },
         { key: SubscriptionsTab.Insight, label: 'Insight' },
-        ...(aiSubscriptionsEnabled ? [{ key: SubscriptionsTab.AI, label: 'Prompt' }] : []),
+        ...(aiSubscriptionsAvailable ? [{ key: SubscriptionsTab.AI, label: 'AI prompt' }] : []),
     ]
     const showProductIntroduction =
         subscriptions.length === 0 && !subscriptionsLoading && !isFiltered && !subscriptionsListAwaitingDebouncedFetch
+    const emptyStateDescription = aiSubscriptionsAvailable
+        ? 'Send scheduled dashboard and insight snapshots, or use an AI prompt to generate a recurring report. Deliver subscriptions to Slack or email.'
+        : 'Get recurring email or Slack digests, or scheduled exports from insights and dashboards. Use them for weekly rollups, stakeholder updates, or wiring metrics into your own systems.'
+    const emptyStateAction = aiSubscriptionsAvailable ? (
+        <span className="italic">
+            <Link to={urls.subscriptionNew()}>Create an AI prompt subscription</Link>, or open a{' '}
+            <Link to={urls.dashboards()}>dashboard</Link> or <Link to={urls.insights()}>saved insight</Link> to schedule
+            a snapshot.
+        </span>
+    ) : (
+        <span className="italic">
+            Open a <Link to={urls.dashboards()}>dashboard</Link> or <Link to={urls.insights()}>saved insight</Link> to
+            schedule a snapshot.
+        </span>
+    )
 
     return (
         <SceneContent>
@@ -135,7 +158,7 @@ export function SubscriptionsScene(): JSX.Element {
                 description={sceneConfigurations[Scene.Subscriptions].description}
                 resourceType={{ type: 'inbox' }}
                 actions={
-                    aiSubscriptionsEnabled ? (
+                    aiSubscriptionsAvailable ? (
                         <LemonButton
                             type="primary"
                             data-attr="new-subscription-button"
@@ -159,19 +182,13 @@ export function SubscriptionsScene(): JSX.Element {
                         productKey={ProductKey.SUBSCRIPTIONS}
                         thingName="subscription"
                         titleOverride="No subscriptions yet"
-                        description="Get recurring email or Slack digests, or scheduled exports from insights and dashboards. Use them for weekly rollups, stakeholder updates, or wiring metrics into your own systems."
+                        description={emptyStateDescription}
                         isEmpty
                         customHog={HedgehogMagnifyingGlass}
                         hogLayout="responsive"
                         useMainContentContainerQueries
                         docsURL="https://posthog.com/docs/user-guides/subscriptions"
-                        actionElementOverride={
-                            <span className="italic">
-                                Open a <Link to={urls.dashboards()}>dashboard</Link> or{' '}
-                                <Link to={urls.insights()}>saved insight</Link>, open the side panel, and click{' '}
-                                &quot;Subscribe&quot; to configure the options.
-                            </span>
-                        }
+                        actionElementOverride={emptyStateAction}
                     />
                 ) : (
                     <>
@@ -183,6 +200,7 @@ export function SubscriptionsScene(): JSX.Element {
                             sorting={subscriptionsSorting}
                             onSort={setSubscriptionsSorting}
                             renderRowActions={(sub) => <SubscriptionsRowActions sub={sub} />}
+                            renderEnabledToggle={(sub) => <SubscriptionEnabledSwitch sub={sub} />}
                         />
                     </>
                 )}

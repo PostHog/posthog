@@ -1,8 +1,8 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
 import { IconBolt, IconCheckCircle, IconChevronRight, IconCompass, IconGithub, IconServer } from '@posthog/icons'
 import { LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
-import { mcpStoreLogic } from '@posthog/products-mcp-store/frontend/mcpStoreLogic'
 import { ServerIcon } from '@posthog/products-mcp-store/frontend/scene/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -11,17 +11,22 @@ import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
-import { urls } from 'scenes/urls'
+import { GithubIntegration } from 'scenes/integrations/components/GithubIntegration'
 
 import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
+import { scoutMcpServersLogic } from '../../logics/scoutMcpServersLogic'
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
+import { McpServersSection } from '../config/McpServersSection'
 import { ScoutsFleetSection } from '../config/scouts/ScoutsFleetSection'
+import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SignalSourcesPanel } from '../config/SignalSourcesPanel'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
 import { AgentSetupModalKey, agentSetupModalLogic } from './agentSetupModalLogic'
 import { InboxUsageWidget } from './InboxUsageWidget'
+import { InstallationSetupSection } from './InstallationSetupSection'
+import { SetupSection } from './SetupSection'
 
 type WidgetTone = 'todo' | 'done' | 'neutral'
 /** Visual weight reflecting how important / frequently edited a part of the setup is. */
@@ -37,7 +42,6 @@ interface SetupWidgetCardProps {
     loading?: boolean
     /** One-line context, shown on `lg` cards only. */
     description?: string
-    /** Modal-backed widgets pass `onClick`; link-out widgets (Code access, MCP) pass `to`. */
     onClick?: () => void
     to?: string
     /** Extra content under the status (e.g. MCP brand icons). */
@@ -194,7 +198,7 @@ function ScoutTroopWidget(): JSX.Element {
             tone={hasAny ? 'done' : 'todo'}
             loading={scoutConfigs === null}
             status={hasAny ? `${enabledCount} on patrol` : 'No scouts running'}
-            description="Scheduled agents that sweep this project on a cadence and report findings."
+            description="Scheduled agents that sweep this project on a cadence and report signals."
             onClick={() => openSetupModal('scout-troop')}
         />
     )
@@ -202,6 +206,7 @@ function ScoutTroopWidget(): JSX.Element {
 
 function CodeAccessWidget(): JSX.Element {
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
+    const { openSetupModal } = useActions(agentSetupModalLogic)
     const hasGithub = getIntegrationsByKind(['github']).length > 0
     return (
         <SetupWidgetCard
@@ -210,32 +215,51 @@ function CodeAccessWidget(): JSX.Element {
             size="md"
             tone={hasGithub ? 'done' : 'todo'}
             loading={integrationsLoading && !hasGithub}
-            status={hasGithub ? 'GitHub connected' : 'Foundational – connect to start'}
-            to={urls.settings('environment-integrations', 'integration-github')}
+            status={hasGithub ? 'GitHub connected' : 'Foundational. Connect to start.'}
+            onClick={() => openSetupModal('github')}
         />
     )
 }
 
 function McpServersWidget(): JSX.Element {
-    useMountedLogic(mcpStoreLogic)
-    const { installations, installationsLoading } = useValues(mcpStoreLogic)
-    const count = installations.length
+    useMountedLogic(scoutMcpServersLogic)
+    const { availableScoutServers, scoutAccount, scoutServers, scoutServersLoading, scoutServersNeedingSetup } =
+        useValues(scoutMcpServersLogic)
+    const { openSetupModal } = useActions(agentSetupModalLogic)
+    const availableCount = availableScoutServers.length
+    const needsSetupCount = scoutServersNeedingSetup.length
+    let status = 'Share external tools'
+    let tone: WidgetTone = 'neutral'
+    if (scoutAccount?.status === 'paused') {
+        status = 'MCP access paused'
+    } else if (availableCount > 0 && needsSetupCount > 0) {
+        status = `${availableCount} available · ${needsSetupCount} need setup`
+        tone = 'done'
+    } else if (availableCount > 0) {
+        status = `${availableCount} available to Scout`
+        tone = 'done'
+    } else if (needsSetupCount > 0) {
+        status = `${needsSetupCount} need setup`
+        tone = 'todo'
+    }
     return (
         <SetupWidgetCard
             icon={<IconServer />}
             title="MCP servers"
             size="md"
-            tone={count > 0 ? 'done' : 'neutral'}
-            loading={installationsLoading && count === 0}
-            status={count > 0 ? `${count} connected` : 'Connect external tools'}
-            to={urls.settings('mcp-servers')}
+            tone={tone}
+            loading={scoutServersLoading && scoutServers.length === 0}
+            status={status}
+            onClick={() => openSetupModal('mcp-servers')}
         >
-            {count > 0 && (
+            {scoutServers.length > 0 && (
                 <div className="flex items-center gap-1 pt-1">
-                    {installations.slice(0, 6).map((installation) => (
-                        <ServerIcon key={installation.id} iconKey={installation.icon_key} size={16} />
+                    {scoutServers.slice(0, 6).map((server) => (
+                        <ServerIcon key={server.id} iconDomain={server.icon_domain} size={16} />
                     ))}
-                    {count > 6 && <span className="text-[11px] text-muted">+{count - 6}</span>}
+                    {scoutServers.length > 6 && (
+                        <span className="text-[11px] text-muted">+{scoutServers.length - 6}</span>
+                    )}
                 </div>
             )}
         </SetupWidgetCard>
@@ -271,15 +295,14 @@ function NotificationsWidget(): JSX.Element {
     )
 }
 
-/** Section heading styled like a LemonTabs label (same 14px scale, tertiary color) so the
- * rail reads as a sibling of the tab bar rather than a louder header. */
-function SetupSection({ title, children }: { title: string; children: React.ReactNode }): JSX.Element {
-    return (
-        <div className="flex flex-col">
-            <h4 className="text-sm font-medium text-tertiary mt-0 mb-3.5">{title}</h4>
-            <div className="flex flex-col gap-1.5">{children}</div>
-        </div>
-    )
+/**
+ * The GitHub OAuth round trip returns to `next`, and this modal opens from the rail beside any of the
+ * list tabs – so `next` has to be wherever the user actually started, not a fixed tab. `setup=github`
+ * comes back with them so the modal reopens showing the result.
+ */
+function GithubSetupBody(): JSX.Element {
+    const { location, searchParams } = useValues(router)
+    return <GithubIntegration next={combineUrl(location.pathname, { ...searchParams, setup: 'github' }).url} />
 }
 
 const SETUP_MODALS: Record<
@@ -294,15 +317,27 @@ const SETUP_MODALS: Record<
     },
     'scout-troop': {
         title: 'Scout troop',
-        description: 'Scheduled agents that sweep this project on a cadence and emit findings to your inbox.',
+        description: 'Scheduled agents that sweep this project on a cadence and emit signals to your inbox.',
         width: 760,
         body: <ScoutsFleetSection />,
     },
     slack: {
         title: 'Notifications',
-        description: 'Get pinged in Slack when you’re a suggested reviewer on a new inbox item.',
+        description: 'Get pinged in Slack when you’re a suggested reviewer on a new report.',
         width: 560,
         body: <SlackNotificationsSection />,
+    },
+    github: {
+        title: 'GitHub',
+        description: 'Connect GitHub so agents can read repositories and open pull requests.',
+        width: 760,
+        body: <GithubSetupBody />,
+    },
+    'mcp-servers': {
+        title: 'MCP servers',
+        description: 'Shared external tools available to scheduled Scouts.',
+        width: 560,
+        body: <McpServersSection />,
     },
 }
 
@@ -326,8 +361,7 @@ function SetupModal(): JSX.Element {
 /**
  * The agent-setup widgets, grouped into Agents / Connections. Each widget shows
  * status and nudges the user to finish that part of the setup. Signal sources and Scout troop
- * (most edited) are largest; connections medium. Code access and MCP link
- * out to settings; the rest open a management modal.
+ * (most edited) are largest; connections medium and open management modals.
  *
  * Rendered two ways: `rail` (a column to the right of the tabs on wide viewports) and
  * `stacked` (the Configuration tab body on narrow viewports).
@@ -344,9 +378,11 @@ export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JS
                 layout === 'stacked' ? 'mx-auto w-full max-w-2xl px-6 py-6' : 'px-4 py-3'
             )}
         >
+            <InstallationSetupSection />
             <SetupSection title="Agents">
                 <SignalSourcesWidget />
                 <ScoutTroopWidget />
+                <SelfDrivingSection />
             </SetupSection>
             <SetupSection title="Connections">
                 <CodeAccessWidget />

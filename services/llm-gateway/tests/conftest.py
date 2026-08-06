@@ -17,8 +17,16 @@ from llm_gateway.rate_limiting.cost_throttles import (
 )
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import Throttle
+from llm_gateway.request_context import request_context_var
 from llm_gateway.services.plan_resolver import PlanInfo
 from llm_gateway.services.quota_resolver import QuotaResourceStatus
+
+
+@pytest.fixture(autouse=True)
+def _reset_request_context() -> Generator[None]:
+    token = request_context_var.set(None)
+    yield
+    request_context_var.reset(token)
 
 
 def _make_fake_quota_resolver() -> AsyncMock:

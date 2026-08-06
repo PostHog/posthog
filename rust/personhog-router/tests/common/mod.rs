@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -646,16 +647,18 @@ pub fn create_test_person() -> Person {
 /// stamps the header, not just that the body arrives intact.
 pub struct TestLeaderService {
     persons: DashMap<(i64, i64), Person>,
-    /// When true, writes are rejected with FailedPrecondition, mimicking
-    /// a leader whose partition is write-fenced for a handoff.
-    fenced: bool,
+    /// While true, writes are rejected with FailedPrecondition, mimicking
+    /// a leader whose partition is write-fenced for a handoff. Shared and
+    /// runtime-toggleable so tests can clear the fence mid-drain, the way
+    /// a real fence clears in watch-propagation time.
+    fenced: Arc<AtomicBool>,
 }
 
 impl TestLeaderService {
     pub fn new() -> Self {
         Self {
             persons: DashMap::new(),
-            fenced: false,
+            fenced: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -664,9 +667,15 @@ impl TestLeaderService {
         self
     }
 
-    pub fn fenced(mut self) -> Self {
-        self.fenced = true;
+    pub fn fenced(self) -> Self {
+        self.fenced.store(true, Ordering::SeqCst);
         self
+    }
+
+    /// Handle for flipping the fence after the service has been moved
+    /// into the server.
+    pub fn fence_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.fenced)
     }
 }
 
@@ -712,7 +721,7 @@ impl PersonHogLeader for TestLeaderService {
     ) -> Result<Response<UpdatePersonPropertiesResponse>, Status> {
         require_partition_metadata(&request)?;
         let req = request.into_inner();
-        if self.fenced {
+        if self.fenced.load(Ordering::SeqCst) {
             return Err(Status::failed_precondition(
                 "partition is fenced for handoff; writes are rejected",
             ));
@@ -759,7 +768,23 @@ impl PersonHogLeader for TestLeaderService {
 pub async fn start_test_leader(service: TestLeaderService) -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
+    serve_test_leader(listener, service);
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    addr
+}
 
+/// Start the test leader on a specific address. Used by tests that
+/// reserve an address up front so the backend can dial it — and fail at
+/// the transport layer — before the leader exists.
+pub async fn start_test_leader_at(addr: SocketAddr, service: TestLeaderService) {
+    let listener = TcpListener::bind(addr)
+        .await
+        .expect("reserved leader address must be bindable");
+    serve_test_leader(listener, service);
+    tokio::time::sleep(Duration::from_millis(10)).await;
+}
+
+fn serve_test_leader(listener: TcpListener, service: TestLeaderService) {
     tokio::spawn(async move {
         Server::builder()
             .add_service(
@@ -769,10 +794,6 @@ pub async fn start_test_leader(service: TestLeaderService) -> SocketAddr {
             .await
             .unwrap();
     });
-
-    tokio::time::sleep(Duration::from_millis(10)).await;
-
-    addr
 }
 
 // ============================================================
@@ -796,11 +817,6 @@ fn make_replica_backend(replica_addr: SocketAddr) -> Arc<ReplicaBackend> {
 }
 
 fn make_leader_backend(leader_addr: SocketAddr, num_partitions: u32) -> Arc<LeaderBackend> {
-    let retry_config = RetryConfig {
-        max_retries: 1,
-        initial_backoff_ms: 1,
-        max_backoff_ms: 1,
-    };
     let mut routing = HashMap::new();
     for p in 0..num_partitions {
         routing.insert(p, "leader-0".to_string());
@@ -815,7 +831,6 @@ fn make_leader_backend(leader_addr: SocketAddr, num_partitions: u32) -> Arc<Lead
         LeaderBackendConfig {
             num_partitions,
             timeout: Duration::from_secs(5),
-            retry_config,
         },
         StashTable::with_bounds(usize::MAX, usize::MAX),
     ))

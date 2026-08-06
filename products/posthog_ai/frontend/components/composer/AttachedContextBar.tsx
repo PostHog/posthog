@@ -85,23 +85,25 @@ export function AttachedContextBar(): JSX.Element {
                     />
                 </span>
             </Tooltip>
-            {contextItems.map((item) => {
-                const key = attachedContextItemKey(item)
-                const label = labelForItem(item)
-                return (
-                    <Tooltip key={key} title={label}>
-                        <LemonTag
-                            icon={iconForType(item.type)}
-                            onClose={() => (pickedKeys.has(key) ? removePickedItem(key) : dismissContext(key))}
-                            closable
-                            closeOnClick
-                            className="flex items-center text-secondary max-w-48"
-                        >
-                            <span className="truncate min-w-0 flex-1">{label}</span>
-                        </LemonTag>
-                    </Tooltip>
-                )
-            })}
+            {contextItems
+                .filter((item) => !item.hidden)
+                .map((item) => {
+                    const key = attachedContextItemKey(item)
+                    const label = labelForItem(item)
+                    return (
+                        <Tooltip key={key} title={label}>
+                            <LemonTag
+                                icon={iconForType(item.type)}
+                                onClose={() => (pickedKeys.has(key) ? removePickedItem(key) : dismissContext(key))}
+                                closable
+                                closeOnClick
+                                className="flex items-center text-secondary max-w-48"
+                            >
+                                <span className="truncate min-w-0 flex-1">{label}</span>
+                            </LemonTag>
+                        </Tooltip>
+                    )
+                })}
         </div>
     )
 }

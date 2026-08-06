@@ -19,6 +19,9 @@ class ScaleAIEndpointConfig:
     primary_keys: list[str] = field(default_factory=lambda: ["task_id"])
     page_size: int = 100  # Scale caps `limit` at 100 for tasks
     should_sync_default: bool = True
+    # JSONPath to the row list in a list response. Tasks/batches wrap rows in a `docs` envelope;
+    # projects return a bare array (None selects the whole body as the row list).
+    data_selector: Optional[str] = "docs"
 
 
 # Maps a user-selected incremental field to the Scale query parameter that filters on it
@@ -73,6 +76,7 @@ SCALE_AI_ENDPOINTS: dict[str, ScaleAIEndpointConfig] = {
         primary_keys=["name"],
         partition_key="created_at",
         incremental_fields=[],
+        data_selector=None,
     ),
 }
 

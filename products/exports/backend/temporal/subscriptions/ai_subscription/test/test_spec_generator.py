@@ -67,6 +67,26 @@ class TestSanitizePrompt:
     def test_strips_html_tags_from_valid_prompt(self) -> None:
         assert sanitize_prompt("Show <script>alert(1)</script> pageviews") == "Show alert(1) pageviews"
 
+
+class TestPromptRejectionOwnerSafe:
+    """`PromptRejectedError` text is rendered verbatim in the delivery-history UI
+    (`RecipientResult.human_readable_error`), so it must stay free of planner/LLM/user detail. This
+    guard fails CI if a raise site starts interpolating into the message."""
+
+    def test_rejection_messages_are_static_and_audience_safe(self) -> None:
+        for raw, expected in [
+            (None, "Prompt is empty."),
+            ("   ", "Prompt is empty."),
+            ("x" * (PROMPT_MAX_LENGTH + 1), f"Prompt exceeds {PROMPT_MAX_LENGTH} characters."),
+            ("<system></system>", "Prompt is empty."),
+        ]:
+            with pytest.raises(PromptRejectedError) as exc_info:
+                sanitize_prompt(raw)
+            # Exact match, not a substring — an interpolated detail (event names, query text) would
+            # break the equality and trip this test.
+            assert str(exc_info.value) == expected
+            assert exc_info.value.args == (expected,)
+
     def test_returns_cleaned_prompt(self) -> None:
         assert sanitize_prompt("  Weekly pageviews summary  ") == "Weekly pageviews summary"
 
@@ -779,6 +799,18 @@ class TestBuildFrozenPrompt(APIBaseTest):
         # ...and the plan round-trips byte-for-byte (persist shape == reuse shape), HogQL placeholder intact.
         assert spec.plan.model_dump() == stored["plan"]
         assert "{{date_range}}" in spec.plan.steps[0].hogql
+
+    @patch(f"{_SG}.build_context_blob", return_value="blob")
+    def test_rebuilds_property_aware_blob_from_stored_relevant_events(self, mock_blob: MagicMock) -> None:
+        # The frozen fixer needs per-event properties, not just event names, to repair a wrong field.
+        # So the events the plan was built against are persisted and fed back to build_context_blob;
+        # dropping them leaves the reuse path with a property-blind blob and a schema-blind fixer.
+        stored = {**self._stored_plan(), "relevant_events": ["export created"]}
+
+        spec = build_frozen_prompt(team=self.team, prompt="p", window=_window(7), ai_query_plan=stored)
+
+        assert mock_blob.call_args.kwargs["relevant_events"] == ["export created"]
+        assert spec.relevant_events == ["export created"]
 
     @parameterized.expand(
         [

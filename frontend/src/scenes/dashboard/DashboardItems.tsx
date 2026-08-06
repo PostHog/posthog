@@ -10,8 +10,9 @@ import { GridBackground } from 'react-grid-layout/extras'
 import { DashboardWidgetItem } from '@posthog/products-dashboards/frontend/components/DashboardWidgetItem/DashboardWidgetItem'
 import { getDashboardWidgetFetchDisplayError } from '@posthog/products-dashboards/frontend/widgets/constants'
 
+import { ApiError } from 'lib/api'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
-import { EditModeEdge } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
+import { EditModeEdge, useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -19,7 +20,12 @@ import { objectsEqual } from 'lib/utils/objects'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { getAddTileMenuItems } from 'scenes/dashboard/DashboardHeaderActions'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS, isWidgetTileVisibleOnPlacement } from 'scenes/dashboard/dashboardUtils'
+import {
+    BREAKPOINTS,
+    BREAKPOINT_COLUMN_COUNTS,
+    getInsightQueryError,
+    isWidgetTileVisibleOnPlacement,
+} from 'scenes/dashboard/dashboardUtils'
 import { continueDragGestureInEditMode, continueResizeGestureInEditMode } from 'scenes/dashboard/editLayoutGesture'
 import { InsertTileOverlay } from 'scenes/dashboard/InsertTileOverlay'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
@@ -31,6 +37,7 @@ import { insightsModel } from '~/models/insightsModel'
 import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
+import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
 import { DashboardTextItem } from './items/DashboardTextItem'
 
 const DRAG_AUTO_SCROLL_THRESHOLD = 100
@@ -65,6 +72,7 @@ const MemoizedDashboardButtonTileItem = memo(
     DashboardButtonTileItem,
     gridTilePropsEqual
 ) as typeof DashboardButtonTileItem
+const MemoizedDashboardErrorTileItem = memo(DashboardErrorTileItem, gridTilePropsEqual) as typeof DashboardErrorTileItem
 const MemoizedDashboardWidgetItem = memo(DashboardWidgetItem, gridTilePropsEqual) as typeof DashboardWidgetItem
 
 export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsProps = {}): JSX.Element {
@@ -82,7 +90,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         dashboardStreaming,
         effectiveEditBarFilters,
         effectiveDashboardVariableOverrides,
-        temporaryBreakdownColors,
+        effectiveBreakdownColors,
         dataColorThemeId,
         canEditDashboard,
         dashboardWidgetsEnabled,
@@ -242,7 +250,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 ? getAddTileMenuItems({
                       dashboardId: dashboard.id,
                       dashboardWidgetsEnabled,
-                      showAddInsightToDashboardModal,
+                      onAddInsight: showAddInsightToDashboardModal,
                       push,
                       setAddWidgetModalOpen,
                       onBeforeSelect: () => setPendingInsertion({ x: targetX, y: targetY, w: targetW ?? null }),
@@ -282,6 +290,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         }),
         [layoutEditMode, isMobileView, isLayoutZoomToggled]
     )
+
+    useResizeHandleScrollbarPassThrough(layoutEditMode && !isMobileView)
 
     const onEnterEditModeFromEdge = useMemo(
         () =>
@@ -525,13 +535,34 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                 removeFromDashboard: () => removeTile(tile),
                             }
 
+                            if (tile.error && !insight) {
+                                return (
+                                    <MemoizedDashboardErrorTileItem
+                                        key={tile.id}
+                                        tile={tile}
+                                        onRemove={commonTileProps.removeFromDashboard}
+                                        showResizeHandles={showResizeHandles}
+                                        canEnterEditModeFromEdge={canEnterEditModeFromEdge}
+                                        onEnterEditModeFromEdge={onEnterEditModeFromEdge}
+                                        onDragHandleMouseDown={onDragHandleMouseDown}
+                                        showEditingControls={showEditingControls}
+                                    />
+                                )
+                            }
+
                             if (insight) {
                                 // Check if this insight has an error from the server
                                 const isErrorTile = !!tile.error
-                                const apiErrored = isErrorTile || refreshStatus[insight.short_id]?.errored || false
+                                const queryError = getInsightQueryError(insight)
+                                const apiErrored =
+                                    isErrorTile || !!queryError || refreshStatus[insight.short_id]?.errored || false
+                                const refreshError = refreshStatus[insight.short_id]?.error
                                 const apiError = isErrorTile
-                                    ? ({ status: 400, detail: `${tile.error!.type}: ${tile.error!.message}` } as any)
-                                    : refreshStatus[insight.short_id]?.error
+                                    ? new ApiError(undefined, 500, undefined, {
+                                          detail: tile.error!.message,
+                                          code: 'dashboard_tile_error',
+                                      })
+                                    : refreshError || queryError || undefined
                                 const loadingQueued = isErrorTile ? false : isRefreshingQueued(insight.short_id)
                                 const loading = isErrorTile ? false : isRefreshing(insight.short_id)
 
@@ -559,7 +590,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         filtersOverride={effectiveEditBarFilters}
                                         variablesOverride={effectiveDashboardVariableOverrides}
                                         // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
-                                        breakdownColorOverride={temporaryBreakdownColors}
+                                        breakdownColorOverride={effectiveBreakdownColors}
                                         dataColorThemeId={dataColorThemeId}
                                         surveyOpportunity={tile.id === bestSurveyOpportunityFunnel?.id}
                                         showCreateAnomalyAlertButton={showCreateAnomalyAlertButton}

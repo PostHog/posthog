@@ -31,6 +31,7 @@ import { initKeaTests } from '~/test/init'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
 import { attachedContextLogic, runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
+import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { EnhancedToolCall, TOOL_DEFINITIONS } from './max-constants'
 import { maxContextLogic } from './maxContextLogic'
@@ -711,6 +712,22 @@ describe('maxThreadLogic', () => {
 
         afterEach(() => {
             featureFlagLogic.unmount()
+        })
+
+        it('does not queue prompts for a Pi task', async () => {
+            const enqueueSpy = jest.spyOn(api.conversations.queue, 'enqueue')
+            const conversation: ConversationDetail = {
+                ...MOCK_IN_PROGRESS_CONVERSATION,
+                agent_runtime: 'sandbox',
+                task: { id: 'pi-task', latest_run: 'pi-run', runtime: RuntimeEnumApi.Pi },
+            }
+
+            logic.actions.setConversation(conversation)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            logic.actions.askMax('Queued prompt')
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(enqueueSpy).not.toHaveBeenCalled()
         })
 
         it('queues prompts while loading and omits null fields', async () => {
@@ -1675,7 +1692,10 @@ describe('maxThreadLogic', () => {
         const SANDBOX_TASK_ID = 'task-abc'
         const SANDBOX_RUN_ID = 'run-abc'
 
-        function sandboxConversation(currentRunId: string | null): ConversationDetail {
+        function sandboxConversation(
+            currentRunId: string | null,
+            runtime: RuntimeEnumApi = RuntimeEnumApi.Acp
+        ): ConversationDetail {
             return {
                 id: MOCK_CONVERSATION_ID,
                 status: ConversationStatus.InProgress,
@@ -1685,7 +1705,7 @@ describe('maxThreadLogic', () => {
                 updated_at: new Date().toISOString(),
                 type: ConversationType.Assistant,
                 agent_runtime: 'sandbox',
-                task: { id: SANDBOX_TASK_ID, latest_run: currentRunId },
+                task: { id: SANDBOX_TASK_ID, latest_run: currentRunId, runtime },
                 messages: [],
             }
         }
@@ -1711,6 +1731,25 @@ describe('maxThreadLogic', () => {
             // stream was never touched (coexistence).
             expect(logsSpy).toHaveBeenCalledWith(SANDBOX_TASK_ID, SANDBOX_RUN_ID)
             expect(runSpy).toHaveBeenCalledWith(SANDBOX_TASK_ID, SANDBOX_RUN_ID)
+            expect(streamSpy).not.toHaveBeenCalled()
+        })
+
+        it('does not bootstrap a Pi task run', async () => {
+            logic.unmount()
+            const conversation = sandboxConversation(SANDBOX_RUN_ID, RuntimeEnumApi.Pi)
+            jest.spyOn(api.conversations, 'get').mockResolvedValue(conversation)
+            const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries')
+            const streamSpy = mockStream()
+
+            logic = maxThreadLogic({
+                conversationId: MOCK_CONVERSATION_ID,
+                panelId: 'test',
+                conversation,
+            })
+            logic.mount()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(logsSpy).not.toHaveBeenCalled()
             expect(streamSpy).not.toHaveBeenCalled()
         })
 
@@ -3528,6 +3567,38 @@ describe('maxThreadLogic', () => {
 
         afterEach(() => {
             delete (globalThis as any).EventSource
+        })
+
+        it('does not open a sandbox conversation bound to a Pi task', async () => {
+            maxLogicInstance.actions.setPendingBindTaskId('pi-task')
+            const taskSpy = jest
+                .spyOn(api.tasks, 'get')
+                .mockResolvedValue({ id: 'pi-task', runtime: RuntimeEnumApi.Pi } as any)
+            const openSpy = jest.spyOn(api.conversations, 'open')
+
+            logic.actions.askMax('hello')
+            await Promise.resolve()
+            await Promise.resolve()
+
+            expect(taskSpy).toHaveBeenCalledTimes(1)
+            expect(taskSpy).toHaveBeenCalledWith('pi-task')
+            expect(openSpy).not.toHaveBeenCalled()
+            expect(maxLogicInstance.values.activeStreamingThreads).toEqual(0)
+        })
+
+        it('validates a pending ACP task once before opening the conversation', async () => {
+            maxLogicInstance.actions.setPendingBindTaskId('acp-task')
+            const taskSpy = jest
+                .spyOn(api.tasks, 'get')
+                .mockResolvedValue({ id: 'acp-task', runtime: RuntimeEnumApi.Acp } as any)
+            jest.spyOn(api.conversations, 'open').mockResolvedValue(sandboxRunResponse)
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('hello')
+            }).toDispatchActions(['openSandboxSse'])
+
+            expect(taskSpy).toHaveBeenCalledTimes(1)
+            expect(taskSpy).toHaveBeenCalledWith('acp-task')
         })
 
         it('holds the streaming lock until the sandbox turn completes and releases exactly once', async () => {

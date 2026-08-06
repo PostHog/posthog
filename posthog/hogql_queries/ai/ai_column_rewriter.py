@@ -64,6 +64,22 @@ _RAW_JSON_COLUMNS: frozenset[str] = frozenset(
 )
 _EVENTS_TABLE_ALIAS = "__ai_events_fallback"
 
+# Forced String so detection can't coerce timestamp-/number-shaped IDs and break an exact match.
+_STRING_ID_COLUMNS: frozenset[str] = frozenset(
+    {
+        "trace_id",
+        "session_id",
+        "parent_id",
+        "span_id",
+        "generation_id",
+        "experiment_id",
+    }
+)
+
+EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES: dict[str, str] = {
+    AI_COLUMN_TO_PROPERTY[col]: "String" for col in _STRING_ID_COLUMNS
+}
+
 
 class AiColumnToPropertyRewriter(CloningVisitor):
     """Rewrites `ai_events` column references to `events` property references.

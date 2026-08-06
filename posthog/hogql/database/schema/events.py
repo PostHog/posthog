@@ -15,6 +15,7 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     StringJSONDatabaseField,
     Table,
+    UUIDDatabaseField,
     VirtualTable,
 )
 from posthog.hogql.database.schema.groups import GroupsTable
@@ -22,17 +23,16 @@ from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsT
 from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
 from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
 
+from posthog.clickhouse.events_json import DISTRIBUTED_EVENTS_JSON_TABLE
+
 
 def events_table_clickhouse_table_ref(context) -> str:
-    # lazy import keeps the events SQL module (Django ORM) off this module's import path
-    from posthog.models.event.sql import DISTRIBUTED_EVENTS_JSON_TABLE  # noqa: PLC0415
-
     return DISTRIBUTED_EVENTS_JSON_TABLE if context.uses_new_events_schema() else "events"
 
 
 class EventsPersonSubTable(VirtualTable):
     fields: dict[str, FieldOrTable] = {
-        "id": StringDatabaseField(name="person_id", nullable=False),
+        "id": UUIDDatabaseField(name="person_id", nullable=False),
         "created_at": DateTimeDatabaseField(name="person_created_at", nullable=False),
         "properties": StringJSONDatabaseField(name="person_properties", nullable=False),
         "revenue_analytics": LazyJoin(
@@ -88,7 +88,7 @@ class EventsGroupSubTable(VirtualTable):
 class EventsTable(Table):
     description: str = "Every analytics event captured for the project. The central fact table for product analytics."
     fields: dict[str, FieldOrTable] = {
-        "uuid": StringDatabaseField(name="uuid", nullable=False, description="Unique identifier of this event row."),
+        "uuid": UUIDDatabaseField(name="uuid", nullable=False, description="Unique identifier of this event row."),
         "event": StringDatabaseField(
             name="event",
             nullable=False,

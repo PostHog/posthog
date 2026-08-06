@@ -25,7 +25,6 @@ validates against.
 
 from __future__ import annotations
 
-import re
 import uuid
 import logging
 from dataclasses import asdict, dataclass
@@ -37,6 +36,8 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
+from products.signals.backend.scout_harness.tags import slugify_tag
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = logging.getLogger(__name__)
@@ -55,15 +56,12 @@ MAX_EVIDENCE_ENTRIES = 20
 # (default 1.0) immediately. See products/signals/backend/scout_harness/AGENTS.md.
 SCOUT_SIGNAL_WEIGHT = 1.0
 
-# Tags are slugs: lowercase kebab-case so the per-scout vocabulary converges instead of
-# fragmenting on casing/punctuation (`cost_spike` vs `Cost Spike` vs `cost-spike`). The
-# harness normalizes rather than rejects near-misses — agents shouldn't burn a turn on a
-# formatting 400 — but an unsalvageable tag (empty after normalization, or overlong) is a
-# hard error so the vocabulary never accretes junk entries.
+# Tags are slugs (normalized by `scout_harness.tags.slugify_tag`, shared with the scout config
+# API). The harness normalizes rather than rejects near-misses — agents shouldn't burn a turn on
+# a formatting 400 — but an unsalvageable tag (empty after normalization, or overlong) is a hard
+# error so the vocabulary never accretes junk entries.
 MAX_TAGS_PER_FINDING = 10
 MAX_TAG_LENGTH = 50
-_TAG_INVALID_CHARS = re.compile(r"[^a-z0-9-]+")
-_TAG_HYPHEN_RUNS = re.compile(r"-{2,}")
 
 # Cap on a caller-supplied `finding_id`. The deterministic `source_id` is
 # `run:<uuid>:finding:<finding_id>` (~49 fixed chars), and both `finding_id` and `source_id`
@@ -337,9 +335,7 @@ def normalize_tags(tags: list[str] | None) -> list[str] | None:
         raise InvalidEmitError(f"tags has {len(tags)} entries, max is {MAX_TAGS_PER_FINDING}")
     normalized: list[str] = []
     for raw in tags:
-        slug = re.sub(r"[\s_]+", "-", raw.strip().lower())
-        slug = _TAG_INVALID_CHARS.sub("", slug)
-        slug = _TAG_HYPHEN_RUNS.sub("-", slug).strip("-")
+        slug = slugify_tag(raw)
         if not slug:
             raise InvalidEmitError(f"tag {raw!r} is empty after slug normalization")
         if len(slug) > MAX_TAG_LENGTH:
@@ -449,12 +445,13 @@ def _record_emit(
     the read-modify-write on `emitted_finding_ids` is safe even though emits within a single
     run are sequential today, and keeps `emitted_count` exactly `len(emitted_finding_ids)`
     so the two never drift. The emission row is written in the same atomic block so the tally
-    and the per-finding record never diverge — one row per appended `finding_id`. Uses the
-    unscoped `all_teams` manager because the caller already validated `team`/`run` ownership
-    and emit can run with no team scope set (Temporal activity)."""
+    and the per-finding record never diverge — one row per appended `finding_id`. A configured
+    Slack delivery is queued only after this transaction commits, with the destination snapshotted
+    at emit time. Uses the unscoped `all_teams` manager because the caller already validated
+    `team`/`run` ownership and emit can run with no team scope set (Temporal activity)."""
     try:
         with transaction.atomic():
-            run = SignalScoutRun.all_teams.select_for_update().filter(pk=run_id).first()
+            run = SignalScoutRun.all_teams.select_for_update(of=("self",)).filter(pk=run_id).first()
             if run is None:
                 logger.warning("signals_scout.emit: run %s gone, skipping emit tally", run_id)
                 return
@@ -462,7 +459,7 @@ def _record_emit(
             run.emitted_finding_ids = finding_ids
             run.emitted_count = len(finding_ids)
             run.save(update_fields=["emitted_finding_ids", "emitted_count"])
-            SignalScoutEmission.all_teams.create(
+            emission = SignalScoutEmission.all_teams.create(
                 team_id=run.team_id,
                 scout_run=run,
                 finding_id=finding_id,
@@ -472,6 +469,12 @@ def _record_emit(
                 severity=severity,
                 source_id=source_id,
                 tags=tags or [],
+            )
+            queue_configured_scout_slack_delivery(
+                run_id=run.id,
+                output_type="finding",
+                output_id=str(emission.id),
+                delivery_id=str(emission.id),
             )
     except Exception:
         # Tally and emission row are best-effort; the signal already emitted. Log and move on

@@ -7,7 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa import DixaResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.dixa.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.dixa.source import DixaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DixaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dixa import DixaSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

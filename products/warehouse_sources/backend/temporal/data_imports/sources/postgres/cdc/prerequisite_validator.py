@@ -72,7 +72,20 @@ def _check_pg_version(conn: psycopg.Connection) -> list[str]:
 def _check_wal_level(conn: psycopg.Connection) -> list[str]:
     """wal_level must be 'logical'."""
     with conn.cursor() as cur:
-        cur.execute("SHOW wal_level")
+        try:
+            cur.execute("SHOW wal_level")
+        except psycopg.errors.UndefinedObject:
+            # A database that doesn't expose wal_level can't support logical replication CDC.
+            # Usually a connection pooler (e.g. PgBouncer in transaction mode) or a
+            # non-logical-replication-capable, wire-compatible database.
+            conn.rollback()
+            return [
+                "This database doesn't expose the wal_level setting, so it can't support logical "
+                "replication CDC. This usually means the connection goes through a pooler (such as "
+                "PgBouncer in transaction mode) or to a database that isn't a logical-replication-capable "
+                "PostgreSQL. Connect directly to the primary PostgreSQL server, or switch these tables "
+                "to Incremental sync."
+            ]
         row = cur.fetchone()
         if row is None:
             return ["Could not determine wal_level."]

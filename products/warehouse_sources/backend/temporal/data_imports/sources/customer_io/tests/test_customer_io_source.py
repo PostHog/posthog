@@ -7,13 +7,14 @@ import pyarrow as pa
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldSelectConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     WebhookCreationResult,
     WebhookDeletionResult,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io import api_client
 from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.constants import (
     CIO_API_SCHEMA_NAMES,
     CIO_WEBHOOK_SCHEMA_NAMES,
@@ -23,7 +24,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.customer_i
     CustomerIOSource,
     _webhook_table_transformer,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CustomerIOSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.customerio import (
+    CustomerIOSourceConfig,
+)
 
 
 def _config(app_api_key: str = "test-key", region: Literal["us", "eu"] = "us") -> CustomerIOSourceConfig:
@@ -93,6 +96,16 @@ class TestCustomerIOSourceGetSchemas:
         # this is what keeps one-shot setup from enabling them as broken full-refresh syncs.
         webhook_only = {s.name for s in schemas if s.webhook_only}
         assert webhook_only == set(CIO_WEBHOOK_SCHEMA_NAMES)
+
+
+class TestCustomerIOSourceGetRetryableErrors:
+    def test_matches_list_endpoint_retryable_sentinel(self):
+        source = CustomerIOSource()
+        retryable_errors = source.get_retryable_errors()
+
+        error_message = f"{api_client.LIST_ENDPOINT_RETRYABLE_ERROR_PREFIX}: status=503"
+
+        assert any(pattern in error_message for pattern in retryable_errors)
 
 
 class TestCustomerIOSourceCreateWebhook:

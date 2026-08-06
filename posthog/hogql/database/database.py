@@ -7,9 +7,10 @@ import threading
 import dataclasses
 import pickletools
 from collections import defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from functools import cache
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -88,6 +89,7 @@ from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.hog_invocation_results import HogInvocationResultsTable
+from posthog.hogql.database.schema.information_schema import disable_data_catalog
 from posthog.hogql.database.schema.log_entries import (
     BatchExportLogEntriesTable,
     LogEntriesTable,
@@ -138,7 +140,7 @@ from posthog.hogql.database.schema.web_stats_preaggregated import WebStatsPreagg
 from posthog.hogql.database.schema.web_vitals_paths_preaggregated import WebVitalsPathsPreaggregatedTable
 from posthog.hogql.database.utils import get_join_field_chain, qualify_join_key_expr
 from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
-from posthog.hogql.errors import QueryError, ResolutionError
+from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
@@ -148,6 +150,7 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMode, SessionTableVersion
 from posthog.scopes import APIScopeObject
 from posthog.synthetic_user import SyntheticUser
+from posthog.week_start_day import WeekStartDay
 
 # The Django ORM / products models below are imported lazily inside the functions that build a
 # Database (Database._fetch_sources / _build_from_sources / serialize and their helpers) so this
@@ -162,13 +165,14 @@ if TYPE_CHECKING:
         DatabaseSchemaManagedViewTable,
         DatabaseSchemaPostHogTable,
         DatabaseSchemaSystemTable,
+        DatabaseSchemaTableCertification,
         DatabaseSchemaViewTable,
         DataWarehouseSyncWarning,
         HogQLQueryModifiers,
     )
 
     from posthog.models import User
-    from posthog.models.team.team import Team, WeekStartDay
+    from posthog.models.team.team import Team
     from posthog.rbac.user_access_control import UserAccessControl
     from posthog.shared_link_user import SharedLinkUser
 
@@ -448,20 +452,58 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
 
 
 @cache
-def _system_table_access_scopes() -> tuple[tuple[str, APIScopeObject], ...]:
-    """(table name, access scope) for the access-controlled Postgres system tables.
+def _system_table_access_scopes() -> Mapping[str, APIScopeObject]:
+    """Table name -> access scope for the access-controlled Postgres system tables.
 
     Cached for the process lifetime — this result directly gates table visibility in access-control
     decisions, so every entry here MUST remain process-static. Do NOT make a system table's
     access_scope dynamic (per-team, per-flag, or env-driven at call time): this cache would silently
     serve stale scopes and bypass the restriction. Today SystemTables().children is a static
     class-level dict of module-level PostgresTable constants, which satisfies that invariant.
+    Returned read-only so a caller can't mutate the shared cached mapping.
     """
-    return tuple(
-        (name, table_node.table.access_scope)
-        for name, table_node in SystemTables().children.items()
-        if isinstance(table_node.table, PostgresTable) and table_node.table.access_scope is not None
+    return MappingProxyType(
+        {
+            name: table_node.table.access_scope
+            for name, table_node in SystemTables().children.items()
+            if isinstance(table_node.table, PostgresTable) and table_node.table.access_scope is not None
+        }
     )
+
+
+@cache
+def _system_table_required_features() -> Mapping[str, str]:
+    """Table name -> required AvailableFeature for system tables behind a billing entitlement.
+
+    Same process-static invariant as _system_table_access_scopes: the entitlement a table *requires*
+    is a static property of the table. What varies per organization is whether that entitlement is
+    *available*, which is resolved uncached in _unentitled_system_tables. Returned read-only so a
+    caller can't mutate the shared cached mapping.
+    """
+    return MappingProxyType(
+        {
+            name: table_node.table.required_feature_on_cloud
+            for name, table_node in SystemTables().children.items()
+            if isinstance(table_node.table, PostgresTable) and table_node.table.required_feature_on_cloud is not None
+        }
+    )
+
+
+def _unentitled_system_tables(team: Team) -> set[str]:
+    """System tables the team's organization is not entitled to, hidden from the schema.
+
+    Entitlement is organization-wide, so unlike RBAC this applies to every principal including
+    organization admins. Cloud-only, mirroring PremiumFeaturePermission's `premium_feature_on_cloud`.
+    """
+    # Lazy imports keep the Django ORM off this module's import path.
+    from posthog.cloud_utils import is_cloud  # noqa: PLC0415
+
+    required_features = _system_table_required_features()
+    if not required_features or not is_cloud():
+        return set()
+
+    organization = team.organization
+    return {name for name, feature in required_features.items() if not organization.is_feature_available(feature)}
 
 
 def _compute_system_table_access_decision(
@@ -480,20 +522,25 @@ def _compute_system_table_access_decision(
     from posthog.shared_link_user import SharedLinkUser  # noqa: PLC0415
 
     scoped_tables = _system_table_access_scopes()
+    # Applies to every principal below, admins included - an entitlement the organization does not
+    # have cannot be granted by a role.
+    unentitled = _unentitled_system_tables(team)
 
     # Anonymous or synthetic principal: keep only access-controlled tables its scopes cover (none for shared link / team token).
     if user is None or isinstance(user, SyntheticUser | SharedLinkUser):
         readable_scopes = user.readable_system_table_access_scopes() if user is not None else set()
-        return None, {name for name, access_scope in scoped_tables if access_scope not in readable_scopes}
+        return None, unentitled | {
+            name for name, access_scope in scoped_tables.items() if access_scope not in readable_scopes
+        }
 
     user_access_control = user_access_control or UserAccessControl(user=user, team=team)
 
     org_membership = user_access_control._organization_membership
     if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
-        return user_access_control, set()
+        return user_access_control, unentitled
 
-    denied: set[str] = set()
-    for name, access_scope in scoped_tables:
+    denied: set[str] = set(unentitled)
+    for name, access_scope in scoped_tables.items():
         access_level = user_access_control.access_level_for_resource(access_scope)
         if access_level and access_level != NO_ACCESS_LEVEL:
             continue  # User has access, keep it
@@ -550,8 +597,6 @@ class Database(BaseModel):
         return self._timezone or "UTC"
 
     def get_week_start_day(self) -> WeekStartDay:
-        from posthog.models.team.team import WeekStartDay  # noqa: PLC0415
-
         return self._week_start_day or WeekStartDay.SUNDAY
 
     def get_serialization_errors(self) -> dict[str, str]:
@@ -564,8 +609,9 @@ class Database(BaseModel):
         return self.tables.has_child(table_name)
 
     def is_table_access_denied(self, table_name: str | list[str]) -> bool:
-        """True if access control denied this table when the HogQL database was built,
-        so callers can surface an access denied error instead of unknown table"""
+        """True if access control denied this table when the HogQL database was built.
+        Resolution raises the corresponding TableAccessDeniedError from get_table; this is for
+        callers that need the boolean without resolving (e.g. gating writes that reference tables)."""
         if isinstance(table_name, list):
             table_name = ".".join(str(part) for part in table_name)
         return table_name in self._denied_tables
@@ -585,8 +631,8 @@ class Database(BaseModel):
         except ResolutionError as e:
             if isinstance(table_name, list):
                 table_name = ".".join(table_name)
-            if table_name in self._denied_tables:
-                raise QueryError(f"You don't have access to table `{table_name}`.") from e
+            if self.is_table_access_denied(table_name):
+                raise TableAccessDeniedError(table_name) from e
             suggestions = self._suggest_table_names(table_name)
             suffix = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
             raise QueryError(f"Unknown table `{table_name}`.{suffix}") from e
@@ -702,7 +748,9 @@ class Database(BaseModel):
             join_table = field.join_table
 
             if isinstance(join_table, str):
-                return join_table in allowed_table_names
+                # A denied target is absent from the schema, but its join is kept on purpose so
+                # resolving the field raises TableAccessDeniedError instead of "Field not found".
+                return join_table in allowed_table_names or self.is_table_access_denied(join_table)
 
             if self._is_helper_function_table(join_table):
                 return True
@@ -855,6 +903,8 @@ class Database(BaseModel):
         if context.team_id is None:
             raise ResolutionError("Must provide team_id to serialize database")
 
+        certifications_by_table_id, certifications_by_saved_query_id = _settled_catalog_certifications(context)
+
         # PostHog tables
         posthog_table_names = (
             []
@@ -1002,6 +1052,7 @@ class Database(BaseModel):
                         schema=schema,
                         source=source,
                         row_count=warehouse_table.row_count,
+                        certification=certifications_by_table_id.get(str(warehouse_table.id)),
                     )
                 except (QueryError, ResolutionError) as e:
                     logger.warning(
@@ -1127,6 +1178,7 @@ class Database(BaseModel):
                     query=HogQLQuery(query=saved_query.query["query"]),  # type: ignore[index]
                     row_count=row_count,
                     status=saved_query.status,
+                    certification=certifications_by_saved_query_id.get(str(saved_query.pk)),
                 )
                 continue
 
@@ -1136,6 +1188,7 @@ class Database(BaseModel):
                 name=view_name,
                 query=HogQLQuery(query=saved_query.query["query"]),  # type: ignore[index]
                 row_count=row_count,
+                certification=certifications_by_saved_query_id.get(str(saved_query.pk)),
             )
 
         return tables
@@ -1527,8 +1580,6 @@ class Database(BaseModel):
         with timings.measure("filter_system_tables_for_user", emit_span=True):
             database._apply_system_table_access(sources.user_access_control, sources.denied_system_table_names)
             if not sources.is_data_catalog_enabled:
-                # Semantic layer is flag-gated: without it the metrics table must not exist at all —
-                # absent from information_schema listings and "Unknown table" on direct queries.
                 system_node = database.tables.children.get("system")
                 info_schema = (
                     system_node.children.get("information_schema")
@@ -1536,7 +1587,7 @@ class Database(BaseModel):
                     else None
                 )
                 if info_schema is not None and hasattr(info_schema, "children"):
-                    info_schema.children.pop("metrics", None)
+                    disable_data_catalog(info_schema)
 
         with timings.measure("modifiers", emit_span=True):
             if not database._is_direct_query():
@@ -1549,7 +1600,7 @@ class Database(BaseModel):
                     events_table.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
 
                 elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
-                    events_table.fields["person_id"] = StringDatabaseField(name="person_id")
+                    events_table.fields["person_id"] = UUIDDatabaseField(name="person_id")
                     _use_person_properties_from_events(database)
 
                 elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
@@ -2001,14 +2052,24 @@ class Database(BaseModel):
 
         with timings.measure("data_warehouse_joins", emit_span=True):
             for join in sources.data_warehouse_joins:
+                # A denied table is absent from the schema just like a deleted one, but the two must
+                # not behave the same: dropping the join would surface the denial as "Field not
+                # found", indistinguishable from a typo. Keep it, and target the table by name so
+                # resolution goes through Database.get_table and raises TableAccessDeniedError.
+                joining_table_denied = database.is_table_access_denied(join.joining_table_name)
+
                 # Skip if either table is not present. This can happen if the table was deleted after the join was created.
                 # User will be prompted on UI to resolve missing tables underlying the JOIN
-                if not database.has_table(join.source_table_name) or not database.has_table(join.joining_table_name):
+                if not database.has_table(join.source_table_name) or (
+                    not database.has_table(join.joining_table_name) and not joining_table_denied
+                ):
                     continue
 
                 try:
                     source_table = database.get_table(join.source_table_name)
-                    joining_table = database.get_table(join.joining_table_name)
+                    joining_table: Table | str = (
+                        join.joining_table_name if joining_table_denied else database.get_table(join.joining_table_name)
+                    )
 
                     from_field = get_join_field_chain(join.source_table_key)
                     if from_field is None:
@@ -2129,7 +2190,7 @@ def _use_person_properties_from_events(database: Database) -> None:
 
 def _use_person_id_from_person_overrides(database: Database) -> None:
     table = database.get_table("events")
-    table.fields["event_person_id"] = StringDatabaseField(name="person_id")
+    table.fields["event_person_id"] = UUIDDatabaseField(name="person_id")
     table.fields["override"] = LazyJoin(
         from_field=["distinct_id"],
         join_table=database.get_table("person_distinct_id_overrides"),
@@ -2493,6 +2554,59 @@ def _schema_field_input(table: Table) -> dict[str, Any]:
         if key not in field_input and isinstance(field, (LazyJoin, Table, FieldTraverser)):
             field_input[key] = field
     return field_input
+
+
+def _settled_catalog_certifications(
+    context: HogQLContext,
+) -> tuple[dict[str, DatabaseSchemaTableCertification], dict[str, DatabaseSchemaTableCertification]]:
+    """Settled (certified/deprecated) catalog marks for the team as `(by_table_id, by_saved_query_id)`.
+
+    One bulk query keyed by target id — `(team, name)` is not unique on `DataWarehouseTable`, so a
+    name-keyed lookup could let one table's mark clobber another's. Gated on the product flag and on
+    data_catalog read access like `information_schema`, and fail-soft: certification must never break
+    schema serialization. Contexts without a `team` object (e.g. the AI schema path) skip the flag
+    evaluation and get no marks rather than paying a Team fetch.
+    """
+    from posthog.schema import DatabaseSchemaTableCertification  # noqa: PLC0415
+
+    from posthog.hogql.database.schema.information_schema import _can_read_catalog  # noqa: PLC0415
+
+    team = context.team
+    team_id = context.team_id
+
+    try:
+        from products.data_catalog.backend.facade.enums import CertificationStatus  # noqa: PLC0415
+        from products.data_catalog.backend.facade.flags import is_data_catalog_enabled  # noqa: PLC0415
+        from products.data_catalog.backend.facade.models import TableCertification  # noqa: PLC0415
+
+        if team is None or team_id is None or not is_data_catalog_enabled(team) or not _can_read_catalog(context):
+            return {}, {}
+
+        by_table_id: dict[str, DatabaseSchemaTableCertification] = {}
+        by_saved_query_id: dict[str, DatabaseSchemaTableCertification] = {}
+        certifications = (
+            TableCertification.objects.for_team(team_id)
+            .filter(status__in=(CertificationStatus.CERTIFIED, CertificationStatus.DEPRECATED))
+            .exclude(table__deleted=True)
+            .exclude(table__external_data_source__deleted=True)
+            .exclude(saved_query__deleted=True)
+            .select_related("certified_by")
+        )
+        for certification in certifications:
+            serialized = DatabaseSchemaTableCertification(
+                status=certification.status,
+                notes=certification.notes or None,
+                certified_by=certification.certified_by.email if certification.certified_by else None,
+                certified_at=certification.certified_at.isoformat() if certification.certified_at else None,
+            )
+            if certification.table_id is not None:
+                by_table_id[str(certification.table_id)] = serialized
+            elif certification.saved_query_id is not None:
+                by_saved_query_id[str(certification.saved_query_id)] = serialized
+        return by_table_id, by_saved_query_id
+    except Exception:
+        logger.exception("serialize_database: failed to load catalog certifications", team_id=team_id)
+        return {}, {}
 
 
 def serialize_fields(

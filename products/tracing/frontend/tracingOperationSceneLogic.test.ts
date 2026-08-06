@@ -4,6 +4,7 @@ import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 
+import { DEFAULT_DATE_RANGE } from './tracingFiltersLogic'
 import { tracingOperationSceneLogic } from './tracingOperationSceneLogic'
 import type { Span } from './types'
 
@@ -101,6 +102,66 @@ describe('tracingOperationSceneLogic', () => {
         expect(logic.values.sampleIndex).toBe(0)
     })
 
+    it('a heatmap brush zooms the date range at bucket edges and applies the duration selection', () => {
+        const MS = 1_000_000
+        logic.actions.fetchLatencyHeatmapSuccess([
+            { time: '2024-01-01T00:00:00Z', bucket_ns: 1 * MS, count: 1 },
+            { time: '2024-01-01T00:10:00Z', bucket_ns: 2 * MS, count: 1 },
+            { time: '2024-01-01T00:20:00Z', bucket_ns: 5 * MS, count: 1 },
+        ])
+
+        logic.actions.applyHeatmapBrush({ x: { startIndex: 0, endIndex: 1 }, y: { startIndex: 1, endIndex: 1 } })
+        // date_to is the START of the bucket after the last selected column; the 2ms row covers [2ms, 5ms).
+        expect(logic.values.dateRange).toEqual({
+            date_from: '2024-01-01T00:00:00Z',
+            date_to: '2024-01-01T00:20:00Z',
+        })
+        expect(logic.values.durationSelection).toEqual({ minNs: 2 * MS, maxNs: 5 * MS })
+    })
+
+    it('a full-height heatmap brush is a time zoom that leaves the duration selection alone', () => {
+        const MS = 1_000_000
+        logic.actions.setDurationSelection({ minNs: 1 * MS, maxNs: 2 * MS })
+        logic.actions.fetchLatencyHeatmapSuccess([
+            { time: '2024-01-01T00:00:00Z', bucket_ns: 1 * MS, count: 1 },
+            { time: '2024-01-01T00:10:00Z', bucket_ns: 5 * MS, count: 1 },
+        ])
+
+        logic.actions.applyHeatmapBrush({ x: { startIndex: 1, endIndex: 1 }, y: { startIndex: 0, endIndex: 2 } })
+        expect(logic.values.dateRange.date_from).toBe('2024-01-01T00:10:00Z')
+        expect(logic.values.durationSelection).toEqual({ minNs: 1 * MS, maxNs: 2 * MS })
+    })
+
+    it('preserves a completed empty heatmap instead of refetching it on every chart switch', () => {
+        const heatmapSpy = jest.spyOn(api.tracing, 'latencyHeatmap').mockResolvedValue({ results: [] })
+        // A completed fetch that returned no rows still counts as loaded.
+        logic.actions.fetchLatencyHeatmapSuccess([])
+        expect(logic.values.latencyHeatmapLoaded).toBe(true)
+
+        logic.actions.setChartType('heatmap')
+        expect(heatmapSpy).not.toHaveBeenCalled()
+    })
+
+    it('ignores a heatmap brush while a date-range refresh is still loading', async () => {
+        const MS = 1_000_000
+        const heatmapSpy = jest.spyOn(api.tracing, 'latencyHeatmap').mockResolvedValue({ results: [] })
+        logic.actions.fetchLatencyHeatmapSuccess([
+            { time: '2024-01-01T00:00:00Z', bucket_ns: 1 * MS, count: 1 },
+            { time: '2024-01-01T00:10:00Z', bucket_ns: 2 * MS, count: 1 },
+            { time: '2024-01-01T00:20:00Z', bucket_ns: 5 * MS, count: 1 },
+        ])
+        // A refresh is in flight: the grid on screen is now stale, so brushes must be ignored.
+        logic.actions.fetchLatencyHeatmap()
+        expect(logic.values.rawLatencyHeatmapLoading).toBe(true)
+
+        logic.actions.applyHeatmapBrush({ x: { startIndex: 0, endIndex: 1 }, y: { startIndex: 1, endIndex: 1 } })
+        expect(logic.values.durationSelection).toBeNull()
+
+        // Settle the in-flight fetch so it can't resolve after the test ends.
+        await logic.asyncActions.fetchLatencyHeatmap()
+        expect(heatmapSpy).toHaveBeenCalled()
+    })
+
     // A trace longer than the ±1h lookup window can share a trace_id with the loaded waterfall yet
     // omit spans that fell outside it — reuse must be gated on the span actually being present.
     it.each([
@@ -138,5 +199,29 @@ describe('tracingOperationSceneLogic', () => {
 
         await logic.asyncActions.fetchSampleTrace({ sample: logic.values.currentSample! })
         expect(getTraceSpy).toHaveBeenCalledWith('trace-1', expect.anything(), expect.anything())
+    })
+
+    it('restores a non-default date range from the URL', () => {
+        const dateRange = { date_from: '-7d', date_to: null }
+        router.actions.push('/tracing/operation', { service: 'web', name: 'db query', dateRange })
+        expect(logic.values.dateRange).toEqual(dateRange)
+    })
+
+    it('resets to the default range when navigating to a URL without one', () => {
+        logic.actions.setDateRange({ date_from: '-7d', date_to: null })
+        router.actions.push('/tracing/operation', { service: 'web', name: 'db query' })
+        expect(logic.values.dateRange).toEqual(DEFAULT_DATE_RANGE)
+    })
+
+    // A syntactically valid param of the wrong shape must not reach setDateRange and corrupt the query.
+    it.each([
+        ['a number', 42],
+        ['an array', []],
+        ['a wrong-typed field', { date_from: 5 }],
+    ])('keeps the current range when the URL date range is %s', (_label, dateRange) => {
+        const current = { date_from: '-7d', date_to: null }
+        logic.actions.setDateRange(current)
+        router.actions.push('/tracing/operation', { service: 'web', name: 'db query', dateRange })
+        expect(logic.values.dateRange).toEqual(current)
     })
 })

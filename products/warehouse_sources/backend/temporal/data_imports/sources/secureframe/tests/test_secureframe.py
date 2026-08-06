@@ -1,16 +1,17 @@
-from typing import Any
+import json
+from collections.abc import Iterable
+from typing import Any, cast
 
 import pytest
 from unittest import mock
 
+from requests import Response
 from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.secureframe.secureframe import (
     SecureframeResumeConfig,
-    _build_url,
     _extract_rows,
     get_endpoint_permissions,
-    get_rows,
     secureframe_source,
     validate_credentials,
 )
@@ -19,7 +20,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.securefram
     SECUREFRAME_ENDPOINTS,
 )
 
-MOCK_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.secureframe.secureframe"
+# The rest_source client builds/uses its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# The source builds its own tracked session (for the transport session + probes) in the secureframe module.
+SECUREFRAME_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.secureframe.secureframe.make_tracked_session"
+)
+
+
+def _response(payload: Any, status_code: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = json.dumps(payload).encode()
+    return resp
 
 
 def _make_manager(resume_state: SecureframeResumeConfig | None = None) -> mock.MagicMock:
@@ -29,14 +42,42 @@ def _make_manager(resume_state: SecureframeResumeConfig | None = None) -> mock.M
     return manager
 
 
-def _response(payload: Any, status_code: int = 200) -> mock.MagicMock:
-    response = mock.MagicMock()
-    response.json.return_value = payload
-    response.status_code = status_code
-    response.ok = status_code < 400
-    if status_code >= 400:
-        response.raise_for_status.side_effect = HTTPError(f"{status_code} Client Error", response=response)
-    return response
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and capture each request's query params AT SEND TIME.
+
+    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy when
+    each request is prepared instead of inspecting the (final) shared dict after the run.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _run(session_factory_mock, responses, endpoint="controls", manager=None):
+    session = session_factory_mock.return_value
+    params = _wire(session, responses)
+    manager = manager or _make_manager()
+    source = secureframe_source(
+        api_key="key",
+        api_secret="secret",
+        region="us",
+        endpoint=endpoint,
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager,
+    )
+    return _rows(source), params, session, manager
 
 
 class TestExtractRows:
@@ -73,17 +114,126 @@ class TestExtractRows:
         assert _extract_rows(payload) == expected
 
 
-class TestBuildUrl:
-    @pytest.mark.parametrize(
-        "region, expected_host",
-        [
+class TestPagination:
+    @mock.patch(SECUREFRAME_SESSION_PATCH)
+    def test_region_maps_to_host(self, MockSession):
+        # base_url selects the host; unknown regions fall back to US.
+        for region, expected_host in [
             ("us", "https://api.secureframe.com"),
             ("uk", "https://api-uk.secureframe.com"),
             ("unknown", "https://api.secureframe.com"),
-        ],
-    )
-    def test_region_maps_to_host(self, region, expected_host):
-        assert _build_url(region, "/controls", 2) == f"{expected_host}/controls?page=2&per_page=100"
+        ]:
+            session = MockSession.return_value
+            sent: list[str] = []
+
+            def _prepare(request, _sent=sent):
+                _sent.append(request.url)
+                return mock.MagicMock()
+
+            session.prepare_request.side_effect = _prepare
+            session.send.side_effect = [_response({"data": []})]
+
+            source = secureframe_source(
+                api_key="key",
+                api_secret="secret",
+                region=region,
+                endpoint="controls",
+                team_id=1,
+                job_id="j",
+                resumable_source_manager=_make_manager(),
+            )
+            _rows(source)
+            assert sent[0].startswith(f"{expected_host}/controls")
+
+    @mock.patch(SECUREFRAME_SESSION_PATCH)
+    def test_paginates_until_empty_page(self, MockSession):
+        rows, params, session, _ = _run(
+            MockSession,
+            [
+                _response({"data": [{"id": "1", "attributes": {"id": "1"}}, {"id": "2", "attributes": {"id": "2"}}]}),
+                _response({"data": [{"id": "3", "attributes": {"id": "3"}}]}),
+                _response({"data": []}),
+            ],
+        )
+
+        assert [row["id"] for row in rows] == ["1", "2", "3"]
+        # First page is 1, then 2, then the empty terminating page 3, and per_page rides along.
+        assert [p["page"] for p in params] == [1, 2, 3]
+        assert all(p["per_page"] == 100 for p in params)
+        assert session.send.call_count == 3
+
+    @mock.patch(SECUREFRAME_SESSION_PATCH)
+    def test_top_level_array_envelopes_are_flattened(self, MockSession):
+        # The declared shape: a top-level array of per-item JSON:API envelopes.
+        rows, _params, _session, _ = _run(
+            MockSession,
+            [
+                _response([{"data": {"id": "a", "type": "control", "attributes": {"name": "x"}}}]),
+                _response([]),
+            ],
+        )
+        assert rows == [{"id": "a", "name": "x"}]
+
+    @mock.patch(SECUREFRAME_SESSION_PATCH)
+    def test_state_saved_after_each_yielded_batch(self, MockSession):
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response({"data": [{"id": "1", "attributes": {"id": "1"}}]}),
+                _response({"data": []}),
+            ],
+        )
+
+        manager = _make_manager()
+        source = secureframe_source(
+            api_key="key",
+            api_secret="secret",
+            region="us",
+            endpoint="controls",
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=manager,
+        )
+        rows_iterator = iter(cast("Iterable[Any]", source.items()))
+
+        next(rows_iterator)
+        # Paused at the first yield: page 1 is in flight downstream, so no checkpoint yet —
+        # a crash here must re-fetch page 1, not skip it.
+        manager.save_state.assert_not_called()
+
+        assert list(rows_iterator) == []
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == SecureframeResumeConfig(page=2)
+
+    @mock.patch(SECUREFRAME_SESSION_PATCH)
+    def test_resumes_from_saved_page(self, MockSession):
+        _rows_out, params, _session, _ = _run(
+            MockSession,
+            [_response({"data": []})],
+            manager=_make_manager(SecureframeResumeConfig(page=5)),
+        )
+        assert params[0]["page"] == 5
+
+    @mock.patch(SECUREFRAME_SESSION_PATCH)
+    def test_auth_failure_raises_instead_of_ending_sync(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_response({"message": "Authorization failed"}, status_code=401)])
+
+        manager = _make_manager()
+        source = secureframe_source(
+            api_key="key",
+            api_secret="secret",
+            region="us",
+            endpoint="controls",
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=manager,
+        )
+        with pytest.raises(HTTPError):
+            _rows(source)
+
+        manager.save_state.assert_not_called()
 
 
 class TestValidateCredentials:
@@ -97,7 +247,7 @@ class TestValidateCredentials:
             (500, (False, False)),
         ],
     )
-    @mock.patch(f"{MOCK_MODULE}.make_tracked_session")
+    @mock.patch(SECUREFRAME_SESSION_PATCH)
     def test_status_mapping(self, mock_session, status_code, expected):
         response = mock.MagicMock()
         response.status_code = status_code
@@ -105,12 +255,12 @@ class TestValidateCredentials:
 
         assert validate_credentials("key", "secret", "us") == expected
 
-    @mock.patch(f"{MOCK_MODULE}.make_tracked_session")
+    @mock.patch(SECUREFRAME_SESSION_PATCH)
     def test_swallows_exceptions(self, mock_session):
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("key", "secret", "us") == (False, False)
 
-    @mock.patch(f"{MOCK_MODULE}.make_tracked_session")
+    @mock.patch(SECUREFRAME_SESSION_PATCH)
     def test_probes_requested_endpoint(self, mock_session):
         response = mock.MagicMock()
         response.status_code = 200
@@ -123,7 +273,7 @@ class TestValidateCredentials:
 
 class TestGetEndpointPermissions:
     @pytest.mark.parametrize("denied_status", [401, 403])
-    @mock.patch(f"{MOCK_MODULE}.make_tracked_session")
+    @mock.patch(SECUREFRAME_SESSION_PATCH)
     def test_denied_endpoints_carry_a_reason(self, mock_session, denied_status):
         ok = mock.MagicMock(status_code=200)
         denied = mock.MagicMock(status_code=denied_status)
@@ -135,67 +285,11 @@ class TestGetEndpointPermissions:
         assert permissions["tests"] is not None
         assert "tests" in permissions["tests"]
 
-    @mock.patch(f"{MOCK_MODULE}.make_tracked_session")
+    @mock.patch(SECUREFRAME_SESSION_PATCH)
     def test_transient_failures_are_not_denials(self, mock_session):
         mock_session.return_value.get.side_effect = Exception("connection reset")
 
         assert get_endpoint_permissions("key", "secret", "us", ["controls"]) == {"controls": None}
-
-
-class TestGetRows:
-    @mock.patch(f"{MOCK_MODULE}.make_tracked_session")
-    def test_paginates_until_empty_page(self, mock_session):
-        pages = [
-            _response({"data": [{"id": "1", "attributes": {"id": "1"}}, {"id": "2", "attributes": {"id": "2"}}]}),
-            _response({"data": [{"id": "3", "attributes": {"id": "3"}}]}),
-            _response({"data": []}),
-        ]
-        mock_session.return_value.get.side_effect = pages
-
-        manager = _make_manager()
-        batches = list(get_rows("key", "secret", "us", "controls", mock.MagicMock(), manager))
-
-        assert [row["id"] for batch in batches for row in batch] == ["1", "2", "3"]
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        assert [f"page={n}" in url for n, url in enumerate(urls, start=1)] == [True, True, True]
-
-    @mock.patch(f"{MOCK_MODULE}.make_tracked_session")
-    def test_state_saved_after_each_yielded_batch(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response({"data": [{"id": "1", "attributes": {"id": "1"}}]}),
-            _response({"data": []}),
-        ]
-
-        manager = _make_manager()
-        rows_iterator = get_rows("key", "secret", "us", "controls", mock.MagicMock(), manager)
-
-        next(rows_iterator)
-        # Generator paused at the yield: page 1 is in flight downstream, so no checkpoint yet —
-        # a crash here must re-fetch page 1, not skip it.
-        manager.save_state.assert_not_called()
-
-        assert list(rows_iterator) == []
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0].page == 2
-
-    @mock.patch(f"{MOCK_MODULE}.make_tracked_session")
-    def test_resumes_from_saved_page(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"data": []})
-
-        manager = _make_manager(SecureframeResumeConfig(page=5))
-        list(get_rows("key", "secret", "us", "controls", mock.MagicMock(), manager))
-
-        assert "page=5" in mock_session.return_value.get.call_args.args[0]
-
-    @mock.patch(f"{MOCK_MODULE}.make_tracked_session")
-    def test_auth_failure_raises_instead_of_ending_sync(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"message": "Authorization failed"}, status_code=401)
-
-        manager = _make_manager()
-        with pytest.raises(HTTPError):
-            list(get_rows("key", "secret", "us", "controls", mock.MagicMock(), manager))
-
-        manager.save_state.assert_not_called()
 
 
 class TestSessionHardening:
@@ -204,12 +298,11 @@ class TestSessionHardening:
         [
             lambda: validate_credentials("key", "secret", "us"),
             lambda: get_endpoint_permissions("key", "secret", "us", ["controls"]),
-            lambda: list(get_rows("key", "secret", "us", "controls", mock.MagicMock(), _make_manager())),
         ],
     )
-    @mock.patch(f"{MOCK_MODULE}.make_tracked_session")
+    @mock.patch(SECUREFRAME_SESSION_PATCH)
     def test_session_excludes_responses_from_sample_capture_and_redacts_credentials(self, mock_session, call):
-        mock_session.return_value.get.return_value = _response({"data": []})
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
 
         call()
 
@@ -219,12 +312,44 @@ class TestSessionHardening:
         assert kwargs["capture"] is False
         assert set(kwargs["redact_values"]) == {"key", "secret"}
 
+    @mock.patch(SECUREFRAME_SESSION_PATCH)
+    def test_sync_transport_session_is_hardened(self, mock_session):
+        # The transport session handed to the rest_source client is built the same way.
+        session = mock_session.return_value
+        session.headers = {}
+        session.prepare_request.side_effect = lambda request: mock.MagicMock()
+        session.send.side_effect = [_response({"data": []})]
+
+        source = secureframe_source(
+            api_key="key",
+            api_secret="secret",
+            region="us",
+            endpoint="controls",
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
+        )
+        _rows(source)
+
+        _, kwargs = mock_session.call_args
+        assert kwargs["capture"] is False
+        assert set(kwargs["redact_values"]) == {"key", "secret"}
+        assert kwargs["headers"]["Authorization"] == "key secret"
+
 
 class TestSecureframeSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint):
         config = SECUREFRAME_ENDPOINTS[endpoint]
-        response = secureframe_source("key", "secret", "us", endpoint, mock.MagicMock(), _make_manager())
+        response = secureframe_source(
+            api_key="key",
+            api_secret="secret",
+            region="us",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
+        )
 
         assert response.name == endpoint
         assert response.primary_keys == [config.primary_key]

@@ -38,6 +38,7 @@ from ..logic.github_client import (
     StamphogGitHubError,
     exchange_oauth_code_for_user_token,
     list_user_accessible_repositories,
+    list_user_installations,
     user_can_access_installation,
 )
 from ..models import DigestChannel, DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
@@ -260,12 +261,72 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.ModelViewSe
         # current team. Without it, an attacker could send a logged-in member a callback carrying the
         # attacker's own installation and bind it to the victim's team.
         slug = settings.STAMPHOG_GITHUB_APP_SLUG
+        client_id = settings.STAMPHOG_GITHUB_APP_CLIENT_ID
         install_url = ""
+        authorize_url = ""
+        # One state token backs both URLs — either callback (install Setup URL or authorize Callback URL)
+        # round-trips it, and sync_installation binds the result to the team+user encoded here.
+        state = signing.dumps({"team_id": self.team_id, "user_id": request.user.pk}, salt=_INSTALL_STATE_SALT)
         if slug:
-            state = signing.dumps({"team_id": self.team_id, "user_id": request.user.pk}, salt=_INSTALL_STATE_SALT)
             install_url = f"https://github.com/apps/{slug}/installations/new?state={quote(state)}"
-        data = StamphogInstallInfoSerializer({"app_slug": slug, "install_url": install_url}).data
+        if client_id:
+            # Authorize-first: an already-installed user gets a silent instant redirect back with an OAuth
+            # code but no installation_id, so the connect button never dead-ends on GitHub's "update
+            # installation" screen. Discovery then finds the installations from the code, server-side.
+            authorize_url = (
+                f"https://github.com/login/oauth/authorize?client_id={quote(client_id)}&state={quote(state)}"
+            )
+        data = StamphogInstallInfoSerializer(
+            {"app_slug": slug, "install_url": install_url, "authorize_url": authorize_url}
+        ).data
         return Response(data)
+
+    def _sync_installation_repositories(
+        self, installation_id: str, user_token: str
+    ) -> tuple[list[StamphogRepoConfig], list[str]]:
+        """Bind every user-accessible repo in one installation to the current team. Returns (synced, skipped).
+
+        Enumerate with the USER token, not the app installation token: bind only the repos this user can
+        actually reach in the installation, so proving access to one repo can't attach repos they can't
+        see. The app-token list would return every repo the installer selected regardless of this user.
+        Raises :class:`StamphogGitHubError` on an enumeration failure so the caller fails closed. Shared by
+        the explicit-id and discovery paths so both bind identically.
+        """
+        repositories = list_user_accessible_repositories(installation_id, user_token)
+        synced: list[StamphogRepoConfig] = []
+        skipped: list[str] = []
+        # Bind the per-row savepoint to the model's routed DB (stamphog_db_writer when the product DB is
+        # configured, else default) — a bare atomic() opens on the default connection, so the get_or_create
+        # would run outside any transaction on the product DB.
+        write_db = router.db_for_write(StamphogRepoConfig)
+        for full_name in repositories:
+            # Per-row savepoint: an IntegrityError only rolls back that row, leaving the rest of the
+            # batch (and the outer autocommit context) intact.
+            try:
+                with transaction.atomic(using=write_db):
+                    config, _ = StamphogRepoConfig.objects.for_team(self.team_id).get_or_create(
+                        provider="github",
+                        installation_id=installation_id,
+                        repository=full_name,
+                        # for_team() scopes the read but not row creation, so team_id is explicit here.
+                        # Bind disabled: an installation can surface hundreds of repos, so connect them
+                        # but don't start reviewing until a human toggles each on. enabled only seeds new
+                        # rows; an existing row's toggle is never flipped.
+                        defaults={"team_id": self.team_id, "enabled": False},
+                    )
+            except IntegrityError:
+                # The unique (team, repository) constraint tripped: a same-team row for this repo already
+                # exists under a different installation_id — the manually-created config (blank
+                # installation) finally being bound. Adopt it instead of skipping; only a real conflict
+                # (already bound to another installation) stays skipped.
+                adopted = _adopt_preexisting_config(self.team_id, full_name, installation_id)
+                if adopted is None:
+                    skipped.append(full_name)
+                else:
+                    synced.append(adopted)
+                continue
+            synced.append(config)
+        return synced, skipped
 
     @extend_schema(
         request=StamphogSyncInstallationRequestSerializer,
@@ -276,10 +337,16 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.ModelViewSe
         # Custom action names fall outside the default read/write action classification, so without
         # explicit required_scopes this write would be reachable with no scope check at all.
         #
-        # Post-install binding: GitHub redirects the browser back with an installation_id AND a
-        # user-to-server OAuth code. We verify the code proves the caller owns the installation before
-        # registering a StamphogRepoConfig for every repo it covers under the CURRENT team. Without the
-        # ownership check any caller could bind another org's installation and hijack its webhooks. A repo
+        # Post-authorize binding. GitHub redirects the browser back with a user-to-server OAuth code and
+        # our state token; installation_id is present only on the fresh-install redirect, absent on the
+        # authorize-first redirect. We exchange the code for the user's token (the ownership proof) and:
+        #   - explicit installation_id → verify the user can reach exactly it, then sync it.
+        #   - no installation_id → discover the user's installations of THIS App from the token. Exactly
+        #     one → sync it (the overwhelmingly common case). Several → bind NOTHING and return them as
+        #     choices: reachability is not intent, and binding foreign orgs' installations here would
+        #     misroute their webhooks (oldest-wins resolution). Zero isn't an error — the App isn't
+        #     installed anywhere the user can see, signalled via app_not_installed.
+        # Either way ownership is proven by the code, never the caller-supplied (forgeable) id. A repo
         # already owned by another team is skipped, not fatal, so one shared repo can't block the batch.
         request_serializer = StamphogSyncInstallationRequestSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
@@ -315,73 +382,77 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.ModelViewSe
             raise PermissionDenied("This installation link was started by a different user.")
 
         # Fail closed: no proven ownership, no binding. A missing OAuth token (bad/expired code or unset
-        # Stamphog OAuth creds) is a 400; a valid user who simply can't reach the installation is a 403.
+        # Stamphog OAuth creds) is a 400; a valid user who simply can't reach an installation is a 403.
         user_token = exchange_oauth_code_for_user_token(code)
         if user_token is None:
             raise ValidationError({"code": "Could not verify GitHub authorization. Reinstall the app and try again."})
-        try:
-            owns_installation = user_can_access_installation(installation_id, user_token)
-        except StamphogGitHubError:
-            logger.warning(
-                "stamphog sync_installation: installation ownership check failed",
-                installation_id=installation_id,
-                team_id=self.team_id,
-            )
-            raise ValidationError({"installation_id": "Failed to verify installation access. Try again."})
-        if not owns_installation:
-            logger.warning(
-                "stamphog sync_installation: caller does not own installation",
-                installation_id=installation_id,
-                team_id=self.team_id,
-            )
-            raise PermissionDenied("You do not have access to this GitHub App installation.")
 
-        # Enumerate with the USER token, not the app installation token: bind only the repos this user can
-        # actually reach in the installation, so proving access to one repo can't attach repos they can't
-        # see. The app-token list would return every repo the installer selected regardless of this user.
-        try:
-            repositories = list_user_accessible_repositories(installation_id, user_token)
-        except StamphogGitHubError:
-            logger.warning(
-                "stamphog sync_installation: listing user-accessible repositories failed",
-                installation_id=installation_id,
-                team_id=self.team_id,
-            )
-            raise ValidationError({"installation_id": "Failed to list accessible repositories. Try again."})
+        if installation_id:
+            # Explicit-id path (fresh-install redirect): the id is caller-supplied, so verify the user can
+            # actually reach exactly it before binding — otherwise a caller who learns another org's
+            # installation_id could bind its repos and hijack its webhooks.
+            try:
+                owns_installation = user_can_access_installation(installation_id, user_token)
+            except StamphogGitHubError:
+                logger.warning(
+                    "stamphog sync_installation: installation ownership check failed",
+                    installation_id=installation_id,
+                    team_id=self.team_id,
+                )
+                raise ValidationError({"installation_id": "Failed to verify installation access. Try again."})
+            if not owns_installation:
+                logger.warning(
+                    "stamphog sync_installation: caller does not own installation",
+                    installation_id=installation_id,
+                    team_id=self.team_id,
+                )
+                raise PermissionDenied("You do not have access to this GitHub App installation.")
+            installation_ids = [installation_id]
+        else:
+            # Discovery path (authorize-first redirect): GitHub returns only installations of THIS App the
+            # user can reach, so the list is itself the ownership proof — no per-id verification needed.
+            try:
+                discovered = list_user_installations(user_token)
+            except StamphogGitHubError:
+                logger.warning(
+                    "stamphog sync_installation: discovering user installations failed", team_id=self.team_id
+                )
+                raise ValidationError({"code": "Failed to discover GitHub App installations. Try again."})
+            if not discovered:
+                # The App isn't installed anywhere the user can see. Not an error: the frontend routes them
+                # to the GitHub install page (install_url) off app_not_installed.
+                data = StamphogSyncInstallationResponseSerializer(
+                    {"synced": [], "skipped": [], "app_not_installed": True, "installations": []}
+                ).data
+                return Response(data)
+            if len(discovered) > 1:
+                # Reachability is not intent: a user in several orgs that all carry the App must pick which
+                # installation this team binds — silently binding them all would attach foreign orgs' repos
+                # here, and via the oldest-wins webhook resolution even blackhole another team's future
+                # connect. Bind nothing; the frontend re-runs the flow with an explicit installation_id
+                # (which the explicit path above verifies).
+                data = StamphogSyncInstallationResponseSerializer(
+                    {"synced": [], "skipped": [], "app_not_installed": False, "installations": discovered}
+                ).data
+                return Response(data)
+            installation_ids = [discovered[0]["id"]]
 
         synced: list[StamphogRepoConfig] = []
         skipped: list[str] = []
-        # Bind the per-row savepoint to the model's routed DB (stamphog_db_writer when the product DB is
-        # configured, else default) — a bare atomic() opens on the default connection, so the get_or_create
-        # would run outside any transaction on the product DB.
-        write_db = router.db_for_write(StamphogRepoConfig)
-        for full_name in repositories:
-            # Per-row savepoint: an IntegrityError only rolls back that row, leaving the rest of the
-            # batch (and the outer autocommit context) intact.
+        for one_installation_id in installation_ids:
             try:
-                with transaction.atomic(using=write_db):
-                    config, _ = StamphogRepoConfig.objects.for_team(self.team_id).get_or_create(
-                        provider="github",
-                        installation_id=installation_id,
-                        repository=full_name,
-                        # for_team() scopes the read but not row creation, so team_id is explicit here.
-                        # Bind disabled: an installation can surface hundreds of repos, so connect them
-                        # but don't start reviewing until a human toggles each on. enabled only seeds new
-                        # rows; an existing row's toggle is never flipped.
-                        defaults={"team_id": self.team_id, "enabled": False},
-                    )
-            except IntegrityError:
-                # The unique (team, repository) constraint tripped: a same-team row for this repo already
-                # exists under a different installation_id — the manually-created config (blank
-                # installation) finally being bound. Adopt it instead of skipping; only a real conflict
-                # (already bound to another installation) stays skipped.
-                adopted = _adopt_preexisting_config(self.team_id, full_name, installation_id)
-                if adopted is None:
-                    skipped.append(full_name)
-                else:
-                    synced.append(adopted)
-                continue
-            synced.append(config)
+                installation_synced, installation_skipped = self._sync_installation_repositories(
+                    one_installation_id, user_token
+                )
+            except StamphogGitHubError:
+                logger.warning(
+                    "stamphog sync_installation: listing user-accessible repositories failed",
+                    installation_id=one_installation_id,
+                    team_id=self.team_id,
+                )
+                raise ValidationError({"installation_id": "Failed to list accessible repositories. Try again."})
+            synced.extend(installation_synced)
+            skipped.extend(installation_skipped)
 
         # Every synced row records the caller as its connecting user — the identity the review
         # sandbox's short-lived gateway token is minted under. Re-syncs re-stamp on purpose: the
@@ -393,8 +464,10 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.ModelViewSe
                 connected_by_user_id=request.user.pk, updated_at=timezone.now()
             )
 
-        response = StamphogSyncInstallationResponseSerializer({"synced": synced, "skipped": skipped})
-        return Response(response.data)
+        data = StamphogSyncInstallationResponseSerializer(
+            {"synced": synced, "skipped": skipped, "app_not_installed": False, "installations": []}
+        ).data
+        return Response(data)
 
 
 class ReviewRunViewSet(_StamphogTeamScopedViewSet, viewsets.ReadOnlyModelViewSet):

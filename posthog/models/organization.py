@@ -1,4 +1,5 @@
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import cache as functools_cache
 from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, Union
@@ -57,10 +58,17 @@ class OrganizationUsageInfo(TypedDict):
     signals_credits: OrganizationUsageResource | None
     posthog_code_credits: OrganizationUsageResource | None
     workflow_emails: OrganizationUsageResource | None
+    workflow_push: OrganizationUsageResource | None
     workflow_destinations_dispatched: OrganizationUsageResource | None
     logs_mb_ingested: OrganizationUsageResource | None
     replay_vision_credits: OrganizationUsageResource | None
     period: list[str] | None
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class BillingPeriod:
+    start: datetime
+    end: datetime
 
 
 class ProductFeature(TypedDict):
@@ -234,6 +242,11 @@ class Organization(ModelActivityMixin, UUIDTModel):
         help_text="When True, in-app callouts inviting members to enable AI training are shown.",
     )
     enforce_2fa = models.BooleanField(null=True, blank=True)
+    enforce_verified_domains = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.",
+    )
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
     members_can_create_projects = models.BooleanField(
         default=False,
@@ -242,6 +255,11 @@ class Organization(ModelActivityMixin, UUIDTModel):
         help_text="When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.",
     )
     members_can_use_personal_api_keys = models.BooleanField(default=True)
+    members_can_see_org_members = models.BooleanField(
+        default=True,
+        db_default=True,
+        help_text="When False, members (below admin) only see themselves in the members list and only project members in access control.",
+    )
     allow_publicly_shared_resources = models.BooleanField(default=True)
     default_role = models.ForeignKey(
         "ee.Role",
@@ -412,8 +430,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
         billing_period = self.current_billing_period
 
         if billing_period:
-            _start, end = billing_period
-            billing_period_end_timestamp = int(end.timestamp())
+            billing_period_end_timestamp = int(billing_period.end.timestamp())
 
             team_rows = [
                 (team_id, api_token) for team_id, api_token in self.teams.values_list("id", "api_token") if api_token
@@ -536,9 +553,9 @@ class Organization(ModelActivityMixin, UUIDTModel):
         return result
 
     @property
-    def current_billing_period(self) -> tuple[datetime, datetime] | None:
+    def current_billing_period(self) -> BillingPeriod | None:
         """
-        Returns the current billing period as a tuple of (start, end).
+        Returns the current billing period.
         Returns None if usage data is not available or period is not set.
         """
         if not self.usage or "period" not in self.usage:
@@ -551,7 +568,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
 
             start = dateutil.parser.isoparse(period[0])
             end = dateutil.parser.isoparse(period[1])
-            return (start, end)
+            return BillingPeriod(start=start, end=end)
         except (ValueError, TypeError, KeyError) as e:
             logger.warning(f"Failed to parse billing period for organization {self.id}: {e}")
             return None
@@ -750,6 +767,21 @@ def clean_up_alert_subscriptions_on_membership_removal(sender, instance: Organiz
 
 
 @receiver(models.signals.post_delete, sender=OrganizationMembership)
+def clean_up_event_streams_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
+    from products.customer_analytics.backend.facade.api import delete_event_streams_for_user
+
+    deleted_count = delete_event_streams_for_user(user_id=instance.user_id, organization_id=instance.organization_id)
+
+    if deleted_count > 0:
+        logger.info(
+            "Removed customer analytics event streams for user removed from organization",
+            user_id=instance.user_id,
+            organization_id=str(instance.organization_id),
+            deleted_count=deleted_count,
+        )
+
+
+@receiver(models.signals.post_delete, sender=OrganizationMembership)
 def sync_billing_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
     from posthog.tasks.sync_billing import sync_members_to_billing
 
@@ -763,6 +795,18 @@ def sync_billing_on_membership_removal(sender, instance: OrganizationMembership,
             sync_members_to_billing.delay(organization_id)
 
     transaction.on_commit(_sync_if_org_exists)
+
+
+@receiver(models.signals.post_delete, sender=OrganizationMembership)
+def pause_loops_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
+    # A loop run executes with its owner's credentials, so offboarding a member must pause their loops
+    # in that org and cancel in-flight runs. Deferred import keeps loops/Temporal deps off the model
+    # import path (mirrors the User-deactivation hook).
+    from products.tasks.backend.facade.loops import pause_loops_for_removed_member  # noqa: PLC0415
+
+    user_id = instance.user_id
+    organization_id = str(instance.organization_id)
+    transaction.on_commit(lambda: pause_loops_for_removed_member(user_id, organization_id))
 
 
 @receiver(models.signals.pre_save, sender=OrganizationMembership)

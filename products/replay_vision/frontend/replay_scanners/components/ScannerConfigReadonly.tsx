@@ -12,13 +12,12 @@ import {
 } from '@posthog/icons'
 import { LemonCard, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { TZLabel } from 'lib/components/TZLabel'
 import { UniversalFilterButton } from 'lib/components/UniversalFilters/UniversalFilterButton'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { isEntityFilter } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
 import {
     deriveOperand,
@@ -27,13 +26,15 @@ import {
 import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/utils'
 
 import { RecordingsQuery } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType, FilterLogicalOperator } from '~/types'
+import { FilterLogicalOperator, UniversalFilterValue } from '~/types'
 
 import { BooleanTag } from '../../components/BooleanTag'
 import { CardHeader } from '../../components/CardHeader'
 import { LabeledRow } from '../../components/LabeledRow'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
-import { formatCredits } from '../../utils/credits'
+import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
+import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
+import { formatCreditsMaybeUsd } from '../../utils/credits'
 import { promptUnchangedSince } from '../../utils/labelStats'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { MODEL_OPTIONS, ReplayScanner, SAMPLING_MODE_OPTIONS, ScannerType } from '../types'
@@ -73,6 +74,25 @@ function OptionTags({
                     </LemonTag>
                 )
             })}
+        </div>
+    )
+}
+
+/** One recording filter, read-only. An event or action filter carries its own property filters, which the
+ * editable UI keeps behind a popover — there's nothing to open here, so show them alongside the event. */
+function ReadonlyFilter({ filter }: { filter: UniversalFilterValue }): JSX.Element {
+    const properties = isEntityFilter(filter) ? (filter.properties ?? []) : []
+    return (
+        <div className="flex flex-wrap items-center gap-1.5">
+            <UniversalFilterButton filter={filter} />
+            {properties.length > 0 && (
+                <>
+                    <span className="text-xs">where</span>
+                    {properties.map((property, i) => (
+                        <PropertyFilterButton key={i} item={property} compact />
+                    ))}
+                </>
+            )}
         </div>
     )
 }
@@ -135,6 +155,48 @@ function BehaviorCardContent({ scanner }: { scanner: ReplayScanner }): JSX.Eleme
     )
 }
 
+/** Reads the type-specific fields off an unknown scanner_config, defensively: it comes from a run
+ * snapshot's JSON field, and different versions of the same scanner can carry different scanner types. */
+function VersionConfigDetails({ config }: { config: unknown }): JSX.Element | null {
+    if (!config || typeof config !== 'object') {
+        return null
+    }
+    const record = config as Record<string, unknown>
+    const tags = Array.isArray(record.tags) ? record.tags.filter((tag): tag is string => typeof tag === 'string') : []
+    const scale = record.scale && typeof record.scale === 'object' ? (record.scale as Record<string, unknown>) : null
+    const hasScale = typeof scale?.min === 'number' && typeof scale?.max === 'number'
+    const length = typeof record.length === 'string' ? record.length : null
+    const hasAllowInconclusive = typeof record.allow_inconclusive === 'boolean'
+    if (tags.length === 0 && !hasScale && !length && !hasAllowInconclusive) {
+        return null
+    }
+    return (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+            {tags.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                    {tags.map((tag) => (
+                        <LemonTag key={tag} size="small" type="option">
+                            {tag}
+                        </LemonTag>
+                    ))}
+                </div>
+            )}
+            {hasScale && scale && (
+                <span>
+                    Scale: {scale.min as number} – {scale.max as number}
+                    {scale.label ? ` (${String(scale.label)})` : ''}
+                </span>
+            )}
+            {length && <LemonTag size="small">{length}</LemonTag>}
+            {hasAllowInconclusive && (
+                <span className="flex items-center gap-1">
+                    Inconclusive verdicts <BooleanTag value={!!record.allow_inconclusive} />
+                </span>
+            )}
+        </div>
+    )
+}
+
 function PromptVersionHistory({ scanner }: { scanner: ReplayScanner }): JSX.Element | null {
     const { observationStatsApi } = useValues(replayScannerLogic({ id: scanner.id }))
     const markers = observationStatsApi?.labels.version_markers ?? []
@@ -155,7 +217,7 @@ function PromptVersionHistory({ scanner }: { scanner: ReplayScanner }): JSX.Elem
             : null
     return (
         <LemonCard className="p-4" hoverEffect={false}>
-            <CardHeader icon={<IconPencil />} title="Prompt versions" />
+            <CardHeader icon={<IconPencil />} title="Config versions" />
             <div className="flex flex-col gap-3">
                 {showCurrentEntry && (
                     <div className="border rounded p-3 space-y-2" id={`prompt-v${currentVersion}`}>
@@ -169,6 +231,7 @@ function PromptVersionHistory({ scanner }: { scanner: ReplayScanner }): JSX.Elem
                             )}
                         </div>
                         <div className="whitespace-pre-wrap font-mono text-xs">{currentPrompt}</div>
+                        <VersionConfigDetails config={scanner.scanner_config} />
                     </div>
                 )}
                 {newestFirst.map((marker) => (
@@ -192,6 +255,7 @@ function PromptVersionHistory({ scanner }: { scanner: ReplayScanner }): JSX.Elem
                             )}
                         </div>
                         <div className="whitespace-pre-wrap font-mono text-xs">{marker.prompt || '—'}</div>
+                        <VersionConfigDetails config={marker.scanner_config} />
                     </div>
                 ))}
             </div>
@@ -201,8 +265,7 @@ function PromptVersionHistory({ scanner }: { scanner: ReplayScanner }): JSX.Elem
 
 export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): JSX.Element {
     const { observationStats, togglingEnabled } = useValues(replayScannerLogic({ id: scanner.id }))
-    const { featureFlags } = useValues(featureFlagLogic)
-    const qualityEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_QUALITY]
+    const { showUsd } = useValues(visionQuotaLogic)
     const { toggleEnabled } = useActions(replayScannerLogic({ id: scanner.id }))
     const samplingPercent = Math.round((scanner.sampling_rate ?? 0) * 1000) / 10
     // Read every filter dimension (events, actions, properties, console logs, …), not just top-level properties.
@@ -236,19 +299,15 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                         </LabeledRow>
                         <LabeledRow label="Status">
                             <div className="flex items-center gap-2">
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.SessionRecording}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                >
-                                    <LemonSwitch
-                                        checked={scanner.enabled}
-                                        onChange={() => toggleEnabled()}
-                                        loading={togglingEnabled}
-                                        data-attr="vision-scanner-toggle-enabled"
-                                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                                        data-ph-capture-attribute-will-be-enabled={!scanner.enabled}
-                                    />
-                                </AccessControlAction>
+                                <LemonSwitch
+                                    checked={scanner.enabled}
+                                    onChange={() => toggleEnabled()}
+                                    loading={togglingEnabled}
+                                    disabledReason={getReplayVisionEditDisabledReason(scanner.user_access_level)}
+                                    data-attr="vision-scanner-toggle-enabled"
+                                    data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                                    data-ph-capture-attribute-will-be-enabled={!scanner.enabled}
+                                />
                                 <span className="text-muted text-xs">
                                     {scanner.enabled ? 'Runs automatically on a schedule' : 'Runs on-demand only'}
                                 </span>
@@ -285,7 +344,7 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                                                 <span className="text-xs">Match {matchWord} of</span>
                                             )}
                                             {filters.map((filter, i) => (
-                                                <UniversalFilterButton key={i} filter={filter} />
+                                                <ReadonlyFilter key={i} filter={filter} />
                                             ))}
                                         </div>
                                     )}
@@ -349,9 +408,9 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                         <LabeledRow label="Estimated monthly cost">
                             {scanner.estimated_monthly_credits != null ? (
                                 <span className="tabular-nums">
-                                    {formatCredits(scanner.estimated_monthly_credits)}{' '}
+                                    {formatCreditsMaybeUsd(scanner.estimated_monthly_credits, showUsd)}{' '}
                                     <span className="text-muted">
-                                        ({(scanner.estimated_monthly_observations ?? 0).toLocaleString()} observations)
+                                        · {(scanner.estimated_monthly_observations ?? 0).toLocaleString()} observations
                                     </span>
                                 </span>
                             ) : (
@@ -360,13 +419,6 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                         </LabeledRow>
                         <LabeledRow label="Total observations">
                             <span className="tabular-nums">{observationStats.total.toLocaleString()}</span>
-                        </LabeledRow>
-                        <LabeledRow label="Success rate">
-                            {observationStats.successRate != null ? (
-                                <span className="tabular-nums">{observationStats.successRate}%</span>
-                            ) : (
-                                <span className="text-muted">—</span>
-                            )}
                         </LabeledRow>
                         <LabeledRow label="Outcomes">
                             <span className="text-sm">
@@ -378,7 +430,7 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                     </div>
                 </LemonCard>
             </div>
-            {qualityEnabled && <PromptVersionHistory scanner={scanner} />}
+            <PromptVersionHistory scanner={scanner} />
         </div>
     )
 }

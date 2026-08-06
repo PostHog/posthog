@@ -1,5 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
+import { waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -12,7 +12,9 @@ import type { MockResolverInfo } from '~/mocks/utils'
 const QUERY_ENDPOINT = '/api/environments/:team_id/query/:kind/'
 const ACCOUNT_RETRIEVE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/'
 const ACCOUNT_NOTEBOOKS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/notebooks/'
+const ACCOUNT_RELATIONSHIPS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/relationships/'
 const RELATIONSHIP_DEFINITIONS_ENDPOINT = 'api/projects/:team_id/account_relationship_definitions/'
+const ORGANIZATION_MEMBERS_ENDPOINT = 'api/projects/:team_id/organization_members/'
 const WAREHOUSE_VIEW_LINK_ENDPOINT = 'api/environments/:team_id/warehouse_view_link/'
 const INSIGHTS_ENDPOINT = 'api/environments/:team_id/insights/'
 
@@ -95,6 +97,18 @@ const ACCOUNT_WITHOUT_LINKS = {
 
 const EMPTY_INSIGHTS = { count: 0, next: null, previous: null, results: [] }
 
+// Every fetch the expansion fires must be mocked (even if empty), because AccountNotebooksExpansion
+// eagerly mounts the related-users, relationships, and usage/spend billing logics up front. An
+// unhandled fetch passes through msw to the static storybook server and errors out, and the failure
+// re-render can collapse the expansion — making [data-attr="account-expansion"] disappear so the
+// post-play waitForSelector times out. The related-users failure also pops an error toast, which the
+// snapshot's loader wait can trip over.
+const EXPANDED_ROW_FETCH_MOCKS = {
+    [INSIGHTS_ENDPOINT]: EMPTY_INSIGHTS,
+    [ORGANIZATION_MEMBERS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
+    [ACCOUNT_RELATIONSHIPS_ENDPOINT]: [],
+}
+
 // Billing tab stories share the same account + notebooks mocks; they differ only in the insight and query responses.
 function billingTabDecorators(
     insightsGet: Record<string, unknown>,
@@ -103,6 +117,7 @@ function billingTabDecorators(
     return [
         mswDecorator({
             get: {
+                ...EXPANDED_ROW_FETCH_MOCKS,
                 [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITH_LINKS,
                 [ACCOUNT_NOTEBOOKS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
                 [INSIGHTS_ENDPOINT]: insightsGet,
@@ -114,34 +129,50 @@ function billingTabDecorators(
     ]
 }
 
-// All expanded-row stories need the insights endpoint mocked (even if empty) because
-// AccountNotebooksExpansion eagerly mounts accountBillingLogic for usage & spend tabs.
-// Without this mock, the unhandled fetch can error-out and trigger a React re-render
-// that collapses the expansion — making [data-attr="account-expansion"] disappear and
-// the post-play waitForSelector time out.
 const EXPANDED_ROW_DECORATORS_BASE = [
     mswDecorator({
-        get: {
-            [INSIGHTS_ENDPOINT]: EMPTY_INSIGHTS,
-        },
+        get: EXPANDED_ROW_FETCH_MOCKS,
     }),
 ]
 
-// Expands the first row and switches to a billing tab. Awaits the settled sidebar first to avoid layout races.
-async function expandAndOpenTab(canvasElement: HTMLElement, tab: 'Usage' | 'Spend'): Promise<void> {
+// Expands the first row and asserts the expansion actually rendered. The click can race the table's
+// render cycle and be swallowed, so verify and re-click instead of trusting a single click — a lost
+// expansion then fails fast here, where Jest retries re-run the story cleanly, instead of burning
+// the whole test budget inside the post-play waitForSelector.
+async function expandFirstRow(canvasElement: HTMLElement): Promise<void> {
     const canvas = within(canvasElement)
-    await userEvent.click(await canvas.findByTitle('Show more'))
-    await canvas.findByText('Useful links')
-    await canvas.findByText('Organization')
-    await userEvent.click(await canvas.findByRole('tab', { name: tab }))
+    // Generous first wait: the whole scene mounts and the accounts query resolves before rows exist.
+    await canvas.findByTitle('Show more', {}, { timeout: 15000 })
+    for (let attempt = 0; attempt < 3; attempt++) {
+        if (!canvasElement.querySelector('[data-attr="account-expansion"]')) {
+            await userEvent.click(await canvas.findByTitle('Show more'))
+        }
+        try {
+            await waitFor(
+                () => {
+                    if (!canvasElement.querySelector('[data-attr="account-expansion"]')) {
+                        throw new Error('expansion not rendered yet')
+                    }
+                },
+                { timeout: 3000 }
+            )
+            return
+        } catch {
+            // Expansion missing or collapsed again — loop around and re-click.
+        }
+    }
+    throw new Error('Account row expansion did not render after 3 clicks')
 }
 
 // The snapshot fires well after `play` (page-ready waits, forced reflows, a dispatched resize),
 // and the meta-level waitForSelector is satisfied by a collapsed table. Gating the snapshot on the
-// expanded-row content turns a lost expansion into a retry instead of a flaky collapsed capture.
+// expanded-row content turns a late-lost expansion into a retry instead of a flaky collapsed capture.
+// play already asserts the expansion rendered, so keep this gate's timeout well under the Jest
+// budget: a genuinely lost expansion should fail the attempt fast and retry cleanly, not burn the
+// whole test timeout inside a Playwright wait.
 const EXPANDED_ROW_TEST_OPTIONS = {
     waitForSelector: ['[data-attr="accounts-refresh"]', '[data-attr="account-expansion"]'],
-    waitForSelectorTimeout: 60000,
+    waitForSelectorTimeout: 15000,
 }
 
 function mockAccountsQuery(rows: AccountRow[]): (info: MockResolverInfo) => Promise<[number, unknown] | undefined> {
@@ -242,12 +273,9 @@ export const RowExpandedEmpty: Story = {
         }),
     ],
     play: async ({ canvasElement }) => {
-        // Only click to expand — sidebar content verification is redundant for snapshot
-        // purposes since mock data is deterministic. The waitForSelector in testOptions
-        // gates the snapshot on [data-attr="account-expansion"] with a 60s budget,
-        // avoiding the tight findByText timeouts that flake under CI load.
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByTitle('Show more'))
+        // Sidebar content verification is redundant for snapshot purposes since mock data is
+        // deterministic — expanding (and verifying the expansion took) is all play needs to do.
+        await expandFirstRow(canvasElement)
     },
 }
 
@@ -299,8 +327,7 @@ export const RowExpandedWithNote: Story = {
         }),
     ],
     play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByTitle('Show more'))
+        await expandFirstRow(canvasElement)
     },
 }
 
@@ -320,8 +347,7 @@ export const RowExpandedLinksDisabled: Story = {
         }),
     ],
     play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByTitle('Show more'))
+        await expandFirstRow(canvasElement)
     },
 }
 
@@ -335,7 +361,9 @@ export const RowExpandedUsageNotFound: Story = {
     },
     decorators: billingTabDecorators(EMPTY_INSIGHTS, mockAccountsQuery(SINGLE_ROW)),
     play: async ({ canvasElement }) => {
-        await expandAndOpenTab(canvasElement, 'Usage')
-        await within(canvasElement).findByText('No billing usage insight here')
+        await expandFirstRow(canvasElement)
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('tab', { name: 'Usage' }, { timeout: 15000 }))
+        await canvas.findByText('No billing usage insight here', {}, { timeout: 15000 })
     },
 }

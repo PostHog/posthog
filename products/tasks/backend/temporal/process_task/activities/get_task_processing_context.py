@@ -11,6 +11,7 @@ from posthog.models import Team
 from posthog.temporal.common.utils import asyncify, close_db_connections
 
 from products.tasks.backend.constants import (
+    AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
     MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
@@ -18,9 +19,14 @@ from products.tasks.backend.constants import (
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
-    vm_sandbox_allowed_origins,
+    get_vm_sandbox_flag_payload,
+    vm_sandbox_allowed_origin_products,
+    vm_sandbox_default_base_origin_products,
+    vm_sandbox_default_custom_image,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
+from products.tasks.backend.facade.api import ensure_task_run_session
+from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled
 from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_CPU_CORES,
     MAX_SANDBOX_MEMORY_GB,
@@ -61,6 +67,7 @@ class TaskProcessingContext:
     repository: str | None
     distinct_id: str
     origin_product: str | None = None
+    task_runtime: str = Task.Runtime.ACP
     environment: str | None = None
     github_user_integration_id: str | None = None
     task_created_by_id: int | None = None
@@ -80,6 +87,9 @@ class TaskProcessingContext:
     # Captured at workflow start so the sandbox event transport branch is
     # deterministic for the full run.
     sandbox_event_ingest_enabled: bool = False
+    # Captured at workflow start so telemetry env injection (and the run-log mirror,
+    # which reads the same state stamp) is deterministic for the full run.
+    agent_otel_telemetry_enabled: bool = False
     use_modal_vm_sandbox: bool = False
     use_modal_network_allowlist: bool = False
     # Burstable by default; the per-run state can opt out to pin a fixed-size box
@@ -100,7 +110,6 @@ class TaskProcessingContext:
 
     @property
     def mode(self) -> str:
-        """Get the execution mode from state. Defaults to 'background'."""
         return (self.state or {}).get("mode", "background")
 
     @property
@@ -117,8 +126,38 @@ class TaskProcessingContext:
         return self.github_integration_id is not None or self.github_user_integration_id is not None
 
     @property
+    def repositories(self) -> list[str]:
+        repositories = (self.state or {}).get("repositories")
+        if isinstance(repositories, list) and all(isinstance(repository, str) for repository in repositories):
+            return repositories
+        return [self.repository] if self.repository else []
+
+    @property
+    def github_read_access(self) -> bool:
+        """Repo-less run that asked for a read-only GitHub token (see Task.create_and_run)."""
+        return (self.state or {}).get("github_read_access") is True
+
+    @property
     def sandbox_environment_id(self) -> str | None:
         return (self.state or {}).get("sandbox_environment_id")
+
+    @property
+    def is_snapshot_resume(self) -> bool:
+        state = self.state or {}
+        has_resume_source = isinstance(state.get("resume_from_run_id"), str) or state.get("handoff_resumed") is True
+        return has_resume_source and isinstance(state.get("snapshot_external_id"), str)
+
+    @property
+    def loop_id(self) -> str | None:
+        """Set when this run was spawned by a loop firing (see products/tasks/backend/facade/loops.py)."""
+        value = (self.state or {}).get("loop_id")
+        return value if isinstance(value, str) else None
+
+    @property
+    def loop_trigger_id(self) -> str | None:
+        """Set alongside loop_id when a loop trigger fired this run."""
+        value = (self.state or {}).get("loop_trigger_id")
+        return value if isinstance(value, str) else None
 
     @property
     def runtime_adapter(self) -> str | None:
@@ -139,6 +178,16 @@ class TaskProcessingContext:
     def reasoning_effort(self) -> str | None:
         value = (self.state or {}).get("reasoning_effort")
         return value if isinstance(value, str) else None
+
+    @property
+    def context_window(self) -> str | None:
+        value = (self.state or {}).get("context_window")
+        return value if isinstance(value, str) else None
+
+    @property
+    def fast_mode(self) -> bool | None:
+        value = (self.state or {}).get("fast_mode")
+        return value if isinstance(value, bool) else None
 
     @property
     def initial_permission_mode(self) -> str | None:
@@ -268,7 +317,7 @@ def _is_rtk_enabled(
 ) -> bool:
     """rtk compression is on by default. The kill-switch flag wins over everything —
     a fleet-wide disable must not be pinned back on by a per-run override — and
-    otherwise the per-run state override (the user's toggle in PostHog Code settings)
+    otherwise the per-run state override (the user's toggle in PostHog Desktop settings)
     applies. Fails open (enabled, override honored) on flag-service errors so the
     default posture is preserved."""
     try:
@@ -305,9 +354,9 @@ def _is_sandbox_event_ingest_enabled(
     state: dict | None = None,
 ) -> bool:
     # Slack runs must stay on the relay path regardless of the flag or any
-    # override: permission brokering and the Slack approval-card escalation only
-    # run in relay_sandbox_events, so a Slack run in ingest mode would stall
-    # forever on its first gated tool call.
+    # override: the permission auto-responder only runs in relay_sandbox_events,
+    # so a legacy Slack run in ingest mode would stall forever on its first
+    # gated tool call.
     if is_slack_interaction_state(state):
         return False
 
@@ -349,7 +398,44 @@ def _is_sandbox_event_ingest_enabled(
     return enabled
 
 
-def _is_modal_vm_sandbox_enabled(
+def _is_agent_otel_telemetry_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+    state: dict | None = None,
+) -> bool:
+    # DEBUG first: local dev disables the analytics SDK, so the dispatch capture always
+    # stamps False there - honoring the stamp would disable telemetry locally even with
+    # the SANDBOX_AGENT_OTEL_* settings (the local opt-in, which gate emission themselves)
+    # set. Matches agent_otel_telemetry_enabled_for_state, which the mirror reads.
+    if settings.DEBUG:
+        return True
+
+    state_override = (state or {}).get(AGENT_OTEL_TELEMETRY_STATE_KEY)
+    if isinstance(state_override, bool):
+        return state_override
+
+    enabled = is_agent_otel_telemetry_enabled(distinct_id=distinct_id, organization_id=organization_id)
+    log_with_activity_context(
+        "agent_otel_telemetry_flag_checked",
+        run_id=run_id,
+        agent_otel_telemetry_enabled=enabled,
+    )
+    return enabled
+
+
+@dataclass(frozen=True)
+class VmSandboxDecision:
+    use_vm_sandbox: bool
+    # Modal image name from the flag payload that VM runs fall back to when no custom
+    # image was picked. None whenever the payload was not consulted (state override,
+    # flag error, restricted egress) or defines no default — image-builder runs must
+    # keep layering on the plain VM base, never on a prebaked default.
+    default_custom_image: str | None = None
+
+
+def _resolve_modal_vm_sandbox(
     *,
     distinct_id: str,
     organization_id: str,
@@ -358,50 +444,82 @@ def _is_modal_vm_sandbox_enabled(
     allowed_domains: list[str] | None,
     custom_image_available: bool = False,
     state: dict | None = None,
-) -> bool:
+) -> VmSandboxDecision:
     if allowed_domains is not None:
         log_with_activity_context(
             "modal_vm_sandbox_skipped_restricted_egress",
             run_id=run_id,
             use_modal_vm_sandbox=False,
         )
-        return False
+        return VmSandboxDecision(use_vm_sandbox=False)
 
-    if origin_product != Task.OriginProduct.IMAGE_BUILDER and not custom_image_available:
+    # A trusted, server-set per-run override (image builders) forces the runtime
+    # decision without consulting the flag; any non-bool value is ignored.
+    raw_state_override = (state or {}).get("use_modal_vm_sandbox")
+    state_override: bool | None = raw_state_override if isinstance(raw_state_override, bool) else None
+
+    # Resolve the flag payload once and derive the routing config from it, skipping the
+    # fetch entirely when a bool state override is present (so image-builder runs never
+    # depend on the flag service):
+    #   - allowed_origins: origins permitted on the VM runtime (custom images are VM-only).
+    #   - default_base_origins: origins that may run on the bare VM *base* image even
+    #     without a custom image — makes the VM runtime the default for standard runs.
+    #   - default_custom_image: image VM runs default to when the user picked none, so
+    #     org-targeted payload variants decide which default VM image an org gets.
+    allowed_origins: set[str] = set()
+    default_base_origins: set[str] = set()
+    default_custom_image: str | None = None
+    if state_override is None:
+        try:
+            payload = get_vm_sandbox_flag_payload(distinct_id=distinct_id, organization_id=organization_id)
+        except Exception as e:
+            log_with_activity_context("modal_vm_sandbox_flag_check_failed", run_id=run_id, error=str(e))
+            return VmSandboxDecision(use_vm_sandbox=False)
+        allowed_origins = vm_sandbox_allowed_origin_products(payload)
+        default_base_origins = vm_sandbox_default_base_origin_products(payload)
+        default_custom_image = vm_sandbox_default_custom_image(payload)
+
+    origin_allows_default_base = origin_product in default_base_origins
+
+    # Custom images are VM-only, so VM historically required one. image_builder always
+    # runs on VM (it builds images on that base); origins in the default-base allowlist
+    # may run on the bare VM base image with no custom image at all.
+    if (
+        origin_product != Task.OriginProduct.IMAGE_BUILDER
+        and not custom_image_available
+        and not origin_allows_default_base
+    ):
         log_with_activity_context(
             "modal_vm_sandbox_skipped_without_custom_image",
             run_id=run_id,
             use_modal_vm_sandbox=False,
         )
-        return False
+        return VmSandboxDecision(use_vm_sandbox=False)
 
-    state_override = (state or {}).get("use_modal_vm_sandbox")
-    if isinstance(state_override, bool):
+    if state_override is not None:
         log_with_activity_context(
             "modal_vm_sandbox_state_override",
             run_id=run_id,
             use_modal_vm_sandbox=state_override,
         )
-        return state_override
+        return VmSandboxDecision(use_vm_sandbox=state_override)
 
-    try:
-        allowed_origins = vm_sandbox_allowed_origins(distinct_id=distinct_id, organization_id=organization_id)
-    except Exception as e:
-        log_with_activity_context("modal_vm_sandbox_flag_check_failed", run_id=run_id, error=str(e))
-        return False
-
-    origin_allowed = origin_product in allowed_origins
-    result = origin_allowed
+    result = origin_product in allowed_origins or origin_allows_default_base
     log_with_activity_context(
         "modal_vm_sandbox_flag_checked",
         run_id=run_id,
-        flag_enabled=bool(allowed_origins),
+        flag_enabled=bool(allowed_origins or default_base_origins),
         origin_product=origin_product,
         allowed_origin_products=sorted(allowed_origins),
+        default_base_origin_products=sorted(default_base_origins),
+        default_custom_image=default_custom_image,
         custom_image_available=custom_image_available,
         use_modal_vm_sandbox=result,
     )
-    return result
+    return VmSandboxDecision(
+        use_vm_sandbox=result,
+        default_custom_image=default_custom_image if result else None,
+    )
 
 
 def _is_burstable_sandbox_resources_enabled(
@@ -528,6 +646,19 @@ def _is_modal_directory_resume_snapshots_enabled(
     return enabled
 
 
+def _loop_pr_follow_up_enabled(task: Task, state: dict) -> bool:
+    """Loop runs opt into the CI/review-comment follow-up loop when the loop's
+    snapshotted behaviors ask for it (see products/tasks/docs/LOOPS.md "Behaviors":
+    `watch_ci` / `fix_review_comments`). Read from the run-state config snapshot, not
+    the live `Loop` row, so editing a loop's behaviors never changes an in-flight or
+    already-queued run.
+    """
+    if task.origin_product != Task.OriginProduct.LOOP:
+        return False
+    behaviors = ((state or {}).get("config_snapshot") or {}).get("behaviors") or {}
+    return bool(behaviors.get("watch_ci")) or bool(behaviors.get("fix_review_comments"))
+
+
 def _is_continue_as_new_enabled(
     *,
     distinct_id: str,
@@ -581,6 +712,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     emit_agent_log(run_id, "debug", "Fetching task details")
 
     task: Task = task_run.task
+    if task.runtime == Task.Runtime.PI:
+        ensure_task_run_session(task_run.id)
+
     team: Team = task.team
     organization_id = str(team.organization_id)
     if not task.created_by:
@@ -671,12 +805,15 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                 "falling back to the environment or default base image",
             )
 
+    repositories = state.get("repositories")
+    run_repository = repositories[0] if isinstance(repositories, list) and repositories else task.repository
+
     log_with_activity_context(
         "Task processing context created",
         task_id=str(task.id),
         run_id=run_id,
         team_id=task.team_id,
-        repository=task.repository,
+        repository=run_repository,
         origin_product=task.origin_product,
         environment=task_run.environment,
         distinct_id=distinct_id,
@@ -689,6 +826,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # gets for its PRs.
     pr_loop_enabled = (
         task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+        or _loop_pr_follow_up_enabled(task, state)
         or posthoganalytics.feature_enabled(
             "tasks-pr-loop",
             distinct_id=distinct_id,
@@ -698,18 +836,29 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         or False
     )  # Ensure we get a boolean value even if the flag is missing
     emit_agent_log(run_id, "debug", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
-    sandbox_event_ingest_enabled = _is_sandbox_event_ingest_enabled(
-        distinct_id=distinct_id,
-        organization_id=organization_id,
-        run_id=run_id,
-        state=state,
-    )
+    pi_persistent_streaming = task.runtime == Task.Runtime.PI and not is_slack_interaction_state(state)
+    sandbox_event_ingest_override = state.get("sandbox_event_ingest_enabled")
+    if pi_persistent_streaming and not isinstance(sandbox_event_ingest_override, bool):
+        sandbox_event_ingest_enabled = True
+    else:
+        sandbox_event_ingest_enabled = _is_sandbox_event_ingest_enabled(
+            distinct_id=distinct_id,
+            organization_id=organization_id,
+            run_id=run_id,
+            state=state,
+        )
     emit_agent_log(
         run_id,
         "debug",
         f"sandbox_event_ingest_enabled: {sandbox_event_ingest_enabled} for this task run",
     )
-    use_modal_vm_sandbox = _is_modal_vm_sandbox_enabled(
+    agent_otel_telemetry_enabled = _is_agent_otel_telemetry_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        state=state,
+    )
+    vm_sandbox_decision = _resolve_modal_vm_sandbox(
         distinct_id=distinct_id,
         organization_id=organization_id,
         run_id=run_id,
@@ -718,6 +867,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         custom_image_available=environment_custom_image_name is not None,
         state=state,
     )
+    use_modal_vm_sandbox = vm_sandbox_decision.use_vm_sandbox
     emit_agent_log(
         run_id,
         "debug",
@@ -735,6 +885,12 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                 "This environment's custom image requires the VM runtime, which is not enabled for this run; "
                 "using the default base image",
             )
+    elif vm_sandbox_decision.default_custom_image:
+        # Org-level default from the flag payload, only ever set when the run resolved to
+        # the VM runtime — provisioning falls back to the plain VM base automatically if
+        # this image is missing or unloadable.
+        custom_image_name = vm_sandbox_decision.default_custom_image
+        emit_agent_log(run_id, "debug", f"Using the organization's default custom base image: {custom_image_name}")
     use_modal_network_allowlist = _is_modal_network_allowlist_enabled(
         distinct_id=distinct_id,
         organization_id=organization_id,
@@ -819,9 +975,10 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         organization_id=str(task.team.organization_id),
         github_integration_id=task.github_integration_id,
         github_user_integration_id=user_github_integration_id,
-        repository=task.repository,
+        repository=run_repository,
         distinct_id=distinct_id,
         origin_product=task.origin_product,
+        task_runtime=task.runtime,
         environment=task_run.environment,
         task_created_by_id=task.created_by_id,
         create_pr=input.create_pr,
@@ -835,6 +992,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         use_modal_resume_snapshots=settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS or use_modal_directory_resume_snapshots,
         use_modal_directory_resume_snapshots=use_modal_directory_resume_snapshots,
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
+        agent_otel_telemetry_enabled=agent_otel_telemetry_enabled,
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
         burstable_sandbox_resources_enabled=burstable_sandbox_resources_enabled,

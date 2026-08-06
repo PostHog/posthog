@@ -1,4 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import {
@@ -15,7 +16,7 @@ import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboar
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { type MetricSummary } from 'lib/components/Metric/metricSummary'
-import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
+import { AnyScaleOptions, Sparkline, SparklineMarker } from 'lib/components/Sparkline'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
@@ -34,13 +35,18 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
+import { traceUrl } from 'products/tracing/frontend/traceLinks'
+
 import { getMetricsInsightEditorDisabledReason } from '../metricsAccess'
 import { MetricNameFilter } from './MetricNameFilter'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import { MetricsChartLegend } from './MetricsChartLegend'
 import { metricsSamplesLogic } from './metricsSamplesLogic'
 import { MetricsSamplesPanel } from './MetricsSamplesPanel'
+import { metricsStarterDashboardLogic } from './metricsStarterDashboardLogic'
+import { MetricsStarterDashboardModal } from './MetricsStarterDashboardModal'
 import { MetricStatPanel } from './MetricStatPanel'
+import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
 import {
     LIVE_REFRESH_MS,
     METRIC_FILTER_OPERATOR_ALLOWLIST,
@@ -114,6 +120,7 @@ export const MetricsViewer = (): JSX.Element => {
     // The side panel's logic listens to this viewer's filter changes; mounting it
     // here keeps samples in sync even while the panel itself is off-screen.
     useMountedLogic(metricsSamplesLogic())
+    const { openModal: openStarterDashboardModal } = useActions(metricsStarterDashboardLogic)
     const {
         metricName,
         aggregation,
@@ -159,11 +166,41 @@ export const MetricsViewer = (): JSX.Element => {
         closeAddToDashboardModal,
     } = useActions(logic)
     const { items: pickerItems } = useValues(pickerLogic)
+    const { traceExemplars } = useValues(metricsSamplesLogic)
+    const { exemplarDotClicked } = useActions(metricsUsageTrackingLogic)
     const metricsViewerDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Metrics,
         AccessControlLevel.Viewer
     )
     const insightEditorDisabledReason = getMetricsInsightEditorDisabledReason()
+    const tracingDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Tracing,
+        AccessControlLevel.Viewer
+    )
+
+    // Traced emissions as clickable dots along the bottom of the chart — the
+    // metric->trace pivot without opening the Samples tab. Skipped entirely when
+    // the user can't view traces, so a dot never leads to a dead end.
+    const exemplarMarkers: SparklineMarker[] = useMemo(
+        () =>
+            tracingDisabledReason
+                ? []
+                : traceExemplars.map((exemplar) => ({
+                      xValue: dayjs(exemplar.timestamp).valueOf(),
+                      color: 'primary',
+                      onClick: () => {
+                          exemplarDotClicked(!!exemplar.spanId)
+                          router.actions.push(
+                              traceUrl({
+                                  traceId: exemplar.traceId,
+                                  spanId: exemplar.spanId || null,
+                                  ts: exemplar.timestamp,
+                              })
+                          )
+                      },
+                  })),
+        [traceExemplars, tracingDisabledReason, exemplarDotClicked]
+    )
 
     // Refetch the chart whenever any filter changes — the loader breakpoint debounces input.
     useEffect(() => {
@@ -341,7 +378,17 @@ export const MetricsViewer = (): JSX.Element => {
                 >
                     Add to dashboard
                 </LemonButton>
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    onClick={openStarterDashboardModal}
+                    tooltip="Create a dashboard with one insight per metric, using each metric's recommended aggregation"
+                    data-attr="metrics-viewer-starter-dashboard"
+                >
+                    New service dashboard
+                </LemonButton>
             </div>
+            <MetricsStarterDashboardModal />
             {savedInsight && (
                 <AddToDashboardModal
                     isOpen={isAddToDashboardModalOpen}
@@ -382,6 +429,7 @@ export const MetricsViewer = (): JSX.Element => {
                                 className="w-full h-full"
                                 withXScale={withXScale}
                                 renderLabel={renderLabel}
+                                markers={exemplarMarkers}
                             />
                         ) : !queryResultsLoading ? (
                             <div className="h-full flex items-center justify-center text-secondary text-sm">

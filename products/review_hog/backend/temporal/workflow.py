@@ -53,6 +53,8 @@ from products.review_hog.backend.temporal.activities import (
     SelectPerspectivesInput,
     StatusCommentInput,
     SyncReviewSkillsInput,
+    TrackReviewCompletedInput,
+    TrackReviewFailedInput,
     ValidateChunkInput,
     ValidateChunkResult,
     ValidateIntegrationInput,
@@ -73,6 +75,8 @@ from products.review_hog.backend.temporal.activities import (
     select_perspectives_activity,
     split_chunks_activity,
     sync_review_skills_activity,
+    track_review_completed_activity,
+    track_review_failed_activity,
     validate_chunk_activity,
     validate_github_integration_activity,
 )
@@ -88,6 +92,18 @@ _FETCH_TIMEOUT = timedelta(minutes=5)
 _RETRY = RetryPolicy(maximum_attempts=2)
 # The validate activity's final-attempt fallback keys off the same constant — don't let them drift.
 _VALIDATE_RETRY = RetryPolicy(maximum_attempts=VALIDATION_MAX_ATTEMPTS)
+# The one-shot LLM stages (chunking, selection, dedup): provider overload (529) spells last
+# minutes, so back-to-back attempts all land inside the same spell and the run dies in ~2 minutes
+# flat (observed). Spaced escalating attempts ride the spell out — waits total ~7.5m per run, ~2×
+# that with the parent retry. Overload-failed attempts are cheap (the provider call dies before
+# anything persists; a rare failure after persistence redoes the LLM call, superseded latest-wins
+# per issue_key). Non-retryable failures (4xx, max_tokens truncation) still fail fast.
+_ONESHOT_RETRY = RetryPolicy(
+    maximum_attempts=5,
+    initial_interval=timedelta(seconds=30),
+    backoff_coefficient=2.0,
+    maximum_interval=timedelta(minutes=4),
+)
 
 
 def _enforce_failure_floor(stage: str, failed: int, total: int) -> None:
@@ -162,7 +178,7 @@ class ReviewPerspectivesWorkflow:
                     ),
                     start_to_close_timeout=_SANDBOX_TIMEOUT,
                     heartbeat_timeout=_SANDBOX_HEARTBEAT,
-                    retry_policy=_RETRY,
+                    retry_policy=_ONESHOT_RETRY,
                 )
             except ActivityError:
                 # Selection is an optimization; failing it must never cost the review.
@@ -370,7 +386,7 @@ class ReviewPRWorkflow:
         # `already_published` means this exact head was already reviewed AND posted, so re-running the
         # pipeline would recompute the same review and publish would self-skip — burning sandbox cost
         # for no output. New inline comments do NOT force a turn yet (logged in fetch); reacting to
-        # comments lands with the "fix the issues" capability — see ARCHITECTURE.md (Stage 5b / Action
+        # comments lands with the "fix the issues" capability — see DECISIONS.md (Stage 5b / Action
         # plane). A no-publish eval run is never gated here (it has no published head), so the
         # frozen-PR eval loop still recomputes to measure reviewer changes. `empty_diff` is the
         # "pushed nothing → do nothing" rule for branch targets.
@@ -471,7 +487,7 @@ class ReviewPRWorkflow:
                 stage,
                 start_to_close_timeout=_SANDBOX_TIMEOUT,
                 heartbeat_timeout=_SANDBOX_HEARTBEAT,
-                retry_policy=_RETRY,
+                retry_policy=_ONESHOT_RETRY,
             )
 
             parent_id = workflow.info().workflow_id
@@ -502,7 +518,7 @@ class ReviewPRWorkflow:
                 stage,
                 start_to_close_timeout=_SANDBOX_TIMEOUT,
                 heartbeat_timeout=_SANDBOX_HEARTBEAT,
-                retry_policy=_RETRY,
+                retry_policy=_ONESHOT_RETRY,
             )
             workflow.logger.info(f"Persisted {len(dedup.issue_ids)} finding(s) to the review report")
 
@@ -580,9 +596,40 @@ class ReviewPRWorkflow:
             await self._append_code_review_receipt(
                 inputs, report_id=report_id, run_index=meta.run_index, outcome="failed", best_effort=True
             )
+            # The completed event's other half: without a failed event, a run that dies drops out of
+            # every per-review metric, so a reviewer-model arm that crashes on its hardest PRs would
+            # read as cheaper and more precise than it is. Best-effort like the receipt above.
+            if workflow.patched("track-review-failed-2026-07"):
+                try:
+                    await workflow.execute_activity(
+                        track_review_failed_activity,
+                        TrackReviewFailedInput(team_id=inputs.team_id, report_id=report_id, run_index=meta.run_index),
+                        start_to_close_timeout=_QUICK_TIMEOUT,
+                        retry_policy=_RETRY,
+                    )
+                except Exception:
+                    workflow.logger.exception("Could not capture the review-failed analytics event")
             raise
 
         posted = publish_result is not None and publish_result.posted
+        # One analytics event per finalized turn (the review-level count dashboards aggregate);
+        # best-effort — a review must never fail over its own telemetry.
+        try:
+            await workflow.execute_activity(
+                track_review_completed_activity,
+                TrackReviewCompletedInput(
+                    team_id=inputs.team_id,
+                    report_id=report_id,
+                    head_sha=head_sha,
+                    run_index=meta.run_index,
+                    published=posted,
+                    workflow_started_at=workflow.info().start_time.isoformat(),
+                ),
+                start_to_close_timeout=_QUICK_TIMEOUT,
+                retry_policy=_RETRY,
+            )
+        except ActivityError:
+            workflow.logger.warning("Could not capture the review-completed analytics event")
         # The outcome edit: the full found-vs-published counts land on the status comment, so a PR
         # with two inline comments never reads as "the review only found two things" — and a
         # zero-publishable run gets explicit closure instead of silence. Best-effort like the receipt.
@@ -596,6 +643,7 @@ class ReviewPRWorkflow:
                         run_index=meta.run_index,
                         urgency_threshold=acting.urgency_threshold,
                         review_url=publish_result.review_url if publish_result is not None else None,
+                        resolved_from=acting.resolved_from,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,

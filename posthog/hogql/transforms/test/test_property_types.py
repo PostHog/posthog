@@ -394,7 +394,10 @@ class TestPropertyTypes(BaseTest):
             has_minmax_index=True,
         )
 
-        with patch("posthog.hogql.property_planner.get_materialized_column_for_property", return_value=fake_column):
+        with patch(
+            "posthog.clickhouse.materialized_columns.get_enabled_materialized_columns_by_table",
+            return_value={"events": {("$screen_width", "properties"): fake_column}},
+        ):
             plan = self._plan_where_comparison("select count() from events where properties.$screen_width < 5")
 
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
@@ -465,7 +468,10 @@ class TestPropertyTypes(BaseTest):
             has_minmax_index=True,
         )
 
-        with patch("posthog.hogql.property_planner.get_materialized_column_for_property", return_value=fake_column):
+        with patch(
+            "posthog.clickhouse.materialized_columns.get_enabled_materialized_columns_by_table",
+            return_value={"events": {("event_time_prop", "properties"): fake_column}},
+        ):
             plan = self._plan_where_comparison(
                 "select count() from events where properties.event_time_prop < '2024-01-01'"
             )
@@ -537,6 +543,27 @@ class TestPropertyTypes(BaseTest):
             "select properties.$screen_width * properties.$screen_height, properties.bool from events"
         )
         assert printed == self._events_schema_snapshot()
+
+    def test_property_type_override_beats_detected_type(self):
+        PropertyDefinition.objects.get_or_create(
+            team=self.team,
+            type=PropertyDefinition.Type.EVENT,
+            name="ts_like_id",
+            defaults={"property_type": "DateTime"},
+        )
+
+        def _print(overrides: dict[str, str] | None) -> str:
+            query, _ = prepare_and_print_ast(
+                parse_select("select properties.ts_like_id from events"),
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True, property_type_overrides=overrides),
+                "clickhouse",
+            )
+            return pretty_print_in_tests(query, self.team.pk)
+
+        assert "parseDateTime64BestEffortOrNull" in _print(None)
+        overridden = _print({"ts_like_id": "String"})
+        assert "parseDateTime64BestEffortOrNull" not in overridden, overridden
+        assert "toDateTime" not in overridden, overridden
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_property_types_person_raw(self):

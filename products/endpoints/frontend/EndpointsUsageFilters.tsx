@@ -52,7 +52,7 @@ const endpointsUsageDateMapping: DateMappingOption[] = [
         defaultInterval: 'day',
     },
     {
-        key: 'Year to date',
+        key: 'This year',
         values: ['yStart'],
         getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('y'), date.endOf('d')),
         defaultInterval: 'day',

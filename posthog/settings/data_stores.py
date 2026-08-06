@@ -159,7 +159,7 @@ PRODUCT_DB_WRITER_URLS: dict[str, str] = {}
 # through PgBouncer (in-cluster, plaintext, no SSL); only the direct migration
 # connection reaches Aurora, whose pg_hba requires SSL (hostssl). dj_database_url
 # sets only connect_timeout, so set sslmode here. Scoped per product (e.g.
-# PRODUCT_DB_AGENT_PLATFORM_SSL_MODE); unset for local dev/test (plain Postgres).
+# PRODUCT_DB_<PRODUCT>_SSL_MODE); unset for local dev/test (plain Postgres).
 def _apply_product_db_ssl_options(db: str, options: dict) -> None:
     ssl_mode = os.getenv(f"PRODUCT_DB_{db.upper()}_SSL_MODE")
     ssl_root_cert = os.getenv(f"PRODUCT_DB_{db.upper()}_SSL_ROOT_CERT")
@@ -420,6 +420,12 @@ with suppress(Exception):
     as_json = json.loads(os.getenv("API_QUERIES_PER_TEAM", "{}"))
     API_QUERIES_PER_TEAM = {int(k): int(v) for k, v in as_json.items()}
 
+# Fleet-wide, unlike ClickHouse's per-node max_concurrent_queries_for_user, so keep it at or below
+# that user's per-node value for the bound to mean anything.
+CLICKHOUSE_LLM_ANALYTICS_MAX_CONCURRENT_QUERIES: int = get_from_env(
+    "CLICKHOUSE_LLM_ANALYTICS_MAX_CONCURRENT_QUERIES", 8, type_cast=int
+)
+
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"
 if CLICKHOUSE_SECURE:
@@ -478,6 +484,10 @@ if get_from_env("POSTHOG_REPLAY_VISION_REDIS_HOST", ""):
         os.getenv("POSTHOG_REPLAY_VISION_REDIS_HOST", ""),
         os.getenv("POSTHOG_REPLAY_VISION_REDIS_PORT", "6379"),
     )
+
+# The LLM gateway caches per-team quota state in its own Redis (llm_gateway/services/quota_resolver.py).
+# The central-Redis default only suits single-Redis setups; cloud must point this at the gateway's instance.
+LLM_GATEWAY_REDIS_URL = os.getenv("LLM_GATEWAY_REDIS_URL", REDIS_URL)
 
 if not REDIS_URL:
     raise ImproperlyConfigured(
@@ -555,7 +565,7 @@ FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
 
 # Dedicated Redis for ai-gateway HyperCache reads. In local dev defaults to the
 # sibling ai-gateway's valkey (host port 6381) so the gateway-credential blob is
-# published where the gateway reads it — zero config for the agent-platform e2e
+# published where the gateway reads it — zero config for the gateway e2e
 # (see bin/setup-gateway-e2e). Prod sets it explicitly; tests leave it unset.
 AI_GATEWAY_REDIS_URL = os.getenv("AI_GATEWAY_REDIS_URL", "redis://localhost:6381" if DEBUG and not TEST else None)
 
@@ -589,6 +599,9 @@ FLAGS_CACHE_TTL = int(os.getenv("FLAGS_CACHE_TTL", str(60 * 60 * 24 * 7)))  # 7 
 FLAGS_CACHE_MISS_TTL = int(os.getenv("FLAGS_CACHE_MISS_TTL", str(60 * 60 * 24)))  # 1 day
 LLM_PROMPTS_CACHE_TTL = int(os.getenv("LLM_PROMPTS_CACHE_TTL", str(60 * 60 * 24)))  # 1 day
 LLM_PROMPTS_CACHE_MISS_TTL = int(os.getenv("LLM_PROMPTS_CACHE_MISS_TTL", str(60 * 5)))  # 5 minutes
+# Label entries resolve a mutable pointer, so they get a short TTL as a hard bound on
+# staleness when a cache fill races an invalidation (signals stay the fast path).
+LLM_PROMPTS_LABEL_CACHE_TTL = int(os.getenv("LLM_PROMPTS_LABEL_CACHE_TTL", str(60)))  # 1 minute
 
 CACHES = {
     "default": {
@@ -650,6 +663,7 @@ if TASKS_REDIS_URL:
     }
 
 QUERY_CACHE_REDIS_CLUSTER_URL: str | None = os.getenv("QUERY_CACHE_REDIS_CLUSTER_URL", None)
+ERROR_TRACKING_EVENT_PROPERTIES_REDIS_URL: str | None = os.getenv("ERROR_TRACKING_EVENT_PROPERTIES_REDIS_URL", None)
 
 if QUERY_CACHE_REDIS_CLUSTER_URL:
     CACHES["query_cache"] = {
@@ -662,9 +676,12 @@ if QUERY_CACHE_REDIS_CLUSTER_URL:
         },
         "KEY_PREFIX": "posthog",
     }
+else:
+    CACHES["query_cache"] = CACHES["default"]
 
 if TEST:
     CACHES["default"] = {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
+    CACHES["query_cache"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)

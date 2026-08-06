@@ -286,6 +286,8 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         mock_exchange.assert_called_once_with("oauth-code")
         mock_verify.assert_called_once_with("42", "user-token")
+        # The explicit-id path never discovers, so app_not_installed is always false there.
+        assert response.json()["app_not_installed"] is False
         synced = sorted(row["repository"] for row in response.json()["synced"])
         assert synced == ["PostHog/other", "PostHog/posthog"]
         bound = StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id, installation_id="42")
@@ -404,6 +406,71 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         response = self.client.post(self.url, {"installation_id": "42", "state": self.state}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
 
+    @patch(f"{_VIEWS}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
+    @patch(f"{_VIEWS}.list_user_installations", return_value=[{"id": "42", "account_login": "PostHog"}])
+    @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
+    def test_discovery_without_installation_id_syncs_discovered_installation(
+        self, mock_exchange, mock_discover, mock_list
+    ) -> None:
+        # Authorize-first: the callback carries no installation_id. The backend discovers the caller's
+        # installations from the OAuth code (GitHub returns only installations of this App the user can
+        # reach) and syncs them, so the client never has to supply a forgeable id.
+        response = self.client.post(self.url, {"code": "oauth-code", "state": self.state}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        mock_discover.assert_called_once_with("user-token")
+        body = response.json()
+        assert [row["repository"] for row in body["synced"]] == ["PostHog/posthog"]
+        assert body["app_not_installed"] is False
+        assert body["installations"] == []
+        bound = StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id, installation_id="42")
+        assert bound.count() == 1
+
+    @patch(f"{_VIEWS}.list_user_accessible_repositories")
+    @patch(
+        f"{_VIEWS}.list_user_installations",
+        return_value=[{"id": "100", "account_login": "AlphaOrg"}, {"id": "200", "account_login": "SharedOrg"}],
+    )
+    @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
+    def test_discovery_with_several_installations_binds_nothing_and_returns_choices(
+        self, mock_exchange, mock_discover, mock_list
+    ) -> None:
+        # Reachability is not intent: a user in several orgs that all carry the App must pick which
+        # installation this team binds. Binding them all would attach foreign orgs' repos here and, via
+        # the oldest-wins webhook resolution, could blackhole another team's future connect.
+        response = self.client.post(self.url, {"code": "oauth-code", "state": self.state}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert body["synced"] == []
+        assert body["skipped"] == []
+        assert body["app_not_installed"] is False
+        assert body["installations"] == [
+            {"id": "100", "account_login": "AlphaOrg"},
+            {"id": "200", "account_login": "SharedOrg"},
+        ]
+        mock_list.assert_not_called()
+        assert not StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id).exists()
+
+    @patch(f"{_VIEWS}.list_user_accessible_repositories")
+    @patch(f"{_VIEWS}.list_user_installations", return_value=[])
+    @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
+    def test_discovery_with_no_installations_reports_app_not_installed(
+        self, mock_exchange, mock_discover, mock_list
+    ) -> None:
+        # Discovery reached no installation the user can see: the App isn't installed anywhere for them.
+        # Not an error — return app_not_installed so the frontend routes them to the install page, binding
+        # nothing and never touching the repo-enumeration path.
+        response = self.client.post(self.url, {"code": "oauth-code", "state": self.state}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert body["app_not_installed"] is True
+        assert body["synced"] == []
+        assert body["skipped"] == []
+        mock_list.assert_not_called()
+        assert not StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id).exists()
+
 
 class TestDigestChannelAPI(StamphogTeamScopedTestMixin, APIBaseTest):
     databases = PRODUCT_DATABASES
@@ -424,6 +491,28 @@ class TestDigestChannelAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         channel.refresh_from_db()
         assert channel.enabled is False
         assert DigestChannel.objects.unscoped().filter(id=channel.id).exists()
+
+    def test_update_cannot_change_audience_key(self) -> None:
+        # audience_key anchors the digest bucket and its opt-out tombstone. A PATCH that re-pointed it
+        # would re-open an audience someone opted out of, so it's create-only — ignored on update while
+        # other fields (here slack_channel_name) still change.
+        integration = Integration.objects.create(
+            team_id=self.team.id, kind="slack", config={}, sensitive_config={"access_token": "x"}
+        )
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/stamphog/digest_channels/",
+            {"audience_key": "team-x", "slack_integration_id": integration.id, "slack_channel_id": "C1"},
+            format="json",
+        ).json()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/stamphog/digest_channels/{created['id']}/",
+            {"audience_key": "team-evil", "slack_channel_name": "renamed"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert body["audience_key"] == "team-x"
+        assert body["slack_channel_name"] == "renamed"
 
     def test_duplicate_audience_is_a_400_not_a_500(self) -> None:
         # team_id is injected in perform_create, so DRF can't pre-validate the unique

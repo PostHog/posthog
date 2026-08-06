@@ -1,4 +1,5 @@
 import uuid
+from datetime import timedelta
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -7,8 +8,11 @@ from django.core.exceptions import ObjectDoesNotExist
 
 from parameterized import parameterized
 
-from products.tasks.backend.exceptions import ProcessTaskTransientError
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+
+from products.tasks.backend.exceptions import GitHubRateLimitedError, ProcessTaskTransientError
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import (
+    DEFAULT_GITHUB_RATE_LIMIT_BACKOFF_SECONDS,
     GetPrContextInput,
     GetPrContextOutput,
     compute_pr_fingerprint,
@@ -45,6 +49,11 @@ class TestComputePrFingerprint:
             ("ci_status", "pending", "failing"),
             ("review_decision", None, "changes_requested"),
             ("state", "open", "closed"),
+            # A new head commit failing with the same coarse ci_status as its
+            # predecessor must still read as a change — without the SHA, an agent
+            # push that fails again would hash identically to the previous failure
+            # and the follow-up would never re-fire.
+            ("head_sha", "aaa111", "bbb222"),
         ]
     )
     def test_changes_when_actionable_field_changes(self, field, before, after):
@@ -155,7 +164,7 @@ class TestGetPrContextActivity:
             "url": pr_url,
             "state": "open",
             "ci_status": "failing",
-            "review_decision": None,
+            "review_decision": "changes_requested",
             "unresolved_threads": 1,
         }
         integration = MagicMock()
@@ -169,6 +178,11 @@ class TestGetPrContextActivity:
         assert result.pr_url == pr_url
         assert result.pr_state == "open"
         assert result.fingerprint == compute_pr_fingerprint(snapshot)
+        # The actionable signals must flow through — the CI follow-up loop keys
+        # its fire/skip decision on them.
+        assert result.ci_status == "failing"
+        assert result.changes_requested is True
+        assert result.unresolved_threads == 1
         integration.get_pull_request_snapshot.assert_called_once_with(pr_url)
 
     @pytest.mark.django_db
@@ -231,6 +245,42 @@ class TestGetPrContextActivity:
             with pytest.raises(ProcessTaskTransientError) as exc_info:
                 self._run(ctx)
         assert exc_info.value.non_retryable is False
+
+    # pytest.mark.parametrize (not parameterized.expand) so the test_task_run fixture still injects.
+    @pytest.mark.parametrize(
+        "raised, expected_backoff",
+        [
+            # GitHub's own 429 with a reset hint: the retry must wait that long.
+            (GitHubRateLimitError("resets at None", retry_after=60), 60),
+            # Hand-built rate-limit error with no hint falls back to the ≥1 minute default.
+            (GitHubRateLimitError("rate limited"), DEFAULT_GITHUB_RATE_LIMIT_BACKOFF_SECONDS),
+            # Our own egress budget shedding the call carries no reset hint either.
+            (GitHubEgressBudgetExhausted("shed"), DEFAULT_GITHUB_RATE_LIMIT_BACKOFF_SECONDS),
+        ],
+    )
+    @pytest.mark.django_db
+    def test_rate_limit_stays_retryable_uncaptured_and_honors_backoff(self, raised, expected_backoff, test_task_run):
+        # A rate limit is a normal, recoverable condition: it must retry after the hinted
+        # window (not within 1s, which abandons the follow-up run) and must not be captured
+        # to error tracking (which mints a noisy issue for something we expect to happen).
+        pr_url = "https://github.com/org/repo/pull/1"
+        test_task_run.output = {"pr_url": pr_url}
+        test_task_run.save(update_fields=["output"])
+
+        integration = MagicMock()
+        integration.get_pull_request_snapshot.side_effect = raised
+
+        ctx = self._ctx(run_id=str(test_task_run.id))
+        with (
+            patch(f"{GET_PR_CONTEXT_MODULE}.get_github_integration", return_value=integration),
+            patch("products.tasks.backend.exceptions.capture_exception") as mock_capture,
+        ):
+            with pytest.raises(GitHubRateLimitedError) as exc_info:
+                self._run(ctx)
+
+        assert exc_info.value.non_retryable is False
+        assert exc_info.value.next_retry_delay == timedelta(seconds=expected_backoff)
+        mock_capture.assert_not_called()
 
     @pytest.mark.django_db
     def test_ci_status_change_yields_different_fingerprint(self, test_task_run):

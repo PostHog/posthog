@@ -4,7 +4,9 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LatticeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lattice import (
+    LatticeSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.lattice.lattice import LatticeResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.lattice.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.lattice.source import LatticeSource

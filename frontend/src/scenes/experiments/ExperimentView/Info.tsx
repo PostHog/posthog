@@ -1,15 +1,12 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
 
 import { IconPencil, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Label } from 'lib/ui/Label/Label'
-import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { ExperimentStatsMethod, ExperimentStatus } from '~/types'
@@ -32,13 +29,11 @@ function FlagCleanupLine({ experimentId, taskId }: { experimentId: number; taskI
     }
 
     let text = 'Preparing cleanup PR…'
-    let linkText = 'View task'
-    let to = urls.taskDetail(taskId)
+    let prUrl: string | null = null
     if (cleanupTask.is_terminal) {
         if (cleanupTask.run_status === 'completed' && cleanupTask.pr_url) {
             text = 'Cleanup PR opened'
-            linkText = 'View on GitHub'
-            to = cleanupTask.pr_url
+            prUrl = cleanupTask.pr_url
         } else if (cleanupTask.run_status === 'completed') {
             text = 'Cleanup found no flag code to remove'
         } else if (cleanupTask.run_status === 'failed') {
@@ -48,16 +43,31 @@ function FlagCleanupLine({ experimentId, taskId }: { experimentId: number; taskI
         }
     }
 
+    const isExternalLink = prUrl !== null
+    // The task page 404s for everyone but the task's creator — hide the internal link from others.
+    const showLink = isExternalLink || cleanupTask.can_view_task
+
     return (
         <div className="text-xs text-muted mt-1 mb-3 flex items-center gap-1">
-            {text} ·
-            <Link
-                target={to === cleanupTask.pr_url ? '_blank' : undefined}
-                className="flex items-center gap-0.5"
-                to={to}
-            >
-                {linkText} <IconOpenInNew fontSize="12" />
-            </Link>
+            {text}
+            {showLink && (
+                <>
+                    ·
+                    <Link
+                        target={isExternalLink ? '_blank' : undefined}
+                        className="flex items-center gap-0.5"
+                        to={prUrl ?? urls.taskDetail(taskId)}
+                    >
+                        {isExternalLink ? (
+                            <>
+                                View on GitHub <IconOpenInNew fontSize="12" />
+                            </>
+                        ) : (
+                            'View task'
+                        )}
+                    </Link>
+                </>
+            )}
         </div>
     )
 }
@@ -72,16 +82,7 @@ export function Info(): JSX.Element {
         isSingleVariantShipped,
         shippedVariantKey,
     } = useValues(experimentLogic)
-    const { updateExperiment } = useActions(experimentLogic)
-    const { openEditConclusionModal, openDescriptionModal, closeDescriptionModal, openRunningTimeConfigModal } =
-        useActions(modalsLogic)
-    const { isDescriptionModalOpen } = useValues(modalsLogic)
-
-    const [tempDescription, setTempDescription] = useState(experiment.description || '')
-
-    useEffect(() => {
-        setTempDescription(experiment.description || '')
-    }, [experiment.description])
+    const { openEditConclusionModal, openRunningTimeConfigModal } = useActions(modalsLogic)
 
     const { created_by } = experiment
 
@@ -174,54 +175,6 @@ export function Info(): JSX.Element {
                                     : `${((1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)) * 100).toFixed(0)}%`}
                             </span>
                         </div>
-                    </div>
-
-                    <div className="max-w-[500px]">
-                        <div className="flex items-center gap-2 mt-2">
-                            <Label intent="menu">Hypothesis</Label>
-                            <LemonButton
-                                type="secondary"
-                                size="xsmall"
-                                icon={<IconPencil />}
-                                onClick={openDescriptionModal}
-                            />
-                        </div>
-                        {experiment.description ? (
-                            <p className={cn('m-0 mt-2')}>{experiment.description}</p>
-                        ) : (
-                            <p className={cn('m-0 mt-2 text-secondary italic')}>Add your hypothesis for this test</p>
-                        )}
-
-                        <LemonModal
-                            isOpen={isDescriptionModalOpen}
-                            onClose={closeDescriptionModal}
-                            title="Edit hypothesis"
-                            footer={
-                                <div className="flex items-center gap-2 justify-end">
-                                    <LemonButton type="secondary" onClick={closeDescriptionModal}>
-                                        Cancel
-                                    </LemonButton>
-                                    <LemonButton
-                                        type="primary"
-                                        onClick={() => {
-                                            updateExperiment({ description: tempDescription })
-                                            closeDescriptionModal()
-                                        }}
-                                    >
-                                        Save
-                                    </LemonButton>
-                                </div>
-                            }
-                        >
-                            <LemonTextArea
-                                className="w-full"
-                                value={tempDescription}
-                                onChange={(value) => setTempDescription(value)}
-                                placeholder="Add your hypothesis for this test"
-                                minRows={6}
-                                maxLength={400}
-                            />
-                        </LemonModal>
                     </div>
                 </div>
 

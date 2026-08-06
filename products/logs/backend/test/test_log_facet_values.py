@@ -119,14 +119,46 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
         self.assertGreater(len(result), 0)
         self.assertNotIn("", result)
 
-    def test_resource_facet_ignores_its_own_filter(self):
-        """Selecting a value via a log_resource_attribute filter must not change that facet's own counts."""
+    @parameterized.expand([("exact",), ("is_not",)])
+    def test_resource_facet_ignores_its_own_filter(self, operator):
+        """Selecting or excluding a value via a log_resource_attribute filter must not change that facet's own counts."""
         base = self._facet_attr("k8s.namespace.name")
         own_value = next(iter(base))
         filter_group = [
-            {"key": "k8s.namespace.name", "type": "log_resource_attribute", "operator": "exact", "value": own_value}
+            {"key": "k8s.namespace.name", "type": "log_resource_attribute", "operator": operator, "value": own_value}
         ]
         self.assertEqual(self._facet_attr("k8s.namespace.name", filterGroup=filter_group), base)
+
+    @parameterized.expand(
+        [
+            ("severity_text", "severity_level"),
+            ("service_name", "service_name"),
+        ]
+    )
+    def test_facet_ignores_its_own_log_filter_exclusion(self, facet_field, log_filter_key):
+        # The rail stores column-facet exclusions as an is_not log filter in the group; the counts
+        # query must strip it when faceting on that facet's own field, or an excluded value's own
+        # count would zero out.
+        base = self._facet(facet_field)
+        own_value = next(iter(base))
+        filter_group = [{"key": log_filter_key, "type": "log", "operator": "is_not", "value": [own_value]}]
+        self.assertEqual(self._facet(facet_field, filterGroup=filter_group), base)
+
+    @parameterized.expand(
+        [
+            ("service_name", "severity_text", "severity_level"),
+            ("severity_text", "service_name", "service_name"),
+        ]
+    )
+    def test_facet_honors_other_facets_log_filter_exclusion(self, facet_field, other_facet_field, log_filter_key):
+        # An is_not log filter must remove matching rows from other facets' counts — proves the
+        # NOT IN translation end to end on real data.
+        base = self._facet(facet_field)
+        one_value = next(iter(self._facet(other_facet_field)))
+        filter_group = [{"key": log_filter_key, "type": "log", "operator": "is_not", "value": [one_value]}]
+        scoped = self._facet(facet_field, filterGroup=filter_group)
+        self.assertTrue(set(scoped).issubset(set(base)))
+        self.assertLess(sum(scoped.values()), sum(base.values()))
 
     def test_resource_facet_honors_severity_filter(self):
         # severity_text now lives on the log_attributes rollup, so a severity filter re-scopes
@@ -139,13 +171,19 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(set(scoped).issubset(set(base)))
         self.assertLess(sum(scoped.values()), sum(base.values()))
 
-    def test_resource_facet_honors_other_resource_attribute_filter(self):
-        # A different resource-attribute filter re-scopes the counts via the rollup's
-        # resource_fingerprint subquery — proves cross-filtering still works on log_attributes.
+    @parameterized.expand([("exact",), ("is_not",)])
+    def test_resource_facet_honors_other_resource_attribute_filter(self, operator):
+        # A different resource-attribute filter — include or exclude — re-scopes the counts via the
+        # rollup's resource_fingerprint subquery — proves cross-filtering still works on log_attributes.
         base = self._facet_attr("k8s.pod.name")
         one_namespace = next(iter(self._facet_attr("k8s.namespace.name")))
         filter_group = [
-            {"key": "k8s.namespace.name", "type": "log_resource_attribute", "operator": "exact", "value": one_namespace}
+            {
+                "key": "k8s.namespace.name",
+                "type": "log_resource_attribute",
+                "operator": operator,
+                "value": one_namespace,
+            }
         ]
         scoped = self._facet_attr("k8s.pod.name", filterGroup=filter_group)
         self.assertGreater(len(scoped), 0)

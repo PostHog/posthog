@@ -89,6 +89,7 @@ def build_reviewer_invocation(
     files: list[dict],
     reviews: list[dict],
     discussion: list[dict],
+    review_threads: list[dict],
     check_runs: list[dict],
     pr_reactions: list[dict],
     author_pr_numbers: list[int],
@@ -97,14 +98,21 @@ def build_reviewer_invocation(
     repo: str,
     engine_dir: str,
     context_path: str,
+    self_driving_review: bool = False,
 ) -> ReviewerInvocation:
     """Assemble the context payload + command that reviews this PR in the sandbox.
 
     ``pr`` is the raw GitHub PR object (get_pr), ``files`` the raw changed-files
     payload (get_pr_files) — both passed through unchanged so the engine can build
-    its own PRData. ``author_pr_numbers`` are the author's merged-PR numbers the
-    server fetched (the engine needs them for the git-blame familiarity signal,
-    which it otherwise gets from a `gh` call it can't make in the sandbox).
+    its own PRData. ``review_threads`` are the PR's inline review threads (a
+    GraphQL-only surface the tokenless sandbox can't fetch itself), so an
+    unresolved inline "do not merge" reaches the reviewer prompt.
+    ``author_pr_numbers`` are the author's merged-PR numbers the server fetched
+    (the engine needs them for the git-blame familiarity signal, which it
+    otherwise gets from a `gh` call it can't make in the sandbox).
+    ``self_driving_review`` lets the engine review a bot-authored draft, the one exception
+    to its bot-author refusal. It defaults closed here and in the engine, the Action runtime
+    never sets it, and only a run stamped with inbox provenance turns it on.
     """
     context = {
         "repo": repo,
@@ -114,9 +122,11 @@ def build_reviewer_invocation(
         "files": files,
         "reviews": reviews,
         "discussion": discussion,
+        "review_threads": review_threads,
         "check_runs": check_runs,
         "pr_reactions": pr_reactions,
         "author_pr_numbers": list(author_pr_numbers),
+        "self_driving_review": self_driving_review,
     }
     command = ["uv", "run", f"{engine_dir}/review_local.py", "--context", context_path]
     return ReviewerInvocation(
