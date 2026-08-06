@@ -1128,6 +1128,30 @@ class TestEarlyAccessFeature(APIBaseTest):
             "beta",
         )
 
+    @patch("posthog.tasks.early_access_feature.send_events_for_early_access_feature_stage_change.delay")
+    def test_send_events_for_early_access_feature_stage_change_skips_when_stage_omitted(self, mock_celery_task):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={
+                "name": "CeleryTestFeature",
+                "description": "Test firing celery task",
+                "stage": EarlyAccessFeature.Stage.CONCEPT,
+            },
+            format="json",
+        )
+        feature_id = response.json()["id"]
+
+        # A PATCH that only changes the assignee omits stage; it must not read as a move to a null
+        # stage and enqueue a spurious stage-change task.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature_id}",
+            data={"assignee": None},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        mock_celery_task.assert_not_called()
+
     def test_create_early_access_feature_in_specific_folder(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/early_access_feature/",
