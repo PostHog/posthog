@@ -1,26 +1,27 @@
 """Merge sibling aggregating LEFT JOINs over federated Postgres tables into one join.
 
-A select like `accounts LEFT JOIN (agg₁) LEFT JOIN (agg₂) LEFT JOIN (agg₃)` — where each
+A select like `accounts LEFT JOIN (agg₁) LEFT JOIN (agg₂) LEFT JOIN (agg₃)`, where each
 right side is a `GROUP BY <key>` subquery over `postgresql(...)` reads joined on the same
-base key — executes its federated scans sequentially, one per join. Rewriting the siblings
+base key, executes its federated scans sequentially, one per join. Rewriting the siblings
 into a single join over `UNION ALL` branches re-grouped by the key lets ClickHouse run all
 the scans inside one pipeline stage, so the per-scan Postgres COPY latencies overlap
 instead of adding up.
 
 The rewrite must reproduce LEFT JOIN default-fill semantics per column, so only three
-column shapes are merged (anything else makes the whole select ineligible — correctness
-over coverage):
+column shapes are merged, and anything else makes the whole select ineligible, favoring
+correctness over coverage:
 
 - `count()` columns: padded with NULL in other branches, re-aggregated as
-  `coalesce(max(col), 0)` — a miss fills 0, matching the original non-nullable default.
-- array columns: padded with `[]`, re-aggregated as `max(col)` — at most one branch holds
+  `coalesce(max(col), 0)`, so a miss fills 0, matching the original non-nullable default.
+- array columns: padded with `[]`, re-aggregated as `max(col)`: at most one branch holds
   a non-empty value, and a miss fills `[]`.
-- nullable columns: padded with NULL, re-aggregated as `max(col)` (max skips NULLs) — a
+- nullable columns: padded with NULL, re-aggregated as `max(col)` (max skips NULLs), so a
   miss fills NULL. Non-nullable non-count scalars are rejected: their original join-miss
   default (`''`/`0`) can't be told apart from a real value after the union.
 """
 
 from dataclasses import dataclass
+from typing import Literal
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
@@ -34,6 +35,8 @@ MERGED_KEY = "__key"
 
 _ARRAY_CALLS = {"groupArray", "arraySort", "arrayDistinct", "groupUniqArray"}
 
+_ColumnKind = Literal["count", "array", "nullable"]
+
 
 @dataclass
 class _Candidate:
@@ -43,8 +46,8 @@ class _Candidate:
     subquery: ast.SelectQuery
     key_name: str
     base_key_chain: tuple[str | int, ...]
-    # (column alias, kind) per non-key select column; kind in {"count", "array", "nullable"}
-    columns: list[tuple[str, str]]
+    # (column alias, kind) per non-key select column
+    columns: list[tuple[str, _ColumnKind]]
 
 
 def merge_federated_aggregate_joins(
@@ -92,7 +95,7 @@ def _table_is_federated(join_expr: ast.JoinExpr | None) -> bool:
     return True
 
 
-def _classify_column(expr: ast.Expr) -> str | None:
+def _classify_column(expr: ast.Expr) -> _ColumnKind | None:
     if isinstance(expr, ast.Call):
         if expr.name == "count":
             return "count"
@@ -147,7 +150,7 @@ def _candidate_for_join(prev: ast.JoinExpr, join: ast.JoinExpr, base_alias: str)
     if not _table_is_federated(subquery.select_from):
         return None
 
-    columns: list[tuple[str, str]] = []
+    columns: list[tuple[str, _ColumnKind]] = []
     key_seen = False
     for col in subquery.select:
         if not isinstance(col, ast.Alias):
@@ -206,7 +209,7 @@ def _merge_in_select(
     if len(candidates) < 2:
         return False
     # All merged joins must share one base key and one key column name, and no column
-    # name may repeat across them — the merged subquery exposes them side by side.
+    # name may repeat across them, because the merged subquery exposes them side by side.
     if len({c.base_key_chain for c in candidates}) != 1 or len({c.key_name for c in candidates}) != 1:
         return False
     all_columns = [col for c in candidates for col in c.columns]
@@ -267,16 +270,7 @@ def _merge_in_select(
     if merged_join.type is None:
         return False
 
-    # Detach the merged joins from the chain, then insert the combined join after the base.
-    merged_joins = {id(c.join) for c in candidates}
-    ptr = node.select_from
-    while ptr.next_join is not None:
-        if id(ptr.next_join) in merged_joins:
-            ptr.next_join = ptr.next_join.next_join
-        else:
-            ptr = ptr.next_join
-    merged_join.next_join = node.select_from.next_join
-    node.select_from.next_join = merged_join
+    _splice_merged_join(node.select_from, candidates, merged_join)
 
     node.type.tables[MERGED_ALIAS] = merged_join.type
     for candidate in candidates:
@@ -284,6 +278,18 @@ def _merge_in_select(
 
     _AliasRewriter({c.alias for c in candidates}, merged_type=merged_join.type, skip=merged_subquery).visit(node)
     return True
+
+
+def _splice_merged_join(select_from: ast.JoinExpr, candidates: list[_Candidate], merged_join: ast.JoinExpr) -> None:
+    merged_joins = {id(c.join) for c in candidates}
+    ptr = select_from
+    while ptr.next_join is not None:
+        if id(ptr.next_join) in merged_joins:
+            ptr.next_join = ptr.next_join.next_join
+        else:
+            ptr = ptr.next_join
+    merged_join.next_join = select_from.next_join
+    select_from.next_join = merged_join
 
 
 class _AliasRewriter(TraversingVisitor):
@@ -307,7 +313,7 @@ class _AliasRewriter(TraversingVisitor):
     def visit_field(self, node: ast.Field):
         # Lazy-table resolution retypes fields without rewriting their chains (e.g.
         # `accounts.tags.names` typed onto the `accounts__tags` join), so a chain check
-        # misses them — resolve the owning join through the field's type first. Nested
+        # misses them, so resolve the owning join through the field's type first. Nested
         # JSON key accesses arrive as PropertyTypes carrying the materialized column name.
         field_type = node.type
         if isinstance(field_type, ast.PropertyType):

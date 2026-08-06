@@ -74,7 +74,7 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
         )
 
     def _perf_flag_enabled(self) -> bool:
-        # only_evaluate_locally keeps this flag check off the network — it runs on the query
+        # only_evaluate_locally keeps this flag check off the network: it runs on the query
         # hot path, so an inconclusive local evaluation must mean "off", never an HTTP call.
         try:
             return bool(

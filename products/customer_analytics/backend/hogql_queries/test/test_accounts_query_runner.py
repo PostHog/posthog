@@ -668,9 +668,9 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertFalse(rows[str(empty.id)][plan_idx])
 
     def test_warehouse_join_columns_compile_alongside_aggregating_joins(self):
-        # Warehouse (s3) joins must be left out of the federated join merge: merging
-        # them once broke compilation with "Can't access field on LazyJoinType".
-        # Printing is enough to catch that regression — no s3 read happens here.
+        # Merging warehouse (s3) joins breaks compilation ("Can't access field on
+        # LazyJoinType"), so the transform must exclude them. Printing is enough to
+        # catch the regression, and no s3 read happens here.
         from posthog.hogql.query import HogQLQueryExecutor
 
         from products.data_tools.backend.models.join import DataWarehouseJoin

@@ -575,8 +575,8 @@ def query_with_columns(
 def _has_comment_marker_outside_strings(sql: str) -> bool:
     """Whether the SQL contains a `--` or `/*` comment marker outside quoted spans.
 
-    A plain substring check false-positives on markers inside string literals — e.g. an
-    s3() glob like '.../*.csv' — and sends comment-free queries through sqlparse, which
+    A plain substring check false-positives on markers inside string literals (e.g. an
+    s3() glob like '.../*.csv') and sends comment-free queries through sqlparse, which
     costs ~100ms on a multi-KB query. Quoted spans ('', "", ``) hide markers; ClickHouse
     escapes quotes inside them with a backslash or by doubling, both handled below.
     """

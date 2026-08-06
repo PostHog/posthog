@@ -95,10 +95,10 @@ account_custom_property_values: PostgresTable = PostgresTable(
     postgres_table_name="customer_analytics_custompropertyvalue",
     description="Internal federated table (PostgreSQL `customer_analytics_custompropertyvalue`) of custom property values per account; not for direct querying — use `system.accounts.custom_properties`.",
     # Unlike the FK-only junction tables, this table has a real `team_id` column, so the
-    # framework's standard `team_id = X` guard scopes it — as a plain column comparison it is
+    # framework's standard `team_id = X` guard scopes it, and as a plain column comparison it is
     # pushed down into the federated PostgreSQL read, where the account-subquery predicate
     # cannot be. Soft-deleted rows stay pruned so superseded `value_*` data can't be read via
-    # direct selection of this hidden backing table — matching the lazy join's filter.
+    # direct selection of this hidden backing table, matching the lazy join's filter.
     predicates=[
         # `NOT is_deleted` (not `is_deleted != true`): the predicate is pushed into the federated
         # PostgreSQL query, where comparing a boolean column to an integer literal is a type error.
