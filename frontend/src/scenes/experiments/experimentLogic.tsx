@@ -3304,7 +3304,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 if (isBreakpoint(error as Error)) {
                     throw error
                 }
-                actions.setExperiment({ [orderingField]: previousOrder })
+                actions.setExperiment({
+                    [orderingField]: values.unmodifiedExperiment?.[orderingField] ?? previousOrder,
+                })
                 lemonToast.error('Could not save the new metric order')
             }
         },
