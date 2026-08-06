@@ -73,17 +73,13 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     const installTitle = isSdkInstallStep ? 'Install' : productName ? `Install ${productName}` : 'Install your SDK'
     // With several install steps in one flow, a bare second "Install" reads as a duplicate.
     const installStepCount = flow.filter((step) => step.stepKey === OnboardingStepKey.INSTALL).length
-    // Name only the products this step really covers: its own plus any deduped into it. Products
-    // with their own install step (e.g. AI observability) still need that step, so claiming
-    // "the rest of your products" would overpromise.
-    const coveredProductKeys =
-        currentFlowStep?.additionalProductKeys ?? (currentStepProductKey ? [currentStepProductKey] : [])
-    const coveredProductNames = coveredProductKeys
+    // The dedup record is what this step actually covers; other products keep their own install step.
+    const coveredNames = (currentFlowStep?.additionalProductKeys ?? [currentStepProductKey])
         .map((key) => availableOnboardingProducts[key as keyof typeof availableOnboardingProducts]?.name)
         .filter((name): name is string => !!name)
     const installSubtitle =
-        isSdkInstallStep && installStepCount > 1 && coveredProductNames.length > 0
-            ? `One install covers ${humanList(coveredProductNames)}.`
+        isSdkInstallStep && installStepCount > 1 && coveredNames.length > 0
+            ? `One install covers ${humanList(coveredNames)}.`
             : undefined
 
     const installationCompleteFromTeam = useInstallationComplete(teamPropertyToVerify)
