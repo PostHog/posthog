@@ -14,6 +14,8 @@ import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { isContentlessTask } from "@posthog/shared/domain-types";
 import { DeepLinkApprovalModal } from "@posthog/ui/features/agent-applications/components/DeepLinkApprovalModal";
 import { useApprovalDeepLink } from "@posthog/ui/features/agent-applications/hooks/useApprovalDeepLink";
+import { AnnouncementBanner } from "@posthog/ui/features/announcements/AnnouncementBanner";
+import { AnnouncementsHost } from "@posthog/ui/features/announcements/AnnouncementsHost";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { UsageButton } from "@posthog/ui/features/billing/UsageButton";
 import { UsageLimitModal } from "@posthog/ui/features/billing/UsageLimitModal";
@@ -330,6 +332,7 @@ function RootLayout() {
     return (
       <Flex direction="column" height="100%">
         <ConnectivityBanner />
+        <AnnouncementBanner />
         <Outlet />
         <CommandMenu open={commandMenuOpen} onOpenChange={setCommandMenuOpen} />
         <GlobalFilePicker />
@@ -345,6 +348,7 @@ function RootLayout() {
             was stopping Cmd+W from closing the window. */}
         <TabShortcutFallback enabled />
         {billingEnabled && <UsageLimitModal />}
+        <AnnouncementsHost />
         <UpdateAvailableModal />
         <WhatsNewModal />
         <RemoteBranchCheckoutDialog />
@@ -465,6 +469,7 @@ function RootLayout() {
           )}
         </Flex>
         <ConnectivityBanner />
+        <AnnouncementBanner />
         <Flex flexGrow="1" overflow="hidden" className="relative">
           {/* Scrim under the peeked nav: dims the content while the overlay is
               out. Purely visual (pointer-transparent) and paired with the
@@ -528,6 +533,7 @@ function RootLayout() {
         />
         <TourOverlay />
         {billingEnabled && <UsageLimitModal />}
+        <AnnouncementsHost />
         <UpdateAvailableModal />
         <WhatsNewModal />
         <RemoteBranchCheckoutDialog />
