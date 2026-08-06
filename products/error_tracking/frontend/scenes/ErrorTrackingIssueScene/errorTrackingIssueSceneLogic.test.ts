@@ -5,7 +5,7 @@ import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { errorTrackingIssueSceneLogic, toErrorTrackingIssueSummary } from './errorTrackingIssueSceneLogic'
 
 const makeFingerprints = (fingerprint: string = 'fp-1'): ErrorTrackingFingerprint[] => [
     { fingerprint, issue_id: 'issue-1', created_at: '2026-01-01T00:00:00Z' },
@@ -64,6 +64,34 @@ describe('errorTrackingIssueSceneLogic', () => {
         })
             .toDispatchActions(['loadInitialEventSuccess'])
             .toMatchValues({ initialEvent: null })
+    })
+
+    it('keeps stable first and last event IDs in the issue summary', () => {
+        expect(
+            toErrorTrackingIssueSummary({
+                first_seen: '2026-01-01T00:00:00Z',
+                last_seen: '2026-01-02T00:00:00Z',
+                first_event: {
+                    uuid: 'first-event',
+                    distinct_id: 'first-person',
+                    timestamp: '2026-01-01T00:00:00Z',
+                    properties: '{}',
+                },
+                last_event: {
+                    uuid: 'last-event',
+                    distinct_id: 'last-person',
+                    timestamp: '2026-01-02T00:00:00Z',
+                    properties: '{}',
+                },
+                aggregations: { occurrences: 2, sessions: 2, users: 2, volume_buckets: [] },
+            })
+        ).toEqual({
+            first_seen: '2026-01-01T00:00:00Z',
+            last_seen: '2026-01-02T00:00:00Z',
+            first_event_uuid: 'first-event',
+            last_event_uuid: 'last-event',
+            aggregations: { occurrences: 2, sessions: 2, users: 2, volume_buckets: [] },
+        })
     })
 
     // A malformed `timestamp` URL param used to be stored and fed to getNarrowDateRange, where
