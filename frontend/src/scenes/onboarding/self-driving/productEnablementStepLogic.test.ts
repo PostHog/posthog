@@ -53,7 +53,7 @@ describe('productEnablementStepLogic', () => {
         expect(logic.values.enablingProduct).toBeNull()
     })
 
-    it('auto-enables only the goal products that are still off', async () => {
+    it('auto-enables only the use case products that are still off', async () => {
         const bodies: any[] = []
         useMocks({
             post: {
@@ -69,7 +69,7 @@ describe('productEnablementStepLogic', () => {
         // Mock team: replay already on, error tracking off - fix_issues wants both.
         await teamLogic.asyncActions.loadCurrentTeam()
 
-        await logic.asyncActions.configureToolsForGoal('fix_issues')
+        await logic.asyncActions.configureUseCase('fix_issues')
         expect(bodies).toEqual([{ products: ['error_tracking'] }])
     })
 })

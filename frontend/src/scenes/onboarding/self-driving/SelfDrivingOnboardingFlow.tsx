@@ -13,19 +13,20 @@ import { cn } from 'lib/utils/css-classes'
 // team onboarded, redirecting out) for both variants.
 import { onboardingLogic } from '../legacy/onboardingLogic'
 import { onboardingEventUsageLogic, type SelfDrivingOnboardingStepId } from '../onboardingEventUsageLogic'
+import { resolveSetup } from '../shared/useCases'
+import type { OnboardingExtraStepId, OnboardingUseCaseKey } from '../shared/useCases'
 import { wizardSyncUiLogic } from '../shared/wizard-sync/wizardSyncUiLogic'
 import { InstallationTrackerGate } from './components/InstallationTracker'
-import type { SelfDrivingGoal } from './goals'
-import { goalSelectionLogic } from './goalSelectionLogic'
 import { productEnablementStepLogic } from './productEnablementStepLogic'
 import { RoughMark } from './RoughMark'
 import { AIObservabilityStep } from './steps/AIObservabilityStep'
 import { AuthorizedUrlsStep } from './steps/AuthorizedUrlsStep'
 import { BillingStep } from './steps/BillingStep'
-import { GoalsStep } from './steps/GoalsStep'
 import { InstallStep } from './steps/InstallStep'
 import { ToolsStep } from './steps/ToolsStep'
+import { UseCasesStep } from './steps/UseCasesStep'
 import { WelcomeStep } from './steps/WelcomeStep'
+import { useCaseSelectionLogic } from './useCaseSelectionLogic'
 
 /**
  * The self-driving onboarding: run the wizard, turn on the built-in signal sources, pick a plan,
@@ -50,38 +51,21 @@ interface StepDef {
     maxWidth?: string
 }
 
-const AUTHORIZED_URLS_STEP: StepDef = {
-    id: 'authorized-urls',
-    title: 'Add your website URLs',
-    Content: AuthorizedUrlsStep,
-    hideContinue: true,
-}
-const AI_OBSERVABILITY_STEP: StepDef = {
-    id: 'ai-observability',
-    title: 'Instrument your AI app',
-    Content: AIObservabilityStep,
-    hideContinue: true,
-    maxWidth: 'max-w-2xl',
-}
-
-/**
- * The steps each goal needs beyond install to reach its finish line - nothing more. Toggleable
- * tools don't appear here: goal selection auto-enables them, and the install step's summary shows
- * the result. Only steps that need the user's own input survive.
- */
-function goalToolSteps(goal: SelfDrivingGoal | null): StepDef[] {
-    switch (goal) {
-        case 'website_traffic':
-            // Web analytics needs at least one authorized URL before its dashboard (the goal's
-            // finish line) can show anything.
-            return [AUTHORIZED_URLS_STEP]
-        case 'ai_app':
-            // The generic wizard install doesn't wire LLM instrumentation - without this step the
-            // goal (first AI traces) is unreachable.
-            return [AI_OBSERVABILITY_STEP]
-        default:
-            return []
-    }
+// The steps a use case can declare as `extraSteps` - only ones that need the user's own input.
+const EXTRA_STEPS: Record<OnboardingExtraStepId, StepDef> = {
+    'authorized-urls': {
+        id: 'authorized-urls',
+        title: 'Add your website URLs',
+        Content: AuthorizedUrlsStep,
+        hideContinue: true,
+    },
+    'ai-observability': {
+        id: 'ai-observability',
+        title: 'Instrument your AI app',
+        Content: AIObservabilityStep,
+        hideContinue: true,
+        maxWidth: 'max-w-2xl',
+    },
 }
 
 /**
@@ -89,20 +73,21 @@ function goalToolSteps(goal: SelfDrivingGoal | null): StepDef[] {
  * does the repo-side configuration (sources, scouts, GitHub); the team-level opt-ins are enabled
  * here because only the signed-in app carries the product_enablement scope.
  */
-function buildSteps(goal: SelfDrivingGoal | null): StepDef[] {
+function buildSteps(useCase: OnboardingUseCaseKey | null): StepDef[] {
     return [
         { id: 'welcome', title: '', Content: WelcomeStep },
-        // One declared goal so the rest of the flow can drive toward it. Picking a card advances;
-        // "set up everything" is the step's skip.
+        // One declared use case so the rest of the flow can drive toward it. Picking a card
+        // advances; "set up everything" is the step's skip. The step id stays 'goals' so the
+        // funnel's history is unbroken.
         {
             id: 'goals',
             title: 'What do you want to get done first?',
-            Content: GoalsStep,
+            Content: UseCasesStep,
             hideContinue: true,
             maxWidth: 'max-w-2xl',
         },
-        // The goal's tool collection, already turned on by the goal click - shown before install so
-        // the user knows what they're getting before the ten-minute wizard run.
+        // The use case's tool collection, already turned on by the card click - shown before
+        // install so the user knows what they're getting before the ten-minute wizard run.
         {
             id: 'tools',
             title: 'Your tools',
@@ -111,10 +96,10 @@ function buildSteps(goal: SelfDrivingGoal | null): StepDef[] {
             maxWidth: 'max-w-2xl',
         },
         { id: 'install', title: 'Install PostHog', Content: InstallStep },
-        // The declared goal FILTERS what comes after install: only steps the goal can't reach its
+        // The declared use case FILTERS what comes after install: only steps it can't reach its
         // finish line without. These steps render their own action zone, so the footer Continue is
         // suppressed.
-        ...goalToolSteps(goal),
+        ...(resolveSetup(useCase).extraSteps ?? []).map((id) => EXTRA_STEPS[id]),
         {
             id: 'billing',
             title: 'Pick a plan',
@@ -150,12 +135,12 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
         reportSelfDrivingOnboardingStepCompleted,
         reportSelfDrivingOnboardingStepSkipped,
     } = useActions(onboardingEventUsageLogic)
-    // The step list depends on the declared goal (persisted, so a refresh keeps the conditional
-    // steps in place).
-    const { selectedGoal } = useValues(goalSelectionLogic)
-    const steps = useMemo(() => buildSteps(selectedGoal), [selectedGoal])
-    // Track the current step by id, not index, so goal changes (which insert/remove steps) can't
-    // shift the user onto a different step. Initialize from the URL so a refresh — or an OAuth
+    // The step list depends on the declared use case (persisted, so a refresh keeps the
+    // conditional steps in place).
+    const { selectedUseCase } = useValues(useCaseSelectionLogic)
+    const steps = useMemo(() => buildSteps(selectedUseCase), [selectedUseCase])
+    // Track the current step by id, not index, so use-case changes (which insert/remove steps)
+    // can't shift the user onto a different step. Initialize from the URL so a refresh — or an OAuth
     // callback that lands back on ?step=install (e.g. the GitHub connect flow) — resumes where it
     // left off instead of restarting at welcome.
     const [stepId, setStepId] = useState<SelfDrivingOnboardingStepId>(() => {
@@ -202,9 +187,9 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
 
     const advance = (): void => {
         if (isLast) {
-            // Marks onboarding complete (credits the sources turned on, plus the declared goal's
-            // product) and navigates out, so sceneLogic doesn't bounce the user back into onboarding.
-            completeSelfDrivingOnboarding(selectedGoal)
+            // Marks onboarding complete (credits the sources turned on, plus the declared use
+            // case's product) and navigates out, so sceneLogic doesn't bounce the user back in.
+            completeSelfDrivingOnboarding(selectedUseCase)
             return
         }
         goToStep(stepIndex + 1)

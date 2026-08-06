@@ -12,6 +12,8 @@ import { isKeyOf } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVariants'
+import { ONBOARDING_TOOLS, resolveSetup, toolEnablement } from 'scenes/onboarding/shared/useCases'
+import type { OnboardingUseCaseKey } from 'scenes/onboarding/shared/useCases'
 import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -127,8 +129,8 @@ export interface onboardingLogicActions {
     completeOnboarding: (options?: { redirectUrlOverride?: string }) => {
         redirectUrlOverride: string | undefined
     }
-    completeSelfDrivingOnboarding: (goal?: 'ai_app' | 'fix_issues' | 'user_behavior' | 'website_traffic' | null) => {
-        goal: 'ai_app' | 'fix_issues' | 'user_behavior' | 'website_traffic' | null
+    completeSelfDrivingOnboarding: (goal?: OnboardingUseCaseKey | null) => {
+        goal: OnboardingUseCaseKey | null
     }
     goToNextStep: () => {
         value: true
@@ -276,9 +278,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         }),
         // Completion for the context-first flow, which has no selected product. Marks onboarding done
         // (so sceneLogic stops redirecting here) and credits the sources the user turned on.
-        completeSelfDrivingOnboarding: (
-            goal?: 'user_behavior' | 'fix_issues' | 'website_traffic' | 'ai_app' | null
-        ) => ({
+        completeSelfDrivingOnboarding: (goal?: OnboardingUseCaseKey | null) => ({
             goal: goal ?? null,
         }),
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
@@ -851,13 +851,13 @@ export const onboardingLogic = kea<onboardingLogicType>([
             if (team?.surveys_opt_in) {
                 products.push(ProductKey.SURVEYS)
             }
-            // The website and AI goals are about products with no team-level toggle to read; the
-            // declared goal is the signal, so credit them when it was declared.
-            if (goal === 'website_traffic') {
-                products.push(ProductKey.WEB_ANALYTICS)
-            }
-            if (goal === 'ai_app') {
-                products.push(ProductKey.AI_OBSERVABILITY)
+            // Tools with no team-level toggle to read: the declared use case is the signal, so
+            // credit them from its setup.
+            for (const key of resolveSetup(goal).tools) {
+                const tool = ONBOARDING_TOOLS[key]
+                if (!toolEnablement(tool) && !products.includes(tool.productKey)) {
+                    products.push(tool.productKey)
+                }
             }
             for (const productKey of products) {
                 // Same `onboarding completed` event name as the legacy flow, stamped `version: 2`

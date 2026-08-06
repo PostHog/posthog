@@ -13,28 +13,28 @@ import { SELF_DRIVING_WORKFLOW_ID } from 'scenes/onboarding/shared/wizard-sync/w
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
-import { SELF_DRIVING_TOOLS, toolSetForGoal } from '../goals'
-import { goalSelectionLogic } from '../goalSelectionLogic'
+import { DOCS_URL_BY_PRODUCT_PATH, ONBOARDING_TOOLS, resolveSetup, toolIconType } from '../../shared/useCases'
+import { useCaseSelectionLogic } from '../useCaseSelectionLogic'
 import { InstallationTracker } from './InstallationTracker'
 
-/** A quiet reminder of what the install feeds: the goal's tool set, as icons and names. */
+/** A quiet reminder of what the install feeds: the use case's tools, as icons and names. */
 function ProductsBeingInstalled(): JSX.Element {
-    const { selectedGoal } = useValues(goalSelectionLogic)
-    const tools = toolSetForGoal(selectedGoal).shown.map((key) => SELF_DRIVING_TOOLS[key])
+    const { selectedUseCase } = useValues(useCaseSelectionLogic)
+    const tools = resolveSetup(selectedUseCase).tools.map((key) => ONBOARDING_TOOLS[key])
     return (
         <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-muted">
             <span>Installing:</span>
             {tools.map((tool) => (
                 <Link
-                    key={tool.name}
-                    to={tool.docsUrl}
+                    key={tool.productPath}
+                    to={DOCS_URL_BY_PRODUCT_PATH[tool.productPath]}
                     target="_blank"
                     className="flex items-center gap-1 text-muted hover:text-default"
                 >
                     <span className="flex text-sm group/colorful-product-icons colorful-product-icons-true">
-                        {iconForType(tool.iconType)}
+                        {iconForType(toolIconType(tool))}
                     </span>
-                    {tool.name}
+                    {tool.productPath}
                 </Link>
             ))}
         </div>
