@@ -41,6 +41,8 @@ jobs:
                         - 'proto/**'
                         - 'posthog/personhog_client/proto/generated/**'
                         - 'bin/generate_personhog_proto.sh'
+                        - 'nodejs/src/common/generated/personhog/**'
+                        - 'nodejs/buf.gen.yaml'
                         - '.github/workflows/ci-proto.yml'
 
     lint:
@@ -128,8 +130,44 @@ jobs:
                   fi
                   echo "Generated Python proto stubs are up to date."
 
+    node-codegen:
+        name: Check Node proto stubs are up to date (depot-ubuntu-22.04-4)
+        needs: changes
+        if: needs.changes.outputs.proto == 'true'
+        runs-on: depot-ubuntu-22.04-4
+        timeout-minutes: 10
+
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  clean: false
+
+            - name: Install buf
+              uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1.4.0
+              with:
+                  setup_only: true
+                  version: '1.50.0'
+
+            - name: Install pnpm and dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
+
+            - name: Regenerate Node proto stubs
+              run: pnpm --dir nodejs run generate:personhog-proto
+
+            - name: Check for diff
+              run: |
+                  if ! git diff --exit-code nodejs/src/common/generated/personhog/; then
+                    echo ""
+                    echo "ERROR: Generated Node proto stubs are out of date."
+                    echo "Run 'pnpm run generate:personhog-proto' in nodejs/ and commit the result."
+                    exit 1
+                  fi
+                  echo "Generated Node proto stubs are up to date."
+
     proto_checks:
-        needs: [changes, lint, breaking, python-codegen]
+        needs: [changes, lint, breaking, python-codegen, node-codegen]
         name: Proto Checks Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -160,6 +198,11 @@ jobs:
 
                   if [[ "${{ needs.python-codegen.result }}" != "success" && "${{ needs.python-codegen.result }}" != "skipped" ]]; then
                     echo "Python proto codegen staleness check failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.node-codegen.result }}" != "success" && "${{ needs.node-codegen.result }}" != "skipped" ]]; then
+                    echo "Node proto codegen staleness check failed."
                     exit 1
                   fi
 
