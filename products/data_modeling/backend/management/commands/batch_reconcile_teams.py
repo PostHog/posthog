@@ -14,7 +14,7 @@ from posthog.models.team import Team
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_schedule_exists
 
-from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
+from products.data_modeling.backend.logic.cohort_scheduling import Tier, tier_schedule_id
 from products.data_modeling.backend.logic.node_frequency import schedulable_nodes
 from products.data_modeling.backend.logic.schedule_reconcile import (
     convert_dag_to_tiers,
@@ -39,6 +39,11 @@ class Anomaly(Exception):
 
 def _seconds(interval: timedelta) -> int:
     return int(interval.total_seconds())
+
+
+def _tier_key(tier: Tier) -> str:
+    seconds = _seconds(tier.interval)
+    return str(seconds) if tier.anchor_minutes is None else f"{seconds}@{tier.anchor_minutes}"
 
 
 @async_to_sync
@@ -149,8 +154,8 @@ class Command(BaseCommand):
             dag_record: dict = {
                 "dag_id": str(dag.id),
                 "name": dag.name,
-                "planned_tiers": sorted(_seconds(t) for t in preview.desired_tiers),
-                "tier_node_counts": {str(_seconds(t)): len(nodes) for t, nodes in preview.desired_tiers.items()},
+                "planned_tiers": sorted(_seconds(t.interval) for t in preview.desired_tiers),
+                "tier_node_counts": {_tier_key(t): len(nodes) for t, nodes in preview.desired_tiers.items()},
                 "to_create": sorted(preview.plan.to_create),
                 "to_update": sorted(preview.plan.to_update),
                 "to_delete": sorted(preview.plan.to_delete),
@@ -200,7 +205,9 @@ class Command(BaseCommand):
                 raise Anomaly(f"DAG {dag.name}: {len(failed)} v1 schedule(s) failed to delete")
 
         for dag, preview, dag_record in plans:
-            expected = sorted(tier_schedule_id(str(dag.id), interval) for interval in preview.desired_tiers)
+            expected = sorted(
+                tier_schedule_id(str(dag.id), tier.interval, tier.anchor_minutes) for tier in preview.desired_tiers
+            )
             missing, lingering = _verify_schedules(expected, sorted(preview.plan.to_delete))
             dag_record["verified"] = not missing and not lingering
             if missing or lingering:

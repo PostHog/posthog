@@ -16,6 +16,16 @@ DECAGON_BASE_URL = "https://api.decagon.ai"
 
 REQUEST_TIMEOUT_SECONDS = 60
 
+# Server-side page size of /conversation/export, per Decagon's docs.
+DECAGON_PAGE_SIZE = 100
+
+# Decagon's export reference names the next-page response field three different ways:
+# `next_page_cursor` in the parameter prose, `next_cursor` in the official example code,
+# and `next_page_updated_after` in the example response. Production responses carry no
+# usable `next_page_cursor` (reading only that name made the walk stop after one page),
+# so accept every documented name. All of them feed the same `cursor` request param.
+NEXT_CURSOR_KEYS = ("next_page_cursor", "next_cursor", "next_page_updated_after")
+
 # Decagon enforces a hard limit of 1 request/second across all API endpoints and
 # automatically IP-bans gross violators, so requests are spaced client-side rather
 # than relying on 429 backoff alone.
@@ -28,7 +38,7 @@ class DecagonRetryableError(Exception):
 
 @dataclasses.dataclass
 class DecagonResumeConfig:
-    # The next-page export cursor returned by Decagon (`next_page_cursor`).
+    # The next-page export cursor returned by Decagon (see NEXT_CURSOR_KEYS).
     cursor: str
 
 
@@ -52,6 +62,18 @@ def _get_headers(api_key: str) -> dict[str, str]:
         "Authorization": f"Bearer {api_key}",
         "Accept": "application/json",
     }
+
+
+def _next_cursor(data: dict[str, Any]) -> Optional[str]:
+    # Skip falsy values rather than returning the first key present: a response that
+    # carries `next_page_cursor: null` alongside a populated alias must keep paginating.
+    for key in NEXT_CURSOR_KEYS:
+        value = data.get(key)
+        if value:
+            # Cursors can be integers (a last-updated epoch watermark in Decagon's example
+            # response); requests and the saved resume state both want strings.
+            return str(value)
+    return None
 
 
 def validate_credentials(api_key: str) -> bool:
@@ -116,7 +138,7 @@ def get_rows(
         data = fetch_page(params)
 
         items = data.get(config.data_key) or []
-        next_cursor = data.get("next_page_cursor")
+        next_cursor = _next_cursor(data)
 
         fresh: list[dict[str, Any]] = []
         for item in items:
@@ -135,15 +157,24 @@ def get_rows(
             # than skipping it (the duplicate rows a resumed re-yield can produce are
             # bounded to one page and cleaned up by the next full refresh).
             if next_cursor:
-                resumable_source_manager.save_state(DecagonResumeConfig(cursor=str(next_cursor)))
+                resumable_source_manager.save_state(DecagonResumeConfig(cursor=next_cursor))
 
-        # `next_page_cursor` is null once the stream is exhausted. Also stop if the
+        # The next-page cursor is null once the stream is exhausted. Also stop if the
         # server ever returns the cursor we just used, to guard against spinning on
         # one page forever.
-        if not next_cursor or str(next_cursor) == cursor:
+        if not next_cursor or next_cursor == cursor:
+            if not next_cursor and len(items) >= DECAGON_PAGE_SIZE:
+                # A full page that ends the walk is legitimate only when the total row
+                # count happens to be a multiple of the page size; far more often it means
+                # Decagon renamed the pagination field again and rows were truncated.
+                logger.warning(
+                    f"Decagon: {endpoint} stream ended on a full page of {len(items)} items without a "
+                    f"next-page cursor (response keys: {sorted(data.keys())}). If the synced row count "
+                    f"looks truncated, check the export pagination contract."
+                )
             break
 
-        cursor = str(next_cursor)
+        cursor = next_cursor
 
 
 def decagon_source(
