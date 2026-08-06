@@ -282,6 +282,9 @@ tools:
     logs-alerts-update:
         operation: logs_alerts_update
         enabled: false
+    logs-anomalies-scan-create:
+        operation: logs_anomalies_scan_create
+        enabled: false
     logs-attribute-values-list:
         operation: logs_values_retrieve
         enabled: true

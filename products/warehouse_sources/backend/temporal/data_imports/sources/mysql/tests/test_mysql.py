@@ -2188,7 +2188,7 @@ class TestMySQLSourceValidateCredentials:
             ),
             (
                 pymysql.err.OperationalError(2003, "Can't connect to MySQL server on 'db.example.com' (timed out)"),
-                "Connection timed out. Does your database have our IP addresses allowed?",
+                "Connection timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option.",
             ),
             (
                 pymysql.err.OperationalError(
