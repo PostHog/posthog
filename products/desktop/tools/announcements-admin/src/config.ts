@@ -5,4 +5,6 @@ export const PROJECT_ID = 2;
 export const APP_ORIGIN = "https://desktop-announcements-admin.hosthog.dev";
 export const CLIENT_ID = `${APP_ORIGIN}/.well-known/oauth-client-metadata.json`;
 export const REDIRECT_URI = `${APP_ORIGIN}/oauth/callback`;
-export const OAUTH_SCOPES = "feature_flag:read feature_flag:write";
+// user:read covers /api/users/@me/ for analytics identify. Also declared in
+// public/.well-known/oauth-client-metadata.json — keep the two lists in sync.
+export const OAUTH_SCOPES = "feature_flag:read feature_flag:write user:read";

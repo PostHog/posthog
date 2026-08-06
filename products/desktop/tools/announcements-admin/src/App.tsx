@@ -16,33 +16,40 @@ export function App() {
 
   useEffect(() => {
     void (async () => {
+      // restoreSession is inside the try too: a token-refresh network failure
+      // would otherwise strand the app on the boot loading screen.
       try {
         await handleCallback();
+        const token = await restoreSession();
+        setState(token ? { phase: "loading", token } : { phase: "signed-out" });
       } catch (error) {
         captureException(error);
         setState({ phase: "signed-out", error: String(error) });
-        return;
       }
-      const token = await restoreSession();
-      setState(token ? { phase: "loading", token } : { phase: "signed-out" });
     })();
   }, []);
 
   useEffect(() => {
     if (state.phase !== "loading") return;
-    fetchFlag(state.token)
-      .then((flag) => {
-        setState({ phase: "ready", token: state.token, flag });
-        void fetchCurrentUser(state.token)
-          .then((user) => {
-            if (user.distinctId) identify(user.distinctId, user.label);
-          })
-          .catch(captureException);
-      })
-      .catch((error) => {
+    const token = state.token;
+    void (async () => {
+      let flag: FlagRecord;
+      try {
+        flag = await fetchFlag(token);
+      } catch (error) {
         captureException(error);
         setState({ phase: "error", message: String(error) });
-      });
+        return;
+      }
+      setState({ phase: "ready", token, flag });
+      // Identify is best-effort; the editor works without it.
+      try {
+        const user = await fetchCurrentUser(token);
+        if (user.distinctId) identify(user.distinctId, user.label);
+      } catch (error) {
+        captureException(error);
+      }
+    })();
   }, [state]);
 
   const handleLogout = () => {

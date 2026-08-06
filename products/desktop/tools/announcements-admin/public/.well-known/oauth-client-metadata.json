@@ -9,6 +9,6 @@
   "response_types": ["code"],
   "token_endpoint_auth_method": "none",
   "com.posthog": {
-    "scopes": ["feature_flag:read", "feature_flag:write"]
+    "scopes": ["feature_flag:read", "feature_flag:write", "user:read"]
   }
 }
