@@ -35,6 +35,8 @@ from products.replay_vision.backend.scanner_config import MAX_PROMPT_LENGTH
 from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN
 from products.replay_vision.backend.tags import slugify_tag
 
+from ee.hogai.tool import ApprovalResumePayload
+
 _FLAG_PATH = "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled"
 _GENERATE_EMBEDDING_PATH = "products.replay_vision.backend.max_tools.async_generate_embedding"
 _EXECUTE_HOGQL_PATH = "products.replay_vision.backend.max_tools.execute_hogql_query"
@@ -829,3 +831,102 @@ class TestReplayVisionToolAuthorization(BaseTest):
             )
 
         assert artifact["error"] == "invalid_config"
+
+
+class TestReplayVisionApprovalFlowEndToEnd(BaseTest):
+    """Through `_arun_with_context`, the entry point the agent actually calls.
+
+    Every other test here calls `_arun_impl` directly, which skips the approval machinery entirely, so
+    none of them would notice a tool that spends the org's credits without ever asking.
+    """
+
+    def _tool(self, tool_cls):
+        config: RunnableConfig = {"configurable": {"team": self.team, "user": self.user}}
+        return tool_cls(team=self.team, user=self.user, config=config)
+
+    def _scanner(self) -> ReplayScanner:
+        return ReplayScanner.objects.create(
+            team=self.team,
+            name="checkout",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "did the user check out?"},
+            model=ScannerModel.GEMINI_3_6_FLASH,
+        )
+
+    @staticmethod
+    def _resume(action: str, payload: dict | None = None, feedback: str | None = None) -> dict:
+        return ApprovalResumePayload(action=action, payload=payload, feedback=feedback, proposal_id="p1").model_dump()
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_rejecting_a_scan_starts_nothing(self):
+        # The whole point of the gate: a refused scan must not reach the workflow starter.
+        start = MagicMock()
+        with (
+            patch(_FLAG_PATH, return_value=True),
+            patch("products.replay_vision.backend.api.trigger.sync_connect", MagicMock()),
+            patch("products.replay_vision.backend.api.trigger.async_to_sync", return_value=start),
+            patch("ee.hogai.tool.interrupt", return_value=self._resume("reject", feedback="too expensive")),
+        ):
+            content, _ = await self._tool(ScanReplayVisionSessionsTool)._arun_with_context(
+                session_ids=["s1", "s2"], prompt="did the user rage click?"
+            )
+
+        assert "rejected" in content
+        assert "too expensive" in content
+        start.assert_not_called()
+        assert not await sync_to_async(ReplayScanner.all_origins.filter(origin="inline").exists)()
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_the_preview_the_user_sees_carries_the_cost(self):
+        # The interrupt payload is what the frontend renders. If the cost never reaches it, the user is
+        # approving a blank cheque, and no assertion on format_dangerous_operation_preview would notice.
+        seen = {}
+
+        def _capture(request):
+            seen["preview"] = request.preview if hasattr(request, "preview") else request.get("preview")
+            return self._resume("reject")
+
+        with patch(_FLAG_PATH, return_value=True), patch("ee.hogai.tool.interrupt", side_effect=_capture):
+            await self._tool(ScanReplayVisionSessionsTool)._arun_with_context(
+                session_ids=["s1", "s2"], prompt="did the user rage click?"
+            )
+
+        assert "2 session(s)" in seen["preview"]
+        assert "credits" in seen["preview"]
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_approving_an_edited_session_list_scans_only_what_was_approved(self):
+        # The user trims the batch at the prompt. Before the framework fix this ran the original list,
+        # charging for recordings they had just removed.
+        scanner = await sync_to_async(self._scanner)()
+        start = MagicMock(return_value=MagicMock())
+        with (
+            patch(_FLAG_PATH, return_value=True),
+            patch("products.replay_vision.backend.api.trigger.sync_connect", MagicMock()),
+            patch("products.replay_vision.backend.api.trigger.async_to_sync", return_value=start),
+            patch(
+                "ee.hogai.tool.interrupt",
+                return_value=self._resume("approve", payload={"session_ids": ["s1"], "scanner_id": str(scanner.id)}),
+            ),
+        ):
+            _, artifact = await self._tool(ScanReplayVisionSessionsTool)._arun_with_context(
+                session_ids=["s1", "s2", "s3"], scanner_id=str(scanner.id)
+            )
+
+        assert [r["session_id"] for r in artifact["results"]] == ["s1"]
+        assert start.call_count == 1
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_reading_the_quota_never_interrupts(self):
+        # A prompt for a free action trains people to click through the ones that cost money.
+        interrupt = MagicMock()
+        with patch(_FLAG_PATH, return_value=True), patch("ee.hogai.tool.interrupt", interrupt):
+            content, artifact = await self._tool(GetReplayVisionQuotaTool)._arun_with_context()
+
+        interrupt.assert_not_called()
+        assert "error" not in artifact
+        assert "credits" in content
