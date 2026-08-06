@@ -13049,6 +13049,12 @@ export namespace Schemas {
       BigQuery: 'BigQuery',
     } as const;
 
+    export interface Billing {
+      /** @maxLength 100 */
+      plan: string;
+      billing_limit: number;
+    }
+
     /**
      * * `check` - Check
      * * `firing` - Firing
@@ -13466,6 +13472,19 @@ export namespace Schemas {
       Excluded: 'excluded',
       Credited: 'credited',
     } as const;
+
+    export interface BillingPeriodResponse {
+      /**
+         * Start of the organization's current billing period, or null when billing has not synced a period.
+         * @nullable
+         */
+      current_period_start: string | null;
+      /**
+         * End of the organization's current billing period, or null when billing has not synced a period.
+         * @nullable
+         */
+      current_period_end: string | null;
+    }
 
     /**
      * * `team_retention` - team_retention
@@ -49918,6 +49937,15 @@ export namespace Schemas {
       results: BillingAlertEvent[];
     }
 
+    export interface PaginatedBillingList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Billing[];
+    }
+
     export interface PaginatedBriefConfigList {
       count: number;
       /** @nullable */
@@ -56148,6 +56176,12 @@ export namespace Schemas {
       /** @nullable */
       readonly display_status_message?: string | null;
       readonly import_config?: unknown;
+    }
+
+    export interface PatchedBilling {
+      /** @maxLength 100 */
+      plan?: string;
+      billing_limit?: number;
     }
 
     export interface PatchedBillingAlertConfiguration {
@@ -83331,6 +83365,17 @@ export namespace Schemas {
       /** The span call-tree aggregation query to execute. */
       query: _TracingTreeQueryBody;
     }
+
+    export type BillingListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type CohortsStaffListParams = {
     /**
