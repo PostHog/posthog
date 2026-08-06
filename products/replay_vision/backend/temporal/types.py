@@ -43,6 +43,37 @@ class ScannerSnapshot(BaseModel, frozen=True):
             ) from exc
 
 
+class BackfillScannerSnapshot(ScannerSnapshot, frozen=True):
+    """Full frozen scanner config persisted into `ReplayScannerBackfill.scanner_snapshot` — the observation
+    snapshot fields plus the query/sampling inputs the candidate walk needs. Freezing both keeps the
+    creation-time enumeration and its cost ceiling exact for the backfill's whole lifetime."""
+
+    query: dict[str, Any]
+    sampling_rate: float = Field(ge=0.0, le=1.0)
+    sampling_mode: str
+
+    @classmethod
+    def load_for_backfill(cls, backfill_id: UUID, raw: dict[str, Any] | None) -> "BackfillScannerSnapshot":
+        """Validate a persisted backfill `scanner_snapshot` blob, raising a non-retryable error tagged with the backfill id."""
+        try:
+            return cls.model_validate(raw or {})
+        except ValidationError as exc:
+            raise ApplicationError(
+                f"ReplayScannerBackfill {backfill_id} has malformed scanner_snapshot: {exc}", non_retryable=True
+            ) from exc
+
+    def to_observation_snapshot(self) -> ScannerSnapshot:
+        return ScannerSnapshot(
+            name=self.name,
+            scanner_type=self.scanner_type,
+            scanner_version=self.scanner_version,
+            model=self.model,
+            provider=self.provider,
+            emits_signals=self.emits_signals,
+            scanner_config=self.scanner_config,
+        )
+
+
 class ScannerResult(BaseModel, frozen=True):
     """Result data of a completed observation, persisted into `ReplayObservation.scanner_result`."""
 
@@ -58,6 +89,8 @@ class ApplyScannerInputs(BaseModel, frozen=True):
     team_id: int
     triggered_by: ObservationTrigger
     triggered_by_user_id: int | None = None
+    # Set only for backfill-triggered applies; routes observation creation to the backfill's frozen snapshot.
+    backfill_id: UUID | None = None
 
 
 class CreateObservationInputs(BaseModel, frozen=True):
@@ -67,6 +100,7 @@ class CreateObservationInputs(BaseModel, frozen=True):
     triggered_by: ObservationTrigger
     triggered_by_user_id: int | None
     workflow_id: str
+    backfill_id: UUID | None = None
 
 
 class CreateObservationOutput(BaseModel, frozen=True):

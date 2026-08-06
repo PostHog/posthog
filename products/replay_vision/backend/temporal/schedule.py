@@ -23,7 +23,15 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
-from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
+from posthog.temporal.common.schedule import (
+    a_create_schedule,
+    a_delete_schedule,
+    a_pause_schedule,
+    a_schedule_exists,
+    a_trigger_schedule,
+    a_unpause_schedule,
+    a_update_schedule,
+)
 from posthog.temporal.common.search_attributes import (
     POSTHOG_SCHEDULE_FINGERPRINT_KEY,
     POSTHOG_SCHEDULE_TYPE_KEY,
@@ -32,11 +40,17 @@ from posthog.temporal.common.search_attributes import (
 
 from products.replay_vision.backend.fingerprint import SCHEDULE_FINGERPRINT_LENGTH, config_fingerprint
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.temporal.backfill_types import BackfillTickInputs
 from products.replay_vision.backend.temporal.constants import (
+    BACKFILL_SCANNER_WORKFLOW_NAME,
+    BACKFILL_SCHEDULE_TYPE,
+    BACKFILL_TICK_EXECUTION_TIMEOUT,
+    BACKFILL_TICK_INTERVAL,
     SCANNER_SCHEDULE_INTERVAL,
     SCANNER_SCHEDULE_TYPE,
     SWEEP_SCANNER_WORKFLOW_NAME,
     SWEEP_WORKFLOW_EXECUTION_TIMEOUT,
+    backfill_schedule_id,
     scanner_schedule_id,
 )
 from products.replay_vision.backend.temporal.sweep_types import SweepScannerInputs
@@ -164,6 +178,76 @@ async def a_upsert_scanner_schedule(scanner_id: UUID, team_id: int) -> None:
             raise
         # Concurrent upsert beat us to create; treat as update.
         await a_update_schedule(client, schedule_id, schedule, search_attributes=search_attributes)
+
+
+def _build_backfill_schedule(backfill_id: UUID, team_id: int, scanner_id: UUID) -> Schedule:
+    return Schedule(
+        action=ScheduleActionStartWorkflow(
+            BACKFILL_SCANNER_WORKFLOW_NAME,
+            BackfillTickInputs(backfill_id=backfill_id, team_id=team_id, scanner_id=scanner_id),
+            id=f"{BACKFILL_SCANNER_WORKFLOW_NAME}-{backfill_id}",
+            task_queue=settings.REPLAY_VISION_TASK_QUEUE,
+            execution_timeout=BACKFILL_TICK_EXECUTION_TIMEOUT,
+            retry_policy=common.RetryPolicy(maximum_attempts=1),
+        ),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=BACKFILL_TICK_INTERVAL)]),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP, catchup_window=BACKFILL_TICK_INTERVAL),
+    )
+
+
+async def a_upsert_backfill_schedule(backfill_id: UUID, team_id: int, scanner_id: UUID) -> None:
+    """Create (or repair) the per-backfill tick schedule; first creation triggers immediately."""
+    client = await async_connect()
+    schedule_id = backfill_schedule_id(backfill_id)
+    schedule = _build_backfill_schedule(backfill_id, team_id, scanner_id)
+    search_attributes = TypedSearchAttributes(
+        search_attributes=[
+            SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team_id),
+            SearchAttributePair(key=POSTHOG_SCHEDULE_TYPE_KEY, value=BACKFILL_SCHEDULE_TYPE),
+        ]
+    )
+    if await a_schedule_exists(client, schedule_id):
+        await a_update_schedule(client, schedule_id, schedule, search_attributes=search_attributes)
+        return
+    try:
+        await a_create_schedule(
+            client, schedule_id, schedule, trigger_immediately=True, search_attributes=search_attributes
+        )
+    except RPCError as e:
+        if e.status != RPCStatusCode.ALREADY_EXISTS:
+            raise
+        await a_update_schedule(client, schedule_id, schedule, search_attributes=search_attributes)
+
+
+async def a_delete_backfill_schedule(backfill_id: UUID) -> None:
+    """Idempotent — only swallows NOT_FOUND races; other RPC failures propagate."""
+    client = await async_connect()
+    schedule_id = backfill_schedule_id(backfill_id)
+    if not await a_schedule_exists(client, schedule_id):
+        return
+    try:
+        await a_delete_schedule(client, schedule_id)
+    except RPCError as e:
+        if e.status != RPCStatusCode.NOT_FOUND:
+            raise
+        logger.info("replay_vision.delete_backfill_schedule.already_gone", backfill_id=str(backfill_id))
+
+
+async def a_pause_backfill_schedule(backfill_id: UUID, note: str) -> None:
+    """Idempotent — pausing a missing or already-paused schedule is a no-op."""
+    client = await async_connect()
+    schedule_id = backfill_schedule_id(backfill_id)
+    if not await a_schedule_exists(client, schedule_id):
+        return
+    await a_pause_schedule(client, schedule_id, note=note)
+
+
+async def a_resume_backfill_schedule(backfill_id: UUID) -> None:
+    """Unpause the tick schedule and fire a tick right away so a resume feels immediate."""
+    client = await async_connect()
+    schedule_id = backfill_schedule_id(backfill_id)
+    await a_unpause_schedule(client, schedule_id, note="user resume")
+    await a_trigger_schedule(client, schedule_id)
 
 
 async def a_delete_scanner_schedule(scanner_id: UUID) -> None:

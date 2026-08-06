@@ -21,6 +21,10 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.models.replay_scanner_backfill import (
+    ACTIVE_BACKFILL_STATUSES,
+    ReplayScannerBackfill,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -145,6 +149,21 @@ def sum_enabled_scanner_estimated_credits(organization_id: UUID, exclude_scanner
     return sum(observation_credits_for_model(model) * (estimate or 0) for model, estimate in rows)
 
 
+def sum_active_backfill_remaining_credits(organization_id: UUID) -> int:
+    """Committed-but-unspent credits of the org's active backfills, priced at each backfill's frozen rate.
+
+    Projection only: enforcement stays the per-observation creation check, identical for live and
+    backfill applies. A new backfill's confirm dialog therefore sees earlier backfills' commitments
+    inside the projected spend.
+    """
+    rows = (
+        ReplayScannerBackfill.objects.unscoped()
+        .filter(team__organization_id=organization_id, status__in=ACTIVE_BACKFILL_STATUSES)
+        .values_list("total_count", "dispatched_count", "credits_per_observation")
+    )
+    return sum(max(0, total - dispatched) * price for total, dispatched, price in rows)
+
+
 def _billing_synced_limit(organization: Organization | None) -> tuple[bool, int | None]:
     """(synced, limit): whether billing has synced this product, and the credit limit it synced (None = uncapped)."""
     if organization is None or not organization.usage:
@@ -194,7 +213,9 @@ def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
     in_flight = sum(observation_credits_for_model(model or "") * count for model, count in in_flight_models.items())
     # Prompt tests have no observation rows. Their unsettled sessions are committed spend too.
     usage = consumed + in_flight + in_flight_evaluation_credits(organization_id)
-    projected = sum_enabled_scanner_estimated_credits(organization_id)
+    projected = sum_enabled_scanner_estimated_credits(organization_id) + sum_active_backfill_remaining_credits(
+        organization_id
+    )
     synced, credit_limit = _billing_synced_limit(organization)
     if not synced:
         credit_limit = MONTHLY_CREDIT_QUOTA

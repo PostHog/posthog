@@ -215,29 +215,183 @@ class ScannerCandidateQuery:
         )
 
     def _sampling_predicate(self) -> ast.Expr | None:
-        if self._sampling_rate >= 1.0:
+        return sampling_predicate(self._sampling_rate, self._sampling_salt)
+
+
+def sampling_predicate(sampling_rate: float, sampling_salt: str) -> ast.Expr | None:
+    """Deterministic salted-hash downsample on the inner query's session rows; None means keep everything."""
+    if sampling_rate >= 1.0:
+        return None
+    # round(), not int(): float error puts e.g. 0.29 * 10_000 at 2899.999…, and truncation would shave a bucket.
+    threshold = max(0, round(sampling_rate * SAMPLE_RATE_PRECISION))
+    if threshold <= 0:
+        return ast.Constant(value=False)
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.Lt,
+        left=ast.Call(
+            name="modulo",
+            args=[
+                # concat rather than a second cityHash64 arg — HogQL pins cityHash64 to a single argument.
+                ast.Call(
+                    name="cityHash64",
+                    args=[
+                        ast.Call(
+                            name="concat",
+                            args=[ast.Field(chain=["s", "session_id"]), ast.Constant(value=sampling_salt)],
+                        )
+                    ],
+                ),
+                ast.Constant(value=SAMPLE_RATE_PRECISION),
+            ],
+        ),
+        right=ast.Constant(value=threshold),
+    )
+
+
+class BackfillCandidateQuery:
+    """Enumerate a backfill's candidate sessions inside a closed historical window.
+
+    Same eligibility, sampling, and surfacing predicates as `ScannerCandidateQuery`, but bounded on both
+    sides and walked newest-first: batches descend from `window_end` via a `(end_time, session_id)` keyset
+    cursor. `count()` runs the identical predicate set without cursor or limit, so the creation-time
+    enumeration is exactly the set the ticks will walk (the window is closed, so it can only shrink as
+    recordings expire from retention — never grow).
+    """
+
+    def __init__(
+        self,
+        *,
+        team: Team,
+        query: RecordingsQuery,
+        window_start: dt.datetime,
+        window_end: dt.datetime,
+        sampling_rate: float,
+        sampling_salt: str,
+        sampling_mode: SamplingMode | str = SamplingMode.COMPREHENSIVE,
+        cursor_end_time: dt.datetime | None = None,
+        cursor_session_id: str | None = None,
+        candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
+        max_execution_time_seconds: int = DEFAULT_MAX_EXECUTION_SECONDS,
+    ) -> None:
+        for name, value in (("window_start", window_start), ("window_end", window_end)):
+            if not isinstance(value, dt.datetime):
+                raise TypeError(f"{name} must be a datetime, got {type(value).__name__}")
+            if value.tzinfo is None:
+                raise ValueError(f"{name} must be timezone-aware")
+        if window_start >= window_end:
+            raise ValueError("window_start must be before window_end")
+        if candidate_limit <= 0:
+            raise ValueError(f"candidate_limit must be positive, got {candidate_limit}")
+
+        self._team = team
+        self._window_start = window_start
+        self._window_end = window_end
+        self._cursor_end_time = cursor_end_time
+        self._cursor_session_id = cursor_session_id
+        self._candidate_limit = candidate_limit
+        self._max_execution_time_seconds = max_execution_time_seconds
+
+        # The backfill owns the time window; the frozen scanner query only contributes filters.
+        inner_query = query.model_copy(deep=True)
+        inner_query.date_from = (window_start - _PARTITION_LOOKBACK).isoformat()
+        # Sessions end at or after their start, so no candidate in the window starts past window_end.
+        inner_query.date_to = window_end.isoformat()
+        inner_query.limit = None
+        inner_query.offset = None
+        inner_query.after = None
+
+        extra_having: list[ast.Expr] = eligibility_predicates()
+        if (sampling := sampling_predicate(sampling_rate, sampling_salt)) is not None:
+            extra_having.append(sampling)
+        if (surfacing := surfacing_score_predicate(sampling_mode)) is not None:
+            extra_having.append(surfacing)
+
+        self._inner = SessionRecordingListFromQuery(team=team, query=inner_query, extra_having_predicates=extra_having)
+
+    @tracer.start_as_current_span("BackfillCandidateQuery.run")
+    def run(self) -> list[CandidateSession]:
+        with tags_context(product=Product.REPLAY_VISION, feature=Feature.ENRICHMENT):
+            response = execute_hogql_query(
+                query=self.get_query(),
+                team=self._team,
+                query_type="ReplayVisionBackfillCandidateQuery",
+                settings=HogQLGlobalSettings(max_execution_time=self._max_execution_time_seconds),
+                # Dedicated user keeps backfill admission out of the contended shared `default` pool.
+                ch_user=ClickHouseUser.REPLAY_VISION,
+            )
+        return [CandidateSession(session_id=row[0], session_end=row[1]) for row in (response.results or [])]
+
+    @tracer.start_as_current_span("BackfillCandidateQuery.count")
+    def count(self) -> int:
+        counted = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[])],
+            select_from=ast.JoinExpr(table=self._windowed_candidates(), alias="candidates"),
+        )
+        with tags_context(product=Product.REPLAY_VISION, feature=Feature.ENRICHMENT):
+            response = execute_hogql_query(
+                query=counted,
+                team=self._team,
+                query_type="ReplayVisionBackfillCountQuery",
+                settings=HogQLGlobalSettings(max_execution_time=self._max_execution_time_seconds),
+                ch_user=ClickHouseUser.REPLAY_VISION,
+            )
+        return int(response.results[0][0]) if response.results else 0
+
+    def get_query(self) -> ast.SelectQuery:
+        query = self._windowed_candidates()
+        if (cursor := self._cursor_predicate()) is not None:
+            assert isinstance(query.where, ast.And)
+            query.where.exprs.append(cursor)
+        query.order_by = [
+            ast.OrderExpr(expr=ast.Field(chain=["session_end"]), order="DESC"),
+            ast.OrderExpr(expr=ast.Field(chain=["sessions", "session_id"]), order="DESC"),
+        ]
+        query.limit = ast.Constant(value=self._candidate_limit)
+        return query
+
+    def _windowed_candidates(self) -> ast.SelectQuery:
+        """Window and eligibility predicates shared by the batch walk and the exact count."""
+        # `_inner.get_query()` re-parses every call, so in-place mutation is safe.
+        inner = self._inner.get_query()
+        inner.order_by = None
+
+        end_time = ast.Field(chain=["sessions", "end_time"])
+        where_exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq, left=end_time, right=ast.Constant(value=self._window_start)
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt, left=end_time, right=ast.Constant(value=self._window_end)
+            ),
+            # Excludes attacker-supplied over-length session_ids that would later wedge wire-payload validation.
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Call(name="length", args=[ast.Field(chain=["sessions", "session_id"])]),
+                right=ast.Constant(value=MAX_SESSION_ID_LENGTH),
+            ),
+        ]
+        return ast.SelectQuery(
+            select=[
+                ast.Field(chain=["sessions", "session_id"]),
+                ast.Alias(alias="session_end", expr=ast.Field(chain=["sessions", "end_time"])),
+            ],
+            select_from=ast.JoinExpr(table=cast(ast.SelectQuery, inner), alias="sessions"),
+            where=ast.And(exprs=where_exprs),
+        )
+
+    def _cursor_predicate(self) -> ast.Expr | None:
+        if self._cursor_end_time is None:
             return None
-        # round(), not int(): float error puts e.g. 0.29 * 10_000 at 2899.999…, and truncation would shave a bucket.
-        threshold = max(0, round(self._sampling_rate * SAMPLE_RATE_PRECISION))
-        if threshold <= 0:
-            return ast.Constant(value=False)
+        end_time = ast.Field(chain=["sessions", "end_time"])
+        if not self._cursor_session_id:
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt, left=end_time, right=ast.Constant(value=self._cursor_end_time)
+            )
+        # Mirror of the sweep's ascending keyset: lexicographic tuple comparison, walked downward.
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Lt,
-            left=ast.Call(
-                name="modulo",
-                args=[
-                    # concat rather than a second cityHash64 arg — HogQL pins cityHash64 to a single argument.
-                    ast.Call(
-                        name="cityHash64",
-                        args=[
-                            ast.Call(
-                                name="concat",
-                                args=[ast.Field(chain=["s", "session_id"]), ast.Constant(value=self._sampling_salt)],
-                            )
-                        ],
-                    ),
-                    ast.Constant(value=SAMPLE_RATE_PRECISION),
-                ],
+            left=ast.Tuple(exprs=[end_time, ast.Field(chain=["sessions", "session_id"])]),
+            right=ast.Tuple(
+                exprs=[ast.Constant(value=self._cursor_end_time), ast.Constant(value=self._cursor_session_id)]
             ),
-            right=ast.Constant(value=threshold),
         )
