@@ -260,8 +260,8 @@ export const verifiedDomainImpactLogic = kea<verifiedDomainImpactLogicType>([
             const removed = enforcementRemoval?.removed_members ?? 0
             lemonToast.success(
                 removed === 1
-                    ? 'Membership restricted to verified email domains. 1 member was removed.'
-                    : `Membership restricted to verified email domains. ${removed} members were removed.`
+                    ? 'Logins restricted to verified email domains. 1 member was removed.'
+                    : `Logins restricted to verified email domains. ${removed} members were removed.`
             )
             actions.loadCurrentOrganization()
             membersLogic.findMounted()?.actions.loadAllMembers()

@@ -132,7 +132,7 @@ export function EnforceVerifiedDomainsModal(): JSX.Element {
 
     return (
         <LemonModal
-            title="Restrict membership to verified email domains?"
+            title="Restrict logins to verified email domains?"
             isOpen={enforcementPromptOpen}
             onClose={closeEnforcementPrompt}
             width={600}
