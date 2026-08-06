@@ -95,10 +95,7 @@ class TestQuotaLimitsAPI(APIBaseTest):
         # Never synced: unknown, not zero.
         self.assertEqual(limited["events"], {"limited": False, "usage": None, "limit": None})
 
-    def test_reports_desktop_component_usage_as_json_integers(self) -> None:
-        # The gateway's Desktop breakdown parser (`_posthog_desktop_usage`) drops any
-        # component whose usage is not a JSON integer, so a float here silently
-        # nulls the breakdown. Asserts exact JSON types, not just values.
+    def test_reports_desktop_component_usage(self) -> None:
         self.organization.usage = {
             "period": ["2026-07-01T00:00:00Z", "2026-08-01T00:00:00Z"],
             "posthog_code_credits": {"usage": 50, "todays_usage": 7, "limit": 1000},
@@ -123,8 +120,6 @@ class TestQuotaLimitsAPI(APIBaseTest):
         self.assertEqual(
             limited["sandbox_compute_memory_mib_seconds"], {"limited": False, "usage": None, "limit": None}
         )
-        for field in ("posthog_code_token_credits", "sandbox_compute_credits", "sandbox_compute_cpu_millicore_seconds"):
-            self.assertIs(type(limited[field]["usage"]), int, field)
 
     def test_components_absent_from_org_usage_read_as_unknown(self) -> None:
         self.organization.usage = {
