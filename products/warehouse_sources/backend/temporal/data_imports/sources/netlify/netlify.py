@@ -5,7 +5,10 @@ access token sent as a Bearer header. Lists use 1-based `page`/`per_page` (max 1
 RFC-5988 `Link` headers (rel="next") for traversal — driven here by the framework's
 `HeaderLinkPaginator`, subclassed to pin every next-page/resume URL to the Netlify host and scheme
 (we attach the account token to every request, so following an off-host or scheme-downgraded link
-would leak it; refuse instead).
+would leak it; refuse instead). Several list endpoints (site-scoped `deploys`/`builds` among them)
+never send the `Link` header at all, so the subclass falls back to incrementing `page` whenever a
+response comes back full with no header — a Link-header-only paginator would otherwise stop after
+page one and silently truncate the table.
 
 `/sites` must be requested with `filter=all`: its undocumented default returns only sites the
 token's user personally owns, silently omitting team sites — and with it every site-scoped fan-out
@@ -13,9 +16,9 @@ token's user personally owns, silently omitting team sites — and with it every
 
 No list endpoint accepts a server-side timestamp filter, so every table is full refresh — there is
 no reliable server-side cursor to sync incrementally on. The source is still resumable: top-level
-lists checkpoint the next page URL, and fan-out tables checkpoint the framework's per-parent fan-out
-state so a resumed run skips already-completed parents and re-fans the in-progress one (merge dedupes
-on the primary key).
+lists checkpoint the next page URL (or the next page number, for endpoints using the fallback), and
+fan-out tables checkpoint the framework's per-parent fan-out state so a resumed run skips
+already-completed parents and re-fans the in-progress one (merge dedupes on the primary key).
 
 Site-scoped tables (deploys, builds, forms, submissions) and account-scoped tables (members) are
 fan-outs via the framework's dependent resources: the parent list seeds a child endpoint per parent,
@@ -27,7 +30,7 @@ import dataclasses
 from typing import Any, Optional
 from urllib.parse import urlparse
 
-from requests import Response
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -61,6 +64,9 @@ class NetlifyResumeConfig:
     # Next URL to fetch for a top-level list (HeaderLinkPaginator resume state). Kept as the first,
     # defaulted field so previously-persisted `{"next_url": ...}` state still parses.
     next_url: str | None = None
+    # Next page number for a top-level list paginating by the `page`-number fallback (used when the
+    # endpoint returns no `Link` header at all). Mutually exclusive with next_url.
+    page: int | None = None
     # Framework fan-out resume state for site/account-scoped tables:
     # {"completed": [child_path, ...], "current": child_path | None, "child_state": {...} | None}.
     # Old saved state carried only `next_url`; on load, a missing `fanout_state` just re-fans fresh.
@@ -92,22 +98,69 @@ def _validate_netlify_url(url: str) -> str:
 
 class NetlifyHeaderLinkPaginator(HeaderLinkPaginator):
     """`HeaderLinkPaginator` that pins every next-page/resume URL to the Netlify host and scheme, and
-    stops on an empty page (a Netlify list signals its end with an empty body / no `next` link)."""
+    stops on an empty page (a Netlify list signals its end with an empty body / no `next` link).
+
+    Falls back to page-number pagination when a response comes back full (`per_page` rows) but
+    carries no `Link` header at all: several Netlify list endpoints (site-scoped `deploys`/`builds`
+    among them) never send the header, and following it exclusively would stop after page one. A
+    page shorter than `per_page` is legitimately the last one, header or not. `page_size=None` (the
+    default) disables the fallback for endpoints Netlify never paginates (e.g. `forms`, `members`).
+    """
+
+    def __init__(self, page_size: Optional[int] = None, links_next_key: str = "next") -> None:
+        super().__init__(links_next_key=links_next_key)
+        self._page_size = page_size
+        self._next_page: Optional[int] = None  # set once the page-number fallback kicks in
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         # An empty page is the end of a full-refresh list — stop before following any stale next link.
         if not data:
             self._has_next_page = False
             return
-        super().update_state(response, data)
-        if self._has_next_page and self._next_url is not None:
-            _validate_netlify_url(self._next_url)
+        next_link = response.links.get(self.links_next_key)
+        if next_link and next_link.get("url"):
+            self._advance_to(next_link["url"])
+            if self._has_next_page and self._next_url is not None:
+                _validate_netlify_url(self._next_url)
+            return
+        if self._page_size is not None and len(data) >= self._page_size:
+            self._next_page = (self._next_page or 1) + 1
+            self._has_next_page = True
+        else:
+            self._has_next_page = False
+
+    def init_request(self, request: Request) -> None:
+        super().init_request(request)
+        if self._next_url is None and self._next_page is not None:
+            if request.params is None:
+                request.params = {}
+            request.params["page"] = self._next_page
+
+    def update_request(self, request: Request) -> None:
+        super().update_request(request)
+        if self._next_url is None and self._next_page is not None:
+            if request.params is None:
+                request.params = {}
+            request.params["page"] = self._next_page
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        state = super().get_resume_state()
+        if state is not None:
+            return state
+        if self._has_next_page and self._next_page is not None:
+            return {"page": self._next_page}
+        return None
 
     def set_resume_state(self, state: dict[str, Any]) -> None:
         next_url = state.get("next_url")
         if next_url is not None:
             _validate_netlify_url(next_url)
-        super().set_resume_state(state)
+            super().set_resume_state(state)
+            return
+        page = state.get("page")
+        if page is not None:
+            self._next_page = int(page)
+            self._has_next_page = True
 
 
 class NetlifyCappedHeaderLinkPaginator(NetlifyHeaderLinkPaginator):
@@ -115,8 +168,10 @@ class NetlifyCappedHeaderLinkPaginator(NetlifyHeaderLinkPaginator):
     silently truncating the full-refresh table. Deep-copied per parent by `RESTClient.paginate`, so
     the page count resets for each parent."""
 
-    def __init__(self, max_pages: int, context: Optional[dict[str, Any]] = None) -> None:
-        super().__init__()
+    def __init__(
+        self, max_pages: int, page_size: Optional[int] = None, context: Optional[dict[str, Any]] = None
+    ) -> None:
+        super().__init__(page_size=page_size)
         self._max_pages = max_pages
         self._context = context or {}
         self._page_count = 0
@@ -183,7 +238,7 @@ def _build_top_level_resource(
     endpoint: Endpoint = {
         "path": config.path,
         "params": _params_with_page_size(config.page_size, config.extra_params),
-        "paginator": NetlifyHeaderLinkPaginator(),
+        "paginator": NetlifyHeaderLinkPaginator(page_size=config.page_size),
     }
     if config.redact_keys:
         endpoint_resource: EndpointResource = {"name": config.name, "endpoint": endpoint}
@@ -203,14 +258,21 @@ def _build_top_level_resource(
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None and resume.next_url:
-            initial_paginator_state = {"next_url": _validate_netlify_url(resume.next_url)}
+        if resume is not None:
+            if resume.next_url:
+                initial_paginator_state = {"next_url": _validate_netlify_url(resume.next_url)}
+            elif resume.page:
+                initial_paginator_state = {"page": resume.page}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Save AFTER a page is yielded, only while a next page remains, so a crash re-yields the last
-        # page (merge dedupes) rather than skipping it. The last page has no next link -> no save.
-        if state and state.get("next_url"):
+        # page (merge dedupes) rather than skipping it. The last page has no next link/page -> no save.
+        if not state:
+            return
+        if state.get("next_url"):
             resumable_source_manager.save_state(NetlifyResumeConfig(next_url=state["next_url"]))
+        elif state.get("page"):
+            resumable_source_manager.save_state(NetlifyResumeConfig(page=state["page"]))
 
     return rest_api_resource(
         rest_config,
@@ -241,7 +303,7 @@ def _build_fan_out_resource(
         "endpoint": {
             "path": parent_config.path,
             "params": _params_with_page_size(parent_config.page_size, parent_config.extra_params),
-            "paginator": NetlifyHeaderLinkPaginator(),
+            "paginator": NetlifyHeaderLinkPaginator(page_size=parent_config.page_size),
         },
     }
     child_endpoint: Endpoint = {
@@ -257,7 +319,9 @@ def _build_fan_out_resource(
                 },
             },
         ),
-        "paginator": NetlifyCappedHeaderLinkPaginator(config.max_pages_per_parent, context={"table": config.name}),
+        "paginator": NetlifyCappedHeaderLinkPaginator(
+            config.max_pages_per_parent, page_size=config.page_size, context={"table": config.name}
+        ),
     }
     child_resource: EndpointResource = {
         "name": config.name,
@@ -333,10 +397,13 @@ def netlify_source(
 
 def validate_credentials(api_token: str) -> bool:
     """Probe the token with a cheap single-row /sites request. Netlify personal access tokens have
-    full account access (no granular scopes), so one authenticated call confirms the whole token."""
+    full account access (no granular scopes), so one authenticated call confirms the whole token.
+
+    Sent with `filter=all`, matching the sync's own `/sites` call — without it this probe and the
+    sync disagree about which sites exist (see the `sites` endpoint config for why)."""
     ok, _status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_token,)),
-        f"{NETLIFY_BASE_URL}/sites?per_page=1",
+        f"{NETLIFY_BASE_URL}/sites?filter=all&per_page=1",
         headers={"Authorization": f"Bearer {api_token}", **_non_secret_headers()},
     )
     return ok

@@ -105,6 +105,41 @@ class TestTopLevelPagination:
         manager.save_state.assert_called_once_with(NetlifyResumeConfig(next_url=next_url))
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_falls_back_to_page_number_when_link_header_missing(self, MockSession) -> None:
+        # Regression: some Netlify list endpoints never send a `Link` header at all. A paginator
+        # driven only by that header used to stop after the first full page, silently truncating
+        # the table. A full page with no header must instead advance `page`; only a page shorter
+        # than `per_page` ends the list.
+        session = MockSession.return_value
+        full_page = [{"id": str(i)} for i in range(100)]
+        partial_page = [{"id": "last"}]
+        snaps = _wire(
+            session,
+            [
+                _response(full_page, next_url=None),
+                _response(partial_page, next_url=None),
+            ],
+        )
+        manager = _manager()
+        rows = _rows(_source("sites", manager))
+
+        assert rows == full_page + partial_page
+        assert "page" not in snaps[0]["params"]
+        assert snaps[1]["params"]["page"] == 2
+        manager.save_state.assert_called_once_with(NetlifyResumeConfig(page=2))
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_page_number(self, MockSession) -> None:
+        session = MockSession.return_value
+        snaps = _wire(session, [_response([{"id": "c"}], next_url=None)])
+        manager = _manager(NetlifyResumeConfig(page=3))
+
+        rows = _rows(_source("sites", manager))
+
+        assert rows == [{"id": "c"}]
+        assert snaps[0]["params"]["page"] == 3
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_url(self, MockSession) -> None:
         resume_url = f"{BASE}/sites?filter=all&page=3&per_page=100"
         session = MockSession.return_value
@@ -196,6 +231,29 @@ class TestFanOut:
         assert manager.save_state.call_args.args[0] == NetlifyResumeConfig(
             fanout_state={"completed": ["/sites/s1/builds"], "current": None, "child_state": None}
         )
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fanout_child_falls_back_to_page_number_when_link_header_missing(self, MockSession) -> None:
+        # Regression: builds/deploys are fan-out children behind the per-parent
+        # NetlifyCappedHeaderLinkPaginator — the exact path that silently truncated a site's builds
+        # to one page when Netlify sent no `Link` header on that response.
+        session = MockSession.return_value
+        full_page = [{"id": f"b{i}"} for i in range(100)]
+        partial_page = [{"id": "b-last"}]
+
+        def route(url: str) -> Response:
+            if url == f"{BASE}/sites?filter=all&per_page=100":
+                return _response([{"id": "s1"}], next_url=None)
+            if url == f"{BASE}/sites/s1/builds?per_page=100":
+                return _response(full_page, next_url=None)
+            if url == f"{BASE}/sites/s1/builds?per_page=100&page=2":
+                return _response(partial_page, next_url=None)
+            raise AssertionError(f"unexpected url: {url}")
+
+        _wire(session, route)
+        rows = _rows(_source("builds", _manager()))
+
+        assert rows == [{**row, "site_id": "s1"} for row in full_page + partial_page]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_members_fan_out_reads_parent_slug(self, MockSession) -> None:
