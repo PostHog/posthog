@@ -247,7 +247,7 @@ def get_billable_sandbox_compute_usage_by_team(
     cards = validate_compute_rate_cards(rate_cards)
     sessions = (
         SandboxSession.objects.unscoped()
-        .select_related("task_run__task__team", "task_run__task__loop")
+        .select_related("task_run__task__loop")
         .filter(
             client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
             user_attributed_at__isnull=False,

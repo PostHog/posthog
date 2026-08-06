@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.utils import timezone as django_timezone
 
+from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, Throttled
 
 from posthog.exceptions import QuotaLimitExceeded
@@ -423,6 +424,23 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         assert str(dto.id) == str(warm_task.id)
         run.refresh_from_db()
         assert "await_user_message" not in run.state
+
+    def test_create_endpoint_returns_structured_compute_quota_denial_before_warm_activation(self):
+        warm_task, run = self._warm_run()
+
+        with patch("products.tasks.backend.logic.services.compute_quota.is_compute_quota_exhausted", return_value=True):
+            response = self.client.post(
+                "/api/projects/@current/tasks/",
+                {"description": "fix the bug", "repository": "posthog/posthog", "branch": "main"},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert response.json()["code"] == "posthog_code_billing_limit_exceeded"
+        warm_task.refresh_from_db()
+        run.refresh_from_db()
+        assert warm_task.description == ""
+        assert run.state.get("await_user_message") is True
 
     def test_does_not_overwrite_existing_warm_description(self):
         warm_task, _ = self._warm_run()

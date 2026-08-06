@@ -222,6 +222,7 @@ LOOP_AUTO_PAUSED_TOTAL = Counter(
 )
 
 CodeUsageGateOutcome = Literal["checked_allowed", "checked_blocked", "fail_open"]
+ComputeQuotaOutcome = Literal["checked_allowed", "checked_blocked", "fail_open"]
 
 # outcome: checked_allowed/checked_blocked when the LLM gateway answered the usage check,
 # fail_open when a gateway/token error let the run proceed unchecked (see LOOPS.md Security:
@@ -231,6 +232,16 @@ CODE_USAGE_GATE_CHECK_TOTAL = Counter(
     "Cloud usage-gate check outcomes for PostHog Code runs",
     labelnames=["outcome"],
 )
+
+COMPUTE_QUOTA_CHECK_TOTAL = Counter(
+    "posthog_tasks_compute_quota_check_total",
+    "Compute quota-check outcomes for billable PostHog Desktop runs",
+    labelnames=["outcome"],
+)
+
+
+def observe_compute_quota_check(outcome: ComputeQuotaOutcome) -> None:
+    COMPUTE_QUOTA_CHECK_TOTAL.labels(outcome=outcome).inc()
 
 
 def _metric_label(value: object | None) -> str:

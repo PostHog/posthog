@@ -2,6 +2,7 @@ import logging
 
 from django.conf import settings
 
+from products.tasks.backend.metrics import observe_compute_quota_check
 from products.tasks.backend.models import Task, TaskClientProvenance
 
 COMPUTE_QUOTA_DENIAL_CODE = "posthog_code_billing_limit_exceeded"
@@ -40,10 +41,17 @@ def is_compute_quota_exhausted(task: Task) -> bool:
     if not is_task_billable_compute(task):
         return False
     try:
-        return _is_posthog_code_quota_limited(task.team.api_token)
+        exhausted = _is_posthog_code_quota_limited(task.team.api_token)
     except Exception:
-        logger.warning("compute_quota: combined quota state unavailable", exc_info=True)
+        observe_compute_quota_check("fail_open")
+        logger.warning(
+            "compute_quota: PostHog Code quota state unavailable",
+            extra={"team_id": task.team_id, "task_id": str(task.id)},
+            exc_info=True,
+        )
         return False
+    observe_compute_quota_check("checked_blocked" if exhausted else "checked_allowed")
+    return exhausted
 
 
 def _is_posthog_code_quota_limited(team_api_token: str) -> bool:
