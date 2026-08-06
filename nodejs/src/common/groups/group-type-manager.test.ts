@@ -134,6 +134,45 @@ describe('GroupTypeManager()', () => {
         })
     })
 
+    describe('insertGroupType() created_at healing', () => {
+        const readCreatedAt = async (projectId: number, groupType: string): Promise<string> => {
+            const { rows } = await hub.postgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT created_at FROM posthog_grouptypemapping WHERE project_id = $1 AND group_type = $2',
+                [projectId, groupType],
+                'test-read-group-type-created-at'
+            )
+            return DateTime.fromJSDate(rows[0].created_at).toUTC().toISO()!
+        }
+
+        it('walks an existing mapping created_at backwards for a later historical import', async () => {
+            const recent = DateTime.fromISO('2024-06-01T00:00:00.000Z', { zone: 'utc' })
+            const historical = DateTime.fromISO('2020-01-01T00:00:00.000Z', { zone: 'utc' })
+
+            // A trial import registers the group type at today's date.
+            expect(await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'company', 0, recent)).toEqual([
+                0,
+                true,
+            ])
+            expect(await readCreatedAt(2, 'company')).toEqual(recent.toISO())
+
+            // The real backfill then re-registers it with earlier events: created_at moves back so HogQL
+            // stops masking $group_N, and it is not reported as a fresh insert.
+            expect(await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'company', 0, historical)).toEqual([
+                0,
+                false,
+            ])
+            expect(await readCreatedAt(2, 'company')).toEqual(historical.toISO())
+
+            // A later import must never push created_at forward again.
+            expect(await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'company', 0, recent)).toEqual([
+                0,
+                false,
+            ])
+            expect(await readCreatedAt(2, 'company')).toEqual(historical.toISO())
+        })
+    })
+
     describe('lookupGroupTypeIndex()', () => {
         it.each([
             ['an existing group type', 'g0', 0],

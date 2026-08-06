@@ -459,18 +459,30 @@ export class PostgresGroupRepository
 
         // created_at is stamped from the triggering event's timestamp so historical imports don't get a
         // wall-clock date that postdates their events — HogQL masks $group_N for events older than this.
+        // When the mapping already exists we walk created_at backwards with LEAST, mirroring the
+        // group-instance write above: a later historical import (e.g. a real backfill after a trial import
+        // registered the type at today's date) can self-heal the floor instead of needing a staff SQL patch.
+        // The update path is split from the insert path so an index collision with a *different* group type
+        // still falls through to DO NOTHING and drives the index + 1 retry below, rather than raising.
         const insertGroupTypeResult = await this.postgres.query(
             tx ?? PostgresUse.PERSONS_WRITE,
             `
-            WITH insert_result AS (
+            WITH updated AS (
+                UPDATE posthog_grouptypemapping
+                SET created_at = LEAST(created_at, $5::timestamptz)
+                WHERE project_id = $2 AND group_type = $3
+                RETURNING group_type_index, 0 AS is_insert
+            ),
+            inserted AS (
                 INSERT INTO posthog_grouptypemapping (team_id, project_id, group_type, group_type_index, created_at)
-                VALUES ($1, $2, $3, $4, $5)
+                SELECT $1, $2, $3, $4, $5::timestamptz
+                WHERE NOT EXISTS (SELECT 1 FROM updated)
                 ON CONFLICT DO NOTHING
-                RETURNING group_type_index
+                RETURNING group_type_index, 1 AS is_insert
             )
-            SELECT group_type_index, 1 AS is_insert FROM insert_result
-            UNION
-            SELECT group_type_index, 0 AS is_insert FROM posthog_grouptypemapping WHERE project_id = $2 AND group_type = $3;
+            SELECT group_type_index, is_insert FROM updated
+            UNION ALL
+            SELECT group_type_index, is_insert FROM inserted;
             `,
             [teamId, projectId, groupType, index, createdAt.toISO()],
             'insertGroupType'
