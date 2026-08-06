@@ -60,11 +60,19 @@ from products.managed_warehouse.backend.temporal.metrics import (
 from products.managed_warehouse.backend.temporal.source_job_state import record_managed_warehouse_source_job_activity
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
+if typing.TYPE_CHECKING:
+    from structlog.typing import FilteringBoundLogger
+
 LOGGER = get_logger(__name__)
 DUCKLAKE_DATA_IMPORTS_REGISTRATION_WORKFLOW_FLAG = "ducklake-data-imports-registration-workflow"
 DATA_IMPORTS_GENERATIONS_PREFIX = "_imports"
 DUCKLAKE_REGISTER_STAGE_DURATION_METRIC = "ducklake_register_data_imports_stage_duration"
 S3_COPY_BATCH_SIZE = 16
+# Above this many landing files, per-file ducklake_add_data_files registration and the
+# double verification scan (source read_parquet count + registered count) each re-read
+# every file footer and cannot finish inside the activity timeout. A CTAS rewrite reads
+# every file exactly once and produces well-sized DuckLake-managed files instead.
+DUCKLAKE_REGISTER_COALESCE_FILE_THRESHOLD = 1000
 _SOURCE_JOB_STATE_PATCH_ID = "ducklake-register-source-job-state-2026-08"
 
 
@@ -334,15 +342,27 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
             logger.info("Skipping stale prepared Parquet generation after object copy")
             return False
 
+        coalesce_registration = len(landing_paths) > DUCKLAKE_REGISTER_COALESCE_FILE_THRESHOLD
         try:
             with _connect_to_duckgres_for_team(inputs.team_id) as conn:
-                registered_rows = _register_prepared_parquet_files(inputs, conn, landing_paths)
+                if coalesce_registration:
+                    registered_rows = _coalesce_prepared_parquet_files(inputs, conn, landing_paths)
+                else:
+                    registered_rows = _register_prepared_parquet_files(inputs, conn, landing_paths)
         except _StalePreparedGenerationError:
             get_ducklake_register_data_imports_stale_metric(
                 team_id=inputs.team_id, schema_id=schema_id, stage="publish"
             ).add(1)
             logger.info("Skipping stale prepared Parquet generation before catalog swap")
+            if coalesce_registration:
+                _cleanup_landing_prefix(inputs.metadata.landing_uri, logger)
             return False
+
+        if coalesce_registration:
+            # The coalesce path rewrites the data into new DuckLake-managed files via CTAS, so
+            # unlike the fast path, the copied landing files are never referenced by the
+            # catalog and would otherwise sit as orphaned storage.
+            _cleanup_landing_prefix(inputs.metadata.landing_uri, logger)
 
         get_ducklake_register_data_imports_files_metric(team_id=inputs.team_id, schema_id=schema_id).record(
             float(len(landing_paths))
@@ -463,6 +483,20 @@ def _copy_prepared_parquet_files(source_uri: str, landing_uri: str) -> tuple[lis
     return landing_paths, copied_bytes
 
 
+def _cleanup_landing_prefix(landing_uri: str, logger: FilteringBoundLogger) -> None:
+    landing_prefix = landing_uri.removeprefix("s3://")
+    try:
+        get_s3_client().delete(landing_prefix, recursive=True)
+    except Exception as error:
+        # Best-effort: the copied objects are orphaned storage at this point, not data the
+        # activity's correctness depends on, so a cleanup failure must not fail the activity.
+        logger.warning(
+            "Failed to clean up DuckLake data imports landing prefix",
+            landing_uri=landing_uri,
+            error=str(error),
+        )
+
+
 def _prepared_generation_is_current(inputs: DuckLakeRegisterDataImportsActivityInputs) -> bool:
     try:
         schema = ExternalDataSchema.objects.select_related("table").get(
@@ -561,30 +595,99 @@ def _register_prepared_parquet_files(
                     non_retryable=True,
                 )
 
-        generation_is_stale = False
-        with _stage_timer(stage="publish", team_id=inputs.team_id, schema_id=inputs.metadata.source_schema_id) as timer:
-            if _prepared_generation_is_current(inputs):
-                conn.execute(
-                    psql.SQL("DROP TABLE IF EXISTS {}.{}").format(
-                        psql.Identifier(schema_name),
-                        psql.Identifier(table_name),
-                    )
-                )
-                conn.execute(
-                    psql.SQL("ALTER TABLE {}.{} RENAME TO {}").format(
-                        psql.Identifier(schema_name),
-                        psql.Identifier(shadow_name),
-                        psql.Identifier(table_name),
-                    )
-                )
-            else:
-                timer.set_status("STALE")
-                generation_is_stale = True
-
-        if generation_is_stale:
+        if _publish_shadow_table(inputs, conn, schema_name=schema_name, shadow_name=shadow_name, table_name=table_name):
             raise _StalePreparedGenerationError
 
     return registered_count
+
+
+def _coalesce_prepared_parquet_files(
+    inputs: DuckLakeRegisterDataImportsActivityInputs,
+    conn: psycopg.Connection,
+    landing_paths: list[str],
+) -> int:
+    schema_name = inputs.metadata.ducklake_schema_name
+    table_name = inputs.metadata.ducklake_table_name
+    shadow_name = _data_imports_shadow_table_name(inputs)
+    parquet_paths = psql.SQL("[{}]").format(psql.SQL(", ").join(psql.Literal(path) for path in landing_paths))
+
+    setup_duckgres_session(conn, extensions=("ducklake", "httpfs"))
+    with conn.transaction():
+        with _stage_timer(stage="register", team_id=inputs.team_id, schema_id=inputs.metadata.source_schema_id):
+            conn.execute(psql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(psql.Identifier(schema_name)))
+            conn.execute(
+                psql.SQL("DROP TABLE IF EXISTS {}.{}").format(
+                    psql.Identifier(schema_name),
+                    psql.Identifier(shadow_name),
+                )
+            )
+            # No LIMIT 0 here: unlike the fast path's shadow table (populated afterward by
+            # ducklake_add_data_files), this CTAS is the actual data rewrite. hive_partitioning=true
+            # materializes the partition-key path segments (e.g. _ph_partition_key=2026-07) as real
+            # columns, which keeps the resulting schema identical to the fast path's.
+            # Deliberately no SET PARTITIONED BY: DuckLake writes at least one file per partition
+            # value, so partitioning a table that arrived this fragmented would recreate the
+            # per-partition tiny-file layout this rewrite exists to fix.
+            conn.execute(
+                psql.SQL(
+                    "CREATE TABLE {}.{} AS SELECT * FROM read_parquet({}, union_by_name=true, hive_partitioning=true)"
+                ).format(
+                    psql.Identifier(schema_name),
+                    psql.Identifier(shadow_name),
+                    parquet_paths,
+                )
+            )
+
+        with _stage_timer(stage="verify", team_id=inputs.team_id, schema_id=inputs.metadata.source_schema_id):
+            # No source-side read_parquet count to compare against here: CTAS writes exactly what
+            # it read, unlike ducklake_add_data_files(allow_missing => true) on the fast path, which
+            # can silently skip files and is why that path needs the double-count verification.
+            registered_row = conn.execute(
+                psql.SQL("SELECT count(*) FROM {}.{}").format(
+                    psql.Identifier(schema_name),
+                    psql.Identifier(shadow_name),
+                )
+            ).fetchone()
+            registered_count = int(registered_row[0]) if registered_row else 0
+
+        if _publish_shadow_table(inputs, conn, schema_name=schema_name, shadow_name=shadow_name, table_name=table_name):
+            raise _StalePreparedGenerationError
+
+    return registered_count
+
+
+def _publish_shadow_table(
+    inputs: DuckLakeRegisterDataImportsActivityInputs,
+    conn: psycopg.Connection,
+    *,
+    schema_name: str,
+    shadow_name: str,
+    table_name: str,
+) -> bool:
+    """Swap the verified shadow table into place, or report that the generation went stale.
+
+    Returns True if the prepared generation went stale before the swap (caller must not
+    publish and should treat this as `_StalePreparedGenerationError`), False once published.
+    """
+    with _stage_timer(stage="publish", team_id=inputs.team_id, schema_id=inputs.metadata.source_schema_id) as timer:
+        if not _prepared_generation_is_current(inputs):
+            timer.set_status("STALE")
+            return True
+
+        conn.execute(
+            psql.SQL("DROP TABLE IF EXISTS {}.{}").format(
+                psql.Identifier(schema_name),
+                psql.Identifier(table_name),
+            )
+        )
+        conn.execute(
+            psql.SQL("ALTER TABLE {}.{} RENAME TO {}").format(
+                psql.Identifier(schema_name),
+                psql.Identifier(shadow_name),
+                psql.Identifier(table_name),
+            )
+        )
+        return False
 
 
 def _data_imports_shadow_table_name(inputs: DuckLakeRegisterDataImportsActivityInputs) -> str:

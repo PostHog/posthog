@@ -143,49 +143,18 @@ async def test_prepare_registration_pins_the_import_jobs_prepared_generation(ate
 
 
 def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monkeypatch):
-    class FakeS3:
-        def __init__(self) -> None:
-            self.copy_calls: list[tuple[list[str], list[str], int]] = []
-
-        def find(self, prefix: str, detail: bool = False):
-            files = {
-                f"{prefix}/_ph_partition_key=2026-07/a.parquet": {"Size": 100, "type": "file"},
-                f"{prefix}/_ph_partition_key=2026-08/b.parquet": {"Size": 200, "type": "file"},
-            }
-            return files if detail else list(files)
-
-        def copy(self, sources: list[str], destinations: list[str], *, batch_size: int) -> None:
-            self.copy_calls.append((sources, destinations, batch_size))
-
-    s3 = FakeS3()
-    monkeypatch.setattr(registration_module, "get_s3_client", lambda: s3)
+    s3 = _FakeDuckLakeRegisterS3()
     monkeypatch.setattr(registration_module, "_prepared_generation_is_current", lambda inputs: True)
-    monkeypatch.setattr(registration_module, "is_dev_mode", lambda: True)
-    monkeypatch.setattr(registration_module, "make_duckgres_conninfo", lambda team_id: "postgresql://duckgres")
-
-    conn = MagicMock()
-    conn.__enter__ = MagicMock(return_value=conn)
-    conn.__exit__ = MagicMock(return_value=False)
-    conn.transaction.return_value.__enter__ = MagicMock()
-    conn.transaction.return_value.__exit__ = MagicMock(return_value=False)
 
     def execute(query: object) -> MagicMock:
-        query_text = str(query)
-        if "SELECT count(*) FROM read_parquet" in query_text:
-            return MagicMock(fetchone=MagicMock(return_value=(2,)))
-        if "SELECT count(*) FROM" in query_text:
+        if "SELECT count(*) FROM" in str(query):
             return MagicMock(fetchone=MagicMock(return_value=(2,)))
         return MagicMock()
 
-    conn.execute.side_effect = execute
-    connect = MagicMock(return_value=conn)
-    monkeypatch.setattr(registration_module.psycopg, "connect", connect)
-    monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
+    conn, connect, heartbeater = _setup_dev_mode_duckgres_connection(monkeypatch, s3, execute_side_effect=execute)
     heartbeat_state = {"active": False}
-    heartbeater = MagicMock()
-    heartbeater.__enter__ = MagicMock(side_effect=lambda: heartbeat_state.update(active=True))
-    heartbeater.__exit__ = MagicMock(side_effect=lambda *args: heartbeat_state.update(active=False))
-    monkeypatch.setattr(registration_module, "HeartbeaterSync", MagicMock(return_value=heartbeater))
+    heartbeater.__enter__.side_effect = lambda: heartbeat_state.update(active=True)
+    heartbeater.__exit__.side_effect = lambda *args: heartbeat_state.update(active=False)
     workload_metrics = _mock_activity_workload_metrics(monkeypatch)
 
     def assert_heartbeat_active(_value: float) -> None:
@@ -236,6 +205,9 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     workload_metrics.files.record.assert_called_once_with(2.0)
     workload_metrics.rows.record.assert_called_once_with(2.0)
     workload_metrics.bytes.record.assert_called_once_with(300.0)
+    # Below the coalesce threshold, the landing files ARE the table's registered data files
+    # (registered directly via ducklake_add_data_files above), so they must survive.
+    assert s3.delete_calls == []
 
 
 def test_copy_activity_does_not_touch_catalog_for_stale_generation(monkeypatch):
@@ -302,6 +274,67 @@ def test_copy_activity_does_not_publish_a_row_count_mismatch(monkeypatch):
     executed = [str(call.args[0]) for call in conn.execute.call_args_list]
     assert not any("DROP TABLE IF EXISTS" in query and "customers" in query for query in executed)
     assert not any("RENAME TO" in query for query in executed)
+
+
+def test_coalesce_activity_rewrites_fragmented_table_and_cleans_up_landing(monkeypatch):
+    # Guards the bug this activity exists to fix: above the file-count threshold, per-file
+    # ducklake_add_data_files registration and the double verification scan (source count vs
+    # registered count) each re-read every parquet file footer and blow the activity timeout
+    # on a pathologically fragmented table. Above the threshold the activity must instead
+    # take a single CTAS pass and skip the source-side count entirely.
+    monkeypatch.setattr(registration_module, "DUCKLAKE_REGISTER_COALESCE_FILE_THRESHOLD", 1)
+    monkeypatch.setattr(registration_module, "_prepared_generation_is_current", lambda inputs: True)
+    s3 = _FakeDuckLakeRegisterS3()
+
+    def execute(query: object) -> MagicMock:
+        if "SELECT count(*) FROM" in str(query):
+            return MagicMock(fetchone=MagicMock(return_value=(2,)))
+        return MagicMock()
+
+    conn, _connect, _heartbeater = _setup_dev_mode_duckgres_connection(monkeypatch, s3, execute_side_effect=execute)
+    _mock_activity_workload_metrics(monkeypatch)
+
+    applied = copy_and_register_ducklake_data_imports_activity(_activity_inputs())
+
+    assert applied is True
+    executed = [str(call.args[0]) for call in conn.execute.call_args_list]
+    assert not any("ducklake_add_data_files" in query for query in executed)
+    assert not any("SET PARTITIONED BY" in query for query in executed)
+    create_table_query = next(query for query in executed if "CREATE TABLE" in query and "AS SELECT" in query)
+    assert "LIMIT 0" not in create_table_query
+    assert "read_parquet" in create_table_query
+    assert any("DROP TABLE IF EXISTS" in query and "customers" in query for query in executed)
+    assert any("RENAME TO" in query for query in executed)
+    assert s3.delete_calls == [("ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job", True)]
+
+
+def test_coalesce_activity_skips_swap_and_still_cleans_up_when_generation_goes_stale(monkeypatch):
+    # The generation can go stale between the post-copy check and the publish swap on either
+    # path; the coalesce path must still skip the swap (return False) and still reclaim the
+    # landing copy it made, since nothing in the catalog references those files either way.
+    monkeypatch.setattr(registration_module, "DUCKLAKE_REGISTER_COALESCE_FILE_THRESHOLD", 1)
+    monkeypatch.setattr(
+        registration_module,
+        "_prepared_generation_is_current",
+        MagicMock(side_effect=[True, False]),
+    )
+    s3 = _FakeDuckLakeRegisterS3()
+
+    def execute(query: object) -> MagicMock:
+        if "SELECT count(*) FROM" in str(query):
+            return MagicMock(fetchone=MagicMock(return_value=(2,)))
+        return MagicMock()
+
+    conn, _connect, _heartbeater = _setup_dev_mode_duckgres_connection(monkeypatch, s3, execute_side_effect=execute)
+    _mock_activity_workload_metrics(monkeypatch)
+
+    applied = copy_and_register_ducklake_data_imports_activity(_activity_inputs())
+
+    assert applied is False
+    executed = [str(call.args[0]) for call in conn.execute.call_args_list]
+    assert not any("RENAME TO" in query for query in executed)
+    assert not any("DROP TABLE IF EXISTS" in query and "customers" in query for query in executed)
+    assert s3.delete_calls == [("ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job", True)]
 
 
 @pytest.mark.asyncio
@@ -518,6 +551,60 @@ def _mock_activity_workload_metrics(monkeypatch):
         metrics.bytes_getter,
     )
     return metrics
+
+
+class _FakeDuckLakeRegisterS3:
+    """Fake S3 client backing the copy_and_register activity tests."""
+
+    def __init__(self) -> None:
+        self.copy_calls: list[tuple[list[str], list[str], int]] = []
+        self.delete_calls: list[tuple[str, bool]] = []
+
+    def find(self, prefix: str, detail: bool = False):
+        files = {
+            f"{prefix}/_ph_partition_key=2026-07/a.parquet": {"Size": 100, "type": "file"},
+            f"{prefix}/_ph_partition_key=2026-08/b.parquet": {"Size": 200, "type": "file"},
+        }
+        return files if detail else list(files)
+
+    def copy(self, sources: list[str], destinations: list[str], *, batch_size: int) -> None:
+        self.copy_calls.append((sources, destinations, batch_size))
+
+    def delete(self, path: str, recursive: bool = False) -> None:
+        self.delete_calls.append((path, recursive))
+
+
+def _setup_dev_mode_duckgres_connection(
+    monkeypatch,
+    s3: _FakeDuckLakeRegisterS3,
+    *,
+    execute_side_effect,
+) -> tuple[MagicMock, MagicMock, MagicMock]:
+    """Wire the local dev-mode duckgres connection plumbing shared by the copy/register activity tests.
+
+    Returns (conn, connect, heartbeater) so callers can assert against them.
+    """
+    monkeypatch.setattr(registration_module, "get_s3_client", lambda: s3)
+    monkeypatch.setattr(registration_module, "is_dev_mode", lambda: True)
+    monkeypatch.setattr(registration_module, "make_duckgres_conninfo", lambda team_id: "postgresql://duckgres")
+
+    conn = MagicMock()
+    conn.__enter__ = MagicMock(return_value=conn)
+    conn.__exit__ = MagicMock(return_value=False)
+    conn.transaction.return_value.__enter__ = MagicMock()
+    conn.transaction.return_value.__exit__ = MagicMock(return_value=False)
+    conn.execute.side_effect = execute_side_effect
+
+    connect = MagicMock(return_value=conn)
+    monkeypatch.setattr(registration_module.psycopg, "connect", connect)
+    monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
+
+    heartbeater = MagicMock()
+    heartbeater.__enter__ = MagicMock(return_value=heartbeater)
+    heartbeater.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(registration_module, "HeartbeaterSync", MagicMock(return_value=heartbeater))
+
+    return conn, connect, heartbeater
 
 
 def _activity_inputs() -> DuckLakeRegisterDataImportsActivityInputs:
