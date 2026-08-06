@@ -4,6 +4,7 @@ import {
   isLoopMcpServerReady,
   selectableLoopMcpServers,
   unavailableLoopMcpServerIds,
+  visibleLoopMcpServers,
 } from "./loopMcpServers";
 
 function installation(
@@ -34,6 +35,26 @@ describe("loopMcpServers", () => {
     expect(servers.map((server) => server.id)).toEqual([
       "personal",
       "unscoped",
+    ]);
+  });
+
+  // A not-ready connection can never be newly selected, so the picker hides
+  // it unless it's already selected: then it must stay visible so the user
+  // can unselect it instead of being blocked by an invisible id on save.
+  it("shows ready servers plus selected not-ready ones, hiding the rest", () => {
+    const servers = visibleLoopMcpServers(
+      [
+        installation({ id: "ready" }),
+        installation({ id: "disabled-selected", is_enabled: false }),
+        installation({ id: "disabled-unselected", is_enabled: false }),
+        installation({ id: "reauth-unselected", needs_reauth: true }),
+        installation({ id: "shared-selected", scope: "shared" }),
+      ],
+      ["disabled-selected", "shared-selected"],
+    );
+    expect(servers.map((server) => server.id)).toEqual([
+      "ready",
+      "disabled-selected",
     ]);
   });
 

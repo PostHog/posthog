@@ -33,6 +33,25 @@ export function isLoopMcpServerReady(
 }
 
 /**
+ * Servers the picker renders: ready (enabled and OAuth-connected)
+ * connections, plus not-ready ones the user has already selected. An
+ * unselected not-ready connection is hidden because it could never be
+ * turned on, but a selected one must stay visible so the user can see why
+ * it's flagged and unselect it, since hiding it would leave an invisible
+ * selection the backend rejects on save.
+ */
+export function visibleLoopMcpServers(
+  installations: McpServerInstallation[],
+  selectedIds: string[],
+): McpServerInstallation[] {
+  const selected = new Set(selectedIds);
+  return selectableLoopMcpServers(installations).filter(
+    (installation) =>
+      isLoopMcpServerReady(installation) || selected.has(installation.id),
+  );
+}
+
+/**
  * Selected connector ids with no selectable connection behind them (the
  * server was uninstalled, or the id belongs to someone else). Surfaced in
  * the form so the user can unselect them instead of being blocked on save.

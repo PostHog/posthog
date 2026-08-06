@@ -6,14 +6,15 @@ import {
 import { getInstallationStatus } from "@posthog/core/mcp-servers/status";
 import { Switch } from "@posthog/quill";
 import { mcpKeys } from "@posthog/ui/features/mcp-server-manager/useMcpConnect";
+import { ServerIcon } from "@posthog/ui/features/mcp-servers/components/parts/icons";
 import { STATUS_LABELS } from "@posthog/ui/features/mcp-servers/components/parts/statusBadge";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { Button } from "@posthog/ui/primitives/Button";
 import { navigateToMcpServers } from "@posthog/ui/router/navigationBridge";
 import {
   isLoopMcpServerReady,
-  selectableLoopMcpServers,
   unavailableLoopMcpServerIds,
+  visibleLoopMcpServers,
 } from "../loopMcpServers";
 
 interface LoopMcpServerFieldsProps {
@@ -42,7 +43,7 @@ export function LoopMcpServerFields({
   );
 
   const servers = sortInstallationsByName(
-    selectableLoopMcpServers(installations ?? []),
+    visibleLoopMcpServers(installations ?? [], selectedIds),
     new Map(),
   );
   const unavailableIds = unavailableLoopMcpServerIds(selectedIds, servers);
@@ -92,15 +93,22 @@ export function LoopMcpServerFields({
             key={server.id}
             className="flex items-center justify-between gap-2 rounded-(--radius-2) border border-border bg-(--gray-1) px-3 py-2.5"
           >
-            <div className="flex min-w-0 items-baseline gap-2">
-              <span className="truncate font-medium text-[13px] text-gray-12">
-                {name}
-              </span>
-              {hint ? (
-                <span className="shrink-0 text-(--amber-11) text-[12px]">
-                  {hint}
+            <div className="flex min-w-0 items-center gap-2">
+              <ServerIcon
+                iconDomain={server.icon_domain}
+                serverUrl={server.url}
+                size={20}
+              />
+              <div className="flex min-w-0 items-baseline gap-2">
+                <span className="truncate font-medium text-[13px] text-gray-12">
+                  {name}
                 </span>
-              ) : null}
+                {hint ? (
+                  <span className="shrink-0 text-(--amber-11) text-[12px]">
+                    {hint}
+                  </span>
+                ) : null}
+              </div>
             </div>
             <Switch
               checked={checked}
