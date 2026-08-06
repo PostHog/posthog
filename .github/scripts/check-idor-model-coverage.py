@@ -155,6 +155,11 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "BatchExportRun",
         "CodeInvite",
         "CodeInviteRedemption",
+        # Comment↔Slack-thread mirror mapping — looked up by source_comment FK or
+        # (scope, item_id) within team scope, and by internally-generated task-arg id;
+        # never by user-supplied CommentSlackThread id through an API. Fail-closed via
+        # TeamScopedManager (TeamScopedRootMixin) on top.
+        "CommentSlackThread",
         "EndpointVersion",
         "ErrorTrackingIssueAssignment",
         "StreamlitAppVersion",
