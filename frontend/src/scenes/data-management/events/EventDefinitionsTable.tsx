@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconApps, IconChevronDown, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
+import { IconApps, IconChevronDown, IconEllipsis, IconPlus } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonInput, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
 
 import { BulkUpdateTagsModal } from 'lib/components/BulkActions/BulkUpdateTagsModal'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -42,10 +42,65 @@ const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
     },
 ]
 
+function confirmDeleteEventDefinition(name: string, onConfirm: () => void): void {
+    LemonDialog.open({
+        title: 'Delete this event definition?',
+        description: (
+            <>
+                <p>
+                    <strong>{name}</strong> will no longer appear in selectors. Associated data will remain in the
+                    database.
+                </p>
+                <p>This definition will be recreated if the event is ever seen again in the event stream.</p>
+            </>
+        ),
+        primaryButton: {
+            status: 'danger',
+            children: 'Delete definition',
+            onClick: onConfirm,
+        },
+        secondaryButton: {
+            children: 'Cancel',
+        },
+        width: 448,
+    })
+}
+
+function confirmDeleteEventDefinitions(count: number, onConfirm: () => void): void {
+    LemonDialog.open({
+        title: `Delete ${count} event definition${count !== 1 ? 's' : ''}?`,
+        description: (
+            <>
+                <p>
+                    The selected event{count !== 1 ? 's' : ''} will no longer appear in selectors. Associated data will
+                    remain in the database.
+                </p>
+                <p>A definition will be recreated if its event is ever seen again in the event stream.</p>
+            </>
+        ),
+        primaryButton: {
+            status: 'danger',
+            children: `Delete definition${count !== 1 ? 's' : ''}`,
+            onClick: onConfirm,
+        },
+        secondaryButton: {
+            children: 'Cancel',
+        },
+        width: 448,
+    })
+}
+
 export function EventDefinitionsTable(): JSX.Element {
-    const { eventDefinitions, eventDefinitionsLoading, filters, showVerifiedFilter, bulkVerifiedResultLoading } =
-        useValues(eventDefinitionsTableLogic)
-    const { loadEventDefinitions, setFilters, applyBulkTagUpdates, bulkUpdateVerified } =
+    const {
+        eventDefinitions,
+        eventDefinitionsLoading,
+        filters,
+        showVerifiedFilter,
+        bulkVerifiedResultLoading,
+        bulkHiddenResultLoading,
+        bulkDeleteResultLoading,
+    } = useValues(eventDefinitionsTableLogic)
+    const { loadEventDefinitions, setFilters, applyBulkTagUpdates, bulkUpdateVerified, bulkUpdateHidden, bulkDelete } =
         useActions(eventDefinitionsTableLogic)
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
     const [isBulkTagsModalOpen, setIsBulkTagsModalOpen] = useState(false)
@@ -92,30 +147,57 @@ export function EventDefinitionsTable(): JSX.Element {
             key: 'actions',
             width: 180,
             render: function RenderActions(_, definition: EventDefinition) {
+                // Virtual definitions can't be deleted, matching the guard on the definition detail page.
+                const isVirtual = 'virtual' in definition && Boolean((definition as { virtual?: boolean }).virtual)
                 return (
-                    <ViewRecordingsPlaylistButton
-                        filters={{
-                            filter_group: {
-                                type: FilterLogicalOperator.And,
-                                values: [
+                    <div className="flex items-center gap-1 justify-end">
+                        <ViewRecordingsPlaylistButton
+                            filters={{
+                                filter_group: {
+                                    type: FilterLogicalOperator.And,
+                                    values: [
+                                        {
+                                            type: FilterLogicalOperator.And,
+                                            values: [
+                                                {
+                                                    id: definition.name,
+                                                    type: 'events',
+                                                    order: 0,
+                                                    name: definition.name,
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                },
+                            }}
+                            size="small"
+                            type="secondary"
+                            data-attr="event-definitions-table-view-recordings"
+                        />
+                        {!isVirtual && (
+                            <LemonMenu
+                                placement="bottom-end"
+                                items={[
                                     {
-                                        type: FilterLogicalOperator.And,
-                                        values: [
-                                            {
-                                                id: definition.name,
-                                                type: 'events',
-                                                order: 0,
-                                                name: definition.name,
-                                            },
-                                        ],
+                                        label: 'Delete',
+                                        status: 'danger',
+                                        onClick: () =>
+                                            confirmDeleteEventDefinition(definition.name, () =>
+                                                bulkDelete({ ids: [definition.id] })
+                                            ),
+                                        'data-attr': 'event-definitions-table-delete',
                                     },
-                                ],
-                            },
-                        }}
-                        size="small"
-                        type="secondary"
-                        data-attr="event-definitions-table-view-recordings"
-                    />
+                                ]}
+                            >
+                                <LemonButton
+                                    size="small"
+                                    icon={<IconEllipsis />}
+                                    aria-label={`More actions for ${definition.name}`}
+                                    data-attr="event-definitions-table-more"
+                                />
+                            </LemonMenu>
+                        )}
+                    </div>
                 )
             },
         },
@@ -299,6 +381,42 @@ export function EventDefinitionsTable(): JSX.Element {
                                                     }),
                                                 'data-attr': 'event-definitions-bulk-edit-unverify',
                                             },
+                                            {
+                                                label: 'Hide',
+                                                onClick: () =>
+                                                    bulkUpdateHidden({
+                                                        ids: [...ctx.selectedKeys],
+                                                        hidden: true,
+                                                        onSuccess: ctx.clearSelection,
+                                                    }),
+                                                'data-attr': 'event-definitions-bulk-edit-hide',
+                                            },
+                                            {
+                                                label: 'Unhide',
+                                                onClick: () =>
+                                                    bulkUpdateHidden({
+                                                        ids: [...ctx.selectedKeys],
+                                                        hidden: false,
+                                                        onSuccess: ctx.clearSelection,
+                                                    }),
+                                                'data-attr': 'event-definitions-bulk-edit-unhide',
+                                            },
+                                        ],
+                                    },
+                                    {
+                                        items: [
+                                            {
+                                                label: 'Delete',
+                                                status: 'danger',
+                                                onClick: () =>
+                                                    confirmDeleteEventDefinitions(ctx.selectedKeys.length, () =>
+                                                        bulkDelete({
+                                                            ids: [...ctx.selectedKeys],
+                                                            onSuccess: ctx.clearSelection,
+                                                        })
+                                                    ),
+                                                'data-attr': 'event-definitions-bulk-edit-delete',
+                                            },
                                         ],
                                     },
                                 ]}
@@ -307,7 +425,11 @@ export function EventDefinitionsTable(): JSX.Element {
                                     type="secondary"
                                     size="small"
                                     sideIcon={<IconChevronDown />}
-                                    disabledReason={bulkVerifiedResultLoading ? 'Updating…' : undefined}
+                                    disabledReason={
+                                        bulkVerifiedResultLoading || bulkHiddenResultLoading || bulkDeleteResultLoading
+                                            ? 'Updating…'
+                                            : undefined
+                                    }
                                     data-attr="event-definitions-bulk-edit"
                                 >
                                     Bulk edit

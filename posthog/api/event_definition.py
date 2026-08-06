@@ -260,6 +260,55 @@ class EventDefinitionBulkUpdateVerifiedResponseSerializer(serializers.Serializer
     )
 
 
+class EventDefinitionBulkUpdateHiddenRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=BULK_UPDATE_TAGS_MAX_IDS,
+        help_text="List of event definition UUIDs to update.",
+    )
+    hidden = serializers.BooleanField(
+        help_text=(
+            "Target hidden state to apply to every matched event. `true` hides the events (and "
+            "unverifies them, since an event cannot be both hidden and verified); `false` unhides them."
+        ),
+    )
+
+
+class EventDefinitionBulkUpdateHiddenItemSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="UUID of the event definition whose hidden state changed.")
+    hidden = serializers.BooleanField(help_text="The event's hidden state after the update.")
+
+
+class EventDefinitionBulkUpdateHiddenResponseSerializer(serializers.Serializer):
+    updated = EventDefinitionBulkUpdateHiddenItemSerializer(
+        many=True, help_text="Events whose hidden state was changed. Events already in the target state are omitted."
+    )
+    skipped = BulkUpdateTagsUUIDErrorSerializer(
+        many=True, help_text="Events that were skipped (e.g. not found in this project), with a reason each."
+    )
+
+
+class EventDefinitionBulkDeleteRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=BULK_UPDATE_TAGS_MAX_IDS,
+        help_text="List of event definition UUIDs to delete.",
+    )
+
+
+class EventDefinitionBulkDeleteItemSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="UUID of the deleted event definition.")
+
+
+class EventDefinitionBulkDeleteResponseSerializer(serializers.Serializer):
+    deleted = EventDefinitionBulkDeleteItemSerializer(many=True, help_text="Events that were deleted.")
+    skipped = BulkUpdateTagsUUIDErrorSerializer(
+        many=True, help_text="Events that were skipped (e.g. not found in this project), with a reason each."
+    )
+
+
 class EventDefinitionViewSet(
     TeamAndOrgViewSetMixin,
     TaggedItemViewSetMixin,
@@ -271,7 +320,7 @@ class EventDefinitionViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "event_definition"
-    # "bulk_update_tags"/"bulk_update_verified" must be opted in here so personal API keys with
+    # The bulk actions must be opted in here so personal API keys with
     # event_definition:write can use them.
     scope_object_write_actions = [
         "create",
@@ -281,6 +330,8 @@ class EventDefinitionViewSet(
         "destroy",
         "bulk_update_tags",
         "bulk_update_verified",
+        "bulk_update_hidden",
+        "bulk_delete",
     ]
     serializer_class = EventDefinitionSerializer
     lookup_field = "id"
@@ -662,6 +713,178 @@ class EventDefinitionViewSet(
                 updated.append({"id": enterprise.id, "verified": verified})
 
         return response.Response({"updated": updated, "skipped": skipped})
+
+    @extend_schema(
+        request=EventDefinitionBulkUpdateHiddenRequestSerializer,
+        responses={200: EventDefinitionBulkUpdateHiddenResponseSerializer},
+    )
+    @action(methods=["POST"], detail=False)
+    def bulk_update_hidden(self, request, *args, **kwargs) -> response.Response:
+        """Hide or unhide multiple event definitions in one request.
+
+        The sibling of ``bulk_update_verified``: ``hidden`` also lives on the enterprise
+        ``EnterpriseEventDefinition`` extension, so this action:
+        - requires an enterprise license;
+        - scopes by project (``team__project_id``) and relies on project membership — the same
+          boundary the single-object update path uses — rather than object-level RBAC;
+        - lazily promotes ingestion-created base rows to ``EnterpriseEventDefinition`` (mirroring
+          ``_get_event_definition``) before setting ``hidden``;
+        - mirrors the single-object semantics: hiding unverifies the event and clears
+          ``verified_by``/``verified_at`` (an event cannot be both hidden and verified); unhiding
+          just clears ``hidden``;
+        - logs a "changed" activity per event so the History tab matches the single-object path.
+
+        Events already in the target state are skipped (not re-written, not logged).
+        """
+        # Gate on the enterprise build, mirroring the single-object hide path, which selects the
+        # enterprise serializer under the same flag.
+        if not EE_AVAILABLE:
+            raise serializers.ValidationError("Hiding event definitions requires an enterprise license.")
+
+        from ee.models.event_definition import EnterpriseEventDefinition
+
+        serializer = EventDefinitionBulkUpdateHiddenRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        # De-duplicate while preserving order: the no-op check below reads a pre-loop snapshot of
+        # hidden state, so a repeated id would otherwise be written (and logged) more than once.
+        validated_ids = list(dict.fromkeys(serializer.validated_data["ids"]))
+        hidden = serializer.validated_data["hidden"]
+
+        # Base rows are authoritative for existence and project scoping.
+        found_ids = set(
+            EventDefinition.objects.filter(id__in=validated_ids, team__project_id=self.project_id).values_list(
+                "id", flat=True
+            )
+        )
+        skipped = [{"id": obj_id, "reason": "Not found"} for obj_id in validated_ids if obj_id not in found_ids]
+
+        # Current hidden/verified state comes from existing enterprise rows; a base row without one
+        # is unhidden and unverified by default. `found_ids` is already project-scoped, but keep the
+        # team filter explicit for tenant-isolation (IDOR) safety.
+        state_by_id = {
+            row[0]: {"hidden": bool(row[1]), "verified": bool(row[2])}
+            for row in EnterpriseEventDefinition.objects.filter(
+                id__in=found_ids, team__project_id=self.project_id
+            ).values_list("id", "hidden", "verified")
+        }
+
+        user = cast(User, request.user)
+        was_impersonated = is_impersonated(request)
+        updated: list[dict[str, Any]] = []
+
+        # One transaction for the whole batch: if any event fails part-way the write rolls back
+        # entirely, so the caller never has to reason about a half-applied set. Activity logs are
+        # transaction-aware and defer to commit, so they roll back with it too.
+        with transaction.atomic():
+            for obj_id in validated_ids:
+                if obj_id not in found_ids:
+                    continue
+                before = state_by_id.get(obj_id, {"hidden": False, "verified": False})
+                if before["hidden"] == hidden:
+                    continue  # no-op: skip without promoting a base row or writing
+
+                # Promote base -> enterprise if needed (same lazy path as single-object updates).
+                enterprise = cast(
+                    EnterpriseEventDefinition, self._get_event_definition(id=obj_id, team__project_id=self.project_id)
+                )
+                before_verified = bool(enterprise.verified)
+
+                enterprise.hidden = hidden
+                if hidden:
+                    # an event cannot be both hidden and verified
+                    enterprise.verified = False
+                    enterprise.verified_by = None
+                    enterprise.verified_at = None
+                enterprise.save()
+
+                # `hidden` was necessarily the opposite before (no-ops were skipped above).
+                changes = dict_changes_between(
+                    "EventDefinition",
+                    {"hidden": not hidden, "verified": before_verified},
+                    {"hidden": hidden, "verified": bool(enterprise.verified)},
+                    use_field_exclusions=True,
+                )
+                log_activity(
+                    organization_id=None,
+                    team_id=self.team_id,
+                    user=user,
+                    item_id=str(enterprise.id),
+                    scope="EventDefinition",
+                    activity="changed",
+                    was_impersonated=was_impersonated,
+                    detail=Detail(name=str(enterprise.name), changes=changes),
+                )
+                updated.append({"id": enterprise.id, "hidden": hidden})
+
+        return response.Response({"updated": updated, "skipped": skipped})
+
+    @extend_schema(
+        request=EventDefinitionBulkDeleteRequestSerializer,
+        responses={200: EventDefinitionBulkDeleteResponseSerializer},
+    )
+    @action(methods=["POST"], detail=False)
+    def bulk_delete(self, request, *args, **kwargs) -> response.Response:
+        """Delete multiple event definitions in one request.
+
+        The bulk equivalent of ``destroy``: it scopes by project (``team__project_id``) and relies
+        on project membership — the same boundary the single-object delete path uses — deletes the
+        whole batch in one transaction, and mirrors the single-object side effects (a "deleted"
+        activity log entry and an ``event definition deleted`` analytics event per definition).
+
+        Deleting the base ``EventDefinition`` row cascades to its ``EnterpriseEventDefinition``
+        extension, so this operates on base rows regardless of the enterprise build. Associated
+        event data in the event stream is untouched; a definition reappears if the event is seen
+        again. Ids not found in this project are skipped with a reason.
+        """
+        serializer = EventDefinitionBulkDeleteRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        # De-duplicate while preserving order so a repeated id isn't logged/reported twice.
+        validated_ids = list(dict.fromkeys(serializer.validated_data["ids"]))
+
+        objects = {
+            obj.id: obj
+            for obj in EventDefinition.objects.filter(id__in=validated_ids, team__project_id=self.project_id)
+        }
+        skipped = [{"id": obj_id, "reason": "Not found"} for obj_id in validated_ids if obj_id not in objects]
+
+        user = cast(User, request.user)
+        was_impersonated = is_impersonated(request)
+        deleted: list[dict[str, Any]] = []
+        # Capture names before the rows are gone so the post-commit analytics events can name them.
+        deleted_names: list[str] = []
+
+        with transaction.atomic():
+            for obj_id in validated_ids:
+                obj = objects.get(obj_id)
+                if obj is None:
+                    continue
+                name = cast(str, obj.name)
+                obj.delete()
+                log_activity(
+                    organization_id=cast(UUIDT, self.organization_id),
+                    team_id=self.team_id,
+                    user=user,
+                    was_impersonated=was_impersonated,
+                    item_id=str(obj_id),
+                    scope="EventDefinition",
+                    activity="deleted",
+                    detail=Detail(name=name, changes=None),
+                )
+                deleted.append({"id": obj_id})
+                deleted_names.append(name)
+
+        # Report analytics after commit: `report_user_action` is an external side effect, so keep it
+        # out of the atomic block — a rolled-back batch must not emit "deleted" events.
+        for name in deleted_names:
+            report_user_action(
+                user,
+                "event definition deleted",
+                {"name": name},
+                team=self.team,
+                request=request,
+            )
+
+        return response.Response({"deleted": deleted, "skipped": skipped})
 
     def perform_create(self, serializer):
         """Handle context and side effects for event definition creation."""

@@ -245,6 +245,50 @@ export interface EventDefinitionBulkUpdateVerifiedResponseApi {
     skipped: BulkUpdateTagsUUIDErrorApi[]
 }
 
+export interface EventDefinitionBulkUpdateHiddenRequestApi {
+    /**
+     * List of event definition UUIDs to update.
+     * @maxItems 500
+     */
+    ids: string[]
+    /** Target hidden state to apply to every matched event. `true` hides the events (and unverifies them, since an event cannot be both hidden and verified); `false` unhides them. */
+    hidden: boolean
+}
+
+export interface EventDefinitionBulkUpdateHiddenItemApi {
+    /** UUID of the event definition whose hidden state changed. */
+    id: string
+    /** The event's hidden state after the update. */
+    hidden: boolean
+}
+
+export interface EventDefinitionBulkUpdateHiddenResponseApi {
+    /** Events whose hidden state was changed. Events already in the target state are omitted. */
+    updated: EventDefinitionBulkUpdateHiddenItemApi[]
+    /** Events that were skipped (e.g. not found in this project), with a reason each. */
+    skipped: BulkUpdateTagsUUIDErrorApi[]
+}
+
+export interface EventDefinitionBulkDeleteRequestApi {
+    /**
+     * List of event definition UUIDs to delete.
+     * @maxItems 500
+     */
+    ids: string[]
+}
+
+export interface EventDefinitionBulkDeleteItemApi {
+    /** UUID of the deleted event definition. */
+    id: string
+}
+
+export interface EventDefinitionBulkDeleteResponseApi {
+    /** Events that were deleted. */
+    deleted: EventDefinitionBulkDeleteItemApi[]
+    /** Events that were skipped (e.g. not found in this project), with a reason each. */
+    skipped: BulkUpdateTagsUUIDErrorApi[]
+}
+
 /**
  * Serializer mixin that handles tags for objects.
  */

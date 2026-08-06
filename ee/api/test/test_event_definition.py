@@ -516,6 +516,191 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert promoted.verified is True
         assert promoted.verified_by_id == self.user.id
 
+    @parameterized.expand([("hide", True), ("unhide", False)])
+    def test_bulk_update_hidden_flips_state_and_skips_noops(self, _name, target):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        already = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="bulk_hide_already", hidden=target)
+        to_change = EnterpriseEventDefinition.objects.create(
+            team=self.demo_team, name="bulk_hide_change", hidden=not target
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_hidden/",
+            {"ids": [str(already.id), str(to_change.id)], "hidden": target},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        # Only the event that actually changed is reported; the one already in the target state is skipped.
+        assert {u["id"] for u in data["updated"]} == {str(to_change.id)}
+        assert all(u["hidden"] is target for u in data["updated"])
+        assert data["skipped"] == []
+
+        to_change.refresh_from_db()
+        assert to_change.hidden is target
+
+    def test_bulk_update_hidden_unverifies_event_when_hiding(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        verified_event = EnterpriseEventDefinition.objects.create(
+            team=self.demo_team, name="bulk_hide_verified", verified=True, verified_by=self.user, hidden=False
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_hidden/",
+            {"ids": [str(verified_event.id)], "hidden": True},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        verified_event.refresh_from_db()
+        # An event cannot be both hidden and verified: hiding must clear verification and its metadata.
+        assert verified_event.hidden is True
+        assert verified_event.verified is False
+        assert verified_event.verified_by_id is None
+        assert verified_event.verified_at is None
+
+    def test_bulk_update_hidden_promotes_base_event_definition(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        base = EventDefinition.objects.create(team=self.demo_team, name="ingested_only_to_hide")
+        assert not EnterpriseEventDefinition.objects.filter(id=base.id).exists()
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_hidden/",
+            {"ids": [str(base.id)], "hidden": True},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["updated"] == [{"id": str(base.id), "hidden": True}]
+        promoted = EnterpriseEventDefinition.objects.get(id=base.id)
+        assert promoted.hidden is True
+
+    def test_bulk_update_hidden_ignores_event_definitions_in_other_project(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        mine = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="bulk_hide_mine", hidden=False)
+        other_team = Team.objects.create(organization=self.organization, name="Other hide project")
+        other = EnterpriseEventDefinition.objects.create(team=other_team, name="bulk_hide_other", hidden=False)
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_hidden/",
+            {"ids": [str(mine.id), str(other.id)], "hidden": True},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert {u["id"] for u in data["updated"]} == {str(mine.id)}
+        assert data["skipped"] == [{"id": str(other.id), "reason": "Not found"}]
+        other.refresh_from_db()
+        assert other.hidden is False
+
+    def test_bulk_update_hidden_requires_enterprise_build(self):
+        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="bulk_hide_foss", hidden=False)
+
+        with patch("posthog.api.event_definition.EE_AVAILABLE", False):
+            response = self.client.post(
+                f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_hidden/",
+                {"ids": [str(event.id)], "hidden": True},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        event.refresh_from_db()
+        assert event.hidden is False
+
+    @patch("posthog.api.event_definition.report_user_action")
+    def test_bulk_delete_deletes_and_reports_per_event(self, mock_report):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        events = [
+            EnterpriseEventDefinition.objects.create(team=self.demo_team, name=f"bulk_delete_{i}") for i in range(3)
+        ]
+        ActivityLog.objects.filter(team_id=self.demo_team.pk, scope="EventDefinition").delete()
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_delete/",
+            {"ids": [str(e.id) for e in events]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert {d["id"] for d in data["deleted"]} == {str(e.id) for e in events}
+        assert data["skipped"] == []
+        # Deleting the base rows cascades to the enterprise extensions.
+        assert not EventDefinition.objects.filter(id__in=[e.id for e in events]).exists()
+        assert not EnterpriseEventDefinition.objects.filter(id__in=[e.id for e in events]).exists()
+
+        # One "deleted" activity per event, matching the single-object delete path.
+        logs = ActivityLog.objects.filter(team_id=self.demo_team.pk, scope="EventDefinition", activity="deleted")
+        assert {log.item_id for log in logs} == {str(e.id) for e in events}
+        # One analytics event per deleted definition.
+        assert mock_report.call_count == 3
+        assert {call.args[2]["name"] for call in mock_report.call_args_list} == {e.name for e in events}
+
+    def test_bulk_delete_skips_missing_and_other_project(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        mine = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="bulk_delete_mine")
+        other_team = Team.objects.create(organization=self.organization, name="Other delete project")
+        other = EnterpriseEventDefinition.objects.create(team=other_team, name="bulk_delete_other")
+        missing_id = "00000000-0000-0000-0000-000000000000"
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_delete/",
+            {"ids": [str(mine.id), str(other.id), missing_id]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert [d["id"] for d in data["deleted"]] == [str(mine.id)]
+        assert {s["id"] for s in data["skipped"]} == {str(other.id), missing_id}
+        # An event in another project must not be deleted through this project's endpoint (IDOR guard).
+        assert EnterpriseEventDefinition.objects.filter(id=other.id).exists()
+        assert not EventDefinition.objects.filter(id=mine.id).exists()
+
+    @patch("posthog.api.event_definition.report_user_action")
+    def test_bulk_delete_deduplicates_repeated_ids(self, mock_report):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="bulk_delete_dupe")
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_delete/",
+            {"ids": [str(event.id), str(event.id)]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        # A repeated id is deleted and reported once, not once per occurrence.
+        assert response.json()["deleted"] == [{"id": str(event.id)}]
+        assert mock_report.call_count == 1
+
+    @patch("posthog.api.event_definition.log_activity")
+    def test_bulk_delete_rolls_back_batch_on_error(self, mock_log_activity):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        first = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="bulk_delete_atomic_1")
+        second = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="bulk_delete_atomic_2")
+        # Fail once the second event is mid-flight, after the first has already been deleted.
+        mock_log_activity.side_effect = [None, RuntimeError("boom")]
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_delete/",
+            {"ids": [str(first.id), str(second.id)]},
+        )
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+
+        # The batch is atomic: a failure on the second event rolls back the first deletion too.
+        assert EventDefinition.objects.filter(id=first.id).exists()
+        assert EventDefinition.objects.filter(id=second.id).exists()
+
     def test_verify_then_verify_again_no_change(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)

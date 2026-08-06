@@ -91,6 +91,59 @@ export const EventDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Serializer mixin that handles tags for objects.')
 
 /**
+ * Delete multiple event definitions in one request.
+ *
+ * The bulk equivalent of ``destroy``: it scopes by project (``team__project_id``) and relies
+ * on project membership — the same boundary the single-object delete path uses — deletes the
+ * whole batch in one transaction, and mirrors the single-object side effects (a "deleted"
+ * activity log entry and an ``event definition deleted`` analytics event per definition).
+ *
+ * Deleting the base ``EventDefinition`` row cascades to its ``EnterpriseEventDefinition``
+ * extension, so this operates on base rows regardless of the enterprise build. Associated
+ * event data in the event stream is untouched; a definition reappears if the event is seen
+ * again. Ids not found in this project are skipped with a reason.
+ */
+export const eventDefinitionsBulkDeleteCreateBodyIdsMax = 500
+
+export const EventDefinitionsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.uuid())
+        .max(eventDefinitionsBulkDeleteCreateBodyIdsMax)
+        .describe('List of event definition UUIDs to delete.'),
+})
+
+/**
+ * Hide or unhide multiple event definitions in one request.
+ *
+ * The sibling of ``bulk_update_verified``: ``hidden`` also lives on the enterprise
+ * ``EnterpriseEventDefinition`` extension, so this action:
+ * - requires an enterprise license;
+ * - scopes by project (``team__project_id``) and relies on project membership — the same
+ *   boundary the single-object update path uses — rather than object-level RBAC;
+ * - lazily promotes ingestion-created base rows to ``EnterpriseEventDefinition`` (mirroring
+ *   ``_get_event_definition``) before setting ``hidden``;
+ * - mirrors the single-object semantics: hiding unverifies the event and clears
+ *   ``verified_by``/``verified_at`` (an event cannot be both hidden and verified); unhiding
+ *   just clears ``hidden``;
+ * - logs a "changed" activity per event so the History tab matches the single-object path.
+ *
+ * Events already in the target state are skipped (not re-written, not logged).
+ */
+export const eventDefinitionsBulkUpdateHiddenCreateBodyIdsMax = 500
+
+export const EventDefinitionsBulkUpdateHiddenCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.uuid())
+        .max(eventDefinitionsBulkUpdateHiddenCreateBodyIdsMax)
+        .describe('List of event definition UUIDs to update.'),
+    hidden: zod
+        .boolean()
+        .describe(
+            'Target hidden state to apply to every matched event. `true` hides the events (and unverifies them, since an event cannot be both hidden and verified); `false` unhides them.'
+        ),
+})
+
+/**
  * Add, remove, or replace tags across multiple event definitions in one request.
  *
  * Overrides ``TaggedItemViewSetMixin.bulk_update_tags``, which assumes integer PKs and runs
