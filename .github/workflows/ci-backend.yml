@@ -1977,10 +1977,9 @@ jobs:
 
     mirror-schema-cache:
         needs: [check-migrations]
-        # check-migrations runs on Depot runners, so its schema saves land in Depot
-        # Cache only. Fork PRs run without secrets and are not pre-authenticated to
-        # Depot Cache, which means they can only read GitHub's own cache. Re-save the
-        # same dump there so fork PRs prime from it instead of migrating from scratch.
+        # Fork PRs run without secrets, so they aren't authenticated to Depot Cache and
+        # read only GitHub's own cache, where check-migrations' Depot-runner saves never land.
+        # Mirror the dump there so fork PRs prime instead of migrating from scratch.
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         name: Mirror schema cache to GitHub cache
         runs-on: ubuntu-latest
