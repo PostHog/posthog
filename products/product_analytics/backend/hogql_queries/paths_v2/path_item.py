@@ -1,6 +1,6 @@
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import FunnelConversionWindowTimeUnit, PathsV2Query, PathsV2StepSource
+from posthog.schema import FunnelConversionWindowTimeUnit, PathsV2Item, PathsV2Query, PathsV2StepSource
 
 from posthog.hogql import ast
 from posthog.hogql.property import apply_path_cleaning
@@ -17,6 +17,8 @@ DEFAULT_MAX_ROWS_PER_STEP = 3
 DEFAULT_GAP_INTERVAL = 30
 DEFAULT_GAP_INTERVAL_UNIT = FunnelConversionWindowTimeUnit.MINUTE
 DEFAULT_COLLAPSE_REPEATS = True
+DEFAULT_CONVERSION_WINDOW_INTERVAL = 30
+DEFAULT_CONVERSION_WINDOW_INTERVAL_UNIT = FunnelConversionWindowTimeUnit.MINUTE
 
 
 def default_step_sources() -> list[PathsV2StepSource]:
@@ -74,3 +76,20 @@ def source_events_filter_expr(sources: list[PathsV2StepSource]) -> ast.Expr:
         left=ast.Field(chain=["event"]),
         right=ast.Constant(value=[source.event for source in sources]),
     )
+
+
+def item_label(item: PathsV2Item, source: PathsV2StepSource) -> str:
+    """The label an item contributes to its `(event, label)` identity: the empty string for a source
+    without a naming property (the event alone identifies the item), otherwise the item's label,
+    which must be present."""
+    if source.namingProperty is None:
+        return ""
+    if item.label is None:
+        raise ValidationError(f"Path item for event {item.event!r} needs a label, as its source has a naming property.")
+    return item.label
+
+
+def item_tuple_expr(item: PathsV2Item, source: PathsV2StepSource) -> ast.Expr:
+    """Constant `(event, label)` identity of a concrete path item, matching `path_item_expr`'s shape
+    so the runner can compare a derived item against a chosen anchor and the converter can name it."""
+    return ast.Tuple(exprs=[ast.Constant(value=item.event), ast.Constant(value=item_label(item, source))])

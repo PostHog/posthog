@@ -3292,6 +3292,11 @@ class PathType(StrEnum):
     HOGQL = "hogql"
 
 
+class PathsV2AnchorType(StrEnum):
+    START = "start"
+    END = "end"
+
+
 class SliceContent(StrEnum):
     LABELS = "labels"
     VALUES = "values"

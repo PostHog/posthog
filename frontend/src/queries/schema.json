@@ -36178,6 +36178,27 @@
             "required": ["results"],
             "type": "object"
         },
+        "PathsV2Anchor": {
+            "additionalProperties": false,
+            "description": "The start or end point an anchored-mode chart is built around.",
+            "properties": {
+                "item": {
+                    "$ref": "#/definitions/PathsV2Item",
+                    "description": "The path item the chart anchors on. Its event must be one of the step sources."
+                },
+                "type": {
+                    "$ref": "#/definitions/PathsV2AnchorType",
+                    "description": "`start` runs each actor's single sequence forward from the anchor item; `end` runs it up to the anchor item. Either way the anchor is the grid's single 100% node."
+                }
+            },
+            "required": ["type", "item"],
+            "type": "object"
+        },
+        "PathsV2AnchorType": {
+            "description": "Whether an anchored chart is built around the journeys' start or their end.",
+            "enum": ["start", "end"],
+            "type": "string"
+        },
         "PathsV2Edge": {
             "additionalProperties": false,
             "description": "A displayed transition between path items at adjacent journey grid columns.",
@@ -36219,10 +36240,23 @@
         "PathsV2Filter": {
             "additionalProperties": false,
             "properties": {
+                "anchor": {
+                    "$ref": "#/definitions/PathsV2Anchor",
+                    "description": "Anchor selecting anchored mode. When set, each actor contributes exactly one sequence bounded by the conversion window, so every displayed segment equals a plain funnel. Absent selects open mode, which splits an actor's events into journeys on the inactivity gap instead."
+                },
                 "collapseRepeats": {
                     "default": true,
                     "description": "Merge immediate repeats of the same path item within a journey.",
                     "type": "boolean"
+                },
+                "conversionWindowInterval": {
+                    "default": 30,
+                    "description": "Anchored mode's single conversion window W, anchored at the anchor and reused verbatim as the emitted funnel's window. Bounds per unit are validated server-side against CONVERSION_WINDOW_INTERVAL_BOUNDS, the same funnel conversion window bounds as the gap.",
+                    "type": "integer"
+                },
+                "conversionWindowIntervalUnit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit",
+                    "default": "minute"
                 },
                 "gapInterval": {
                     "default": 30,
@@ -36273,6 +36307,25 @@
                 }
             },
             "required": ["event"],
+            "type": "object"
+        },
+        "PathsV2Prefix": {
+            "additionalProperties": false,
+            "description": "A concrete anchored chain from the anchor and the unique actors whose single sequence begins with exactly these path items. Powers the hover funnel preview over the journey grid.",
+            "properties": {
+                "count": {
+                    "description": "Unique actors whose anchored sequence begins with exactly these items.",
+                    "type": "number"
+                },
+                "items": {
+                    "description": "The chain's path items in order, starting at the anchor.",
+                    "items": {
+                        "$ref": "#/definitions/PathsV2Item"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["items", "count"],
             "type": "object"
         },
         "PathsV2Query": {
@@ -36404,6 +36457,13 @@
                     },
                     "type": "array"
                 },
+                "prefixes": {
+                    "description": "Concrete anchored chains with per-chain unique-actor counts, ordered by descending count. Empty in open mode; in anchored mode it carries the counts the hover funnel preview reads per chain.",
+                    "items": {
+                        "$ref": "#/definitions/PathsV2Prefix"
+                    },
+                    "type": "array"
+                },
                 "steps": {
                     "items": {
                         "$ref": "#/definitions/PathsV2Step"
@@ -36411,7 +36471,7 @@
                     "type": "array"
                 }
             },
-            "required": ["steps", "edges"],
+            "required": ["steps", "edges", "prefixes"],
             "type": "object"
         },
         "PathsV2Row": {
