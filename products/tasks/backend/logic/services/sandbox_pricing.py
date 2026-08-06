@@ -90,6 +90,21 @@ def validate_compute_rate_cards(rate_cards: Sequence[ComputeRateCard]) -> tuple[
     return cards
 
 
+def get_compute_rate_cards_for_period(
+    start: datetime | None,
+    end: datetime | None,
+    rate_cards: Sequence[ComputeRateCard] = COMPUTE_RATE_CARDS,
+) -> tuple[ComputeRateCard, ...]:
+    if not rate_cards:
+        return ()
+    cards = validate_compute_rate_cards(rate_cards)
+    if start is None or end is None:
+        return cards
+    return tuple(
+        card for card in cards if card.effective_at < end and (card.expires_at is None or card.expires_at > start)
+    )
+
+
 def calculate_sandbox_compute_cost(
     session: SandboxSession,
     reporting_start: datetime,

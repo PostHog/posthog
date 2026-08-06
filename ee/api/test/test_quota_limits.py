@@ -107,9 +107,6 @@ class TestQuotaLimitsAPI(APIBaseTest):
             "posthog_code_token_credits": {"usage": 1200, "todays_usage": 34},
             "sandbox_compute_credits": {"usage": 55, "todays_usage": 12},
             "sandbox_compute_cpu_millicore_seconds": {"usage": 9_876_543_210, "todays_usage": 1},
-            "sandbox_compute_memory_mib_seconds": {"usage": 7_654_321_098, "todays_usage": 2},
-            "sandbox_compute_cpu_cost_microusd": {"usage": 123_456_789, "todays_usage": 3},
-            "sandbox_compute_memory_cost_microusd": {"usage": 98_765_432, "todays_usage": 4},
         }
         self.organization.save()
         rate = ComputeRateCard(
@@ -122,20 +119,13 @@ class TestQuotaLimitsAPI(APIBaseTest):
 
         with patch("ee.api.quota_limits.COMPUTE_RATE_CARDS", (rate,)):
             response = self.client.get(self._url()).json()
-        data = response["posthog_code_usage"]
 
         self.assertEqual(response["limited"]["posthog_code_credits"]["usage"], 1301)
-        self.assertEqual(data["token_credits"] + data["compute_credits"], 1301)
-        self.assertEqual(data["token_credits"], 1234)
-        self.assertEqual(data["token_used_usd"], "12.34")
-        self.assertEqual(data["compute_credits"], 67)
-        self.assertEqual(data["compute_used_usd"], "0.67")
-        self.assertEqual(data["cpu_millicore_seconds"], 9_876_543_211)
-        self.assertEqual(data["memory_mib_seconds"], 7_654_321_100)
-        self.assertEqual(data["cpu_cost_microusd"], 123_456_792)
-        self.assertEqual(data["memory_cost_microusd"], 98_765_436)
+        self.assertEqual(response["limited"]["posthog_code_token_credits"]["usage"], 1234)
+        self.assertEqual(response["limited"]["sandbox_compute_credits"]["usage"], 67)
+        self.assertEqual(response["limited"]["sandbox_compute_cpu_millicore_seconds"]["usage"], 9_876_543_211)
         self.assertEqual(
-            data["rate_cards"],
+            response["posthog_code_compute_rate_cards"],
             [
                 {
                     "version": "2026-07-15",
@@ -146,27 +136,10 @@ class TestQuotaLimitsAPI(APIBaseTest):
                 }
             ],
         )
-        self.assertIsNone(data["rate_card_error"])
-        self.assertNotIn("limit", data)
-        self.assertNotIn("exhausted", data)
-
-    def test_missing_components_are_unknown_and_explicit_zero_is_preserved(self) -> None:
-        self.assertIsNone(self.client.get(self._url()).json()["posthog_code_usage"])
-        self.organization.usage = {
-            "posthog_code_token_credits": {"usage": 0, "todays_usage": 0},
-            "sandbox_compute_credits": {"usage": None, "todays_usage": None},
-        }
-        self.organization.save()
-
-        data = self.client.get(self._url()).json()["posthog_code_usage"]
-
-        self.assertEqual(data["token_credits"], 0)
-        self.assertEqual(data["token_used_usd"], "0")
-        self.assertIsNone(data["compute_credits"])
-        self.assertEqual(data["rate_cards"], [])
+        self.assertIsNone(response["posthog_code_compute_rate_card_error"])
 
     def test_invalid_rate_configuration_is_surfaced_without_rates(self) -> None:
-        self.organization.usage = {"posthog_code_token_credits": {"usage": 10, "todays_usage": 0}}
+        self.organization.usage = {}
         self.organization.save()
         invalid = ComputeRateCard(
             version="invalid",
@@ -177,11 +150,10 @@ class TestQuotaLimitsAPI(APIBaseTest):
         )
 
         with patch("ee.api.quota_limits.COMPUTE_RATE_CARDS", (invalid,)):
-            data = self.client.get(self._url()).json()["posthog_code_usage"]
+            data = self.client.get(self._url()).json()
 
-        self.assertEqual(data["token_credits"], 10)
-        self.assertIsNone(data["rate_cards"])
-        self.assertEqual(data["rate_card_error"], "invalid_configuration")
+        self.assertIsNone(data["posthog_code_compute_rate_cards"])
+        self.assertEqual(data["posthog_code_compute_rate_card_error"], "invalid_configuration")
 
     def test_returns_limited_when_team_is_over_quota(self) -> None:
         self._set_ai_credits_limit(self.team.api_token, 9_999_999_999)

@@ -264,6 +264,7 @@ class TestQuotaResolver:
 
         assert status.used_usd is None
         assert status.limit_usd is None
+        assert status.posthog_code_usage is None
 
     @pytest.mark.asyncio
     async def test_usd_numbers_round_trip_through_the_cache(self) -> None:
@@ -304,8 +305,33 @@ class TestQuotaResolver:
                 _make_response(
                     200,
                     {
-                        "limited": {"posthog_code_credits": {"limited": False, "usage": 1301, "limit": 2000}},
-                        "posthog_code_usage": breakdown,
+                        "limited": {
+                            "posthog_code_credits": {"limited": False, "usage": 1301, "limit": 2000},
+                            "posthog_code_token_credits": {"limited": False, "usage": 1234, "limit": None},
+                            "sandbox_compute_credits": {"limited": False, "usage": 67, "limit": None},
+                            "sandbox_compute_cpu_millicore_seconds": {
+                                "limited": False,
+                                "usage": 9_876_543_210,
+                                "limit": None,
+                            },
+                            "sandbox_compute_memory_mib_seconds": {
+                                "limited": False,
+                                "usage": 7_654_321_098,
+                                "limit": None,
+                            },
+                            "sandbox_compute_cpu_cost_microusd": {
+                                "limited": False,
+                                "usage": 123_456_789,
+                                "limit": None,
+                            },
+                            "sandbox_compute_memory_cost_microusd": {
+                                "limited": False,
+                                "usage": 98_765_432,
+                                "limit": None,
+                            },
+                        },
+                        "posthog_code_compute_rate_cards": breakdown["rate_cards"],
+                        "posthog_code_compute_rate_card_error": None,
                     },
                 )
             ),
@@ -316,8 +342,45 @@ class TestQuotaResolver:
 
         assert first.posthog_code_usage == breakdown
         assert cached.posthog_code_usage == breakdown
+        assert first.posthog_code_usage["token_credits"] + first.posthog_code_usage["compute_credits"] == 1301
         assert first.used_usd == 13.01
         assert first.limit_usd == 20.0
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "rate_cards,rate_card_error",
+        [([], None), (None, "invalid_configuration")],
+    )
+    async def test_explicit_zero_survives_missing_or_invalid_rates(
+        self, rate_cards: list[object] | None, rate_card_error: str | None
+    ) -> None:
+        resolver = QuotaResolver(
+            redis=None,
+            http_client=_make_http_client(
+                _make_response(
+                    200,
+                    {
+                        "limited": {
+                            "posthog_code_credits": {"limited": False, "usage": 0, "limit": 2000},
+                            "posthog_code_token_credits": {"limited": False, "usage": 0, "limit": None},
+                            "sandbox_compute_credits": {"limited": False, "usage": 0, "limit": None},
+                        },
+                        "posthog_code_compute_rate_cards": rate_cards,
+                        "posthog_code_compute_rate_card_error": rate_card_error,
+                    },
+                )
+            ),
+        )
+
+        status = await resolver.get_resource_status("posthog_code_credits", 42, "Bearer phx_test")
+
+        assert status.posthog_code_usage is not None
+        assert status.posthog_code_usage["token_credits"] == 0
+        assert status.posthog_code_usage["token_used_usd"] == "0"
+        assert status.posthog_code_usage["compute_credits"] == 0
+        assert status.posthog_code_usage["compute_used_usd"] == "0"
+        assert status.posthog_code_usage["rate_cards"] == rate_cards
+        assert status.posthog_code_usage["rate_card_error"] == rate_card_error
 
     @pytest.mark.asyncio
     async def test_fetches_and_parses_unlimited_response(self) -> None:

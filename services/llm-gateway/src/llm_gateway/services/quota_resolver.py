@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 import httpx
@@ -63,6 +64,15 @@ _RETRY_DELAYS_SECONDS: tuple[float, ...] = (
 # (the billing product config for AI credits and `posthog_code_usage`).
 _USD_PER_CREDIT = 0.01
 
+_POSTHOG_CODE_COMPONENT_RESOURCES = {
+    "token_credits": "posthog_code_token_credits",
+    "compute_credits": "sandbox_compute_credits",
+    "cpu_millicore_seconds": "sandbox_compute_cpu_millicore_seconds",
+    "memory_mib_seconds": "sandbox_compute_memory_mib_seconds",
+    "cpu_cost_microusd": "sandbox_compute_cpu_cost_microusd",
+    "memory_cost_microusd": "sandbox_compute_memory_cost_microusd",
+}
+
 
 @dataclass
 class QuotaResourceStatus:
@@ -84,6 +94,37 @@ def _optional_number(value: object) -> float | None:
 def _credits_to_usd(credits: object) -> float | None:
     value = _optional_number(credits)
     return None if value is None else round(value * _USD_PER_CREDIT, 2)
+
+
+def _optional_integer(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
+def _posthog_code_usage(data: dict[str, object]) -> dict[str, object] | None:
+    limited = data.get("limited")
+    if not isinstance(limited, dict):
+        return None
+    components: dict[str, object] = {
+        output_key: _optional_integer(resource.get("usage")) if isinstance(resource, dict) else None
+        for output_key, resource_key in _POSTHOG_CODE_COMPONENT_RESOURCES.items()
+        for resource in (limited.get(resource_key),)
+    }
+    if all(value is None for value in components.values()):
+        return None
+
+    token_credits = _optional_integer(components["token_credits"])
+    compute_credits = _optional_integer(components["compute_credits"])
+    components["token_used_usd"] = str(Decimal(token_credits) / 100) if token_credits is not None else None
+    components["compute_used_usd"] = str(Decimal(compute_credits) / 100) if compute_credits is not None else None
+    components["rate_cards"] = (
+        data.get("posthog_code_compute_rate_cards")
+        if isinstance(data.get("posthog_code_compute_rate_cards"), list)
+        else None
+    )
+    components["rate_card_error"] = data.get("posthog_code_compute_rate_card_error")
+    return components
 
 
 class _TransientUpstreamError(Exception):
@@ -210,9 +251,7 @@ class QuotaResolver:
             code_usage_billing_active=bool(data.get("code_usage_billing_active")),
             used_usd=_credits_to_usd(resource.get("usage")),
             limit_usd=_credits_to_usd(resource.get("limit")),
-            posthog_code_usage=data.get("posthog_code_usage")
-            if isinstance(data.get("posthog_code_usage"), dict)
-            else None,
+            posthog_code_usage=_posthog_code_usage(data) if resource_key == "posthog_code_credits" else None,
         ), self._cache_ttl
 
     async def _get_cached(self, resource_key: str, team_id: int) -> QuotaResourceStatus | None:
