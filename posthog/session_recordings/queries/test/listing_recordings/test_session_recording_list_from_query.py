@@ -2706,6 +2706,39 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
+    def test_filter_for_recordings_with_console_logs_and_explicit_date_range(self):
+        """The console logs subquery is clamped to the query's date range (with a ±1 day
+        buffer), including an explicit `date_to` — sessions inside the range still match."""
+        create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+
+        with_logs_session_id = f"with-logs-session-{str(uuid4())}"
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=with_logs_session_id,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+            console_log_count=4,
+            log_messages={
+                "info": [
+                    "info",
+                    "info",
+                    "info",
+                ],
+            },
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "console_log_filters": '[{"key": "level", "value": ["info"], "operator": "exact", "type": "log_entry"}]',
+                "operand": "AND",
+                "date_from": "-3d",
+                "date_to": "2021-01-01",
+            },
+            [with_logs_session_id],
+        )
+
+    @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_filter_for_recordings_with_console_warns(self):
         create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
