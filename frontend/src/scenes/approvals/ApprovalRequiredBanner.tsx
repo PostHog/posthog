@@ -43,14 +43,23 @@ export function ApprovalRequiredBanner({
     )
 }
 
-export function showApprovalRequiredToast(changeRequestId: string, actionDescription?: string): void {
+export function showApprovalRequiredToast(
+    changeRequestId: string,
+    actionDescription?: string,
+    /** True when this 409 is a rejected duplicate — a request already existed, nothing new was submitted. */
+    isDuplicate?: boolean
+): void {
     lemonToast.info(
         <div>
             <strong>Approval required</strong>
             <div className="text-sm mt-1">
-                {actionDescription
-                    ? `Your request to ${actionDescription} has been submitted for approval.`
-                    : 'Your change request has been submitted for approval.'}
+                {isDuplicate
+                    ? actionDescription
+                        ? `A request to ${actionDescription} is already pending approval.`
+                        : 'A change request for this is already pending approval.'
+                    : actionDescription
+                      ? `Your request to ${actionDescription} has been submitted for approval.`
+                      : 'Your change request has been submitted for approval.'}
             </div>
             <LemonButton
                 type="secondary"

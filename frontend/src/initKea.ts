@@ -190,7 +190,9 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status)) {
+                // A 409 here is the approval workflow doing its job (change request created, or one
+                // already pending) — expected control flow, not a production exception.
+                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status) && error?.status !== 409) {
                     posthog.captureException(error)
                 }
             },

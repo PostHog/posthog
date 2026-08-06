@@ -345,7 +345,7 @@ describe('updateFeatureFlag 409 handling', () => {
             logic.actions.updateFeatureFlag({ id: 1, payload: { active } })
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(showApprovalRequiredToast).toHaveBeenCalledWith('cr-123', expected)
+            expect(showApprovalRequiredToast).toHaveBeenCalledWith('cr-123', expected, false)
         }
     )
 
