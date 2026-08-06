@@ -376,3 +376,32 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         error_body = str(response.json())
         assert "This query can't be saved" in error_body
         assert "Traceback" not in error_body
+
+    def test_mcp_update_raw_hogql_preserves_visualization_settings(self) -> None:
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {"kind": "HogQLQuery", "query": "select event from events limit 1"},
+                "display": "ActionsTable",
+                "chartSettings": {"showValuesOnSeries": True},
+                "tableSettings": {"conditionalFormatting": []},
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/",
+            data={"query": {"kind": "HogQLQuery", "query": "select distinct_id from events limit 1"}},
+            content_type="application/json",
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["query"] == {
+            "kind": "DataVisualizationNode",
+            "source": {"kind": "HogQLQuery", "query": "select distinct_id from events limit 1"},
+            "display": "ActionsTable",
+            "chartSettings": {"showValuesOnSeries": True},
+            "tableSettings": {"conditionalFormatting": []},
+        }

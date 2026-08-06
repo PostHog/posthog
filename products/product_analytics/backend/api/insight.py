@@ -1484,9 +1484,15 @@ class MCPInsightSerializer(InsightSerializer):
     def validate_query(self, value: dict[str, Any] | None) -> dict[str, Any]:
         # Raw HogQL → DataVisualizationNode
         try:
-            return schema.DataVisualizationNode(source=schema.HogQLQuery.model_validate(value)).model_dump(
+            normalized_query = schema.DataVisualizationNode(source=schema.HogQLQuery.model_validate(value)).model_dump(
                 exclude_none=True, mode="json"
             )
+            # MCP updates send only the source query, so retain wrapper-only visualization settings.
+            if self.instance is not None and isinstance(self.instance.query, dict):
+                existing_query = self.instance.query
+                if existing_query.get("kind") == "DataVisualizationNode":
+                    return {**existing_query, **normalized_query}
+            return normalized_query
         except PydanticValidationError:
             pass
 
