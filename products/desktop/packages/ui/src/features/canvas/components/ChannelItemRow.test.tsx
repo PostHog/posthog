@@ -80,7 +80,7 @@ describe("ChannelItemRow", () => {
     [
       // The run says in_progress, but nothing is streaming: a local run never
       // gets a terminal status written, and the cloud one holds in_progress past
-      // the agent. Live, but not moving — the still dot, not the pulsing one.
+      // the agent. Live, but not moving — the still dot, not the spinner.
       "a run claiming progress with nothing in flight",
       { taskRunStatus: "in_progress" as const },
       "Pending — no work in flight",

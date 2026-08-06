@@ -15,12 +15,14 @@ import {
   TONE_ICON_VAR,
   taskBadges,
 } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
+import { DotRingSpinner } from "@posthog/ui/primitives/DotRingSpinner";
 import type { ReactElement, ReactNode } from "react";
 
-// One width for every state, working included: a dot that grew while it ran
-// would start its row's label further right than its neighbours', and the icon
-// column has to hold one width or the list stops looking like a list.
 const DOT_SIZE = 8;
+// Exactly the plain dot's box. Anything larger and a working row's label starts
+// further right than its neighbours' — the icon column has to hold one width or
+// the list stops looking like a list.
+const SPINNER_SIZE = DOT_SIZE;
 // Enough to still find the dot if you look for it, not enough to count as one of
 // the list's live rows.
 const FAINT_OPACITY = 0.4;
@@ -65,6 +67,22 @@ function RowTooltip({
  */
 export function TaskStatusDot({ dot }: { dot: TaskDot }) {
   const color = DOT_TONE_VAR[dot.tone];
+  if (dot.spinner) {
+    return (
+      <RowTooltip label={dot.label} side="right">
+        <span
+          aria-label={dot.label}
+          role="img"
+          className="flex shrink-0 items-center justify-center"
+          // The spinner draws its dots in `currentColor`, so the tone is set
+          // here rather than passed down.
+          style={{ color: TONE_ICON_VAR[dot.tone], width: SPINNER_SIZE }}
+        >
+          <DotRingSpinner size={SPINNER_SIZE} />
+        </span>
+      </RowTooltip>
+    );
+  }
   return (
     <RowTooltip label={dot.label} side="right">
       <span

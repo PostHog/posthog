@@ -34,8 +34,7 @@ export type TaskStatusInput = TaskIconProps & {
  *     quiet hollow dot;
  *   - the **badges** on the right are identity — where it came from, whether it
  *     runs on this machine, and what came out of it. The PR badge carries its
- *     own colour,
- *     so PR state never needs to spend the dot.
+ *     own colour, so PR state never needs to spend the dot.
  *
  * That split is the whole point: a merged PR from Slack reads as "nothing owed"
  * (hollow dot) with a purple merge badge and a source badge, instead of
@@ -82,6 +81,12 @@ export interface TaskDot {
   /** Flashing = happening now, or wanting you now. */
   pulse: boolean;
   /**
+   * Draw as the braille dots spinner instead of one dot — still dot-shaped, so
+   * it stays in the dot column's vocabulary, but the motion is a *cycle* rather
+   * than a blink, which is the honest shape for "output is arriving".
+   */
+  spinner?: boolean;
+  /**
    * Draw the dot barely there. For states that are deliberately inert — the task
    * isn't idle waiting for you, it's been *put down* — so the row should read as
    * present but skippable rather than joining the quiet-but-live majority.
@@ -103,10 +108,10 @@ export interface TaskDot {
  *
  * A cloud run's queued is folded into working for the same reason. "Waiting on a
  * sandbox" and "a sandbox is writing code" are one fact to the reader, that it's
- * under way, so they share the pulse. Two states don't share it: a local run at
- * `queued`, whose persisted status nothing ever advances, and a run at
- * `in_progress` with nothing streaming. Both claims outlive the work, and a dot
- * that pulses forever is a lie about the machine.
+ * under way, so they share the spinner. Two states don't share it: a local run
+ * at `queued`, whose persisted status nothing ever advances, and a run at
+ * `in_progress` with nothing streaming. Both claims outlive the work, and a
+ * spinner that never stops is a lie about the machine.
  *
  * And a run that has already opened a PR is not working, whatever its status
  * says. The cloud workflow keeps the run `in_progress` while it babysits CI
@@ -114,8 +119,8 @@ export interface TaskDot {
  * enqueues the merge — so the run can claim to be working for hours after the
  * agent stopped. The PR is the deliverable; once it exists the badge carries the
  * story and the dot goes quiet. This beats a status that merely claims work, not
- * one that is visibly starting: a re-queued cloud run keeps its pulse even with
- * last run's PR still on the task.
+ * one that is visibly starting: a re-queued cloud run keeps its spinner even
+ * with last run's PR still on the task.
  */
 export function taskDot(props: TaskStatusInput): TaskDot {
   if (props.needsPermission) {
@@ -126,10 +131,10 @@ export function taskDot(props: TaskStatusInput): TaskDot {
       label: "Needs permission — blocked on you",
     };
   }
-  // Motion means something is moving on its own: a prompt in flight, or a cloud
-  // run still coming up. Cloud `queued` is a sandbox being claimed, and the
-  // backend leaves that state by itself, so the motion is bounded. A local run
-  // at `queued` is not a launch: nothing advances a local run's persisted
+  // Spinning means something is moving on its own: a prompt in flight, or a
+  // cloud run still coming up. Cloud `queued` is a sandbox being claimed, and
+  // the backend leaves that state by itself, so the motion is bounded. A local
+  // run at `queued` is not a launch: nothing advances a local run's persisted
   // status, so it can sit there for hours after the agent is done with it.
   const isStartingCloudRun =
     props.taskRunStatus === "queued" && props.workspaceMode === "cloud";
@@ -137,7 +142,8 @@ export function taskDot(props: TaskStatusInput): TaskDot {
     return {
       tone: "yellow",
       style: "solid",
-      pulse: true,
+      pulse: false,
+      spinner: true,
       label: props.isGenerating ? "Working" : "Starting",
     };
   }
