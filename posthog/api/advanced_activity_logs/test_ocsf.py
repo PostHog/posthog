@@ -18,6 +18,7 @@ class TestActivityLogOCSF(APIBaseTest):
             item_id="flag-1",
             user=self.user,
             ip_address="203.0.113.4",
+            client="posthog-python",
             detail=detail,
         )
         # Read it back so `detail` is the JSON dict the list endpoint serializes, not the dataclass
@@ -67,6 +68,19 @@ class TestActivityLogOCSF(APIBaseTest):
 
         assert event["entity"]["data"] == {"filters": {"a": 1}}
         assert event["entity_result"]["data"] == {"filters": {"a": 2}}
+
+    def test_every_required_ocsf_attribute_is_present(self):
+        # A strict OCSF consumer rejects an event missing any of these.
+        event = ActivityLogOCSFSerializer(self._log()).data
+
+        for attribute in ("metadata", "time", "class_uid", "category_uid", "type_uid", "activity_id", "severity_id"):
+            assert attribute in event, f"missing required OCSF attribute: {attribute}"
+
+    def test_client_is_reported_as_the_actor_app_rather_than_unmapped(self):
+        event = ActivityLogOCSFSerializer(self._log()).data
+
+        assert event["actor"]["app_name"] == "posthog-python"
+        assert "client" not in event["unmapped"]
 
     def test_time_is_epoch_milliseconds_and_time_dt_is_rfc3339(self):
         log = self._log()

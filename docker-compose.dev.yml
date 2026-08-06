@@ -169,7 +169,6 @@ services:
             CDP_REDIS_HOST: redis7
             CDP_VALKEY_HOST: valkey-cluster
             CDP_VALKEY_PORT: 6379
-            CDP_VALKEY_DUAL_ENABLED: 'true'
             # Encryption keys default is only set when NODE_ENV=dev, but the image uses production
             ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
             # PersonHog is required for CDP — point at the local gRPC router
