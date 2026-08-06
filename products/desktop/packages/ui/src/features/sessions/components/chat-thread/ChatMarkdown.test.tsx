@@ -15,15 +15,20 @@ describe("ChatMarkdown", () => {
 });
 
 describe("ChatStreamingMarkdown", () => {
-  it("shows the label without exposing an incomplete link destination", () => {
+  it("shows a pending link without exposing its incomplete destination", () => {
     const html = renderToStaticMarkup(
       <ChatStreamingMarkdown content="Download [the report](https://example.com/report?token=secret" />,
     );
 
-    expect(html).toContain("Download the report");
+    expect(html).toContain("Download ");
+    expect(html).toContain("the report");
     expect(html).not.toContain("example.com");
     expect(html).not.toContain("token=secret");
     expect(html).not.toContain("<a");
+    expect(html).toContain('aria-label="Link loading"');
+    expect(html).toContain("text-primary");
+    expect(html).toContain("underline");
+    expect(html).toContain("animate-spin");
   });
 
   it("renders the link when its destination is complete", () => {

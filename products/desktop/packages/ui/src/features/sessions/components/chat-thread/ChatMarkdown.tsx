@@ -1,4 +1,4 @@
-import { Check, Copy } from "@phosphor-icons/react";
+import { Check, CircleNotch, Copy } from "@phosphor-icons/react";
 import {
   Heading,
   Separator,
@@ -11,7 +11,7 @@ import {
   Text,
 } from "@posthog/quill";
 import {
-  maskOpenLinkDestination,
+  markOpenLinkDestination,
   parseOpenFence,
   splitMarkdownBlocks,
 } from "@posthog/ui/features/editor/components/splitMarkdownBlocks";
@@ -28,6 +28,8 @@ import { memo, type ReactNode, useMemo } from "react";
 import Markdown, { type Components } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
+
+const PENDING_LINK_DESTINATION = "#posthog-streaming-link";
 
 function ChatCodeBlock({
   code,
@@ -67,16 +69,29 @@ const components: Components = {
   p: ({ children }) => (
     <Text className="text-sm leading-[1.5]">{children}</Text>
   ),
-  a: ({ children, href }) => (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      className="text-primary underline underline-offset-2"
-    >
-      {children}
-    </a>
-  ),
+  a: ({ children, href }) => {
+    if (href === PENDING_LINK_DESTINATION) {
+      return (
+        <output
+          className="inline-flex items-center gap-1 text-primary underline underline-offset-2"
+          aria-label="Link loading"
+        >
+          {children}
+          <CircleNotch className="size-3 animate-spin" aria-hidden="true" />
+        </output>
+      );
+    }
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        className="text-primary underline underline-offset-2"
+      >
+        {children}
+      </a>
+    );
+  },
   img: ({ alt }) => (
     <Text className="text-muted-foreground text-sm">
       Remote image blocked{alt ? `: ${alt}` : ""}
@@ -217,7 +232,9 @@ export const ChatStreamingMarkdown = memo(function ChatStreamingMarkdown({
           <ChatMarkdown
             key={key}
             content={
-              index === lastIndex ? maskOpenLinkDestination(block) : block
+              index === lastIndex
+                ? markOpenLinkDestination(block, PENDING_LINK_DESTINATION)
+                : block
             }
           />
         );

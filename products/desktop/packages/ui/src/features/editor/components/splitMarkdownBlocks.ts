@@ -137,7 +137,10 @@ function isEscaped(src: string, index: number): boolean {
   return backslashes % 2 === 1;
 }
 
-export function maskOpenLinkDestination(src: string): string {
+function replaceOpenLinkDestination(
+  src: string,
+  replacement: (label: string) => string,
+): string {
   let cursor = 0;
 
   while (cursor < src.length) {
@@ -193,9 +196,25 @@ export function maskOpenLinkDestination(src: string): string {
     }
 
     if (destinationDepth > 0) {
-      return src.slice(0, linkStart) + src.slice(labelStart, labelEnd);
+      return (
+        src.slice(0, linkStart) + replacement(src.slice(labelStart, labelEnd))
+      );
     }
   }
 
   return src;
+}
+
+export function maskOpenLinkDestination(src: string): string {
+  return replaceOpenLinkDestination(src, (label) => label);
+}
+
+export function markOpenLinkDestination(
+  src: string,
+  pendingDestination: string,
+): string {
+  return replaceOpenLinkDestination(
+    src,
+    (label) => `[${label}](${pendingDestination})`,
+  );
 }

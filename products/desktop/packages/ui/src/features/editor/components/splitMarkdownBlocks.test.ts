@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  markOpenLinkDestination,
   maskOpenLinkDestination,
   parseOpenFence,
   splitMarkdownBlocks,
@@ -169,5 +170,21 @@ describe("maskOpenLinkDestination", () => {
     expect(
       maskOpenLinkDestination("\\![label](https://example.com/incomplete"),
     ).toBe("\\!label");
+  });
+});
+
+describe("markOpenLinkDestination", () => {
+  it("replaces an incomplete destination with a renderable pending link", () => {
+    expect(
+      markOpenLinkDestination(
+        "Here is [the file](https://example.com/long",
+        "#pending",
+      ),
+    ).toBe("Here is [the file](#pending)");
+  });
+
+  it("leaves a completed link unchanged", () => {
+    const markdown = "Here is [the file](https://example.com/file)";
+    expect(markOpenLinkDestination(markdown, "#pending")).toBe(markdown);
   });
 });
