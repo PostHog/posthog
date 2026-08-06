@@ -51,6 +51,11 @@ describe('subscriptionLogic', () => {
             get: {
                 '/api/environments/:team/subscriptions': { count: 1, results: [fixtureSubscriptionResponse(1)] },
                 '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1),
+                '/api/projects/:team/subscriptions/1/deliveries/': {
+                    next: null,
+                    previous: null,
+                    results: [],
+                },
                 '/api/projects/:team/integrations': { count: 0, results: [] },
                 '/api/environments/:team/subscriptions/summary_quota': {
                     active_count: 0,
@@ -100,6 +105,29 @@ describe('subscriptionLogic', () => {
             // write-only on the API, so the edit form defaults it on to match the create flow
             send_test_now: true,
         })
+    })
+
+    it('loads the latest delivery for the current subscription', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/subscriptions/1/deliveries/': {
+                    next: null,
+                    previous: null,
+                    results: [
+                        {
+                            id: 'delivery-1',
+                            created_at: '2026-08-06T13:00:00Z',
+                            finished_at: '2026-08-06T13:01:00Z',
+                        },
+                    ],
+                },
+            },
+        })
+
+        router.actions.push('/insights/123/subscriptions/1')
+        await expectLogic(existingLogic).toFinishListeners().toDispatchActions(['loadLastDeliverySuccess'])
+
+        expect(existingLogic.values.lastDelivery).toMatchObject({ id: 'delivery-1' })
     })
 
     it('uses the UTC weekday for legacy weekly subscriptions', async () => {

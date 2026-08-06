@@ -1,9 +1,9 @@
 import {
-    dayPickerValueToSelectedDays,
     getAiSubscriptionGate,
     getNextDeliveryDate,
-    selectedDaysToDayPickerValue,
+    selectedDaysToDayPickerLabel,
     shouldShowDayPicker,
+    toggleSelectedDay,
 } from './utils'
 
 describe('day picker values', () => {
@@ -19,24 +19,21 @@ describe('day picker values', () => {
     })
 
     it.each([
-        ['every day', ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'], 'all_days'],
-        ['weekdays', ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'], 'weekdays'],
-        ['weekend only', ['saturday', 'sunday'], 'weekends'],
-        ['a single day', ['wednesday'], 'wednesday'],
-        ['custom days', ['monday', 'wednesday'], 'custom'],
-    ] as const)('displays %s for selected days', (_label, selectedDays, expected) => {
-        expect(selectedDaysToDayPickerValue([...selectedDays])).toBe(expected)
+        [[], 'Select at least one day'],
+        [['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'], 'on Monday to Sunday'],
+        [['monday', 'tuesday', 'wednesday', 'thursday', 'friday'], 'on weekdays'],
+        [['saturday', 'sunday'], 'on weekends'],
+        [['wednesday'], 'on Wednesday'],
+        [['monday', 'wednesday'], 'on 2 days'],
+    ] as const)('summarizes %s as %s', (selectedDays, expected) => {
+        expect(selectedDaysToDayPickerLabel([...selectedDays])).toBe(expected)
     })
 
     it.each([
-        ['all_days', ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']],
-        ['weekdays', ['monday', 'tuesday', 'wednesday', 'thursday', 'friday']],
-        ['weekends', ['saturday', 'sunday']],
-        ['wednesday', ['wednesday']],
-        ['custom', []],
-        [null, []],
-    ] as const)('stores concrete days for %s', (value, expected) => {
-        expect(dayPickerValueToSelectedDays(value)).toEqual(expected)
+        ['adds another day', ['wednesday'], 'tuesday', ['tuesday', 'wednesday']],
+        ['removes a selected day', ['tuesday', 'wednesday'], 'tuesday', ['wednesday']],
+    ] as const)('%s without replacing the other selections', (_label, selectedDays, day, expected) => {
+        expect(toggleSelectedDay([...selectedDays], day)).toEqual(expected)
     })
 })
 
