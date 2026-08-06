@@ -6,6 +6,7 @@ Postgres gets ``Unknown table `orders``` and no hint that the table is one param
 that dead end into the connection id to re-run with.
 """
 
+import re
 from functools import reduce
 from operator import or_
 from typing import TYPE_CHECKING, Optional
@@ -25,6 +26,20 @@ if TYPE_CHECKING:
 # A missing-table hint is a nudge, not a catalog dump: past a handful of matches it stops helping and
 # starts crowding out the error itself.
 MAX_SUGGESTIONS = 5
+
+# Table names come from the connected database and prefixes are user-set; a member who controls a
+# shared connection could stuff newlines or a fake `</live_connection_suggestion>` close tag into
+# either, and this hint lands verbatim in another member's agent context. These are identifiers, so
+# they can't legitimately hold control characters or angle brackets — strip both and cap the length.
+_UNSAFE_METADATA_RE = re.compile(r"[\x00-\x1f\x7f<>]")
+MAX_METADATA_LENGTH = 200
+
+
+def _sanitize_metadata(value: str) -> str:
+    collapsed = re.sub(r"\s+", " ", _UNSAFE_METADATA_RE.sub(" ", value)).strip()
+    if len(collapsed) > MAX_METADATA_LENGTH:
+        collapsed = collapsed[:MAX_METADATA_LENGTH].rstrip() + "…"
+    return collapsed
 
 
 def _live_queryable_sources(team: "Team", user: Optional["User"]) -> list[ExternalDataSource]:
@@ -140,8 +155,11 @@ def build_direct_connection_suggestion(
     ]
     for requested in missing_tables:
         for table_name, source in matches.get(requested.lower(), [])[:MAX_SUGGESTIONS]:
-            prefix = f", prefix '{source.prefix}'" if source.prefix else ""
-            lines.append(f"- `{table_name}` on connectionId {source.id} ({source.source_type}{prefix})")
+            safe_prefix = _sanitize_metadata(source.prefix) if source.prefix else ""
+            prefix = f", prefix '{safe_prefix}'" if safe_prefix else ""
+            lines.append(
+                f"- `{_sanitize_metadata(table_name)}` on connectionId {source.id} ({source.source_type}{prefix})"
+            )
     lines.append(
         "List everything on a connection with `SELECT table_name FROM system.information_schema.tables` "
         "and that connectionId set."
