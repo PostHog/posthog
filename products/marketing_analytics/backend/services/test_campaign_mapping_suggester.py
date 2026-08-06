@@ -30,8 +30,7 @@ def _events(*rows: tuple[str, str, int]) -> dict[tuple[str, str], int]:
 
 
 class TestPeriodGuard:
-    """The single most important guard in the module. `brand_us_q1` vs `brand_us_q2`
-    scores ~96 on WRatio and is a different campaign."""
+    """`brand_us_q1` vs `brand_us_q2` scores ~96 on WRatio and is a different campaign."""
 
     @pytest.mark.parametrize(
         "a,b",
@@ -51,13 +50,10 @@ class TestPeriodGuard:
     @pytest.mark.parametrize(
         "a,b",
         [
-            # Real typos — the differing token is not a period.
             ("sprng_sale_2024", "spring_sale_2024"),
             ("brand_us", "brnd_us"),
-            # Identical token multiset: separator/order difference, i.e. a real match.
             ("brand_us_q1", "brand-us-q1"),
             ("brand_us_q1", "q1_us_brand"),
-            # Differs by a period token AND a real token — not purely a sibling.
             ("sprng_sale_q1", "spring_sale_q2"),
         ],
     )
@@ -80,7 +76,6 @@ class TestProposals:
         assert proposal.event_count == 1340
         assert proposal.campaign_spend == 8200.0
         assert proposal.method == "fuzzy_exact_scope"
-        # Always paired with the actual cure.
         assert proposal.expected_utm_campaign == "spring_sale_2024"
         assert proposal.expected_utm_source == "google"
 
@@ -93,8 +88,7 @@ class TestProposals:
         assert 0.5 <= proposal.confidence <= 0.9
 
     def test_proposes_the_id_when_integration_matches_on_id(self):
-        # Proposing a name while the integration joins on id writes a mapping that
-        # silently never fires, so clean_name has to follow campaign_field_preferences.
+        # A name proposed to an id-matching integration never joins.
         prefers_id = TeamMappings(
             source_to_integration={}, campaign_aliases={}, field_preferences={"google": "campaign_id"}
         )
@@ -107,10 +101,8 @@ class TestProposals:
         assert result.proposals[0].clean_name == "promo_1234x"
 
     def test_a_campaign_already_receiving_traffic_is_never_a_target(self):
-        # Mapping an orphan onto a campaign that already attributes correctly piles two
-        # campaigns' spend onto one row. The guard compared a lowercased candidate against
-        # a set built with original casing, so any campaign whose utm_campaign carries
-        # capitals slipped through it.
+        # Mixed case is the point: the guard compared a lowercased candidate against a set
+        # built with original casing.
         campaigns = [_campaign("Spring_Sale_2024", spend=8200.0)]
         utm_events = _events(
             ("Spring_Sale_2024", "google", 900),  # already linked, mixed case
@@ -122,10 +114,8 @@ class TestProposals:
         assert result.proposals == []
 
     def test_a_quarterly_family_does_not_bury_a_real_match(self):
-        # The period filter runs after ranking, so taking the top 3 first let the q2/q3/q4
-        # siblings — 93.33 each, then all discarded — fill every slot and bury the campaign
-        # that actually owns this traffic at 92.86. The orphan came back "unresolvable" while
-        # its target sat one rank below. Here the platform campaign carries the typo, not the URL.
+        # The siblings score 93.33 and the real match 92.86, so truncating to 3 before the period
+        # filter buried it. Here the platform campaign carries the typo, not the URL.
         campaigns = [
             _campaign("winter_promo_q2", campaign_id="2"),
             _campaign("winter_promo_q3", campaign_id="3"),
@@ -139,10 +129,7 @@ class TestProposals:
         assert [p.clean_name for p in result.proposals] == ["wintr_prom_q1"]
 
     def test_another_platform_traffic_does_not_veto_a_starved_candidate(self):
-        # `seen_utm_campaigns` pooled every platform, so Meta traffic on "brand" made the Google
-        # campaign of the same name look like it was already attributing and disqualified it as a
-        # target. Cross-platform name reuse (brand / retargeting / prospecting) is the norm, so the
-        # typo mapping the module exists to find was silently skipped.
+        # A global `seen` set let Meta's traffic on "brand" disqualify Google's own "brand".
         campaigns = [
             _campaign("brand", campaign_id="1", spend=9000.0, source="google"),
             _campaign("brand", campaign_id="2", spend=4000.0, source="meta"),
@@ -159,10 +146,8 @@ class TestProposals:
         ]
 
     def test_a_runner_up_below_the_cutoff_still_counts_as_ambiguity(self):
-        # The acceptance cutoff and the ambiguity margin answer different questions. Ranking with
-        # score_cutoff applied dropped every sub-cutoff candidate before the margin was measured,
-        # so a genuine near-tie looked like a lone match: reported margin 100 against a real 5.4.
-        # `uk_uss` at 90.9 with `email_uk` at 85.5 is a real pair from the scorer, not a contrivance.
+        # 90.9 and 85.5 are the scorer's real numbers: the runner-up is below the cutoff, so
+        # ranking with it applied reported margin 100 against a real 5.4.
         campaigns = [
             _campaign("uk_uss", campaign_id="1", spend=5000.0),
             _campaign("email_uk", campaign_id="2", spend=4000.0),
@@ -175,9 +160,7 @@ class TestProposals:
         assert [a.raw_utm_campaign for a in result.ambiguous] == ["uk_us"]
 
     def test_purely_numeric_id_near_miss_is_refused(self):
-        # `1234` vs `12345` is indistinguishable from one real id next to another
-        # real id. Fuzzy-matching numeric ids is how you attribute one campaign's
-        # spend to a different campaign, so it is deliberately refused.
+        # `1234` vs `12345` is indistinguishable from one real id beside another.
         prefers_id = TeamMappings(
             source_to_integration={}, campaign_aliases={}, field_preferences={"google": "campaign_id"}
         )
@@ -190,8 +173,7 @@ class TestProposals:
         assert [u.raw_utm_campaign for u in result.unresolved] == ["1234"]
 
     def test_numeric_only_typo_is_refused_and_handed_to_the_ai_layer(self):
-        # A truncated year is a real typo, but structurally identical to a sibling
-        # campaign from the next year. Refuse, and surface it as unresolved.
+        # A truncated year is a real typo, but indistinguishable from next year's campaign.
         campaigns = [_campaign("spring_sale_2024")]
         utm_events = _events(("spring_sale_202", "google", 500))
 
@@ -217,7 +199,6 @@ class TestRefusals:
         result = suggest_campaign_name_mappings(campaigns, utm_events, NO_MAPPINGS)
 
         assert result.proposals == []
-        # And it isn't reported as ambiguous either — it's simply not a match.
         assert result.ambiguous == []
         assert [u.raw_utm_campaign for u in result.unresolved] == ["brand_us_q2"]
 
@@ -254,12 +235,10 @@ class TestRefusals:
         result = suggest_campaign_name_mappings(campaigns, utm_events, mappings)
 
         assert result.proposals == []
-        assert result.total_orphans == 0
 
     def test_exact_match_of_another_integrations_campaign_is_a_collision_not_a_typo(self):
         campaigns = [_campaign("brand_global", "1", source="google"), _campaign("brand_globa", "2", source="meta")]
-        # The utm value IS meta's campaign name exactly — that's a collision for
-        # campaign_field_suggester, not something to fuzzy-map onto google's.
+        # An exact match for meta's name is a collision, not a typo.
         utm_events = _events(("brand_globa", "google", 900))
 
         result = suggest_campaign_name_mappings(campaigns, utm_events, NO_MAPPINGS)
@@ -267,8 +246,7 @@ class TestRefusals:
         assert result.proposals == []
 
     def test_will_not_map_onto_a_campaign_that_already_has_traffic(self):
-        # spring_sale_2024 is already linked under its own name; piling the orphan on
-        # top would merge two campaigns' traffic into one attributing row.
+        # spring_sale_2024 is already linked under its own name.
         campaigns = [_campaign("spring_sale_2024")]
         utm_events = _events(("spring_sale_2024", "google", 4000), ("sprng_sale_2024", "google", 900))
 
@@ -286,7 +264,6 @@ class TestRefusals:
 
         result = suggest_campaign_name_mappings(campaigns, utm_events, NO_MAPPINGS)
 
-        # Only the first (highest-volume) orphan claims the clean name.
         assert len(result.proposals) == 1
         assert result.proposals[0].observed_utm_source == "google"
 
@@ -296,8 +273,7 @@ class TestRefusals:
 
 class TestScoping:
     def test_unresolvable_source_uses_the_higher_bar_and_never_batches(self):
-        # utm_source doesn't resolve to a connected platform, so the search can't be
-        # narrowed. A match still has to be near-perfect, and can't ride the batch.
+        # utm_source resolves to no platform, so the search can't be narrowed.
         campaigns = [_campaign("spring_sale_2024")]
         utm_events = _events(("spring_sale_2024!", "some_partner", 900))
 
@@ -308,7 +284,6 @@ class TestScoping:
         assert result.proposals[0].safe_to_batch is False
 
     def test_scoped_match_ignores_other_platforms_campaigns(self):
-        # A closer string on meta must not win when the traffic is clearly google's.
         campaigns = [
             _campaign("spring_sale_2024", "1", source="google"),
             _campaign("sprng_sale_2025", "2", source="meta"),
@@ -322,10 +297,8 @@ class TestScoping:
         assert result.proposals[0].clean_name == "spring_sale_2024"
 
     def test_unscoped_refuses_a_name_two_platforms_both_run(self):
-        # "brand", "retargeting" — the names every account has. Unscoped, both platforms' copies
-        # are candidates and they're spelled identically, so the margin is 100 and the top looks
-        # unrivalled. The only thing left separating them was the highest-spend tiebreak, which
-        # says nothing about where the traffic came from.
+        # Identical spellings tie *at* the top, so the margin reads 100 and only the spend
+        # tiebreak separated them.
         campaigns = [
             _campaign("spring_sale_2024", "1", spend=9000.0, source="google"),
             _campaign("spring_sale_2024", "2", spend=4000.0, source="meta"),
@@ -339,8 +312,7 @@ class TestScoping:
         assert "GoogleAds and MetaAds" in result.ambiguous[0].reason
 
     def test_unscoped_verdict_does_not_move_with_the_budget(self):
-        # The sharp edge of the above: identical evidence, opposite spend. A verdict that flips
-        # here is one that would re-attribute a campaign when next month's budget shifts.
+        # Identical evidence, opposite spend: a verdict that flips here follows the budget.
         def integrations_for(google_spend: float, meta_spend: float) -> list[str]:
             campaigns = [
                 _campaign("spring_sale_2024", "1", spend=google_spend, source="google"),
@@ -353,8 +325,7 @@ class TestScoping:
         assert integrations_for(9000.0, 1000.0) == integrations_for(1000.0, 9000.0) == []
 
     def test_scoped_still_proposes_when_another_platform_shares_the_name(self):
-        # The guard above must not swallow the case it doesn't apply to: utm_source names google
-        # here, so the shared name isn't ambiguous at all and the proposal has to survive.
+        # utm_source names google, so the shared name isn't ambiguous and the proposal survives.
         campaigns = [
             _campaign("spring_sale_2024", "1", spend=9000.0, source="google"),
             _campaign("spring_sale_2024", "2", spend=4000.0, source="meta"),
@@ -367,7 +338,6 @@ class TestScoping:
         assert result.proposals[0].integration == "GoogleAds"
 
     def test_canonical_source_alias_still_scopes(self):
-        # 'facebook' resolves to meta's primary source, so scoping must survive it.
         campaigns = [_campaign("spring_sale_2024", source="meta")]
         utm_events = _events(("sprng_sale_2024", "facebook", 900))
 
@@ -393,10 +363,8 @@ class TestBatchSafety:
 
         proposals = suggest_campaign_name_mappings(campaigns, utm_events, NO_MAPPINGS).proposals
 
-        # Pinned rather than `[] or not safe_to_batch`: that spelling also passes when nothing is
-        # proposed at all, and when `safe_to_batch` is hardwired False. The point is that this
-        # score is high enough to propose (93.3 > 88) and too low to batch (< 95), so both halves
-        # have to be asserted.
+        # 93.3: above the proposal cutoff, below the batch bar. Both halves asserted, because
+        # `[] or not safe_to_batch` also passes when nothing is proposed.
         assert len(proposals) == 1
         assert SCORE_CUTOFF < proposals[0].score < BATCH_SCORE
         assert proposals[0].safe_to_batch is False
@@ -404,8 +372,7 @@ class TestBatchSafety:
 
 class TestScale:
     def test_stays_fast_at_the_documented_caps(self):
-        # 500 campaigns is the query's LIMIT; 100 orphans is MAX_UNMATCHED_VALUES.
-        # Scoping keeps this a single-integration search rather than 500x100 unscoped.
+        # 500 is the query's LIMIT, 100 is MAX_UNMATCHED_VALUES.
         campaigns = [_campaign(f"campaign_number_{i:04d}", str(i), spend=float(i)) for i in range(500)]
         utm_events = _events(*[(f"campaign_numbr_{i:04d}", "google", 100) for i in range(100)])
 
@@ -414,4 +381,6 @@ class TestScale:
         elapsed = time.perf_counter() - started
 
         assert elapsed < 2.0, f"took {elapsed:.2f}s"
-        assert result.orphans_considered == 100
+        # Or the timing would pass for a suggester that bailed out. All 100 land in `ambiguous`:
+        # 500 names one digit apart is a wall of near-ties, i.e. the slowest path.
+        assert len(result.proposals) + len(result.ambiguous) + len(result.unresolved) == 100

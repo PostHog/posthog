@@ -153,22 +153,15 @@ def resolve_source(utm_source: str, mappings: TeamMappings) -> str:
 
 
 def normalize_source_name(source_name: str) -> str:
-    """The canonical form of a `source_name`, for keying anything per integration.
-
-    One definition so a future tweak — trimming a suffix, folding a separator — reaches every
-    caller at once instead of the handful that remembered.
-    """
+    """Canonical form of a `source_name`, for keying anything per integration."""
     return source_name.lower().strip()
 
 
 def normalize_campaign_name(campaign_name: str) -> str:
-    """The canonical form of a campaign name or `utm_campaign` value, for comparing the two.
+    """Canonical form of a campaign name or `utm_campaign` value, for comparing the two.
 
-    Twin of `normalize_source_name`, and the reason it exists as a function: matching hinges on a
-    platform's name and a UTM tag agreeing after normalization, so the two sides have to be folded
-    the same way. Hand-written at each site they will not stay that way — the first caller to want
-    a separator folded or a prefix trimmed changes only its own copy, and the halves that stop
-    agreeing simply match nothing, silently.
+    A function rather than two method calls at each site: matching hinges on both sides folding
+    the same way, and halves that stop agreeing match nothing, silently.
     """
     return campaign_name.lower().strip()
 
@@ -181,10 +174,8 @@ def get_match_field(source_name: str, mappings: TeamMappings) -> str:
 def get_match_value_raw(campaign: Campaign, mappings: TeamMappings) -> str:
     """The platform-side value a mapping has to produce, in its original casing.
 
-    Callers writing a `campaign_name_mappings` entry need this: the stored value has to equal what
-    the platform actually calls the campaign, and the query runner joins the rewritten utm_campaign
-    against it. Proposing a name while the integration matches on id writes a mapping that silently
-    never joins, which is why the field choice lives here rather than at each call site.
+    The field choice lives here, not at each call site: proposing a name to an integration that
+    matches on id writes a mapping that never joins.
     """
     if get_match_field(campaign.source_name, mappings) == "campaign_id":
         return campaign.campaign_id.strip()
@@ -192,19 +183,14 @@ def get_match_value_raw(campaign: Campaign, mappings: TeamMappings) -> str:
 
 
 def get_match_value(campaign: Campaign, mappings: TeamMappings) -> str:
-    """`get_match_value_raw`, lowercased for comparison against utm_campaign values.
-
-    Derived rather than reimplemented: the casing is the only difference, and a second copy of the
-    field choice is how the two answers drift.
-    """
+    """`get_match_value_raw`, lowercased for comparison against utm_campaign values."""
     return normalize_campaign_name(get_match_value_raw(campaign, mappings))
 
 
 def group_campaigns_by_source(campaigns: list[Campaign]) -> dict[str, list[Campaign]]:
     """Campaigns keyed by normalized `source_name`, skipping any that don't name one.
 
-    Both suggesters work per integration and each had written this; a campaign with a blank source
-    silently belonging to a `""` group is the sort of thing only one copy would grow a guard for.
+    Skipping matters: a blank source would otherwise collect its own `""` group.
     """
     grouped: dict[str, list[Campaign]] = {}
     for campaign in campaigns:

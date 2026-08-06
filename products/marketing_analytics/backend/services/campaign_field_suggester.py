@@ -1,17 +1,8 @@
-"""Suggest `campaign_field_preferences` — should an integration match campaigns by
-name or by id?
+"""Should an integration match campaigns by name or by id?
 
-Ad platforms differ in what they put in `utm_campaign`: some auto-tag the campaign
-name, some the numeric id, and Google's auto-tagging depends on the template the
-account configured. Get it wrong and `match_key` never joins, so spend lands on one
-row and conversions on another and every ROAS on the dashboard is wrong — see the
-join in `marketing_analytics_table_query_runner`.
-
-The decision is pure arithmetic over data the audit already fetched: count how much
-*spend* would match under each field and pick the winner. No LLM: an LLM would be
-strictly worse at this and non-reproducible.
-
-Pure function, no queries. Feed it `get_campaigns_with_spend` and
+Platforms differ in what they auto-tag into `utm_campaign`. Get it wrong and `match_key`
+never joins, so spend lands on one row and conversions on another. Decided on
+spend-weighted match rates. Pure function over `get_campaigns_with_spend` and
 `get_utm_campaign_catalogue` output.
 """
 
@@ -41,46 +32,33 @@ from products.marketing_analytics.backend.services.utm_matching import (
 
 logger = structlog.get_logger(__name__)
 
-# Below this, one campaign flips the rate and the "winner" is noise.
 MIN_CAMPAIGNS = 5
 
-# Several adapters emit an empty `campaign_id`. Recommending id-matching when the
-# ids aren't even populated is a guaranteed regression, so require most rows to
-# actually carry one.
+# Several adapters emit an empty `campaign_id`; suggesting id-matching there is a regression.
 MIN_ID_COVERAGE = 0.8
 
-# The suggested field must beat the current one by this much, and clear this floor
-# on its own. Both are needed: +20pp is meaningless if it's 5% -> 25%.
+# Both are needed: +20pp is meaningless if it's 5% -> 25%.
 MIN_SPEND_RATE_DELTA = 0.15
 MIN_SUGGESTED_SPEND_RATE = 0.50
 
-# "Apply all safe" thresholds — deliberately far above the suggest thresholds.
 BATCH_MIN_DELTA = 0.30
 BATCH_MIN_SUGGESTED_RATE = 0.70
 BATCH_MIN_ID_COVERAGE = 0.95
 
-# Confidence floor/ceiling. Never 1.0: this is a spend-weighted sample of the top
-# 500 campaigns, not a proof.
+# Never 1.0: this is a spend-weighted sample of the top 500 campaigns, not a proof.
 MIN_CONFIDENCE = 0.55
 MAX_CONFIDENCE = 0.95
 
-# A name collision can't be resolved by arithmetic — two platforms genuinely share
-# a campaign name, so name-matching is ambiguous however good its hit rate looks.
-# Surfaced at low confidence so a human decides.
+# Arithmetic can't settle a collision: two platforms really do share the name.
 COLLISION_CONFIDENCE = 0.4
 
-# Cap the examples embedded in a suggestion so the payload stays readable.
 MAX_EXAMPLE_CAMPAIGNS = 5
 
 
 @dataclass
 class MatchRates:
-    """How well one candidate field matches the UTM catalogue, by spend and by count.
-
-    Spend is the metric that decides — a hundred matched $0 campaigns don't make up
-    for one unmatched $40k campaign — but the count is reported alongside it because
-    a big disagreement between the two is worth a human's attention.
-    """
+    """How well one candidate field matches the catalogue. Spend decides; count is reported
+    because a big disagreement between the two is worth a human's attention."""
 
     match_field: str
     spend_rate: float
@@ -100,24 +78,15 @@ class FieldPreferenceSuggestion:
     suggested: MatchRates
     campaigns_considered: int
     total_spend: float
-    # Spend on campaigns that don't match under the *current* field — the size of the problem.
-    # Not the same as the size of the fix: see `spend_recovered`.
     spend_at_risk: float
-    # Spend that switching actually reconnects, i.e. what the suggested field matches minus what the
-    # current one already does. This is the ranking key: a big integration whose suggested field
-    # barely helps should not outrank a smaller one the switch nearly repairs, which is what keying
-    # on `spend_at_risk` did. Can be <= 0 on the collision path, where the arithmetic does not favour
-    # switching and the case for it is structural ambiguity rather than recovered spend.
+    # The ranking key, so a switch that barely helps a big integration can't outrank one that
+    # nearly repairs a small one. Can be <= 0 on the collision path.
     spend_recovered: float
     confidence: float
     safe_to_batch: bool
     reason: str
-    # True when this came from a cross-platform name collision rather than from the
-    # spend delta — the fix is the same, but the evidence and confidence differ.
     triggered_by_collision: bool = False
     colliding_integrations: list[str] = field(default_factory=list)
-    # Campaigns still unmatched even after switching. These need their ad URLs
-    # fixed; no mapping or preference change reaches them.
     still_unmatched_examples: list[str] = field(default_factory=list)
 
 
@@ -129,16 +98,9 @@ def suggest_campaign_field_preferences(
 ) -> list[FieldPreferenceSuggestion]:
     """Per integration, compare name-matching vs id-matching and suggest the winner.
 
-    `audit_results` is optional; without it the cross-platform name-collision
-    override is skipped (the audit is what detects collisions).
-
-    Manual `campaign_name_mappings` are deliberately excluded from both rates: they
-    rewrite whichever field is preferred, so counting them would credit one side for
-    something both sides get, and inflate the current field's apparent hit rate.
-
-    Rates are scoped per integration by resolved `utm_source`, because the table groups
-    cost and conversions on a `(campaign, source)` row key — a rate pooled across every
-    platform would not describe what the dashboard actually attributes.
+    Manual `campaign_name_mappings` are excluded from both rates: they rewrite whichever field is
+    preferred, so counting them credits one side for a hit both get. Rates are scoped per
+    integration because the table groups on a `(campaign, source)` row key.
     """
     values_by_source = _utm_values_by_source(utm_events, mappings)
     collisions_by_source = _collisions_by_source(audit_results or [])
@@ -155,8 +117,7 @@ def suggest_campaign_field_preferences(
         if suggestion is not None:
             suggestions.append(suggestion)
 
-    # Biggest actual recovery first — not the biggest current gap, which ranked an integration the
-    # switch barely helps above one it nearly fixes. `integration` breaks ties so output is stable.
+    # By recovery, not by the current gap. `integration` breaks ties so output is stable.
     suggestions.sort(key=lambda s: (-s.spend_recovered, s.integration))
     return suggestions
 
@@ -167,29 +128,17 @@ def _utm_values_by_source(
 ) -> dict[str, set[str]]:
     """Primary source -> the `utm_campaign` values that arrived tagged as that integration.
 
-    Resolution goes through `resolve_source`, the same path the audit and the real query use,
-    so a team custom mapping and a canonical default alias ('fb' -> meta) both count. A source
-    that resolves to nothing is credited to nobody: in the table its traffic lands on its own
-    row rather than the platform's, so counting it here would claim spend is attributed when
-    it isn't. Such a platform reports a 0 rate, which is the truth — the fix it needs is a
-    source mapping, which the plan suggests separately.
-
-    Both halves of the key are folded the same way `_candidate_value` folds the campaign side.
-    `get_utm_campaign_catalogue` happens to lowercase already, but that is the caller's habit
-    rather than this function's contract, and the campaign side is folded unconditionally — so a
-    caller passing raw platform values would have every MixedCase name read as unmatched. That
-    reads as "campaign_name matches 0% of spend" for an integration tagged perfectly, which is
-    exactly the false switch this module exists to avoid.
+    A source resolving to nothing is credited to nobody: its traffic lands on its own table row,
+    so counting it here would claim spend is attributed when it isn't. Both halves are folded like
+    `_candidate_value` folds the campaign side — folding one made a perfectly tagged MixedCase
+    account read as matching 0% of its spend.
     """
     aliased = {raw for raws in mappings.campaign_aliases.values() for raw in raws}
 
     values: dict[str, set[str]] = {}
     for (utm_campaign, utm_source), _ in utm_events.items():
         value = normalize_campaign_name(utm_campaign)
-        # A value a manual `campaign_name_mappings` entry already rewrites resolves to its
-        # campaign whichever field is preferred — `build_campaign_lookup` keys aliases off the
-        # campaign name, not the match field. Counting it credits whichever side it happens to
-        # spell like, so it inflates one rate over a hit both sides already get.
+        # An aliased value resolves under either field, so counting it credits one side unfairly.
         if not value or value in aliased:
             continue
         primary = resolve_source(normalize_source_name(utm_source), mappings)
@@ -214,8 +163,6 @@ def _rates_for(group: list[Campaign], utm_campaign_values: set[str], match_field
     matched_spend = sum(c.spend for c in matched)
     return MatchRates(
         match_field=match_field,
-        # A group only reaches here with spend > 0 (the query filters on it), but
-        # guard anyway so a future caller can't divide by zero.
         spend_rate=(matched_spend / total_spend) if total_spend > 0 else 0.0,
         count_rate=(len(matched) / len(group)) if group else 0.0,
         matched_spend=matched_spend,
@@ -225,8 +172,6 @@ def _rates_for(group: list[Campaign], utm_campaign_values: set[str], match_field
 
 def _candidate_value(campaign: Campaign, match_field: str) -> str:
     raw = campaign.campaign_id if match_field == "campaign_id" else campaign.campaign_name
-    # Empty never matches: `utm_campaign_values` excludes the empty string, but being
-    # explicit keeps an empty id from silently counting as a hit if that changes.
     return normalize_campaign_name(raw)
 
 
@@ -246,7 +191,6 @@ def _suggest_for_integration(
 ) -> FieldPreferenceSuggestion | None:
     native = native_for_primary_source(source_name)
     if native is None:
-        # Not a native integration we can write `campaign_field_preferences` for.
         logger.debug("campaign_field_suggester.unknown_source", source_name=source_name)
         return None
 
@@ -255,10 +199,8 @@ def _suggest_for_integration(
 
     current_field = get_match_field(source_name, mappings)
 
-    # Matching on campaign_id is the cure for a name collision, so once a team is already on it
-    # a collision is not evidence of anything to change. Without this the target field — derived
-    # as "whatever isn't current" — came out as campaign_name, and the override below would
-    # cheerfully suggest reintroducing the ambiguity it fired about.
+    # id-matching is the cure for a collision, so a team already on it has nothing to change.
+    # Otherwise the target field, "whatever isn't current", suggests reintroducing the ambiguity.
     if colliding_integrations and current_field == "campaign_id":
         return None
 
@@ -289,8 +231,6 @@ def _suggest_for_integration(
         reason = _delta_reason(display_name, current, suggested, total_spend)
         triggered_by_collision = False
     else:
-        # Collision-only: the arithmetic doesn't favour switching, but name matching
-        # is structurally ambiguous here. Never batched — a human should look.
         confidence = COLLISION_CONFIDENCE
         safe_to_batch = False
         reason = _collision_reason(display_name, sorted(colliding_integrations), group, utm_campaign_values)
@@ -342,8 +282,7 @@ def _delta_reason(display_name: str, current: MatchRates, suggested: MatchRates,
         f"({_money(suggested.matched_spend)} of {_money(total_spend)}) vs "
         f"{_pct(current.spend_rate)} for {current.match_field}."
     )
-    # Flag a big spend/count disagreement: it usually means one very expensive
-    # campaign is carrying the verdict, which a reviewer should know.
+    # A big spend/count gap usually means one expensive campaign is carrying the verdict.
     if abs(suggested.spend_rate - suggested.count_rate) >= 0.25:
         reason += (
             f" By campaign count the gap is smaller ({_pct(suggested.count_rate)} vs "
@@ -353,12 +292,8 @@ def _delta_reason(display_name: str, current: MatchRates, suggested: MatchRates,
 
 
 def _display_name_for_source(source_name: str) -> str:
-    """Primary source key -> the name a human recognises, e.g. "meta" -> "Meta Ads".
-
-    Collisions arrive from the audit as raw keys while the subject integration is already rendered
-    through `display_name_for_key`, so without this one sentence mixes both vocabularies. Falls back
-    to the raw key rather than dropping a platform we can't resolve.
-    """
+    """Primary source key -> the name a human recognises. Collisions arrive as raw keys while the
+    subject is already rendered, so without this one sentence mixes both vocabularies."""
     native = native_for_primary_source(source_name)
     return display_name_for_key(NATIVE_TO_KEY[native]) if native is not None else source_name
 
@@ -369,9 +304,7 @@ def _collision_reason(
     group: list[Campaign],
     utm_campaign_values: set[str],
 ) -> str:
-    # Campaigns whose name IS in the catalogue — those are the ones a shared name can misattribute.
-    # This read `not in` before, which counted the campaigns receiving no traffic at all and so
-    # reported "0 campaign(s) worth $0.00" in precisely the collision case it exists to describe.
+    # `in`, not `not in`: a shared name only misattributes campaigns that receive traffic.
     affected = [c for c in group if _candidate_value(c, DEFAULT_MATCH_FIELD) in utm_campaign_values]
     others = ", ".join(_display_name_for_source(source) for source in colliding) or "another integration"
     return (
