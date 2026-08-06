@@ -10,33 +10,32 @@ from rest_framework.request import Request
 
 from posthog.constants import AvailableFeature
 from posthog.models.identity_provider_config import IdentityProviderConfig
-from posthog.models.organization_domain import OrganizationDomain
 
 
 class SCIMAuthToken:
     """
-    Wrapper class to make OrganizationDomain compatible with DRF's authentication system.
+    Wrapper class to make IdentityProviderConfig compatible with DRF's authentication system.
     DRF expects request.user to have is_authenticated property.
     """
 
-    def __init__(self, domain: OrganizationDomain):
-        self.domain = domain
+    def __init__(self, config: IdentityProviderConfig):
+        self.config = config
         self.is_authenticated = True
         self.is_active = True
         self.pk = None  # SCIM auth doesn't have a user PK
         self.id = None
 
     def __str__(self):
-        return f"SCIMAuth({self.domain.domain})"
+        return f"SCIMAuth({self.config.scim_slug})"
 
 
 class SCIMBearerTokenAuthentication(BaseAuthentication):
     """
     SCIM authentication using bearer tokens.
-    Each linked IdentityProviderConfig has its own SCIM bearer token for tenant isolation.
+    Each IdentityProviderConfig has its own SCIM bearer token and `scim_slug` for tenant isolation.
     """
 
-    def authenticate(self, request: Request) -> Optional[tuple[SCIMAuthToken, OrganizationDomain]]:
+    def authenticate(self, request: Request) -> Optional[tuple[SCIMAuthToken, IdentityProviderConfig]]:
         if not request.path.startswith("/scim/"):
             return None
 
@@ -55,21 +54,22 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
             # nosemgrep: idor-lookup-without-org (SCIM bearer token auth, config slug is tenant identifier)
             config = IdentityProviderConfig.objects.select_related("organization").get(scim_slug=scim_slug)
         except IdentityProviderConfig.DoesNotExist:
-            raise exceptions.AuthenticationFailed("Invalid organization domain")
+            raise exceptions.AuthenticationFailed("Invalid SCIM slug")
 
-        # A config can back multiple domains. SCIM uses one verified domain for request scoping,
-        # while the config remains the source of truth for the slug and bearer token.
-        domain = config.domains.filter(verified_at__isnull=False).order_by("id").first()
-        if domain is None or not config.has_scim or not config.scim_bearer_token:
-            raise exceptions.AuthenticationFailed("SCIM not configured for this domain")
+        hashed_token = config.scim_bearer_token
+        # SCIM stays gated behind domain verification, which the config API doesn't check. Any of the
+        # config's verified domains admits the request — it names a config, not one of the domains
+        # behind it — so the config, and its organization, is what scopes the request from here.
+        if not config.has_scim or not hashed_token or not config.domains.filter(verified_at__isnull=False).exists():
+            raise exceptions.AuthenticationFailed("SCIM is not enabled on a verified domain for this configuration")
 
         if not config.organization.is_feature_available(AvailableFeature.SCIM):
             raise exceptions.AuthenticationFailed("Your organization does not have the required license to use SCIM")
 
-        if not check_password(token, config.scim_bearer_token):
+        if not check_password(token, hashed_token):
             raise exceptions.AuthenticationFailed("Invalid bearer token")
 
-        return (SCIMAuthToken(domain), domain)
+        return (SCIMAuthToken(config), config)
 
     def _extract_scim_slug_from_path(self, path: str) -> Optional[str]:
         """

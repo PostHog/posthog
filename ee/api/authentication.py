@@ -2,6 +2,7 @@ import re
 import json
 import base64
 from typing import Any, Literal, TypedDict, Union, cast
+from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http.response import HttpResponse
@@ -46,7 +47,7 @@ from ee.api.vercel.utils import get_vercel_jwks
 saml_logger = structlog.get_logger("posthog.auth.saml")
 
 
-def _saml_log_context(email: str, organization_domain: OrganizationDomain | None = None) -> dict[str, Any]:
+def _saml_log_context(email: str, organization_id: UUID | None = None) -> dict[str, Any]:
     from posthog.models.user import User
 
     ctx: dict[str, Any] = {
@@ -58,10 +59,8 @@ def _saml_log_context(email: str, organization_domain: OrganizationDomain | None
         user = User.objects.filter(email__iexact=email).first()
         if user:
             ctx["user_id"] = str(user.id)
-            if organization_domain:
-                membership = user.organization_memberships.filter(
-                    organization_id=organization_domain.organization_id,
-                ).first()
+            if organization_id:
+                membership = user.organization_memberships.filter(organization_id=organization_id).first()
                 ctx["membership_level"] = membership.get_level_display() if membership else "none"
         else:
             ctx["user_id"] = "unknown"
@@ -111,16 +110,16 @@ class MultitenantSAMLAuth(SAMLAuth):
         SP-initiated logins carry a RelayState holding the linked IdP config's identifier, which
         is how we route an assertion to the right tenant. IdP-initiated logins don't: the IdP
         either omits RelayState (Azure AD) or sends its own value (e.g. an app URL). When the
-        RelayState doesn't map to a verified domain, recover the tenant from the Response's
-        <Issuer> (the IdP entity ID, stored on the linked `IdentityProviderConfig` as
-        `saml_entity_id`) and inject a RelayState so the rest of the flow proceeds unchanged.
+        RelayState doesn't map to a config, recover the tenant from the Response's <Issuer> (the
+        IdP entity ID, stored on the `IdentityProviderConfig` as `saml_entity_id`) and inject a
+        RelayState so the rest of the flow proceeds unchanged.
         """
         data = self.strategy.request_data()
         saml_response = data.get("SAMLResponse")
         if not saml_response:
             return
 
-        if self._relay_state_points_to_domain(data.get("RelayState")):
+        if self._relay_state_points_to_config(data.get("RelayState")):
             return  # SP-initiated: RelayState already identifies the tenant
 
         issuer = self._extract_response_issuer(saml_response)
@@ -143,30 +142,23 @@ class MultitenantSAMLAuth(SAMLAuth):
             return
 
         idp_config = configs[0]
-        if not idp_config.has_saml or not idp_config.saml_relay_state:
-            return
-
-        organization_domain = idp_config.domains.filter(verified_at__isnull=False).first()
-        if organization_domain is None:
+        relay_state = idp_config.saml_relay_state
+        if not idp_config.has_saml or not relay_state:
             return
 
         saml_logger.info(
             "saml_idp_initiated_relay_state_recovered",
-            domain=organization_domain.domain,
+            identity_provider_config_id=str(idp_config.id),
             organization_id=str(idp_config.organization_id),
         )
         # Inject the config identifier so the standard flow can route the response to the tenant.
-        relay_state = idp_config.saml_relay_state
-        if not relay_state:
-            return
-
         strategy = cast(DjangoStrategy, self.strategy)
         mutable_post = strategy.request.POST.copy()
         mutable_post["RelayState"] = relay_state
         # django-stubs types request.POST as immutable; reassigning it is valid at runtime.
         strategy.request.POST = mutable_post  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
-    def _relay_state_points_to_domain(self, relay_state_str: str | None) -> bool:
+    def _relay_state_points_to_config(self, relay_state_str: str | None) -> bool:
         if not relay_state_str:
             return False
         candidate = self.parse_relay_state(relay_state_str).get("idp")
@@ -175,8 +167,11 @@ class MultitenantSAMLAuth(SAMLAuth):
         try:
             # nosemgrep: idor-lookup-without-org (pre-auth SAML routing check by IdP config identifier)
             return (
-                OrganizationDomain.objects.verified_domains()
-                .filter(identity_provider_config__saml_relay_state=candidate)
+                IdentityProviderConfig.objects.filter(
+                    saml_relay_state=candidate,
+                    domains__verified_at__isnull=False,
+                )
+                .distinct()
                 .exists()
             )
         except (DjangoValidationError, ValueError):
@@ -263,7 +258,7 @@ class MultitenantSAMLAuth(SAMLAuth):
             "saml_auth_redirect",
             domain=instance.domain,
             organization_id=str(instance.organization_id),
-            **_saml_log_context(email, instance),
+            **_saml_log_context(email, instance.organization_id),
         )
         auth = self._create_saml_auth(idp=self.get_idp(instance))
         # `return_to` sets the RelayState, a value the IdP echoes back in its POST to the
@@ -375,16 +370,20 @@ class MultitenantSAMLAuth(SAMLAuth):
             )
             raise AuthFailed(self, "Authentication request is invalid. Invalid IdP identifier.")
 
-        verified_domains = idp_config.domains.filter(verified_at__isnull=False).order_by("id")
-        organization_domain = verified_domains.filter(domain__iexact=email.split("@")[-1]).first()
-        if organization_domain is not None:
+        # A config can back several verified domains, and an assertion is valid for any of them.
+        configured_domains = {
+            domain.lower()
+            for domain in idp_config.domains.filter(verified_at__isnull=False).values_list("domain", flat=True)
+        }
+        if email.rsplit("@", 1)[-1].lower() in configured_domains:
             return
 
-        configured_domain = verified_domains.first()
-        if configured_domain is None:
+        if not configured_domains:
+            # SAML stays gated behind domain verification, so a config that backs none can't
+            # authorize anyone, whatever its RelayState resolves to.
             saml_logger.warning(
                 "saml_email_domain_validation_failed",
-                reason="invalid_idp",
+                reason="no_verified_domain",
                 idp_id=str(idp_name),
                 **_saml_log_context(email),
             )
@@ -392,9 +391,9 @@ class MultitenantSAMLAuth(SAMLAuth):
 
         saml_logger.warning(
             "saml_email_domain_mismatch",
-            configured_domain=configured_domain.domain,
+            configured_domains=sorted(configured_domains),
             organization_id=str(idp_config.organization_id),
-            **_saml_log_context(email, configured_domain),
+            **_saml_log_context(email, idp_config.organization_id),
         )
         raise AuthFailed(
             self,

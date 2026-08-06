@@ -6,11 +6,14 @@ SCIM 2.0 (System for Cross-domain Identity Management) enables automated user pr
 
 ## Architecture
 
-### Domain-Level Tenancy
+### IdP-Config-Level Tenancy
 
-- SCIM configuration is stored on the linked `IdentityProviderConfig`
+- SCIM configuration is stored on the `IdentityProviderConfig`
 - Each identity provider configuration has a bearer token and `scim_slug` for authentication
-- URL structure: `/scim/v2/{scim_slug}/Users`, where `scim_slug` comes from the linked `IdentityProviderConfig`
+- URL structure: `/scim/v2/{scim_slug}/Users`, where `scim_slug` comes from the `IdentityProviderConfig`
+- The config is the SCIM tenant: it can back several `OrganizationDomain` rows, and a request names
+  none of them, so requests are scoped by the config's organization. SCIM still requires at least
+  one verified domain on the config
 - Ensures tenant isolation matching existing SAML implementation
 
 ### User Provisioning Strategy
@@ -39,6 +42,8 @@ SCIM 2.0 (System for Cross-domain Identity Management) enables automated user pr
 ### Models
 
 - `posthog/models/identity_provider_config.py` - Stores `scim_enabled`, `scim_bearer_token`, and `scim_slug`
+- `ee/models/scim_provisioned_user.py` - One provisioning record per (user, config)
+- `ee/models/scim_request_log.py` - Request log per config, listed per domain in the UI
 
 ### Core SCIM Implementation (`ee/api/scim/`)
 
@@ -136,9 +141,10 @@ Response mirrors JIT disabling: `scim_enabled` becomes `false` and no token is r
 
 1. IdP makes request to SCIM endpoint with `Authorization: Bearer {token}`
 2. `SCIMBearerTokenAuthentication` extracts `scim_slug` from the URL
-3. Retrieves the linked `OrganizationDomain` and validates the configuration token (hashed comparison)
-4. Returns domain as `request.auth` for tenant scoping
-5. Views filter all queries by `organization_domain.organization`
+3. Retrieves the `IdentityProviderConfig` with that slug, requires SCIM enabled on at least one
+   verified domain, and validates the token (hashed comparison)
+4. Returns the config as `request.auth` for tenant scoping
+5. Views filter all queries by `config.organization`
 
 ## PATCH Operations Support
 
@@ -238,10 +244,11 @@ org.save()
 Get the bearer token and base URL from Settings → Authentication domains or via Django shell:
 
 ```python
-token = enable_scim_for_config(domain.idp_config)
+config = domain.identity_provider_config
+token = enable_scim_for_config(config)
 print(f"Bearer Token: {token}")
 
-scim_url = get_scim_base_url(domain)
+scim_url = get_scim_base_url(config)
 print(f"SCIM Base URL: {scim_url}")
 ```
 

@@ -452,6 +452,30 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
         self.assertEqual(idp.name, config.saml_relay_state)
 
+    def test_saml_assertion_accepts_any_verified_domain_on_the_config(self):
+        # An assertion carries the config's identifier, not a domain, so it is valid for every domain
+        # the config backs. Checking the email against a single one of them locks out everyone on the
+        # others.
+        config = self.organization_domain.identity_provider_config
+        assert config is not None
+        config.refresh_from_db()
+        OrganizationDomain.objects.create(
+            domain="posthog.co.uk",
+            verified_at=timezone.now(),
+            organization=self.organization,
+            identity_provider_config=config,
+        )
+
+        auth = object.__new__(MultitenantSAMLAuth)
+        details = auth.get_user_details(
+            {
+                "idp_name": config.saml_relay_state,
+                "attributes": {"email": ["engineering@posthog.co.uk"]},
+            }
+        )
+
+        self.assertEqual(details["email"], "engineering@posthog.co.uk")
+
     def test_can_initiate_saml_flow(self):
         response = self.client.get("/login/saml/?email=hellohello@posthog.com")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
