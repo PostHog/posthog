@@ -1,6 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -285,7 +286,7 @@ describe('replayScannerLogic', () => {
             teamLogic.mount()
         })
 
-        it('restores drafted values when the wizard remounts, keeping the unsaved-changes guard armed', async () => {
+        it('restores drafted values when the wizard remounts, still diverging from the saved scanner', async () => {
             logic.actions.setScannerValues({ name: 'Half done', scanner_config: { prompt: 'Find rage clicks' } })
             logic.unmount()
             logic = replayScannerLogic({ id: 'new' })
@@ -297,12 +298,88 @@ describe('replayScannerLogic', () => {
 
         it.each([
             ['scannerSaved', () => logic.actions.scannerSaved(logic.values.scanner!)],
-            ['resetScanner', () => logic.actions.resetScanner()],
+            ['startFromTemplate', () => logic.actions.startFromTemplate(null)],
+            ['discardScannerDraft', () => logic.actions.discardScannerDraft()],
         ])('clears the draft on %s', async (_label, act) => {
             const teamId = teamLogic.values.currentTeamId!
             logic.actions.setScannerValues({ name: 'Drafted' })
-            expect(readScannerDraft(teamId)?.name).toBe('Drafted')
+            expect(readScannerDraft(teamId)?.scanner.name).toBe('Drafted')
             act()
+            expect(readScannerDraft(teamId)).toBeNull()
+        })
+
+        it('persists a type switch, so a reload does not restore the old type', async () => {
+            const teamId = teamLogic.values.currentTeamId!
+            logic.actions.setScannerValues({ name: 'Drafted' })
+            logic.actions.setScannerType('summarizer')
+            expect(readScannerDraft(teamId)?.scanner.scanner_type).toBe('summarizer')
+        })
+
+        it('keeps the draft on resetScanner, so leaving the editor stays resumable', async () => {
+            const teamId = teamLogic.values.currentTeamId!
+            logic.actions.setScannerValues({ name: 'Drafted' })
+            logic.actions.resetScanner()
+            expect(readScannerDraft(teamId)?.scanner.name).toBe('Drafted')
+        })
+
+        it('discards back to the loaded baseline, so the leave guard stays disarmed', async () => {
+            router.actions.push(urls.replayVisionScannerTemplate('new'), { template: 'dead_end' })
+            logic.unmount()
+            logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const baseline = logic.values.scanner!.name
+
+            logic.actions.setScannerValues({ name: 'Drafted' })
+            logic.actions.discardScannerDraft()
+            expect(logic.values.scanner!.name).toBe(baseline)
+            expect(logic.values.hasUnsavedChanges).toBe(false)
+        })
+
+        it('does not restamp the draft when restoring it, so it still ages out', async () => {
+            const teamId = teamLogic.values.currentTeamId!
+            logic.actions.setScannerValues({ name: 'Half done' })
+            const savedAt = readScannerDraft(teamId)!.savedAt
+            logic.unmount()
+            logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(readScannerDraft(teamId)!.savedAt).toBe(savedAt)
+        })
+
+        it('announces the draft on the way out, once an edit has been saved', async () => {
+            const info = jest.spyOn(lemonToast, 'info')
+            logic.actions.setScannerValues({ name: 'Drafted' })
+            logic.unmount()
+            expect(info).toHaveBeenCalledWith(
+                'Draft saved',
+                expect.objectContaining({ button: expect.objectContaining({ label: 'Resume' }) })
+            )
+            info.mockRestore()
+        })
+
+        it('stays quiet on the way out when the draft was only restored', async () => {
+            logic.actions.setScannerValues({ name: 'Drafted' })
+            logic.unmount()
+            logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const info = jest.spyOn(lemonToast, 'info')
+            logic.unmount()
+            expect(info).not.toHaveBeenCalled()
+            info.mockRestore()
+        })
+
+        it('clears a resumed draft when its edits are undone back to the starting point', async () => {
+            const teamId = teamLogic.values.currentTeamId!
+            const original = logic.values.scanner!.name
+            logic.actions.setScannerValues({ name: 'Drafted' })
+            logic.unmount()
+            logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setScannerValues({ name: original })
             expect(readScannerDraft(teamId)).toBeNull()
         })
     })
@@ -670,12 +747,19 @@ describe('replayScannerLogic', () => {
         const template = urls.replayVisionScannerTemplate(scannerId)
         const selfDriving = urls.replayVisionScannerSelfDriving(scannerId)
         const detail = urls.replayVision(scannerId)
-        const base = { hasUnsavedChanges: true, isSubmitting: false, scannerId, currentPathname: configure }
+        const base = {
+            hasUnsavedChanges: true,
+            isSubmitting: false,
+            hasSavedDraft: false,
+            scannerId,
+            currentPathname: configure,
+        }
 
         it.each([
             // Nothing to lose, or the editor is mid-submit (save / step advance redirects itself).
             ['no unsaved changes', { ...base, hasUnsavedChanges: false, nextPathname: '/insights' }, false],
             ['mid-submit redirect to detail', { ...base, isSubmitting: true, nextPathname: detail }, false],
+            ['edits already saved as a draft', { ...base, hasSavedDraft: true, nextPathname: '/insights' }, false],
             // Moving between the wizard's own steps keeps the same draft mounted.
             ['forward to triggers step', { ...base, nextPathname: triggers }, false],
             ['back to template step', { ...base, currentPathname: triggers, nextPathname: template }, false],
