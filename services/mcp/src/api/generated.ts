@@ -15508,6 +15508,8 @@ export namespace Schemas {
     export interface CommentSlackThreadRef {
       /** Slack channel ID this discussion is mirrored to. */
       channel_id: string;
+      /** Slack channel name resolved from Slack when the discussion was sent (no leading #). Empty for private channels and when unknown; may lag behind a rename in Slack. */
+      channel_name: string;
       /** Deep link that opens the mirrored Slack thread. */
       url: string;
     }
@@ -15563,6 +15565,8 @@ export namespace Schemas {
       readonly integration: number;
       /** Slack channel the mirrored thread lives in. */
       readonly slack_channel_id: string;
+      /** Slack channel name resolved from Slack at send time (no leading #). Empty for private channels and when unknown. */
+      readonly slack_channel_name: string;
       /** Slack thread timestamp anchoring the mirrored thread. */
       readonly slack_thread_ts: string;
       /**
@@ -66582,7 +66586,7 @@ export namespace Schemas {
       /** ID of the Slack integration (kind='slack') whose bot posts the thread. */
       integration_id: number;
       /**
-         * Slack channel ID to create the mirrored thread in. The bot must be a member of the channel.
+         * Slack channel ID to create the mirrored thread in. The bot must be a member of the channel. The channel's display name is resolved server-side.
          * @maxLength 255
          */
       channel_id: string;
@@ -75812,18 +75816,22 @@ export namespace Schemas {
      * Request body for warming a full idling Run while composing a Code-app cloud task.
      *
      * Collection-level: no task exists yet at typing time. The warmer births a draft Task and an
-     * interactive Run that boots, clones, checks out `branch`, and starts the agent, then idles awaiting
-     * the first message. `github_integration` is a plain integration PK (an integer); the view re-scopes
-     * it to the caller's team before use.
+     * interactive Run that boots and starts the agent, optionally cloning and checking out a repository,
+     * then idles awaiting the first message. `github_integration` is a plain integration PK (an integer);
+     * the view re-scopes it to the caller's team before use.
      */
     export interface WarmTaskRequest {
       /**
-         * Target GitHub repository to clone, in `organization/repo` format (e.g. `posthog/posthog`).
+         * Optional GitHub repository to clone, in `organization/repo` format (e.g. `posthog/posthog`).
          * @maxLength 255
+         * @nullable
          */
-      repository: string;
-      /** Primary key of the team's GitHub integration to clone with. */
-      github_integration: number;
+      repository?: string | null;
+      /**
+         * Primary key of the team's GitHub integration to clone with when a repository is selected.
+         * @nullable
+         */
+      github_integration?: number | null;
       /**
          * Branch to check out in the warm sandbox. Defaults to the repository's default branch when omitted.
          * @maxLength 255
