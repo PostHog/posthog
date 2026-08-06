@@ -363,8 +363,8 @@ class TestDiscoverCanonicalSkills:
             discover_canonical_skills(tmp_path)
 
     def test_too_many_bundled_files_raises(self, tmp_path: Path) -> None:
-        # File count limit mirrors MAX_SKILL_FILE_COUNT (50).
-        bundled = {f"references/file_{i:03d}.md": f"# file {i}\n" for i in range(51)}
+        # File count limit mirrors MAX_SKILL_FILE_COUNT (200).
+        bundled = {f"references/file_{i:03d}.md": f"# file {i}\n" for i in range(201)}
         _write_canonical_skill(
             tmp_path,
             dir_name="signals-scout-too-many",
