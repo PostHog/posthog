@@ -132,6 +132,28 @@ Tracked after sandbox and agent server are provisioned.
 | `sandbox_url`   | `str`  | URL of the sandbox              |
 | `used_snapshot` | `bool` | Whether a snapshot was used     |
 | `repository`    | `str`  | Repository in `org/repo` format |
+| `boot_path`     | `str`  | Classic or overlapping clone boot |
+| `boot_total_ms` | `int`  | Infrastructure boot time, excluding setup agent execution |
+| `sandbox_create_ms` | `int` | Sandbox creation time |
+| `repo_clone_ms` | `int`  | Repository clone time |
+| `branch_checkout_ms` | `int` | Branch checkout time |
+| `agent_launch_ms` | `int` | Agent server launch time |
+| `agent_ready_wait_ms` | `int` | Time spent waiting for the agent server |
+| `agent_session_init_ms` | `int` | Agent session initialization time |
+
+### Modal VM rollout payload
+
+The `tasks-modal-vm-sandbox` payload supports gradual rollout by origin product:
+
+```json
+{
+  "default_base_origin_products": ["user_created"],
+  "origin_product_rollout_percentages": { "signals_scout": 10 },
+  "default_custom_image": "posthog-dev-stack"
+}
+```
+
+Each percentage uses a stable hash of the origin product and run ID. The same run keeps its runtime choice across activity retries.
 
 ### `task_run_cancelled`
 
