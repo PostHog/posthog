@@ -169,7 +169,7 @@ class UpdateExternalDataJobStatusInputs:
     # run's own job when job_id never made it back. Optional for mixed-version workers mid-rollout.
     workflow_run_id: str | None = None
     # Set when the run was cut short by something on our side (a worker shutdown). Acted on only
-    # for a full refresh, which re-extracts from scratch on the retriggered run.
+    # when the run that replaces it re-extracts the same rows.
     mark_non_billable: bool = False
 
     @property
@@ -184,12 +184,21 @@ class UpdateExternalDataJobStatusInputs:
         }
 
 
-def _schema_is_full_refresh(schema_id: str, team_id: int) -> bool:
-    # Read as the inverse of the sync types that carry progress across runs, rather than as
-    # `sync_type == FULL_REFRESH`: thousands of live schemas carry no sync_type at all, and a
-    # handful carry the legacy `full`, and both replace the whole table on every run.
-    schema = ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id).first()
-    return schema is not None and not schema.table_row_count_is_cumulative
+def _run_will_be_re_extracted(job_id: str, team_id: int) -> bool:
+    """Whether the run that replaces this one starts these rows over, so charging for them bills twice.
+
+    Two ways that happens. A full refresh re-extracts everything by definition — read as the inverse
+    of the sync types that carry progress across runs, since many live schemas carry no sync_type at
+    all and a handful carry a legacy `full`. And on v3 the incremental watermark is only staged
+    during the run: the loader promotes it when it sees the final batch, which an extraction cut off
+    mid-stream never sends, so the next run resumes from the watermark this one started at.
+    """
+    job = ExternalDataJob.objects.filter(id=job_id, team_id=team_id).select_related("schema").first()
+    if job is None or job.schema is None:
+        return False
+    if job.pipeline_version == ExternalDataJob.PipelineVersion.V3:
+        return True
+    return not job.schema.table_row_count_is_cumulative
 
 
 @activity.defn
@@ -286,11 +295,11 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 logger.exception(friendly_errors[0])
                 inputs.latest_error = friendly_errors[0]
 
-    # A full refresh re-extracts everything on the retriggered run, so charging for the rows this
-    # one got through bills them twice. Every other sync type resumes from its watermark and keeps
-    # what it ingested, so those rows are extracted once and stay billable.
-    drop_charge = inputs.mark_non_billable and await database_sync_to_async_pool(_schema_is_full_refresh)(
-        schema_id=inputs.schema_id, team_id=inputs.team_id
+    # A run cut short keeps its charge when the run that replaces it resumes from where this one
+    # stopped, since those rows are then extracted once. It loses the charge when the replacement
+    # starts them over.
+    drop_charge = inputs.mark_non_billable and await database_sync_to_async_pool(_run_will_be_re_extracted)(
+        job_id=job_id, team_id=inputs.team_id
     )
 
     await database_sync_to_async_pool(update_external_job_status)(
