@@ -296,21 +296,18 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   }, [pathname]);
 
   // One list, pins included — a pin is a mark on a session, not a different kind
-  // of thing, and the row's own badge says so. They sort to the top because a pin
-  // is a request not to lose the thing: below the recency order it would fall off
-  // the end of the cap.
-  const recentItems = useMemo(() => {
-    const matching = filterChannelItems(items, {
-      query,
-      createdBy,
-      status: statusFilter,
-      me,
-    });
-    return [
-      ...matching.filter((i) => i.pinned),
-      ...matching.filter((i) => !i.pinned),
-    ].slice(0, RECENTS_CAP);
-  }, [items, query, createdBy, statusFilter, me]);
+  // of thing, and the row's own badge says so. They lead it because
+  // `buildChannelItems` already sorts them there, and filtering keeps that order.
+  const recentItems = useMemo(
+    () =>
+      filterChannelItems(items, {
+        query,
+        createdBy,
+        status: statusFilter,
+        me,
+      }).slice(0, RECENTS_CAP),
+    [items, query, createdBy, statusFilter, me],
+  );
 
   const narrowed = filtersActive || searchOpen;
   const listState = listStateOf({

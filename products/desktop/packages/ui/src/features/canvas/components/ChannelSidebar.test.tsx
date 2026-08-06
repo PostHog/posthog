@@ -230,14 +230,10 @@ describe("ChannelSidebar recents list", () => {
     expect(screen.queryByText("Today")).toBeNull();
   });
 
-  it("lists pins in the one session list, ahead of newer items", () => {
+  // Where a pin sorts is `buildChannelItems`' job, and its own tests cover it;
+  // what this list decides is that a pin gets no section of its own.
+  it("lists pins as rows in the one session list", () => {
     mocks.items = [
-      item({
-        key: "task:newer",
-        id: "newer",
-        title: "Filed this morning",
-        ts: new Date(2026, 6, 30, 9).getTime(),
-      }),
       item({
         key: "task:pinned",
         id: "pinned",
@@ -245,18 +241,20 @@ describe("ChannelSidebar recents list", () => {
         pinned: true,
         ts: new Date(2026, 6, 20, 9).getTime(),
       }),
+      item({
+        key: "task:newer",
+        id: "newer",
+        title: "Filed this morning",
+        ts: new Date(2026, 6, 30, 9).getTime(),
+      }),
     ];
 
     renderSidebar();
 
-    // No section of its own — a pin is a mark on a session, and the row's badge
-    // is what says so.
     expect(screen.queryByText("Pinned")).toBeNull();
     const titles = screen
       .getAllByText(/Kept at hand|Filed this morning/)
       .map((el) => el.textContent);
-    // Older, but pinned: it sorts above the newer row rather than risking the
-    // recents cap.
     expect(titles).toEqual(["Kept at hand", "Filed this morning"]);
   });
 });

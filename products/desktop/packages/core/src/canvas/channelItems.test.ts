@@ -72,6 +72,31 @@ describe("buildChannelItems", () => {
     expect(items.map((i) => i.key)).toEqual(["task:new", "canvas:old"]);
   });
 
+  it("orders a session by its last run, not by its record's own stamp", () => {
+    const items = build({
+      feedTasks: [
+        task({ id: "renamed", updated_at: new Date(5_000).toISOString() }),
+        task({
+          id: "running",
+          updated_at: new Date(1_000).toISOString(),
+          latest_run: { updated_at: new Date(9_000).toISOString() } as never,
+        }),
+      ],
+    });
+    expect(items.map((i) => i.key)).toEqual(["task:running", "task:renamed"]);
+  });
+
+  it("puts a pinned item above a more recent unpinned one", () => {
+    const items = build({
+      feedTasks: [
+        task({ id: "newer", updated_at: new Date(9_000).toISOString() }),
+        task({ id: "pinned", updated_at: new Date(1_000).toISOString() }),
+      ],
+      pinnedTaskIds: new Set(["pinned"]),
+    });
+    expect(items.map((i) => i.key)).toEqual(["task:pinned", "task:newer"]);
+  });
+
   it("drops archived tasks but keeps canvases", () => {
     const items = build({
       dashboards: [canvas()],

@@ -10,6 +10,7 @@ export interface ChannelItemModel {
   kind: "task" | "canvas";
   id: string;
   title: string;
+  /** When this last did something. See `taskActivityTs` for a session's. */
   ts: number;
   pinned: boolean;
   rawStatus: TaskRunStatus | null;
@@ -42,6 +43,24 @@ function isOwnedBy(
   owner: ChannelItemOwner,
 ): boolean {
   return item.authorUuid != null && item.authorUuid === owner.uuid;
+}
+
+/**
+ * When a session last did something, which is what "recent" means to whoever is
+ * reading the list — not when its record was last written.
+ *
+ * A turn moves the run: the agent takes it to `in_progress` and back out again,
+ * and each of those saves the run. Nothing in that path touches the task row, so
+ * `task.updated_at` answers "when was the title or description last edited" and
+ * leaves a session that has been running all afternoon sitting below one that
+ * was renamed. The run's own stamp is the closest the list payload gets to the
+ * last turn; the task's still counts, because an edit is activity too.
+ */
+export function taskActivityTs(task: Task): number {
+  return Math.max(
+    Date.parse(task.updated_at) || 0,
+    task.latest_run ? Date.parse(task.latest_run.updated_at) || 0 : 0,
+  );
 }
 
 export function buildChannelItems({
@@ -81,7 +100,7 @@ export function buildChannelItems({
             kind: "task" as const,
             id: task.id,
             title: task.title || "Untitled task",
-            ts: Date.parse(task.updated_at) || 0,
+            ts: taskActivityTs(task),
             pinned: pinnedTaskIds.has(task.id),
             rawStatus: task.latest_run?.status ?? null,
             authorUser: task.created_by ?? null,
@@ -93,7 +112,14 @@ export function buildChannelItems({
         ],
   );
 
-  const all = [...canvasItems, ...taskItems].sort((a, b) => b.ts - a.ts);
+  // Pins first, then recency. A pin is a request not to lose the thing, and
+  // every surface that shows these cuts the list off somewhere — five rows in
+  // the sidebar's tree, `RECENTS_CAP` in a space's own list — so below the
+  // recency order a pinned session falls off the end of the one place it was
+  // pinned to stay.
+  const all = [...canvasItems, ...taskItems].sort(
+    (a, b) => Number(b.pinned) - Number(a.pinned) || b.ts - a.ts,
+  );
   return ownedBy ? all.filter((item) => isOwnedBy(item, ownedBy)) : all;
 }
 
