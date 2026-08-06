@@ -1344,11 +1344,15 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             })
         },
 
-        openAccessDetailPanel: ({ scopeType }) => {
+        openAccessDetailPanel: ({ scopeType, subjectId }) => {
             captureAccessControlEvent(
                 scopeType === 'role' ? 'access_control_role_detail_opened' : 'access_control_member_detail_opened',
                 { ui_version: 'v2' }
             )
+            // The panel fetches its one subject, so opening it never pays for the whole member list.
+            // Load on the action rather than a subscription on activePanelSubject: re-opening the same
+            // subject nulls panelEntry without changing the subject, so a subscription would never refire.
+            actions.loadPanelEntry({ scopeType, subjectId })
         },
 
         saveGroupedRules: async ({ scopeType, scopeId, projectLevel, resourceLevels }) => {
@@ -1538,12 +1542,6 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     subject.scopeType !== values.panelSubject?.scopeType)
             ) {
                 actions.openAccessDetailPanel(subject.scopeType, subject.subjectId)
-            }
-        },
-        // The panel fetches its one subject, so opening it never pays for the whole member list
-        activePanelSubject: (subject: AccessDetailSubject | null) => {
-            if (subject) {
-                actions.loadPanelEntry(subject)
             }
         },
     })),
