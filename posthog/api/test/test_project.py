@@ -792,7 +792,6 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             "managed_viewsets",
             "base_currency",
             "capture_dead_clicks",
-            "cookieless_server_hash_mode",
             "default_data_theme",
             "revenue_analytics_config",
             "marketing_analytics_config",
