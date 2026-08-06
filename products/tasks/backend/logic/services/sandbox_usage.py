@@ -82,8 +82,8 @@ def open_sandbox_session(
                 "memory_gb": config.memory_gb,
                 "ttl_seconds": config.ttl_seconds,
                 "burstable": config.burstable_resources,
-                "cpu_request_cores": config.cpu_request_cores if config.burstable_resources else None,
-                "memory_request_mb": config.memory_request_mb if config.burstable_resources else None,
+                "cpu_request_cores": config.effective_cpu_request_cores if config.burstable_resources else None,
+                "memory_request_mb": config.effective_memory_request_mb if config.burstable_resources else None,
                 "created_at": created_at,
                 "ttl_expires_at": created_at + timedelta(seconds=config.ttl_seconds),
             }

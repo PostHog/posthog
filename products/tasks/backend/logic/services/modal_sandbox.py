@@ -192,22 +192,19 @@ def _resource_create_kwargs(config: SandboxConfig) -> dict[str, object]:
     ``(request, limit)`` tuple form so the box is billed at ``max(request, actual)`` and can burst
     up to the limit; otherwise emit the flat scalar, which makes request == limit (fixed size).
 
-    The burstable request floor comes from ``cpu_request_cores`` / ``memory_request_mb`` (defaulting
-    to the small floor in ``sandbox_config``). The request is clamped to the limit so it never
-    exceeds it when the configured size is at or below the requested floor.
+    The burstable request floors come from the config's ``effective_*_request`` properties — the
+    same values the usage ledger records — so what Modal reserves and what pricing bills can't
+    diverge. VM memory can't burst, so it stays the flat scalar (request == limit).
     """
     cpu_limit = float(config.cpu_cores)
     memory_limit_mb = int(config.memory_gb * 1024)
     if not config.burstable_resources:
         return {"cpu": cpu_limit, "memory": memory_limit_mb}
 
-    cpu_value = (min(float(config.cpu_request_cores), cpu_limit), cpu_limit)
+    cpu_value = (config.effective_cpu_request_cores, cpu_limit)
     if config.is_vm:
         return {"cpu": cpu_value, "memory": memory_limit_mb}
-    return {
-        "cpu": cpu_value,
-        "memory": (min(int(config.memory_request_mb), memory_limit_mb), memory_limit_mb),
-    }
+    return {"cpu": cpu_value, "memory": (config.effective_memory_request_mb, memory_limit_mb)}
 
 
 LOCAL_MODAL_DOCKERFILES = {
