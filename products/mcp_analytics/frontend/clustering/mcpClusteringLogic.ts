@@ -52,6 +52,11 @@ export type ClusterSortKey = 'calls' | 'errors' | 'entropy' | 'concentration'
 export type ToolSortKey = 'calls' | 'contested' | 'discovery'
 export type ClusteringViewMode = 'intents' | 'tools'
 
+// Which top-level layout the tab renders. A failed run keeps the previous
+// snapshot's clusters, so 'snapshot' (not 'errorOnly') is the state when an
+// error coincides with renderable clusters — the banner then sits above them.
+export type ClusteringContentState = 'errorOnly' | 'empty' | 'loading' | 'snapshot'
+
 export interface ScatterPoint {
     tool: string
     fit: number
@@ -122,6 +127,7 @@ export interface mcpClusteringLogicValues {
     currentProjectId: number | string // teamLogic
     allClustersShown: boolean
     clusters: readonly MCPIntentClusterApi[]
+    contentState: ClusteringContentState
     concentratedRoutes: {
         focused: number
         total: number
@@ -258,6 +264,12 @@ export interface mcpClusteringLogicMeta {
         topErrorRoute: (clusters: readonly MCPIntentClusterApi[]) => MCPIntentClusterApi | null
         isComputing: (snapshot: MCPIntentClusterSnapshotApi) => boolean
         hasSnapshot: (snapshot: MCPIntentClusterSnapshotApi) => boolean
+        contentState: (
+            snapshot: MCPIntentClusterSnapshotApi,
+            hasSnapshot: boolean,
+            isComputing: boolean,
+            snapshotLoading: boolean
+        ) => ClusteringContentState
     }
 }
 
@@ -549,6 +561,27 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
             (s) => [s.snapshot],
             (snapshot: MCPIntentClusterSnapshotApi): boolean =>
                 snapshot.last_computed_at !== null || snapshot.clusters.length > 0,
+        ],
+        contentState: [
+            (s) => [s.snapshot, s.hasSnapshot, s.isComputing, s.snapshotLoading],
+            (
+                snapshot: MCPIntentClusterSnapshotApi,
+                hasSnapshot: boolean,
+                isComputing: boolean,
+                snapshotLoading: boolean
+            ): ClusteringContentState => {
+                // A failed run with nothing to fall back on: the banner is all we can show.
+                if (snapshot.status === 'error' && !hasSnapshot) {
+                    return 'errorOnly'
+                }
+                if (!hasSnapshot && !isComputing && !snapshotLoading) {
+                    return 'empty'
+                }
+                if (isComputing || (snapshotLoading && !hasSnapshot)) {
+                    return 'loading'
+                }
+                return 'snapshot'
+            },
         ],
     }),
     listeners(({ actions, values, cache }) => ({

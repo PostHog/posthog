@@ -504,9 +504,6 @@ function ClusterDetail({ cluster }: { cluster: MCPIntentClusterApi }): JSX.Eleme
 function StatusRow(): JSX.Element | null {
     const { snapshot, isComputing, clusters, totalClusterCount } = useValues(mcpClusteringLogic)
     const { recompute } = useActions(mcpClusteringLogic)
-    if (snapshot.status === 'error') {
-        return null
-    }
     if (isComputing) {
         return (
             <div className="flex items-center gap-2 text-sm text-muted">
@@ -537,15 +534,17 @@ function StatusRow(): JSX.Element | null {
                         </>
                     ) : null}
                 </div>
-                <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={recompute}
-                    data-attr="mcp-analytics-intent-clusters-recompute"
-                >
-                    <IconRefresh />
-                    Recompute
-                </Button>
+                {snapshot.status === 'error' ? null : (
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={recompute}
+                        data-attr="mcp-analytics-intent-clusters-recompute"
+                    >
+                        <IconRefresh />
+                        Recompute
+                    </Button>
+                )}
             </div>
         )
     }
@@ -638,25 +637,29 @@ function ToolsView(): JSX.Element {
 }
 
 export function MCPAnalyticsClustering(): JSX.Element {
-    const { snapshot, selectedCluster, hasSnapshot, isComputing, snapshotLoading, viewMode } =
-        useValues(mcpClusteringLogic)
+    const { snapshot, selectedCluster, hasSnapshot, contentState, viewMode } = useValues(mcpClusteringLogic)
     const { recompute } = useActions(mcpClusteringLogic)
 
-    if (snapshot.status === 'error') {
-        return (
-            <div className="flex flex-col gap-3">
-                <LemonBanner type="error" action={{ children: 'Retry', onClick: recompute }}>
-                    {snapshot.error_message || 'The last clustering run failed.'}
-                </LemonBanner>
-            </div>
-        )
+    // A failed run keeps the previous snapshot's clusters, so when we have one to
+    // show, render the error inline above it rather than replacing the whole tab.
+    const errorBanner =
+        snapshot.status === 'error' ? (
+            <LemonBanner type="error" action={{ children: 'Retry', onClick: recompute }}>
+                {hasSnapshot
+                    ? 'The last clustering run failed, so the results below may be out of date. Retry to run it again.'
+                    : snapshot.error_message || 'The last clustering run failed.'}
+            </LemonBanner>
+        ) : null
+
+    if (contentState === 'errorOnly') {
+        return <div className="flex flex-col gap-3">{errorBanner}</div>
     }
 
-    if (!hasSnapshot && !isComputing && !snapshotLoading) {
+    if (contentState === 'empty') {
         return <EmptyState />
     }
 
-    if (isComputing || (snapshotLoading && !hasSnapshot)) {
+    if (contentState === 'loading') {
         return (
             <div className="flex flex-col gap-4" data-quill>
                 <StatusRow />
@@ -667,6 +670,7 @@ export function MCPAnalyticsClustering(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4" data-quill>
+            {errorBanner}
             <StatusRow />
             <div className="flex items-center justify-between gap-2 flex-wrap">
                 <ViewToggle />

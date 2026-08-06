@@ -618,3 +618,22 @@ export const IntentClustering: Story = {
         pageUrl: urls.mcpAnalyticsIntentClustering(),
     },
 }
+
+// A failed run keeps the previous snapshot's clusters, so the tab renders the
+// error inline above the last good results instead of blanking to a lone banner.
+export const IntentClusteringStaleAfterError: Story = {
+    parameters: {
+        pageUrl: urls.mcpAnalyticsIntentClustering(),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/mcp_analytics/intent_clusters/': {
+                    ...CLUSTER_SNAPSHOT,
+                    status: 'error',
+                    error_message: 'Clustering did not finish in time. Retry to start a new run.',
+                },
+            },
+        }),
+    ],
+}

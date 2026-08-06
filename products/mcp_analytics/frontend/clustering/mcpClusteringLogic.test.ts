@@ -135,6 +135,29 @@ describe('mcpClusteringLogic', () => {
         expect(logic.values.totalToolCount).toBe(N_CLUSTERS * 2)
     })
 
+    it('renders the last good clusters when a run fails, and shows the banner alone only with nothing to fall back on', async () => {
+        // A failed run keeps the previous snapshot's clusters, so the tab must
+        // still render them (with the error inline) rather than blank the page.
+        mockRetrieve.mockResolvedValue({ ...SNAPSHOT, status: 'error', error_message: 'boom' })
+        logic.actions.loadSnapshot()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.hasSnapshot).toBe(true)
+        expect(logic.values.contentState).toBe('snapshot')
+
+        // An error with no clusters and no prior success is the only case where
+        // the banner is all there is to show.
+        mockRetrieve.mockResolvedValue({
+            ...SNAPSHOT,
+            status: 'error',
+            error_message: 'boom',
+            clusters: [],
+            last_computed_at: null,
+        })
+        logic.actions.loadSnapshot()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.contentState).toBe('errorOnly')
+    })
+
     it('reports the true cluster count from computed_with when the snapshot is truncated', async () => {
         expect(logic.values.totalClusterCount).toBe(N_CLUSTERS)
 
