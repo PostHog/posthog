@@ -96,5 +96,5 @@ Edit it with `workflows-patch-action-email`: the same design operations as `work
 
 - List what exists with `workflows-list-email-templates` (metadata only; fetch one for its content).
 - When the user asks to see a template, call `workflows-show-email-template` — it renders an inline preview.
-- Reference a template from a workflow's `function_email` action, or start a broadcast from it in the PostHog UI.
+- Reference a template from a workflow's `function_email` action (its UUID in `config.template_uuid`), or start a broadcast from it in the PostHog UI. The step takes a snapshot of the template's body at save - editing the library template later does not change steps that already used it. To change a step's email, patch that step with `workflows-patch-action-email`.
 - Templates are soft-deleted by setting `deleted: true` via `workflows-update-email-template`.
