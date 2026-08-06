@@ -18,6 +18,11 @@ class VercelEndpointConfig:
     # Query param that lower-bounds results by creation time (Unix ms). Only set where Vercel
     # documents a genuine server-side time filter — None means full refresh for this endpoint.
     since_param: Optional[str] = None
+    # Whether `since`/`until` must be sent as ISO 8601 UTC strings rather than raw Unix-ms
+    # integers. Vercel's OpenAPI spec types since/until as numbers (e.g. 1540095775941) for
+    # deployments, domains, aliases, and teams, but as strings (e.g. "2019-12-08T10:00:38.976Z")
+    # for events — sending events a raw ms integer gets rejected with a 400.
+    since_until_as_iso: bool = False
     # Team-owned resources require ?teamId=<id> on each request. Endpoints that list resources
     # visible to the token itself (e.g. /v2/teams) are not team-scoped.
     team_scoped: bool = True
@@ -91,6 +96,7 @@ VERCEL_ENDPOINTS: dict[str, VercelEndpointConfig] = {
         # time, so this is genuinely incremental rather than a client-side skip. `createdAt` is
         # immutable, making it both the incremental cursor and the pagination cursor.
         since_param="since",
+        since_until_as_iso=True,
         supports_incremental=True,
         supports_append=True,
         # Unlike the resource endpoints this one returns no `pagination` envelope, so pages are

@@ -349,6 +349,55 @@ class TestPromptCrossReferences(SimpleTestCase):
         assert referenced <= headings, f"dangling cross-references: {sorted(referenced - headings)}"
 
 
+class TestStructuredOutputPromptSection(SimpleTestCase):
+    _SCHEMA = {
+        "type": "object",
+        "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}},
+        "required": ["verdict", "reason"],
+    }
+
+    @parameterized.expand(
+        [
+            ("signal_channel", []),
+            ("report_channel", ["emit_report", "edit_report"]),
+            ("edit_only", ["edit_report"]),
+        ]
+    )
+    def test_section_renders_only_when_config_carries_a_schema(self, _name: str, allowed_tools: list[str]) -> None:
+        # Two failure modes, both silent in production: dropping the section leaves a
+        # schema-configured scout never told to record (the channel exists but nothing uses it),
+        # and rendering it unconditionally steers schema-less scouts at a tool that fails closed.
+        def _prompt(schema: dict | None) -> str:
+            return build_run_prompt(
+                LoadedSkill(
+                    name="signals-scout-judge",
+                    version=1,
+                    body="judge",
+                    description="d",
+                    allowed_tools=allowed_tools,
+                    files=[],
+                    skill_id="skill-1",
+                    origin="custom",
+                    authors=[],
+                ),
+                run_id="00000000-0000-0000-0000-000000000abc",
+                team_id=1,
+                started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+                structured_output_schema=schema,
+            )
+
+        with_schema = _prompt(self._SCHEMA)
+        assert "# Structured output" in with_schema
+        assert "scout-record-output" in with_schema
+        # The exact schema the endpoint enforces is rendered, so the prompt and the
+        # validator can never describe two different contracts.
+        assert '"verdict"' in with_schema
+
+        without_schema = _prompt(None)
+        assert "# Structured output" not in without_schema
+        assert "scout-record-output" not in without_schema
+
+
 class TestPromptBuilder(BaseTest):
     def test_renders_identity_bootstrap_and_universal_sections(self) -> None:
         skill = LLMSkill.objects.create(

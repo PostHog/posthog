@@ -110,7 +110,6 @@ test('a universal tripwire claims every known target', () => {
         'proto/events.proto',
         'frontend/src/queries/schema.json',
         'posthog/schema.py',
-        'products/alpha/manifest.tsx',
         'bin/start',
         '.test_durations',
         // Trees that steer what every suite runs or what it runs against: the
@@ -172,6 +171,47 @@ test('a language-scoped tripwire claims only that language', () => {
 
     const rust = computeTargets(['.github/workflows/ci-rust.yml'], CONTEXT)
     assert.deepEqual(rust, ['rust:crate:consumer', 'rust:crate:shared', 'rust:crate:unrelated'])
+})
+
+// A manifest is the one input both sides read: the frontend merges every
+// manifest's urls and tree items into globals any product can reference, and
+// products.json is generated from all of them for posthog/products.py. So it
+// takes both lane families in full and stops there — no rust crate, service, or
+// nodejs suite reads either file.
+test('a product manifest claims the frontend and python lanes together', () => {
+    const manifest = computeTargets(['products/alpha/manifest.tsx'], CONTEXT)
+    assert.deepEqual(computeTargets(['frontend/src/products.json'], CONTEXT), manifest)
+
+    for (const target of ['fe:core', 'fe:product:beta', 'py:core', 'py:product:beta']) {
+        assert.equal(manifest.includes(target), true, target)
+    }
+    // The frontend half cannot narrow to alpha: beta's frontend can reference
+    // what alpha's manifest declares, through the merged urls object.
+    assert.equal(manifest.includes('fe:product:alpha'), true)
+    // services/mcp/scripts walks the manifests for the routes its tool-name lint
+    // checks against, so it is a reader and keeps its lane.
+    assert.equal(manifest.includes('svc:mcp'), true)
+    assert.equal(manifest.includes('cli'), true)
+    assert.notDeepEqual(manifest, EVERYTHING)
+    for (const target of ['node:ingestion', 'svc:oauth-proxy', 'rust:crate:shared']) {
+        assert.equal(manifest.includes(target), false, target)
+    }
+    // The independent tools/ lanes ride along with any other Python tripwire,
+    // and none of those tools reads a manifest or products.json.
+    assert.equal(
+        manifest.some((target) => target.startsWith('tools:')),
+        false
+    )
+})
+
+// The manifest is the file a person edits, and it already claims both families.
+// These are compiled from it and carry no Python reader, so the frontend rule's
+// radius is the honest one.
+test('the generated frontend product artifacts claim only the frontend lanes', () => {
+    const generated = computeTargets(['frontend/src/products.tsx', 'frontend/src/productScenes.tsx'], CONTEXT)
+    assert.equal(generated.includes('fe:core'), true)
+    assert.equal(generated.includes('fe:product:alpha'), true)
+    assert.equal(generated.includes('py:core'), false)
 })
 
 // A workflow decides which suites run, so the suite it defines is the radius.

@@ -1,5 +1,9 @@
 import type { TaskService } from "@posthog/core/task-detail/taskService";
-import type { AgentConversationEvent } from "@posthog/shared";
+import {
+  type AgentConversationEvent,
+  mcpToolKey,
+  posthogToolMeta,
+} from "@posthog/shared";
 import type { CloudTaskUpdatePayload } from "@posthog/shared/domain-types";
 import { describe, expect, it, vi } from "vitest";
 import type { CloudTaskClient } from "../cloud-task/cloudTaskClient";
@@ -10,19 +14,19 @@ import {
 } from "./piSessionController";
 
 function createCloudTaskClient(autoStart = true) {
-  let onUpdate: (update: CloudTaskUpdatePayload) => void = () => {};
-  let onError: (error: unknown) => void = () => {};
-  let onStarted: () => void = () => {};
+  const subscriptions: Array<{
+    onUpdate: (update: CloudTaskUpdatePayload) => void;
+    onError: (error: unknown) => void;
+    onStarted: () => void;
+  }> = [];
   const unsubscribe = vi.fn();
   const client: CloudTaskClient = {
     getContext: vi.fn(async () => null),
     watch: vi.fn(async () => {}),
     unwatch: vi.fn(async () => {}),
     retry: vi.fn(async () => {}),
-    subscribe: vi.fn((_taskId, _runId, handler, errorHandler, started) => {
-      onUpdate = handler;
-      onError = errorHandler;
-      onStarted = started;
+    subscribe: vi.fn((_taskId, _runId, onUpdate, onError, onStarted) => {
+      subscriptions.push({ onUpdate, onError, onStarted });
       if (autoStart) {
         onStarted();
       }
@@ -33,9 +37,21 @@ function createCloudTaskClient(autoStart = true) {
 
   return {
     client,
-    startSubscription: () => onStarted(),
-    sendUpdate: (update: CloudTaskUpdatePayload) => onUpdate(update),
-    sendError: (error: unknown) => onError(error),
+    startSubscription: () => {
+      for (const subscription of subscriptions) {
+        subscription.onStarted();
+      }
+    },
+    sendUpdate: (update: CloudTaskUpdatePayload) => {
+      for (const subscription of subscriptions) {
+        subscription.onUpdate(update);
+      }
+    },
+    sendError: (error: unknown) => {
+      for (const subscription of subscriptions) {
+        subscription.onError(error);
+      }
+    },
     unsubscribe,
   };
 }
@@ -57,6 +73,74 @@ const snapshotEvent: AgentConversationEvent = {
 };
 
 describe("CloudPiSessionClient", () => {
+  it("relays MCP permission requests and responses through the cloud task", async () => {
+    const cloud = createCloudTaskClient();
+    const session = new CloudPiSessionClient(
+      cloud.client,
+      context("in_progress"),
+    );
+    const onRequest = vi.fn();
+    session.onMcpToolPermissionRequest(onRequest, vi.fn());
+
+    const mcp = { server: "Cloudflare", tool: "search" };
+    cloud.sendUpdate({
+      taskId: "task-1",
+      runId: "run-1",
+      kind: "permission_request",
+      requestId: "request-1",
+      toolCall: {
+        toolCallId: "request-1",
+        title: "Search Cloudflare",
+        kind: "other",
+        content: [
+          {
+            type: "content",
+            content: { type: "text", text: "Search Cloudflare resources" },
+          },
+        ],
+        rawInput: { query: "workers" },
+        _meta: posthogToolMeta({
+          toolName: mcpToolKey(mcp),
+          mcp,
+          mcpInstallationId: "installation-1",
+        }),
+      },
+      options: [],
+    });
+
+    const request = {
+      requestId: "request-1",
+      serverName: "Cloudflare",
+      toolName: "search",
+      installationId: "installation-1",
+      arguments: { query: "workers" },
+      description: "Search Cloudflare resources",
+    };
+    expect(onRequest).toHaveBeenCalledWith(request);
+
+    vi.mocked(cloud.client.sendCommand).mockResolvedValue({ success: true });
+    await session.respondMcpToolPermission(request, "allow_always");
+
+    const commandInput = vi.mocked(cloud.client.sendCommand).mock.calls[0]?.[0];
+    expect(commandInput).toMatchObject({
+      taskId: "task-1",
+      runId: "run-1",
+      apiHost: "https://us.posthog.com",
+      teamId: 1,
+      method: "pi/rpc",
+      params: {
+        command: {
+          type: "mcp_permission_response",
+          requestId: "request-1",
+          decision: "allow_always",
+        },
+      },
+    });
+    expect(commandInput?.id).toBe(
+      (commandInput?.params?.command as { id?: string }).id,
+    );
+  });
+
   it("waits for the native Pi readiness event before startup RPC commands", async () => {
     const cloud = createCloudTaskClient();
     vi.mocked(cloud.client.sendCommand).mockResolvedValue({
@@ -384,7 +468,7 @@ describe("CloudPiSessionClient", () => {
 
     const connection = controller.connect("task-1");
     await vi.waitFor(() => {
-      expect(cloud.client.subscribe).toHaveBeenCalledTimes(1);
+      expect(cloud.client.subscribe).toHaveBeenCalledTimes(2);
     });
     cloud.sendUpdate({
       taskId: "task-1",

@@ -11,17 +11,19 @@ from django.db.models import Max
 
 from posthog.models import Team, User
 
+from products.ai_observability.backend.dataset_limits import MAX_DATASET_ITEM_PAYLOAD_BYTES, MAX_ITEMS_PER_DATASET
 from products.ai_observability.backend.dataset_queries import latest_dataset_revision
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 
 type JSONValue = None | bool | int | float | str | list[JSONValue] | dict[str, JSONValue]
 
-MAX_DATASET_ITEM_PAYLOAD_BYTES = 1_000_000
 MAX_DATASET_METADATA_BYTES = 1_000_000
 MAX_DATASET_DESCRIPTION_LENGTH = 10_000
 MAX_DATASET_NAME_LENGTH = 400
-MAX_EXTERNAL_ID_LENGTH = 255
+MAX_CLIENT_ITEM_ID_LENGTH = 255
 MAX_SOURCE_ID_LENGTH = 255
+MAX_DATASETS_PER_TEAM = 100
+MAX_VERSIONS_PER_ITEM = 100
 
 
 class DatasetValidationError(Exception):
@@ -40,7 +42,7 @@ class DatasetMutationConflict(Exception):
             "dataset_name_conflict",
             "dataset_item_archived",
             "dataset_item_active",
-            "external_id_conflict",
+            "client_item_id_conflict",
             "stale_version",
         ],
         detail: str,
@@ -52,6 +54,24 @@ class DatasetMutationConflict(Exception):
         self.detail = detail
         self.current_version = current_version
         self.current_item_id = current_item_id
+
+
+class DatasetLimitExceeded(Exception):
+    code: Literal["limit_reached"] = "limit_reached"
+
+    def __init__(
+        self,
+        *,
+        resource: Literal["datasets", "dataset_items", "dataset_item_versions"],
+        current_count: int,
+        limit: int,
+        detail: str,
+    ) -> None:
+        super().__init__(detail)
+        self.resource = resource
+        self.current_count = current_count
+        self.limit = limit
+        self.detail = detail
 
 
 class DatasetIntegrityError(Exception):
@@ -203,15 +223,15 @@ def _item_contents_equal(left: _DatasetItemContent, right: _DatasetItemContent) 
     )
 
 
-def _validate_external_id(external_id: str | None) -> None:
-    if external_id is None:
+def _validate_client_item_id(client_item_id: str | None) -> None:
+    if client_item_id is None:
         return
-    if not external_id:
-        raise DatasetValidationError("external_id", "External ID cannot be blank.")
-    if len(external_id) > MAX_EXTERNAL_ID_LENGTH:
+    if not client_item_id:
+        raise DatasetValidationError("client_item_id", "Client item ID cannot be blank.")
+    if len(client_item_id) > MAX_CLIENT_ITEM_ID_LENGTH:
         raise DatasetValidationError(
-            "external_id",
-            f"External IDs must be {MAX_EXTERNAL_ID_LENGTH} characters or fewer.",
+            "client_item_id",
+            f"Client item IDs must be {MAX_CLIENT_ITEM_ID_LENGTH} characters or fewer.",
         )
 
 
@@ -246,6 +266,24 @@ def _lock_item(*, team_id: int, dataset: Dataset, item_id: UUID) -> DatasetItem:
     return item
 
 
+def _validate_item_version_ownership(
+    *,
+    dataset: Dataset,
+    item: DatasetItem,
+    version: DatasetItemVersion,
+) -> None:
+    if (
+        item.team_id != dataset.team_id
+        or item.dataset_id != dataset.id
+        or version.team_id != dataset.team_id
+        or version.dataset_id != dataset.id
+        or version.dataset_item_id != item.id
+        or version.dataset_revision.dataset_id != dataset.id
+        or version.dataset_revision.team_id != dataset.team_id
+    ):
+        raise DatasetIntegrityError("Dataset item version has inconsistent ownership.")
+
+
 def _current_item_version(*, dataset: Dataset, item: DatasetItem) -> DatasetItemVersion:
     version = item.current_version
     if version is None:
@@ -260,14 +298,7 @@ def _current_item_version(*, dataset: Dataset, item: DatasetItem) -> DatasetItem
             raise DatasetIntegrityError("Dataset item has no current version.")
         item.current_version = version
         item.save(update_fields=["current_version"])
-    if (
-        item.team_id != dataset.team_id
-        or version.team_id != dataset.team_id
-        or version.dataset_item_id != item.id
-        or version.dataset_revision.dataset_id != dataset.id
-        or version.dataset_revision.team_id != dataset.team_id
-    ):
-        raise DatasetIntegrityError("Dataset item current version has inconsistent ownership.")
+    _validate_item_version_ownership(dataset=dataset, item=item, version=version)
     return version
 
 
@@ -304,10 +335,41 @@ def _create_item_version(
     version_number: int,
     archived: bool,
     content: _DatasetItemContent,
+    reserve_restore_slot: bool = False,
 ) -> DatasetItemVersion:
+    if item.team_id != dataset.team_id or item.dataset_id != dataset.id:
+        raise DatasetIntegrityError("Dataset item has inconsistent ownership.")
+
+    current_count = (
+        DatasetItemVersion.objects.for_team(dataset.team_id, canonical=True)
+        .filter(
+            dataset_id=dataset.id,
+            dataset_item_id=item.id,
+        )
+        .count()
+    )
+    version_limit = MAX_VERSIONS_PER_ITEM - int(reserve_restore_slot)
+    if current_count >= version_limit:
+        detail = (
+            f"This dataset item cannot be archived because the last version slot is reserved for restoring it. "
+            f"The limit is {MAX_VERSIONS_PER_ITEM}. Create a new item to continue."
+            if reserve_restore_slot
+            else (
+                f"No more versions can be added to this dataset item. The limit is {MAX_VERSIONS_PER_ITEM}. "
+                "Create a new item to continue."
+            )
+        )
+        raise DatasetLimitExceeded(
+            resource="dataset_item_versions",
+            current_count=current_count,
+            limit=MAX_VERSIONS_PER_ITEM,
+            detail=detail,
+        )
+
     revision = _create_revision(dataset=dataset, created_by=created_by)
     version = DatasetItemVersion.objects.for_team(dataset.team_id, canonical=True).create(
         team_id=dataset.team_id,
+        dataset=dataset,
         dataset_item=item,
         dataset_revision=revision,
         version=version_number,
@@ -340,6 +402,18 @@ def create_dataset(
 ) -> Dataset:
     normalized_metadata = metadata if metadata is not None else {}
     normalized_name = _validate_dataset_fields(name=name, description=description, metadata=normalized_metadata)
+    Team.objects.select_for_update().only("id").get(id=team.id)
+    current_count = Dataset.objects.for_team(team.id, canonical=True).count()
+    if current_count >= MAX_DATASETS_PER_TEAM:
+        raise DatasetLimitExceeded(
+            resource="datasets",
+            current_count=current_count,
+            limit=MAX_DATASETS_PER_TEAM,
+            detail=(
+                f"No more datasets can be added to this project. The limit is {MAX_DATASETS_PER_TEAM}. "
+                "Contact support if you need more."
+            ),
+        )
     try:
         return Dataset.objects.for_team(team.id, canonical=True).create(
             team=team,
@@ -430,7 +504,7 @@ def create_dataset_item(
     expected_output: JSONValue = None,
     source_output: JSONValue = None,
     metadata: dict[str, JSONValue] | None = None,
-    external_id: str | None = None,
+    client_item_id: str | None = None,
     source_trace_id: str | None = None,
     source_event_id: str | None = None,
     source_timestamp: datetime | None = None,
@@ -445,7 +519,7 @@ def create_dataset_item(
         source_event_id=source_event_id,
         source_timestamp=source_timestamp,
     )
-    _validate_external_id(external_id)
+    _validate_client_item_id(client_item_id)
     _validate_item_content(content=content)
 
     dataset = _lock_dataset(team_id=team_id, dataset_id=dataset_id)
@@ -455,28 +529,21 @@ def create_dataset_item(
             detail="Restore this dataset before adding items.",
         )
 
-    if external_id is not None:
+    if client_item_id is not None:
         existing_item = (
             DatasetItem.objects.for_team(team_id, canonical=True)
             .select_related("current_version", "current_version__dataset_revision")
-            .filter(dataset=dataset, external_id=external_id)
+            .filter(dataset=dataset, client_item_id=client_item_id)
             .first()
         )
         if existing_item is not None:
             current_version = _current_item_version(dataset=dataset, item=existing_item)
             if current_version.archived:
-                restored_version = _create_item_version(
-                    dataset=dataset,
-                    item=existing_item,
-                    created_by=created_by,
-                    version_number=current_version.version + 1,
-                    archived=False,
-                    content=content,
-                )
-                return DatasetItemMutationResult(
-                    item=existing_item,
-                    version=restored_version,
-                    created=False,
+                raise DatasetMutationConflict(
+                    code="client_item_id_conflict",
+                    detail="An archived item already uses this client item ID. Unarchive that item to use it again.",
+                    current_version=current_version.version,
+                    current_item_id=existing_item.id,
                 )
             if _item_contents_equal(_DatasetItemContent.from_version(current_version), content):
                 return DatasetItemMutationResult(
@@ -485,16 +552,28 @@ def create_dataset_item(
                     created=False,
                 )
             raise DatasetMutationConflict(
-                code="external_id_conflict",
-                detail="An item with this external ID already exists with different content.",
+                code="client_item_id_conflict",
+                detail="An item with this client item ID already exists with different content.",
                 current_version=current_version.version,
                 current_item_id=existing_item.id,
             )
 
+    current_count = DatasetItem.objects.for_team(dataset.team_id, canonical=True).filter(dataset=dataset).count()
+    if current_count >= MAX_ITEMS_PER_DATASET:
+        raise DatasetLimitExceeded(
+            resource="dataset_items",
+            current_count=current_count,
+            limit=MAX_ITEMS_PER_DATASET,
+            detail=(
+                f"No more items can be added to this dataset. The limit is {MAX_ITEMS_PER_DATASET}. "
+                "Contact support if you need more."
+            ),
+        )
+
     item = DatasetItem.objects.for_team(dataset.team_id, canonical=True).create(
         team_id=dataset.team_id,
         dataset=dataset,
-        external_id=external_id,
+        client_item_id=client_item_id,
         created_by=created_by,
     )
     version = _create_item_version(
@@ -597,6 +676,7 @@ def archive_dataset_item(
         version_number=current_version.version + 1,
         archived=True,
         content=_DatasetItemContent.from_version(current_version),
+        reserve_restore_slot=True,
     )
     return DatasetItemMutationResult(item=item, version=version)
 
@@ -631,9 +711,19 @@ def restore_dataset_item(
     restored_version = current_version
     if source_version is not None:
         restored_version = DatasetItemVersion.objects.for_team(team_id, canonical=True).get(
+            dataset_id=dataset.id,
             dataset_item=item,
             version=source_version,
         )
+        _validate_item_version_ownership(dataset=dataset, item=item, version=restored_version)
+
+    restored_content = replace(
+        _DatasetItemContent.from_version(restored_version),
+        source_output=current_version.source_output,
+        source_trace_id=current_version.source_trace_id,
+        source_event_id=current_version.source_event_id,
+        source_timestamp=current_version.source_timestamp,
+    )
 
     version = _create_item_version(
         dataset=dataset,
@@ -641,6 +731,6 @@ def restore_dataset_item(
         created_by=created_by,
         version_number=current_version.version + 1,
         archived=False,
-        content=_DatasetItemContent.from_version(restored_version),
+        content=restored_content,
     )
     return DatasetItemMutationResult(item=item, version=version)

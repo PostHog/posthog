@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-05 10:49:48 UTC
+// Generated at: 2026-08-05 20:29:07 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -149,7 +149,6 @@ export type CanonicalProvider =
     | 'reka-fp8'
     | 'relace-bf16'
     | 'relace-fp8'
-    | 'sail-research-fp4'
     | 'sail-research-fp8'
     | 'sail-research-int4'
     | 'sakana'
@@ -167,7 +166,7 @@ export type CanonicalProvider =
     | 'tencent-fp8'
     | 'together'
     | 'together-fp8'
-    | 'upstage'
+    | 'upstage-fp4'
     | 'venice'
     | 'venice-bf16'
     | 'venice-fp16'

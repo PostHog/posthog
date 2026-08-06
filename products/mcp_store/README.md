@@ -115,6 +115,22 @@ To show brand icons on a self-hosted instance, create a logo.dev account, genera
 3. `oauth_metadata` should already be populated by the sync; if empty, run the "Discover metadata" admin action.
 4. Tick "is active". Repeat per environment — templates are per-database rows.
 
+## Reaching connected servers from an agent
+
+There are two ways a caller uses a connection, and they differ in who speaks MCP.
+
+- **`POST .../mcp_server_installations/:id/proxy/`** is a transparent JSON-RPC passthrough.
+  The caller is an MCP client that runs its own `initialize` handshake and holds the session — PostHog Code points a sandbox at this URL as if it were the vendor's server.
+  Built-in agents get the equivalent root-level route with a signed token (see `backend/facade/api.py`).
+- **`POST .../mcp_server_installations/:id/call_tool/`** takes `{tool_name, arguments}` and returns one tool result.
+  The caller wants a result, not a transport, so PostHog runs the handshake server-side (`call_upstream_tool` in `backend/tools.py`).
+  This is what the PostHog MCP's `exec` uses, so an external agent (Claude Code, Codex) can call a connected server's tools through its existing PostHog connection instead of authenticating each vendor separately.
+  Discovery for that path is `GET .../mcp_server_installations/available_tools/`, which returns every callable tool across the caller's connections in one request, each namespaced by a server slug (`linear__create_issue`).
+  The `exec` side lives in `services/mcp/src/lib/gateway-tools.ts` and is gated on the `mcp-gateway` flag.
+
+Both paths resolve policy through the same `resolve_call_decision` / `_gateway_decision` in `backend/proxy.py` and write the same `MCPAuditEvent` rows, so approval state and the audit trail cannot diverge between them.
+`needs_approval` and `do_not_use` tools are refused before any upstream request.
+
 ## Key modules
 
 | Path                                   | What it is                                                                      |
@@ -124,6 +140,6 @@ To show brand icons on a self-hosted instance, create a logo.dev account, genera
 | `backend/probe.py`                     | Live server verification, up to the OAuth consent screen                        |
 | `backend/models.py`                    | `MCPServerTemplate`, `MCPServerInstallation` (+ per-install tools, OAuth state) |
 | `backend/oauth.py`                     | RFC 9728/8414 discovery, RFC 7591 DCR, token exchange/refresh                   |
-| `backend/proxy.py`, `backend/tools.py` | MCP request proxying and tool discovery                                         |
+| `backend/proxy.py`, `backend/tools.py` | MCP request proxying, tool discovery, and single tool calls                     |
 | `backend/facade/`                      | The only cross-product import surface                                           |
 | `frontend/scene/`                      | Marketplace UI (`MarketplaceBrowser`, `ServerCard`, ...)                        |
