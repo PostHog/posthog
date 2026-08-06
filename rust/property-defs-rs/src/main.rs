@@ -8,13 +8,14 @@ use property_defs_rs::{
     app_context::AppContext,
     config::Config,
     measuring_channel::measuring_channel,
-    metrics_consts::CHANNEL_CAPACITY,
+    metrics_buckets::bucket_overrides,
+    metrics_consts::{CHANNEL_CAPACITY, CHANNEL_CAPACITY_TOTAL},
     types::MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS,
     update_cache::Cache,
     update_consumer_loop, update_producer_loop,
 };
 
-use serve_metrics::setup_metrics_routes;
+use common_metrics::setup_metrics_routes_with_overrides;
 use sqlx::postgres::PgPoolOptions;
 use tokio::net::TcpListener;
 use tracing::level_filters::LevelFilter;
@@ -133,13 +134,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     drop(producer_handle);
 
-    // Publish the tx capacity metric every 10 seconds
+    // Publish the tx capacity metrics every 10 seconds. Both are needed to read occupancy:
+    // `capacity()` is remaining slots, `max_capacity()` is the channel size.
     tokio::spawn({
         let tx = tx.clone();
         async move {
             loop {
                 tokio::time::sleep(Duration::from_secs(10)).await;
                 metrics::gauge!(CHANNEL_CAPACITY).set(tx.capacity() as f64);
+                metrics::gauge!(CHANNEL_CAPACITY_TOTAL).set(tx.max_capacity() as f64);
             }
         }
     });
@@ -178,7 +181,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }),
         );
     let app = apply_routes(app, context);
-    let app = setup_metrics_routes(app);
+    let app = setup_metrics_routes_with_overrides(app, &bucket_overrides());
 
     let bind = format!("{}:{}", config.host, config.port);
     info!(address = %bind, "HTTP server starting");
