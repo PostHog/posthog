@@ -119,6 +119,7 @@ depends_on = [
     "products.revenue_analytics",
     "products.review_hog",
     "products.signals",
+    "products.skills",
     "products.slack_app",
     "products.stamphog",
     "products.streamlit_apps",
@@ -461,6 +462,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.dashboards",
+    "products.exports",
     "products.workflows",
 ]
 layer = "modules"
@@ -1174,7 +1176,7 @@ from = [
 
 [[modules]]
 path = "products.exports"
-depends_on = ["posthog", "products.actions", "products.dashboards", "ee", "products.annotations", "products.ai_observability", "products.posthog_ai", "products.product_analytics"]
+depends_on = ["posthog", "products.actions", "products.dashboards", "ee", "products.annotations", "products.posthog_ai", "products.product_analytics"]
 layer = "modules"
 
 [[modules]]

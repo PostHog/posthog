@@ -124,6 +124,42 @@
       /* Height is driven by the embedded document (same-origin), so the panel
          expands to fit the debug UI instead of squeezing it into a viewport box. */
       iframe.debug { width: 100%; min-height: 480px; border: 0; background: var(--bg); display: block; }
+
+      /* message browser */
+      .overlay {
+        position: fixed; inset: 0; background: rgba(8, 10, 13, 0.6); z-index: 20;
+        display: flex; align-items: center; justify-content: center; padding: 24px;
+      }
+      .browser {
+        background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+        width: min(1180px, 100%); height: min(780px, 100%);
+        display: flex; flex-direction: column; overflow: hidden;
+      }
+      .browser-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+      .browser-head .title { font-weight: 600; }
+      .browser-body { display: flex; flex: 1 1 auto; min-height: 0; }
+      .facets { flex: 0 0 250px; border-right: 1px solid var(--border); overflow-y: auto; padding: 8px 14px 12px; }
+      .facets h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 10px 0 4px; }
+      .facet-row { cursor: pointer; border-radius: 4px; margin: 0 -4px; padding: 2px 4px; }
+      .facet-row:hover { background: var(--panel-2); }
+      .msgs { flex: 1 1 auto; min-width: 0; overflow-y: auto; }
+      .browser-foot { border-top: 1px solid var(--border); }
+      .browser-foot .status { margin-right: auto; }
+      .chip {
+        display: inline-flex; align-items: center; gap: 4px; font-size: 11px;
+        background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 1px 4px 1px 8px;
+      }
+      .chip .val { font-family: var(--mono); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+      .chip .val:hover { color: #a9c0ff; }
+      .chip .x { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 0 4px; font-size: 12px; }
+      .chip .x:hover { color: var(--error); }
+      tr.msg-detail td { background: var(--panel-2); }
+      pre.payload {
+        margin: 0 0 8px; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+        font-family: var(--mono); font-size: 11px; white-space: pre-wrap; word-break: break-word;
+        max-height: 340px; overflow: auto;
+      }
     </style>
   </head>
   <body>
@@ -176,8 +212,10 @@
         return body;
       };
       const copy = (text) => navigator.clipboard && navigator.clipboard.writeText(text);
+      // Copy clicks must not also trigger row-level handlers (e.g. expanding
+      // a message row in the browser).
       const copyable = (text, cls) =>
-        el("span", { class: cls, title: `${text} (click to copy)`, onclick: () => copy(text) }, text);
+        el("span", { class: cls, title: `${text} (click to copy)`, onclick: (e) => { e.stopPropagation(); copy(text); } }, text);
 
       // Client-side search + pagination over an in-memory row list. The search
       // input is kept stable across re-renders so typing survives refreshes.
@@ -432,6 +470,20 @@
 
       function renderAnalysisResult(job) {
         const r = job.result;
+        // Browsing starts where the analysis started, so the messages shown
+        // line up with the aggregates that led here.
+        const browseSpec = {
+          group: job.spec.group,
+          topic: job.spec.topic,
+          partition: job.spec.partition,
+          startOffset: job.spec.start_offset,
+        };
+        const browseKey = (text, filters) =>
+          el("span", {
+            class: "key",
+            title: `${text} (click to browse matching messages)`,
+            onclick: () => messageBrowser.open(browseSpec, filters),
+          }, text);
         const chips = el(
           "div",
           { class: "row" },
@@ -447,7 +499,7 @@
           r.token_overflow ? el("span", { class: "pill warn" }, `token overflow: ${fmtInt(r.token_overflow)}`) : null
         );
 
-        const topList = (title, rows) => {
+        const topList = (title, rows, makeFilter) => {
           const max = Math.max(1, ...rows.map((row) => row.count));
           return el("div", {},
             el("h3", {}, title),
@@ -455,7 +507,7 @@
             rows.map((row) =>
               el("div", { class: "krow" },
                 el("span", { class: "kbar", style: `width:${Math.max(3, (row.count / max) * 80)}px` }),
-                copyable(row.key, "key"),
+                browseKey(row.key, makeFilter(row.key)),
                 el("span", { class: "cnt" }, `${fmtInt(row.count)} · ${row.pct.toFixed(1)}%`))
             )
           );
@@ -465,18 +517,28 @@
         const tokenBlocks = r.top_tokens.map((t) =>
           el("div", { class: "token-block" },
             el("div", { class: "token-head" },
-              el("span", { class: t.team_id === null ? "pill muted" : "pill accent" }, t.team_id === null ? "team ?" : `team ${t.team_id}`),
-              copyable(t.token, "tok"),
+              el("span", {
+                class: t.team_id === null ? "pill muted" : "pill accent",
+                style: "cursor: pointer",
+                title: "Browse this team's messages",
+                onclick: () => messageBrowser.open(browseSpec, { token: t.token }),
+              }, t.team_id === null ? "team ?" : `team ${t.team_id}`),
+              el("span", {
+                class: "tok",
+                title: `${t.token} (click to browse matching messages)`,
+                onclick: () => messageBrowser.open(browseSpec, { token: t.token }),
+              }, t.token),
               el("span", { class: "share" },
                 el("span", { class: "bar", style: `width:${Math.max(3, (t.count / maxTokenCount) * 160)}px` }),
                 el("span", { class: "mono muted" }, `${fmtInt(t.count)} msgs · ${t.pct.toFixed(1)}% · ${fmtBytes(t.total_bytes)}`))),
             el("div", { class: "token-cols" },
-              topList("events", t.top_events),
+              topList("events", t.top_events, (key) => ({ token: t.token, event: key })),
               topList(
                 t.distinct_id_overflow
                   ? `distinct_ids (${fmtInt(t.distinct_ids_tracked)} tracked, ${fmtInt(t.distinct_id_overflow)} overflow)`
                   : "distinct_ids",
-                t.top_distinct_ids
+                t.top_distinct_ids,
+                (key) => ({ token: t.token, distinct_id: key })
               ))
           )
         );
@@ -504,6 +566,255 @@
 
         return el("div", {}, chips, ...tokenBlocks, sizes);
       }
+
+      // ---------- message browser ----------
+      // Modal opened from analysis results: scans the partition for messages
+      // matching header filters, 100 matches per request, with facets over
+      // the loaded messages to refine further.
+      const FACET_DIMS = [
+        { key: "token", title: "tokens" },
+        { key: "event", title: "events" },
+        { key: "distinct_id", title: "distinct_ids" },
+      ];
+      const PAGE_LIMIT = 100;
+
+      const messageBrowser = {
+        overlay: null,
+        state: null,
+        epoch: 0,
+
+        open(spec, filters) {
+          this.close();
+          this.state = {
+            spec,
+            filters: { ...filters },
+            records: [],
+            tokenTeams: {},
+            scanned: 0,
+            nextOffset: spec.startOffset,
+            reachedEnd: false,
+            loading: false,
+            error: null,
+          };
+
+          this.listView = listView({
+            placeholder: "Filter loaded messages…",
+            pageSize: PAGE_LIMIT,
+            matches: (record, q) =>
+              ["token", "event", "distinct_id", "uuid", "session_id", "payload"].some((key) => (record[key] || "").toLowerCase().includes(q)) ||
+              String(record.offset).includes(q),
+            renderTable: (rows) => this.renderTable(rows),
+            emptyText: "No matching messages loaded yet. Load more to scan further along the partition.",
+          });
+
+          this.ui = {
+            chips: el("div", { class: "row", style: "padding: 0; flex: 1 1 auto" }),
+            facets: el("div", { class: "facets" }),
+            error: el("div", {}),
+            status: el("span", { class: "muted mono status" }),
+            loadBtn: el("button", { class: "small", onclick: () => this.fetchPage() }, "Load more"),
+          };
+
+          this.overlay = el("div", { class: "overlay", onclick: (e) => { if (e.target === this.overlay) this.close(); } },
+            el("div", { class: "browser" },
+              el("div", { class: "browser-head" },
+                el("span", { class: "title" }, `Messages · ${spec.group} · ${spec.topic} p${spec.partition}`),
+                this.ui.chips,
+                el("button", { class: "small", onclick: () => this.close() }, "✕ close")),
+              el("div", { class: "browser-body" },
+                this.ui.facets,
+                el("div", { class: "msgs" }, this.ui.error, this.listView.body)),
+              el("div", { class: "row browser-foot" }, this.ui.status, this.ui.loadBtn)));
+          document.body.append(this.overlay);
+          this.escHandler = (e) => { if (e.key === "Escape") this.close(); };
+          document.addEventListener("keydown", this.escHandler);
+
+          this.render();
+          this.fetchPage();
+        },
+
+        close() {
+          this.epoch++;
+          if (this.escHandler) document.removeEventListener("keydown", this.escHandler);
+          if (this.overlay) this.overlay.remove();
+          this.overlay = null;
+          this.state = null;
+          this.escHandler = null;
+        },
+
+        setFilter(key, value) {
+          this.state.filters[key] = value;
+          this.restart();
+        },
+
+        removeFilter(key) {
+          delete this.state.filters[key];
+          this.restart();
+        },
+
+        // Any filter change rescans from the original start offset so counts
+        // and facets stay consistent with a single contiguous range.
+        restart() {
+          this.epoch++;
+          const s = this.state;
+          s.records = [];
+          s.scanned = 0;
+          s.nextOffset = s.spec.startOffset;
+          s.reachedEnd = false;
+          s.loading = false;
+          s.error = null;
+          this.listView.reset();
+          this.render();
+          this.fetchPage();
+        },
+
+        async fetchPage() {
+          const s = this.state;
+          if (!s || s.loading) return;
+          const epoch = this.epoch;
+          s.loading = true;
+          s.error = null;
+          this.render();
+          const params = new URLSearchParams({
+            group: s.spec.group,
+            topic: s.spec.topic,
+            partition: s.spec.partition,
+            start_offset: s.nextOffset,
+            limit: PAGE_LIMIT,
+          });
+          for (const dim of FACET_DIMS) {
+            if (s.filters[dim.key] !== undefined) params.set(dim.key, s.filters[dim.key]);
+          }
+          try {
+            const data = await fetchJSON(`api/messages?${params}`);
+            if (epoch !== this.epoch) return;
+            s.records = s.records.concat(data.messages);
+            s.scanned += data.scanned;
+            s.nextOffset = data.next_offset;
+            s.reachedEnd = data.reached_end;
+            Object.assign(s.tokenTeams, data.token_teams);
+          } catch (e) {
+            if (epoch !== this.epoch) return;
+            s.error = String(e);
+          }
+          s.loading = false;
+          this.render();
+        },
+
+        render() {
+          const s = this.state;
+          if (!s) return;
+
+          const chips = FACET_DIMS.filter((dim) => s.filters[dim.key] !== undefined).map((dim) =>
+            el("span", { class: "chip" },
+              el("span", { class: "muted" }, `${dim.key}=`),
+              el("span", { class: "val", title: `${s.filters[dim.key]} (click to copy)`, onclick: () => copy(s.filters[dim.key]) }, s.filters[dim.key]),
+              el("button", { class: "x", title: "Remove this filter", onclick: () => this.removeFilter(dim.key) }, "×")));
+          this.ui.chips.replaceChildren(
+            chips.length ? el("span", { class: "muted", style: "font-size: 11px" }, "filters:") : el("span", { class: "muted", style: "font-size: 11px" }, "no filters, showing all messages"),
+            ...chips);
+
+          this.ui.error.replaceChildren(s.error ? el("div", { class: "error-box" }, s.error) : "");
+          this.listView.setRows(s.records);
+          this.renderFacets();
+
+          const bits = [`${fmtInt(s.records.length)} matched`, `${fmtInt(s.scanned)} scanned`];
+          if (s.loading) bits.push("scanning…");
+          else if (s.reachedEnd) bits.push("caught up to the high watermark");
+          else bits.push(`next offset ${fmtInt(s.nextOffset)}`);
+          this.ui.status.textContent = bits.join(" · ");
+          this.ui.loadBtn.disabled = s.loading;
+          this.ui.loadBtn.textContent = s.loading ? "Loading…" : s.reachedEnd ? "Check for new messages" : "Load more";
+        },
+
+        teamLabel(token) {
+          const team = this.state.tokenTeams[token];
+          return team === null || team === undefined ? null : team;
+        },
+
+        renderFacets() {
+          const s = this.state;
+          const blocks = [];
+          for (const dim of FACET_DIMS) {
+            if (s.filters[dim.key] !== undefined) continue;
+            const counts = new Map();
+            for (const record of s.records) {
+              const value = record[dim.key];
+              if (value === undefined || value === null) continue;
+              counts.set(value, (counts.get(value) || 0) + 1);
+            }
+            const entries = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 25);
+            const max = Math.max(1, ...entries.map(([, count]) => count));
+            blocks.push(el("div", {},
+              el("h3", {}, dim.title),
+              entries.length === 0 ? el("div", { class: "muted", style: "font-size: 11px" }, "none loaded") : null,
+              entries.map(([value, count]) => {
+                const team = dim.key === "token" ? this.teamLabel(value) : null;
+                return el("div", { class: "krow facet-row", title: `${value} (click to filter)`, onclick: () => this.setFilter(dim.key, value) },
+                  el("span", { class: "kbar", style: `width:${Math.max(3, (count / max) * 50)}px` }),
+                  el("span", { class: "key" }, team === null ? value : `team ${team}`),
+                  el("span", { class: "cnt" }, fmtInt(count)));
+              })));
+          }
+          blocks.push(el("div", { class: "muted", style: "font-size: 11px; padding: 10px 0" },
+            "Facets count the messages loaded so far. Click a value to filter the scan by it."));
+          this.ui.facets.replaceChildren(...blocks);
+        },
+
+        renderTable(rows) {
+          return el("table", {},
+            el("thead", {}, el("tr", {},
+              el("th", {}, "offset"), el("th", {}, "time"), el("th", {}, "event"),
+              el("th", {}, "distinct_id"), el("th", {}, "team"), el("th", {}, "size"), el("th", {}, "flags"))),
+            el("tbody", {}, rows.map((record) => {
+              const flags = [];
+              if (record.missing_headers) flags.push(el("span", { class: "pill bad" }, "no headers"));
+              if (record.historical_migration) flags.push(el("span", { class: "pill warn" }, "historical"));
+              if (record.force_disable_person_processing) flags.push(el("span", { class: "pill muted" }, "no-person"));
+              if (record.dlq_reason) flags.push(el("span", { class: "pill bad", title: record.dlq_reason }, "dlq"));
+              const team = record.token ? this.teamLabel(record.token) : null;
+              const row = el("tr", { class: "clickable", title: "Click to view the payload" },
+                el("td", { class: "mono" }, fmtInt(record.offset)),
+                el("td", { class: "muted mono" }, record.timestamp_ms ? new Date(record.timestamp_ms).toLocaleString() : "–"),
+                el("td", { class: "mono" }, record.event ? copyable(record.event, "key") : el("span", { class: "muted" }, "–")),
+                el("td", { class: "mono" }, record.distinct_id ? copyable(record.distinct_id, "key") : el("span", { class: "muted" }, "–")),
+                el("td", {}, record.token
+                  ? el("span", { class: team === null ? "pill muted" : "pill accent", title: `${record.token} (click to copy)`, style: "cursor: pointer", onclick: (e) => { e.stopPropagation(); copy(record.token); } }, team === null ? "team ?" : `team ${team}`)
+                  : el("span", { class: "muted" }, "–")),
+                el("td", { class: "muted mono" }, fmtBytes(record.payload_bytes)),
+                el("td", {}, flags));
+              row.addEventListener("click", () => this.toggleDetail(row, record));
+              return row;
+            })));
+        },
+
+        toggleDetail(row, record) {
+          const next = row.nextElementSibling;
+          if (next && next.classList.contains("msg-detail")) {
+            next.remove();
+            row.classList.remove("selected");
+            return;
+          }
+          let payload = record.payload;
+          try {
+            payload = JSON.stringify(JSON.parse(record.payload), null, 2);
+          } catch {
+            // Not JSON; show the raw text.
+          }
+          row.classList.add("selected");
+          row.after(el("tr", { class: "msg-detail" },
+            el("td", { colspan: "7" },
+              el("div", { class: "row", style: "padding: 8px 0 6px" },
+                record.uuid ? el("span", { class: "muted mono" }, `uuid ${record.uuid}`) : null,
+                record.session_id ? el("span", { class: "muted mono" }, `session ${record.session_id}`) : null,
+                record.token ? el("span", { class: "muted mono" }, `token ${record.token}`) : null,
+                record.payload_truncated
+                  ? el("span", { class: "pill warn" }, `showing the first 64 KB of ${fmtBytes(record.payload_bytes)}`)
+                  : null,
+                el("button", { class: "small", style: "margin-left: auto", onclick: () => copy(record.payload) }, "copy payload")),
+              el("pre", { class: "payload" }, payload || el("span", { class: "muted" }, "empty payload")))));
+        },
+      };
 
       // ---------- section: consumer debug ----------
       const debugSection = {

@@ -239,16 +239,20 @@ class TestBudgetExhaustion:
 class TestFeatureFlagGate:
     @parameterized.expand(
         [
-            ("flag_off_releases_a_queued_rewrite", False, None, "proactive_threshold", False),
-            ("flag_off_still_finishes_a_staged_swap", False, {"state": "ready"}, "proactive_threshold", True),
-            ("flag_off_does_not_block_an_operator", False, None, "admin", True),
-            ("flag_on_rewrites_as_usual", True, None, "proactive_threshold", True),
+            ("flag_off_releases_a_queued_rewrite", False, True, None, "proactive_threshold", False),
+            ("flag_off_still_finishes_a_staged_swap", False, True, {"state": "ready"}, "proactive_threshold", True),
+            ("flag_off_does_not_block_an_operator", False, True, None, "admin", True),
+            ("flag_on_rewrites_as_usual", True, True, None, "proactive_threshold", True),
+            ("flag_off_does_not_release_a_nomination", False, False, None, "coarsening_requested", True),
+            ("coarsen_flag_off_releases_a_queued_coarsen", True, False, None, "coarsening", False),
+            ("repartition_flag_off_keeps_a_queued_coarsen", False, True, None, "coarsening", True),
         ]
     )
     @patch(f"{MODULE}.capture_repartition_event")
     @patch(f"{MODULE}.HeartbeaterSync")
     @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
     @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.is_auto_coarsen_enabled")
     @patch(f"{MODULE}.is_auto_repartition_enabled")
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
@@ -256,18 +260,21 @@ class TestFeatureFlagGate:
         self,
         _name: str,
         enabled: bool,
+        coarsen_enabled: bool,
         swap: dict | None,
         trigger_reason: str,
         expect_rewrite: bool,
         mock_schema_model: MagicMock,
         _mock_job_model: MagicMock,
         mock_enabled: MagicMock,
+        mock_coarsen_enabled: MagicMock,
         _mock_helper_cls: MagicMock,
         mock_repartition: AsyncMock,
         _mock_heartbeater: MagicMock,
         _mock_capture_event: MagicMock,
     ) -> None:
         mock_enabled.return_value = enabled
+        mock_coarsen_enabled.return_value = coarsen_enabled
         schema = _schema(
             name="public.usages",
             s3_folder_name="usages",
