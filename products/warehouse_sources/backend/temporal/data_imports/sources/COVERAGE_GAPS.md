@@ -298,8 +298,12 @@ Diffed against the [Search Console API discovery document](https://searchconsole
 
 Have: `search_analytics_by_date`, `search_analytics_by_query`, `search_analytics_by_page`,
 `search_analytics_by_country`, `search_analytics_by_device`, `search_analytics_by_country_device`,
-`search_analytics_by_query_page`, `search_analytics_by_search_appearance`, `search_analytics_by_hour`,
-`sites`, `sitemaps`, `sitemap_contents`.
+`search_analytics_by_query_country`, `search_analytics_by_query_device`,
+`search_analytics_by_page_country`, `search_analytics_by_page_device`,
+`search_analytics_by_page_country_device`, `search_analytics_by_query_page`,
+`search_analytics_by_search_appearance`, `search_analytics_by_hour`,
+`search_analytics_by_search_type`, `search_analytics_by_query_search_type`,
+`search_analytics_by_page_search_type`, `sites`, `sitemaps`, `sitemap_contents`.
 
 - [x] `sitemaps` — submission status, errors, indexed counts. (`indexed` itself is marked deprecated
       "do not use" in the discovery document, so the per-content-type `submitted` count ships instead,
@@ -309,13 +313,23 @@ Have: `search_analytics_by_date`, `search_analytics_by_query`, `search_analytics
       per-URL POST with no listing endpoint, and nothing in the API yields a bounded URL list —
       `sitemaps.list` returns sitemap file paths, not the URLs inside them. Combined with the
       2,000 inspections per property per day quota, there is no way to drive it as a table.)
-- [x] Additional dimension combinations: country + device. (date + page + query already shipped as
-      `search_analytics_by_query_page`.) Also added `search_analytics_by_hour`, the only dimension
-      Google serves outside the 16-month daily window — it retains 10 days and needs
+- [x] Additional dimension combinations: country + device, and query/page crossed with country and
+      with device (plus page + country + device). Each extra dimension multiplies the row count for
+      the same traffic, so these hit the ~50K rows per property per day sampling cap sooner than the
+      single-dimension tables. Also added `search_analytics_by_hour`, the only dimension Google
+      serves outside the 16-month daily window — it retains 10 days and needs
       `dataState: hourly_all`.
-- [ ] Per search type (`type`: image, video, news, discover, googleNews) variants of the dimension
-      bundles. (skipped: real endpoint, but the docs do not state which dimensions each type supports,
-      so the table set could not be pinned down from the spec alone.)
+- [x] Search types beyond web (`type`: image, video, news). Rather than a variant table per type per
+      dimension bundle, three tables fan out over the four Google Search tabs and keep the type as a
+      `search_type` column: `search_analytics_by_search_type`,
+      `search_analytics_by_query_search_type`, `search_analytics_by_page_search_type`. Every other
+      table sends `type: web` explicitly and says so in its description, since Google's silent
+      default was excluding image, video, and news results with nothing to signal it.
+- [ ] `type: discover` and `type: googleNews`. (skipped: the discovery document documents no
+      dimension restrictions per type, but these two are separate surfaces rather than Search tabs
+      and Search Console does not report queries for them, so the dimension bundles they answer
+      could not be pinned down from the spec alone. Adding them to the fan-out would fail the whole
+      table if a request is rejected.)
 
 ### Clerk — spec-verified
 

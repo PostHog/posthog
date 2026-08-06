@@ -37,16 +37,20 @@ GSC_API_BASE = "https://searchconsole.googleapis.com/webmasters/v3"
 #
 # 1. `rowLimit` per request maxes at 25,000 (we use that here). Pagination via
 #    `startRow` lets us page through more, but only up to limit (2).
-# 2. There is a per-(property, date, dimension-set) cap of ~50,000 rows total
-#    that Google will *ever* return, regardless of pagination. When hit, Google
-#    sorts by clicks descending and silently drops the tail — no error, just a
-#    truncated result.
+# 2. There is a per-(property, date, dimension-set, search type) cap of ~50,000
+#    rows total that Google will *ever* return, regardless of pagination. When
+#    hit, Google sorts by clicks descending and silently drops the tail — no
+#    error, just a truncated result.
 #
 # Impact by schema:
 #   - by_date / by_country / by_device: tiny row counts, never sampled.
 #   - by_query / by_page: typical sites unaffected; very large sites lose tail.
 #   - by_query_page: cartesian over (query × page); hits the cap fastest. Top
 #     50K rows by clicks are kept, the rest are dropped silently.
+#   - by_page_device / by_page_country / by_query_device / by_query_country and
+#     by_page_country_device: each extra dimension multiplies the row count for
+#     the same traffic, so they hit the cap well before the single-dimension
+#     tables do.
 #
 # Workarounds when sampling matters:
 #   - Add a filter (e.g. country/device) to split a high-row table into smaller
@@ -62,6 +66,9 @@ ROW_LIMIT = 25000
 HISTORY_DAYS = 16 * 30  # Google retains ~16 months of Search Analytics data
 FRESHNESS_LAG_DAYS = 3  # GSC publishes data with a 2-3 day lag
 DEFAULT_DATA_STATE = "final"  # complete data only; the hourly table overrides this
+# Google's own default for `type`. Sent explicitly so the web-only scope of most tables is
+# visible in the request rather than inherited silently.
+DEFAULT_SEARCH_TYPE = "web"
 
 # Search Analytics is rate-limited at 1,200 QPM per site and per user, plus a
 # per-second (QPS) burst cap. Paginating day-by-day across ~16 months of history
@@ -110,6 +117,9 @@ class GoogleSearchConsoleQuotaExceededError(Exception):
 class GoogleSearchConsoleResumeConfig:
     current_date: str  # ISO date currently being fetched
     start_row: int  # next startRow within current_date
+    # Search type currently being fetched within current_date. Defaults so state saved before
+    # the per-search-type fan-out still deserializes.
+    search_type: str = DEFAULT_SEARCH_TYPE
 
 
 def normalize_site_url(raw: str) -> str:
@@ -319,6 +329,7 @@ def _query_search_analytics(
     start_row: int,
     row_limit: int = ROW_LIMIT,
     data_state: str = DEFAULT_DATA_STATE,
+    search_type: str = DEFAULT_SEARCH_TYPE,
 ) -> list[dict[str, Any]]:
     body = {
         "startDate": start_date,
@@ -327,6 +338,7 @@ def _query_search_analytics(
         "rowLimit": row_limit,
         "startRow": start_row,
         "dataState": data_state,
+        "type": search_type,
     }
     url = f"{GSC_API_BASE}/sites/{quote(site_url, safe='')}/searchAnalytics/query"
 
@@ -433,9 +445,18 @@ def _as_int(value: Any) -> int:
         return 0
 
 
-def _row_to_dict(row: dict[str, Any], dimensions: list[str], iter_date: dt.date | None = None) -> dict[str, Any]:
+def _row_to_dict(
+    row: dict[str, Any],
+    dimensions: list[str],
+    iter_date: dt.date | None = None,
+    search_type: str | None = None,
+) -> dict[str, Any]:
     keys = row["keys"]
     out: dict[str, Any] = {dim: keys[i] if i < len(keys) else None for i, dim in enumerate(dimensions)}
+    if search_type is not None:
+        # `type` is a request-level filter, not a dimension, so it never comes back in `keys`.
+        # Tables that fan out over it stamp the type they asked for onto each row.
+        out["search_type"] = search_type
     if "hour" in out:
         # The `hour` dimension comes back as an ISO-8601 offset date-time in Pacific time.
         out["hour"] = _parse_api_datetime(out["hour"])
@@ -495,6 +516,17 @@ def _iter_dates(start: dt.date, end: dt.date) -> collections.abc.Iterator[dt.dat
     while current <= end:
         yield current
         current += dt.timedelta(days=1)
+
+
+def _next_work_unit(current: dt.date, search_type_index: int, search_types: list[str]) -> tuple[str, str]:
+    """The (ISO date, search type) pair to resume at once the current pair is fully fetched.
+
+    A table that fans out over `type` walks every search type for a date before moving on, so
+    resume state has to name both. Tables on the default web-only type only ever advance the date.
+    """
+    if search_type_index + 1 < len(search_types):
+        return current.isoformat(), search_types[search_type_index + 1]
+    return (current + dt.timedelta(days=1)).isoformat(), search_types[0]
 
 
 def _site_to_dict(site: dict[str, Any]) -> dict[str, Any]:
@@ -585,6 +617,9 @@ def google_search_console_source(
     dimensions = schema["dimensions"]
     primary_keys = list(schema["primary_key"])
     data_state = schema.get("data_state", DEFAULT_DATA_STATE)
+    search_types = schema.get("search_types", [DEFAULT_SEARCH_TYPE])
+    # Only a table that declares `search_type` in its primary key carries the column.
+    stamp_search_type = "search_type" in primary_keys
     history_days = schema.get("history_days", HISTORY_DAYS)
     end_lag_days = schema.get("end_lag_days", FRESHNESS_LAG_DAYS)
     ignore_watermark = schema.get("ignore_incremental_watermark", False)
@@ -605,12 +640,18 @@ def google_search_console_source(
         )
 
         resume_date: str | None = None
+        resume_search_type = search_types[0]
         resume_start_row = 0
         if resumable_source_manager.can_resume():
             resume = resumable_source_manager.load_state()
             if resume is not None:
                 resume_date = resume.current_date
                 resume_start_row = resume.start_row
+                # A checkpoint can name a search type this table no longer fans out over, either
+                # because it predates the fan-out or because the type list changed. Fall back to
+                # the first type so the date is refetched rather than skipped.
+                if resume.search_type in search_types:
+                    resume_search_type = resume.search_type
 
         session = google_search_console_session(config.google_search_console_integration_id, team_id)
 
@@ -620,37 +661,58 @@ def google_search_console_source(
             if resume_date is not None and iso < resume_date:
                 continue
 
-            start_row = resume_start_row if (resume_date is not None and iso == resume_date) else 0
+            at_resume_date = resume_date is not None and iso == resume_date
+            resume_index = search_types.index(resume_search_type) if at_resume_date else 0
 
-            while True:
-                rows = _query_search_analytics(
-                    session=session,
-                    site_url=site_url,
-                    start_date=iso,
-                    end_date=iso,
-                    dimensions=dimensions,
-                    start_row=start_row,
-                    data_state=data_state,
-                )
-                if not rows:
-                    break
+            for search_type_index, search_type in enumerate(search_types):
+                # Skip search types already fully fetched for the resumed date.
+                if search_type_index < resume_index:
+                    continue
 
-                yield [_row_to_dict(row, dimensions, iter_date=current) for row in rows]
+                start_row = resume_start_row if (at_resume_date and search_type_index == resume_index) else 0
 
-                next_start_row = start_row + len(rows)
-                if len(rows) < ROW_LIMIT:
-                    # Advance to the next date; persist its starting state so a restart
-                    # picks up at the next date with start_row=0.
-                    next_iso = (current + dt.timedelta(days=1)).isoformat()
-                    resumable_source_manager.save_state(
-                        GoogleSearchConsoleResumeConfig(current_date=next_iso, start_row=0)
+                while True:
+                    rows = _query_search_analytics(
+                        session=session,
+                        site_url=site_url,
+                        start_date=iso,
+                        end_date=iso,
+                        dimensions=dimensions,
+                        start_row=start_row,
+                        data_state=data_state,
+                        search_type=search_type,
                     )
-                    break
+                    if not rows:
+                        break
 
-                resumable_source_manager.save_state(
-                    GoogleSearchConsoleResumeConfig(current_date=iso, start_row=next_start_row)
-                )
-                start_row = next_start_row
+                    yield [
+                        _row_to_dict(
+                            row,
+                            dimensions,
+                            iter_date=current,
+                            search_type=search_type if stamp_search_type else None,
+                        )
+                        for row in rows
+                    ]
+
+                    next_start_row = start_row + len(rows)
+                    if len(rows) < ROW_LIMIT:
+                        # Advance to the next (date, search type) pair; persist its starting
+                        # state so a restart picks up there with start_row=0.
+                        next_iso, next_search_type = _next_work_unit(current, search_type_index, search_types)
+                        resumable_source_manager.save_state(
+                            GoogleSearchConsoleResumeConfig(
+                                current_date=next_iso, start_row=0, search_type=next_search_type
+                            )
+                        )
+                        break
+
+                    resumable_source_manager.save_state(
+                        GoogleSearchConsoleResumeConfig(
+                            current_date=iso, start_row=next_start_row, search_type=search_type
+                        )
+                    )
+                    start_row = next_start_row
 
             # Once we've moved past the resume date, the resume offset no longer applies.
             resume_date = None

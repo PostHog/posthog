@@ -19,12 +19,26 @@ _DATE_COLUMN = {
     "date": "The day the metrics were recorded, in Pacific time (UTC-7:00/8:00).",
 }
 
+_SEARCH_TYPE_COLUMN = {
+    "search_type": "The Google Search tab the metrics come from: web, image, video, or news.",
+}
 
-def _search_analytics(description: str, **dimensions: str) -> CanonicalEndpoint:
+
+def _web_search_analytics(description: str, **dimensions: str) -> CanonicalEndpoint:
+    """A table on Search Analytics' default `type`, which is web results only."""
+    return {
+        "description": f"{description} Covers web search only.",
+        "docs_url": _SEARCH_ANALYTICS_DOCS_URL,
+        "columns": {**_DATE_COLUMN, **dimensions, **_METRIC_COLUMNS},
+    }
+
+
+def _search_analytics_by_type(description: str, **dimensions: str) -> CanonicalEndpoint:
+    """A table that queries every search type and keeps the type as a column."""
     return {
         "description": description,
         "docs_url": _SEARCH_ANALYTICS_DOCS_URL,
-        "columns": {**_DATE_COLUMN, **dimensions, **_METRIC_COLUMNS},
+        "columns": {**_DATE_COLUMN, **_SEARCH_TYPE_COLUMN, **dimensions, **_METRIC_COLUMNS},
     }
 
 
@@ -34,40 +48,77 @@ _COUNTRY_COLUMN = "Country the search was made from, as a three-letter ISO 3166-
 _DEVICE_COLUMN = "Device the search was made on: DESKTOP, MOBILE, or TABLET."
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
-    "search_analytics_by_date": _search_analytics("Daily search performance totals for the property."),
-    "search_analytics_by_query": _search_analytics(
+    "search_analytics_by_date": _web_search_analytics("Daily search performance totals for the property."),
+    "search_analytics_by_query": _web_search_analytics(
         "Daily search performance for the property, grouped by search query.",
         query=_QUERY_COLUMN,
     ),
-    "search_analytics_by_page": _search_analytics(
+    "search_analytics_by_page": _web_search_analytics(
         "Daily search performance for the property, grouped by landing page.",
         page=_PAGE_COLUMN,
     ),
-    "search_analytics_by_country": _search_analytics(
+    "search_analytics_by_country": _web_search_analytics(
         "Daily search performance for the property, grouped by the searcher's country.",
         country=_COUNTRY_COLUMN,
     ),
-    "search_analytics_by_device": _search_analytics(
+    "search_analytics_by_device": _web_search_analytics(
         "Daily search performance for the property, grouped by device type.",
         device=_DEVICE_COLUMN,
     ),
-    "search_analytics_by_country_device": _search_analytics(
+    "search_analytics_by_country_device": _web_search_analytics(
         "Daily search performance for the property, grouped by country and device together.",
         country=_COUNTRY_COLUMN,
         device=_DEVICE_COLUMN,
     ),
-    "search_analytics_by_query_page": _search_analytics(
+    "search_analytics_by_query_country": _web_search_analytics(
+        "Daily search performance for the property, grouped by search query and the searcher's country.",
+        query=_QUERY_COLUMN,
+        country=_COUNTRY_COLUMN,
+    ),
+    "search_analytics_by_query_device": _web_search_analytics(
+        "Daily search performance for the property, grouped by search query and device type.",
+        query=_QUERY_COLUMN,
+        device=_DEVICE_COLUMN,
+    ),
+    "search_analytics_by_page_country": _web_search_analytics(
+        "Daily search performance for the property, grouped by landing page and the searcher's country.",
+        page=_PAGE_COLUMN,
+        country=_COUNTRY_COLUMN,
+    ),
+    "search_analytics_by_page_device": _web_search_analytics(
+        "Daily search performance for the property, grouped by landing page and device type.",
+        page=_PAGE_COLUMN,
+        device=_DEVICE_COLUMN,
+    ),
+    "search_analytics_by_page_country_device": _web_search_analytics(
+        "Daily search performance for the property, grouped by landing page, country, and device together.",
+        page=_PAGE_COLUMN,
+        country=_COUNTRY_COLUMN,
+        device=_DEVICE_COLUMN,
+    ),
+    "search_analytics_by_query_page": _web_search_analytics(
         "Daily search performance for the property, grouped by search query and landing page.",
         query=_QUERY_COLUMN,
         page=_PAGE_COLUMN,
     ),
-    "search_analytics_by_search_appearance": _search_analytics(
+    "search_analytics_by_search_appearance": _web_search_analytics(
         "Daily search performance for the property, grouped by how the result was presented in search.",
         searchAppearance="The search result feature the result appeared as, for example RICH_RESULT or VIDEO.",
     ),
-    "search_analytics_by_hour": _search_analytics(
+    "search_analytics_by_hour": _web_search_analytics(
         "Hourly search performance totals for the property, covering the last 10 days.",
         hour="Start of the hour the metrics were recorded, in Pacific time (UTC-7:00/8:00).",
+    ),
+    "search_analytics_by_search_type": _search_analytics_by_type(
+        "Daily search performance totals for the property, split by search type."
+    ),
+    "search_analytics_by_query_search_type": _search_analytics_by_type(
+        "Daily search performance for the property, grouped by search query and split by search type.",
+        query=_QUERY_COLUMN,
+    ),
+    "search_analytics_by_page_search_type": _search_analytics_by_type(
+        "Daily search performance for the property, grouped by landing page and split by search type.",
+        page=_PAGE_COLUMN,
     ),
     "sites": {
         "description": "Search Console properties the connected Google account has access to.",

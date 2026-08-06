@@ -88,6 +88,22 @@ def test_search_appearance_schema_uses_solo_dimension_with_date_in_pk():
     assert schema["should_sync_default"] is False
 
 
+@pytest.mark.parametrize("name,schema", sorted(SEARCH_ANALYTICS_SCHEMAS.items()))
+def test_search_analytics_primary_key_covers_every_dimension(name, schema):
+    # Merge-mode dedupe keys on primary_key, so a dimension left out of it collapses rows that
+    # differ only by that dimension. `date` and `search_type` are the two columns the iterator
+    # stamps on rather than requesting as dimensions, so those are the only allowed extras.
+    dimensions = set(schema["dimensions"])
+    primary_key = set(schema["primary_key"])
+
+    assert dimensions <= primary_key
+    assert primary_key - dimensions <= {"date", "search_type"}
+    assert "date" in primary_key
+    # A table that queries more than one search type gets a row per type, which only stays
+    # distinct if the type is part of the key.
+    assert ("search_type" in primary_key) is (len(schema.get("search_types", ["web"])) > 1)
+
+
 def test_get_schemas_filters_by_names():
     schemas = GoogleSearchConsoleSource().get_schemas(
         _config(), team_id=1, names=["search_analytics_by_date", "search_analytics_by_query"]

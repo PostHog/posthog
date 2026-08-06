@@ -36,6 +36,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_sea
     normalize_site_url,
     suggest_registered_site,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.settings import (
+    SEARCH_TYPE_TABS,
+)
 
 TODAY = dt.date(2026, 4, 30)
 
@@ -242,7 +245,17 @@ def test_source_yields_rows_and_advances_dates(monkeypatch):
 
     queries: list[tuple[str, int]] = []
 
-    def fake_query(session, site_url, start_date, end_date, dimensions, start_row, row_limit=25000, data_state="final"):
+    def fake_query(
+        session,
+        site_url,
+        start_date,
+        end_date,
+        dimensions,
+        start_row,
+        row_limit=25000,
+        data_state="final",
+        search_type="web",
+    ):
         queries.append((start_date, start_row))
         pages = pages_per_date.get(start_date, [[]])
         return pages.pop(0) if pages else []
@@ -282,7 +295,17 @@ def test_source_resumes_from_saved_state(monkeypatch):
     fake_today = dt.date(2026, 4, 30)
     queries: list[tuple[str, int]] = []
 
-    def fake_query(session, site_url, start_date, end_date, dimensions, start_row, row_limit=25000, data_state="final"):
+    def fake_query(
+        session,
+        site_url,
+        start_date,
+        end_date,
+        dimensions,
+        start_row,
+        row_limit=25000,
+        data_state="final",
+        search_type="web",
+    ):
         queries.append((start_date, start_row))
         return []
 
@@ -412,6 +435,93 @@ def test_daily_schemas_keep_final_data_state_and_freshness_lag(monkeypatch):
     assert [call["start_date"] for call in calls] == ["2026-04-25", "2026-04-26", "2026-04-27"]
     assert {call["data_state"] for call in calls} == {"final"}
     assert response.primary_keys == ["date", "country", "device"]
+
+
+def test_search_type_table_queries_every_type_and_stamps_the_rows(monkeypatch):
+    # Search Analytics returns web results when `type` is omitted, so a table covering image,
+    # video, and news has to ask for each type separately and label the rows it gets back.
+    config = GoogleSearchConsoleSourceConfig(
+        site_url="https://example.com/",
+        google_search_console_integration_id=1,
+    )
+    fake_today = dt.date(2026, 4, 30)
+    calls: list[dict] = []
+
+    def fake_query(**kwargs):
+        calls.append(kwargs)
+        return [{"keys": [kwargs["start_date"]], "clicks": 1, "impressions": 4, "ctr": 0.25, "position": 2.0}]
+
+    monkeypatch.setattr(gsc, "_today", lambda: fake_today)
+    monkeypatch.setattr(gsc, "google_search_console_session", lambda *a, **kw: mock.MagicMock())
+    monkeypatch.setattr(gsc, "_query_search_analytics", fake_query)
+
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = False
+    saved_states: list[GoogleSearchConsoleResumeConfig] = []
+    manager.save_state.side_effect = saved_states.append
+
+    response = google_search_console_source(
+        config=config,
+        resource_name="search_analytics_by_search_type",
+        team_id=1,
+        resumable_source_manager=manager,
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=dt.date(2026, 4, 27),
+    )
+    batches = list(response.items())  # type: ignore[arg-type]
+    rows = [row for batch in batches for row in batch]
+
+    # One day in the window (today minus the 3-day publishing lag), one request per search type.
+    assert [call["search_type"] for call in calls] == SEARCH_TYPE_TABS
+    assert [row["search_type"] for row in rows] == SEARCH_TYPE_TABS
+    assert response.primary_keys == ["date", "search_type"]
+    # Checkpoints walk the search types within the date, then roll over to the next date.
+    assert [(state.current_date, state.search_type) for state in saved_states] == [
+        ("2026-04-27", "image"),
+        ("2026-04-27", "video"),
+        ("2026-04-27", "news"),
+        ("2026-04-28", "web"),
+    ]
+
+
+def test_search_type_table_resumes_at_the_saved_search_type(monkeypatch):
+    # A retry mid-fan-out must not refetch the types already imported for that date, which
+    # would burn Google's load quota on data we already have.
+    config = GoogleSearchConsoleSourceConfig(
+        site_url="https://example.com/",
+        google_search_console_integration_id=1,
+    )
+    fake_today = dt.date(2026, 4, 30)
+    calls: list[dict] = []
+
+    def fake_query(**kwargs):
+        calls.append(kwargs)
+        return []
+
+    monkeypatch.setattr(gsc, "_today", lambda: fake_today)
+    monkeypatch.setattr(gsc, "google_search_console_session", lambda *a, **kw: mock.MagicMock())
+    monkeypatch.setattr(gsc, "_query_search_analytics", fake_query)
+
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = True
+    manager.load_state.return_value = GoogleSearchConsoleResumeConfig(
+        current_date="2026-04-27", start_row=0, search_type="video"
+    )
+
+    response = google_search_console_source(
+        config=config,
+        resource_name="search_analytics_by_search_type",
+        team_id=1,
+        resumable_source_manager=manager,
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=dt.date(2026, 4, 25),
+    )
+    list(response.items())  # type: ignore[arg-type]
+
+    assert [(call["start_date"], call["search_type"]) for call in calls] == [
+        ("2026-04-27", "video"),
+        ("2026-04-27", "news"),
+    ]
 
 
 def test_row_to_dict_parses_hour_dimension():
@@ -697,6 +807,26 @@ def test_quota_backoff_falls_back_to_exponential():
     resp = _fake_response(403, _QUOTA_BODY)
     assert _quota_backoff_seconds(resp, attempt=0) == 2.0
     assert _quota_backoff_seconds(resp, attempt=2) == 8.0
+
+
+@pytest.mark.parametrize(
+    "extra_kwargs,expected_type",
+    [
+        ({}, "web"),
+        ({"search_type": "image"}, "image"),
+    ],
+)
+def test_query_sends_the_search_type_in_the_request_body(monkeypatch, extra_kwargs, expected_type):
+    # Without `type` in the body Google falls back to web results, so every table would silently
+    # exclude image, video, and news search however the schema is configured.
+    monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
+
+    session = mock.MagicMock()
+    session.post.return_value = _fake_response(200, {"rows": []})
+
+    _query_search_analytics(session, "sc-domain:example.com", "2026-04-15", "2026-04-15", ["date"], 0, **extra_kwargs)
+
+    assert session.post.call_args.kwargs["json"]["type"] == expected_type
 
 
 def test_query_retries_quota_then_succeeds(monkeypatch):
