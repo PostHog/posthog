@@ -211,7 +211,7 @@ class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "expected bands plus any spike, drop, or silence issues. Synchronous and read only."
         ),
     )
-    @action(detail=False, methods=["POST"])
+    @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def scan(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         data = request.validated_data
         service_name: str = data["serviceName"]
