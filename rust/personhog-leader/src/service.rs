@@ -408,6 +408,10 @@ impl PersonHogLeaderService {
 /// so any value under this bound is bindable by the writer.
 const MAX_EPOCH_MS_YEAR_9999: i64 = 253_402_300_799_999;
 
+/// The granularity `last_seen_at` is stored at. Matches ingestion's own
+/// hourly truncation so both write paths produce identical stored values.
+const MS_PER_HOUR: i64 = 3_600_000;
+
 /// The changelog contract: every produced record must be applyable by the
 /// writer's upsert verbatim. Properties are guaranteed by admission
 /// (NUL sanitization plus the exact size measure); this checks the
@@ -646,19 +650,21 @@ impl PersonHogLeader for PersonHogLeaderService {
 
         // last_seen_at is request-borne and best-effort: an out-of-range
         // value is discarded rather than failing the update, so the
-        // acked ⇒ writeable invariant never hinges on it.
+        // acked ⇒ writeable invariant never hinges on it. In-range values
+        // are floored to the hour — Node's startOf('hour') on its
+        // UTC-normalized timestamps, expressed in epoch terms — so record
+        // volume is bounded at one per person-hour by construction, not
+        // by trusting callers to coarsen.
         let requested_last_seen = req
             .last_seen_at
             .filter(|t| (0..=MAX_EPOCH_MS_YEAR_9999).contains(t));
         if requested_last_seen != req.last_seen_at {
             counter!("personhog_leader_last_seen_discarded_total").increment(1);
         }
+        let requested_last_seen = requested_last_seen.map(|t| t - t % MS_PER_HOUR);
         // Max-merge: the stored value only ever advances, and an advance
         // is a change in its own right — ingestion's direct write path
         // persists a last-seen-only advance, so this path must too.
-        // Record volume stays bounded because callers send coarsened
-        // timestamps (ingestion truncates to the hour), not raw event
-        // times.
         let merged_last_seen = person.last_seen_at.max(requested_last_seen);
         let last_seen_changed = merged_last_seen != person.last_seen_at;
 

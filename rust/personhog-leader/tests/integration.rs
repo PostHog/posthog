@@ -2842,6 +2842,7 @@ async fn an_unknown_outcome_keeps_its_version(
 /// only ever advances and never earns a record by itself.
 #[tokio::test]
 async fn scalar_fields_merge_rather_than_assign() {
+    const HOUR_MS: i64 = 3_600_000;
     let topic = format!("scalar_merge_{}", uuid::Uuid::new_v4().simple());
     let cache = Arc::new(PartitionedCache::new(1 << 20));
     let (_mock_cluster, kafka_producer) = create_test_kafka().await;
@@ -2889,20 +2890,46 @@ async fn scalar_fields_merge_rather_than_assign() {
     };
 
     // A last-seen-only advance is a change of its own: ingestion's
-    // direct write path persists it, so this path must too.
+    // direct write path persists it, so this path must too. The leader
+    // floors to the hour, so a raw mid-hour timestamp stores the hour.
     let result = service
-        .update_person_properties(update(serde_json::Value::Null, None, Some(1_000)))
+        .update_person_properties(update(serde_json::Value::Null, None, Some(HOUR_MS + 1_234)))
         .await
         .expect("last-seen-only must be accepted")
         .into_inner();
     assert!(result.updated, "a last-seen-only advance earns a record");
     let person = result.person.unwrap();
     assert_eq!(person.version, 2);
-    assert_eq!(person.last_seen_at, Some(1_000));
+    assert_eq!(
+        person.last_seen_at,
+        Some(HOUR_MS),
+        "stored at hour granularity"
+    );
+
+    // A second event inside the stored hour is a no-op: the flooring
+    // bounds record volume at one per person-hour regardless of the
+    // caller's precision.
+    let result = service
+        .update_person_properties(update(
+            serde_json::Value::Null,
+            None,
+            Some(HOUR_MS + 900_000),
+        ))
+        .await
+        .expect("a same-hour timestamp must be accepted")
+        .into_inner();
+    assert!(
+        !result.updated,
+        "a raw timestamp inside the stored hour must not produce a record"
+    );
 
     // Identification is a change, and the newer last-seen merges in.
     let result = service
-        .update_person_properties(update(serde_json::Value::Null, Some(true), Some(5_000)))
+        .update_person_properties(update(
+            serde_json::Value::Null,
+            Some(true),
+            Some(5 * HOUR_MS),
+        ))
         .await
         .expect("identification must apply")
         .into_inner();
@@ -2910,7 +2937,7 @@ async fn scalar_fields_merge_rather_than_assign() {
     let person = result.person.unwrap();
     assert_eq!(person.version, 3);
     assert!(person.is_identified);
-    assert_eq!(person.last_seen_at, Some(5_000));
+    assert_eq!(person.last_seen_at, Some(5 * HOUR_MS));
 
     // OR semantics: false does not revert, and re-asserting true is not a
     // change.
@@ -2937,7 +2964,7 @@ async fn scalar_fields_merge_rather_than_assign() {
     // A non-advancing last-seen is not a change: only forward movement
     // of the stored value earns a record.
     let result = service
-        .update_person_properties(update(serde_json::Value::Null, None, Some(3_000)))
+        .update_person_properties(update(serde_json::Value::Null, None, Some(3 * HOUR_MS)))
         .await
         .expect("a stale last-seen is a no-op, not an error")
         .into_inner();
@@ -2952,7 +2979,7 @@ async fn scalar_fields_merge_rather_than_assign() {
         .update_person_properties(update(
             serde_json::json!({"plan": "pro"}),
             None,
-            Some(3_000),
+            Some(3 * HOUR_MS),
         ))
         .await
         .expect("a property change with a stale last-seen must apply")
@@ -2962,7 +2989,7 @@ async fn scalar_fields_merge_rather_than_assign() {
     assert_eq!(person.version, 4);
     assert_eq!(
         person.last_seen_at,
-        Some(5_000),
+        Some(5 * HOUR_MS),
         "a stale last-seen must not lower the stored value"
     );
 
@@ -2982,7 +3009,7 @@ async fn scalar_fields_merge_rather_than_assign() {
     assert_eq!(person.version, 5);
     assert_eq!(
         person.last_seen_at,
-        Some(5_000),
+        Some(5 * HOUR_MS),
         "an out-of-range last-seen must be discarded, not stored"
     );
 }

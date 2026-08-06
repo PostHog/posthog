@@ -639,12 +639,13 @@ export type UpdatePersonPropertiesRequest = Message<'personhog.types.v1.UpdatePe
     isIdentified?: boolean
 
     /**
-     * Epoch milliseconds (matching Person.last_seen_at), max-merged: the
-     * stored value only ever advances, and an advance is a change that
+     * Epoch milliseconds (matching Person.last_seen_at). The leader floors
+     * the value to the hour (ingestion's own granularity) and max-merges,
+     * so the stored value only ever advances. An advance is a change that
      * produces a changelog record on its own — matching ingestion's direct
-     * write path, which persists a last-seen-only advance. Callers must
-     * send coarsened timestamps (ingestion truncates to the hour); a
-     * caller sending raw event times would produce a record per event.
+     * write path, which persists a last-seen-only advance — and the
+     * flooring bounds record volume at one per person-hour regardless of
+     * the caller's precision.
      *
      * @generated from field: optional int64 last_seen_at = 8;
      */
