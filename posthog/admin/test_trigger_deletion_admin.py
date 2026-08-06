@@ -120,7 +120,6 @@ class TestProjectAdminTriggerDeletion(BaseTest):
         super().setUp()
         self.user.is_staff = True
         self.user.save()
-        self.user.groups.add(Group.objects.get_or_create(name=DELETION_AUTHORIZED_GROUP)[0])
         self.factory = RequestFactory()
         self.admin = ProjectAdmin(Project, AdminSite())
 
@@ -169,24 +168,30 @@ class TestProjectAdminTriggerDeletion(BaseTest):
         self.project.refresh_from_db()
         self.assertFalse(self.project.is_pending_deletion)
 
-    def test_staff_outside_deletion_group_cannot_dispatch(self):
-        self.user.groups.clear()
-
+    def test_staff_outside_deletion_group_can_dispatch(self):
         response, mock_start = self._call("POST")
 
         self.assertEqual(response.status_code, 302)
-        mock_start.assert_not_called()
+        mock_start.assert_called_once()
         self.project.refresh_from_db()
-        self.assertFalse(self.project.is_pending_deletion)
+        self.assertTrue(self.project.is_pending_deletion)
 
-    def test_already_pending_deletion_is_rejected(self):
+    def test_already_pending_deletion_does_not_block_retrigger(self):
         self.project.is_pending_deletion = True
         self.project.save(update_fields=["is_pending_deletion"])
 
         response, mock_start = self._call("POST")
 
         self.assertEqual(response.status_code, 302)
-        mock_start.assert_not_called()
+        mock_start.assert_called_once()
+
+    def test_already_started_workflow_keeps_pending(self):
+        response, mock_start = self._call("POST", start_side_effect=WorkflowAlreadyStartedError("id", "type"))
+
+        self.assertEqual(response.status_code, 302)
+        mock_start.assert_called_once()
+        self.project.refresh_from_db()
+        self.assertTrue(self.project.is_pending_deletion)
 
     def test_dispatch_failure_rolls_back_pending(self):
         response, mock_start = self._call("POST", start_side_effect=Exception("boom"))

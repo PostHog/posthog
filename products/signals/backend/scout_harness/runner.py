@@ -57,6 +57,12 @@ logger = logging.getLogger(__name__)
 # network, MCP read scopes injected. Split out later if the agent needs different policy.
 SIGNALS_SCOUT_SANDBOX_ENV_NAME = SIGNALS_REPORT_RESEARCH_ENV_NAME
 
+# Dedicated env for scouts whose config opts into full network access. Sandbox envs are
+# per-team rows shared by name, and `upsert_internal_sandbox_env` reasserts policy on every
+# call — so a full-network run must NOT reuse the shared research env above, or it would
+# flip the network policy for report research and every trusted-mode scout on the team.
+SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME = "SIGNALS_SCOUT_FULL_NETWORK"
+
 # Every scout `ai_stage` starts with this, so `ai_stage LIKE 'scout:%'` rolls the whole fleet
 # up as one stage even though the tag names the individual scout.
 SCOUT_AI_STAGE_PREFIX = "scout:"
@@ -230,20 +236,22 @@ async def arun_signals_scout(
     run_id = uuid7()
     started_at = timezone.now()
 
-    # Resolve the scout's agent model from the `scouts-model-selection` gate. A `None` model keeps the
-    # agent-server default; an override routes this run on that model, paired with the runtime adapter
-    # that can serve it (the agent server can't route a model without one). The flag payload is a
-    # per-team, per-scout model distribution, bucketed per run on `run_id` — so a scout can A/B/n
+    # Resolve the scout's agent model. A `None` model keeps the agent-server default; an override
+    # routes this run on that model, paired with the runtime adapter that can serve it (the agent
+    # server can't route a model without one). Two flag-gated layers, resolved in one call: the
+    # scout's own `config.model` pin (honored while the `scouts-model-config` dogfood flag is on
+    # for the team, deterministic per scout), then the `scouts-model-selection` payload — a
+    # per-team, per-scout model distribution, bucketed per run on `run_id`, so a scout can A/B/n
     # across models against itself across runs. Resolved once here so the whole run is consistent.
-    # Off the event loop — the flag read does blocking network I/O.
+    # Off the event loop — the flag reads do blocking network I/O.
     scout_model = await database_sync_to_async(resolve_scout_model, thread_sensitive=False)(
-        team, skill.name, str(run_id)
+        team, skill.name, str(run_id), configured_model=config.model
     )
 
-    # The scout-model gate is the per-scout, per-run experiment layer; the `signals-pipeline-models`
-    # runtime pin is the default layer beneath it. When the gate resolves a model for this run it
-    # wins (its unallocated remainder resolves None and falls through to the pin), so a fleet-wide
-    # pin can't silently swallow a configured model trial. Either way the whole
+    # The scout-model resolution (config pin, then experiment gate) sits above the
+    # `signals-pipeline-models` runtime pin, the default layer beneath it. When it resolves a model
+    # for this run it wins (the gate's unallocated remainder resolves None and falls through to the
+    # pin), so a fleet-wide pin can't silently swallow a configured model. Either way the whole
     # runtime/model/effort triple is taken from one source — a Codex runtime never pairs with a
     # model it can't serve. Model-only pin entries are still ignored for scout: a pin supplies
     # model+runtime as a pair, and overriding one without the other would mis-route.
@@ -454,10 +462,19 @@ async def _spawn_and_run(
     `runtime_adapter` that serves it — the agent server derives the provider from it; all `None` keeps
     the agent-server default Claude runtime). Returns `(last_message, task_run_id)`.
     """
+    # The config's `network_access` picks the sandbox env — and with it the egress policy the
+    # provisioning layer enforces. Trusted (default) shares the research env; full gets its own
+    # env name so its unrestricted policy can't be reasserted onto the shared one.
+    if config.network_access == SignalScoutConfig.NetworkAccess.FULL:
+        sandbox_env_name = SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME
+        network_access_level = tasks_facade.SandboxNetworkAccessLevel.FULL
+    else:
+        sandbox_env_name = SIGNALS_SCOUT_SANDBOX_ENV_NAME
+        network_access_level = tasks_facade.SandboxNetworkAccessLevel.TRUSTED
     sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
         team.id,
-        SIGNALS_SCOUT_SANDBOX_ENV_NAME,
-        tasks_facade.SandboxNetworkAccessLevel.TRUSTED,
+        sandbox_env_name,
+        network_access_level,
     )
     report_channel = skill_uses_report_channel(skill.allowed_tools)
     # Scout sandboxes never get the write-capable installation token: task creation attaches the
@@ -508,7 +525,15 @@ async def _spawn_and_run(
         reasoning_effort=reasoning_effort,
     )
     prompt = build_run_prompt(
-        skill, run_id=str(run_id), team_id=team.id, started_at=started_at, github_read_access=github_guidance
+        skill,
+        run_id=str(run_id),
+        team_id=team.id,
+        started_at=started_at,
+        github_read_access=github_guidance,
+        # Renders the structured-output section (schema + `scout-record-output` contract) only
+        # when the config carries a schema AND emit is on — records land solely as project
+        # events, so a dry-run scout must not be steered at a tool that fails closed.
+        structured_output_schema=(config.structured_output_schema if config.emit else None),
     )
     logger.info(
         "signals_scout: spawning sandbox",
@@ -740,6 +765,12 @@ def _create_run_row(
         )
         if value is not None
     }
+    # Stamped only when non-default, like the model triple: absence means the run held the
+    # trusted-domains posture. Stamped (rather than read off the config later) because the
+    # config row can be edited after the fact, which would silently rewrite what past runs
+    # could actually reach.
+    if config.network_access == SignalScoutConfig.NetworkAccess.FULL:
+        metadata["network_access"] = config.network_access
     # The three dimensions that pin down which instructions this run actually got. All are
     # point-in-time facts that become unrecoverable later, which is why they are stamped rather
     # than resolved at read time: the harness prompt has no version history, a skill's
@@ -755,6 +786,14 @@ def _create_run_row(
     # minted. Both can change between runs, so this is a fourth composition fork rather than a
     # property of the build.
     metadata["github_guidance"] = github_guidance
+    # Dispatch-time snapshot of the structured-output contract. The prompt renders this exact
+    # schema, so the record endpoint validates against the snapshot rather than the live config
+    # value — a mid-run schema edit must not reject records that match what the run was shown.
+    # Clearing the config's schema entirely still fails the channel closed mid-run (the kill
+    # switch); see `tools/structured_output._resolve_schema`. Gated on `emit` like the prompt
+    # section: records land solely as project events, so a dry-run scout has no channel.
+    if config.structured_output_schema and config.emit:
+        metadata["structured_output_schema"] = config.structured_output_schema
     return SignalScoutRun.objects.unscoped().create(
         id=run_id,
         task_run=task_run,
@@ -905,7 +944,12 @@ def _capture_run_started(
         "task_run_id": task_run_id,
     }
     _attach_run_shape_props(
-        properties, skill=skill, github_guidance=github_guidance, model=model, runtime_adapter=runtime_adapter
+        properties,
+        config=config,
+        skill=skill,
+        github_guidance=github_guidance,
+        model=model,
+        runtime_adapter=runtime_adapter,
     )
     try:
         posthoganalytics.capture(
@@ -1001,6 +1045,7 @@ def _capture_config_auto_paused(
 def _attach_run_shape_props(
     properties: dict[str, Any],
     *,
+    config: SignalScoutConfig,
     skill: LoadedSkill,
     github_guidance: bool,
     model: str | None,
@@ -1013,13 +1058,17 @@ def _attach_run_shape_props(
     which is the dimension a prompt A/B has to hold constant, and until it existed nothing recorded
     which build a run used. Model and runtime adapter are attached only when the
     `scouts-model-selection` gate (or a runtime pin) routed the run, so their absence means the
-    agent-server default served it. All three make run outcomes (timeout rate, runtime, emit volume)
-    sliceable without joining through $ai_generation.
+    agent-server default served it. `network_access` follows the same absent-means-default
+    convention (attached only for `full`), so an event-based readout never pools runs with
+    different egress capabilities under one model or prompt. All of these make run outcomes
+    (timeout rate, runtime, emit volume) sliceable without joining through $ai_generation.
     """
     properties["harness_prompt_version"] = HARNESS_PROMPT_VERSION
     properties["report_channel"] = resolve_report_channel_variant(skill.allowed_tools)
     properties["skill_origin"] = skill.origin
     properties["github_guidance"] = github_guidance
+    if config.network_access == SignalScoutConfig.NetworkAccess.FULL:
+        properties["network_access"] = config.network_access
     if model is not None:
         properties["model"] = model
     if runtime_adapter is not None:
@@ -1071,7 +1120,12 @@ def _capture_run_finished(
         "emitted_count": emitted_count,
     }
     _attach_run_shape_props(
-        properties, skill=skill, github_guidance=github_guidance, model=model, runtime_adapter=runtime_adapter
+        properties,
+        config=config,
+        skill=skill,
+        github_guidance=github_guidance,
+        model=model,
+        runtime_adapter=runtime_adapter,
     )
     # Only attach failure context on failed runs — keeps successful / cancelled events clean
     # rather than carrying explicit-null error fields on every event.
