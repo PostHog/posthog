@@ -381,7 +381,7 @@ const ExceptionsTab = (): JSX.Element => {
                     }
                 }}
             >
-                <div className="sticky top-0 z-10 shrink-0 border-y border-border bg-surface-primary px-2 py-2">
+                <div className="sticky top-0 z-10 shrink-0 border-y border-primary bg-surface-primary px-2 py-2">
                     <ErrorFilters.Root className="w-full">
                         <div className="flex w-full flex-col gap-1">
                             <div className="flex w-full flex-wrap items-center gap-1">
