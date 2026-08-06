@@ -39,13 +39,13 @@ def is_compute_quota_exhausted(task: Task) -> bool:
     if not is_task_billable_compute(task):
         return False
     try:
-        return _is_combined_quota_limited(task.team.api_token)
+        return _is_posthog_code_quota_limited(task.team.api_token)
     except Exception:
         logger.warning("compute_quota: combined quota state unavailable", exc_info=True)
         return False
 
 
-def _is_combined_quota_limited(team_api_token: str) -> bool:
+def _is_posthog_code_quota_limited(team_api_token: str) -> bool:
     from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 
     return is_team_limited(
