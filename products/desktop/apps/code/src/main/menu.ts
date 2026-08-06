@@ -354,5 +354,22 @@ function buildViewMenu(): MenuItemConstructorOptions {
 }
 
 function buildWindowMenu(): MenuItemConstructorOptions {
-  return { role: "windowMenu" };
+  return {
+    label: "Window",
+    submenu: [
+      { role: "minimize" },
+      { role: "zoom" },
+      ...(process.platform === "darwin"
+        ? [
+            { type: "separator" as const },
+            {
+              label: "Close Window",
+              accelerator: "Cmd+Shift+W",
+              role: "close",
+            } as MenuItemConstructorOptions,
+            { role: "front" as const },
+          ]
+        : [{ role: "close" as const }]),
+    ],
+  };
 }
