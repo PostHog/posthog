@@ -45,6 +45,7 @@ from products.exports.backend.temporal.subscriptions.activities import (
     deliver_subscription,
     deliver_subscription_v2,
     fetch_due_subscriptions_activity,
+    notify_subscription_delivery_failure,
     update_delivery_record,
     validate_subscription_for_delivery,
 )
@@ -175,6 +176,7 @@ SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
         export_asset_activity,
         deliver_subscription,
         deliver_subscription_v2,
+        notify_subscription_delivery_failure,
         generate_ai_subscription_report,
         update_delivery_record,
         advance_next_delivery_date,
@@ -190,6 +192,7 @@ SUBSCRIPTION_PROCESS_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
         export_asset_activity,
         deliver_subscription,
         deliver_subscription_v2,
+        notify_subscription_delivery_failure,
         generate_ai_subscription_report,
         update_delivery_record,
         advance_next_delivery_date,

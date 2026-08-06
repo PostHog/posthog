@@ -1,5 +1,6 @@
 import uuid
 from typing import NamedTuple
+from urllib.parse import urlparse
 
 import structlog
 
@@ -7,6 +8,14 @@ from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
 
 from products.exports.backend.models.subscription import Subscription
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    Priority,
+    TargetType,
+    create_notification,
+)
+from products.notifications.backend.facade.enums import NotificationOnlyResourceType
 
 from ee.tasks.subscriptions import SUPPORTED_TARGET_TYPES
 
@@ -68,6 +77,13 @@ def validate_re_enable(target_type: str | None, integration_id: int | None) -> s
     return reason.user_message.format(target_type=target_type)
 
 
+def _can_notify_creator(subscription: Subscription) -> bool:
+    return (
+        subscription.created_by is not None
+        and subscription.team.all_users_with_access().filter(id=subscription.created_by_id).exists()
+    )
+
+
 def disable_invalid_subscription(subscription: Subscription, reason: DisableReason) -> None:
     # Compare-and-swap so only one racing caller sends the disabled-notification
     # email (UUID4 campaign keys mean MessagingRecord can't dedup the duplicate).
@@ -96,7 +112,18 @@ def disable_invalid_subscription(subscription: Subscription, reason: DisableReas
     # relation (loaded via select_related at the activity site).
     subscription.enabled = False
 
-    if subscription.created_by and subscription.created_by.email:
+    try:
+        create_subscription_auto_disabled_notification(subscription, reason)
+    except Exception as e:
+        capture_exception(e)
+        logger.warning(
+            "subscription.create_auto_disabled_notification_failed",
+            subscription_id=subscription.id,
+            error=str(e),
+            exc_info=True,
+        )
+
+    if _can_notify_creator(subscription) and subscription.created_by.email:
         try:
             send_notifications_for_disabled_subscription(subscription, reason, [subscription.created_by.email])
         except Exception as e:
@@ -111,6 +138,32 @@ def disable_invalid_subscription(subscription: Subscription, reason: DisableReas
                 error=str(e),
                 exc_info=True,
             )
+
+
+def create_subscription_auto_disabled_notification(subscription: Subscription, reason: DisableReason) -> None:
+    if not _can_notify_creator(subscription):
+        return
+
+    title = subscription.title or "Subscription"
+    source_url = urlparse(subscription.url).path if subscription.url else ""
+    create_notification(
+        NotificationData(
+            team_id=subscription.team_id,
+            notification_type=NotificationType.PIPELINE_FAILURE,
+            priority=Priority.NORMAL,
+            title=f"{title[:75]} was automatically disabled",
+            body=(
+                f"PostHog automatically disabled this subscription because {reason.description.lower()}. "
+                f"{reason.user_message.format(target_type=subscription.target_type)}"
+            ),
+            target_type=TargetType.USER,
+            target_id=str(subscription.created_by_id),
+            resource_type=NotificationOnlyResourceType.PIPELINE,
+            resource_id=str(subscription.id),
+            source_url=source_url,
+            source_id=str(uuid.uuid4()),
+        )
+    )
 
 
 def send_notifications_for_disabled_subscription(
