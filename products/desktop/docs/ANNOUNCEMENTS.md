@@ -26,9 +26,10 @@ and the update modals.
   web host (no `os.getAppVersion`) announcement-free by construction.
 - Dismissals persist per announcement `id` in `announcementsStore.ts`;
   changing an announcement's `id` resurfaces it for everyone.
-- Surfaces: `AnnouncementBanner` (top-of-app bar, mounted in `__root.tsx`
-  after `ConnectivityBanner`) and `AnnouncementsHost` (the modal surfaces,
-  mounted in the shell beside the update modals).
+- Surfaces: `AnnouncementBanner` (top of the framed content pane in
+  `__root.tsx` — overlays the content, never the sidebar) and
+  `AnnouncementsHost` (the modal surfaces, mounted in the shell beside the
+  update modals).
 - Modals open with a hero band (`AnnouncementHero`, styled after the Loops
   promo dialog): a hedgehog on a colored band by default, overridable per item
   via `hero` — `{ "hedgehog": "<slug>", "color": "#rrggbb" }`,

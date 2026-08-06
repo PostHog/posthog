@@ -469,7 +469,6 @@ function RootLayout() {
           )}
         </Flex>
         <ConnectivityBanner />
-        <AnnouncementBanner />
         <Flex flexGrow="1" overflow="hidden" className="relative">
           {/* Scrim under the peeked nav: dims the content while the overlay is
               out. Purely visual (pointer-transparent) and paired with the
@@ -495,6 +494,9 @@ function RootLayout() {
               }`}
             >
               <Flex direction="column" height="100%">
+                {/* Inside the framed pane, not the app column: announcements
+                    overlay the content, never the sidebar. */}
+                <AnnouncementBanner />
                 {/* The /website space renders its own header (WebsiteLayout);
                       everywhere else the shared header carries the view title
                       and, on a task, its action row. */}
