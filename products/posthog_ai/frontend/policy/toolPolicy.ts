@@ -54,7 +54,7 @@ const POSTHOG_DESTRUCTIVE_SUB_TOOLS = new Set([
     'opt-outs-add',
     'organization-enforce-2fa',
     'organization-enforce-2fa-execute',
-    'posthog-connection-forward-execute',
+    'posthog-connection-forward',
     'scout-scratchpad-forget',
     'signals-scout-scratchpad-forget',
     'skill-archive',
@@ -67,7 +67,19 @@ const POSTHOG_DESTRUCTIVE_SUB_TOOLS = new Set([
     'workflows-test-run',
 ])
 
-export function isPostHogDestructiveSubTool(subTool: string): boolean {
+/**
+ * `posthog-connection-call` runs another PostHog tool in a connected project, so it is exactly as
+ * destructive as that tool — which rides in its `tool` argument. Judging the wrapper by name alone
+ * would prompt on every cross-account read; judging it safe by name alone would let a cross-account
+ * delete through. An unreadable target is not provably safe, so it prompts.
+ */
+const POSTHOG_CONNECTION_CALL_TOOL = 'posthog-connection-call'
+
+export function isPostHogDestructiveSubTool(subTool: string, innerInput?: Record<string, unknown>): boolean {
+    if (subTool.toLowerCase() === POSTHOG_CONNECTION_CALL_TOOL) {
+        const forwardedTool = innerInput?.['tool']
+        return typeof forwardedTool !== 'string' || isPostHogDestructiveSubTool(forwardedTool)
+    }
     return POSTHOG_DESTRUCTIVE_SUBTOOL_RE.test(subTool) || POSTHOG_DESTRUCTIVE_SUB_TOOLS.has(subTool.toLowerCase())
 }
 
@@ -100,7 +112,7 @@ export function defaultPermissionDecision(record: PermissionRequestRecord): Perm
     }
 
     const { toolName } = record
-    const { resolvedKey, innerToolName } = resolveToolCall(record.rawToolCall)
+    const { resolvedKey, innerToolName, innerInput } = resolveToolCall(record.rawToolCall)
 
     const isExec = isPostHogExecTool(toolName) || innerToolName != null || resolvedKey.startsWith('__posthog_exec_')
     if (isExec) {
@@ -109,7 +121,7 @@ export function defaultPermissionDecision(record: PermissionRequestRecord): Perm
         }
         // A resolved `call <sub-tool>`: auto-approve only non-mutating sub-tools.
         if (innerToolName) {
-            return isPostHogDestructiveSubTool(innerToolName) ? 'prompt' : 'auto_allow'
+            return isPostHogDestructiveSubTool(innerToolName, innerInput) ? 'prompt' : 'auto_allow'
         }
         // Exec call we couldn't resolve to a concrete sub-tool — fail closed.
         return 'prompt'

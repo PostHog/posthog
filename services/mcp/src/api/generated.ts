@@ -59128,6 +59128,26 @@ export namespace Schemas {
       data: unknown;
     }
 
+    export interface PostHogConnectionTarget {
+      /** Project id to use in target API paths. It is the connected project's id, not this one's. */
+      project_id: number;
+      /** Name of the connected project. */
+      project_name: string;
+      /** Id of the organization the connected project belongs to. */
+      organization_id: string;
+      /** Name of the organization the connected project belongs to. */
+      organization_name: string;
+      /** Cloud region the connected project lives in, e.g. `US` or `EU`. */
+      region: string;
+      /** Base URL requests through this connection are sent to. */
+      base_url: string;
+    }
+
+    export interface PostHogConnectionTargetError {
+      /** Why the connected project's context could not be read. */
+      error: string;
+    }
+
     /**
      * * `Postgres` - Postgres
      */

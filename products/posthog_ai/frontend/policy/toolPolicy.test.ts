@@ -78,6 +78,20 @@ describe('toolPolicy', () => {
             // `patch` must match as a whole `-`-bounded segment, not as a substring.
             'dispatch-events-list',
         ])('%s is not destructive', (sub) => expect(isPostHogDestructiveSubTool(sub)).toBe(false))
+
+        // posthog-connection-call runs another tool in a connected project, so its verdict comes
+        // from the `tool` argument. Reading the wrapper's own name would either prompt on every
+        // cross-account read or wave a cross-account delete straight through.
+        it.each<[string, Record<string, unknown> | undefined, boolean]>([
+            ['read in the connected project', { tool: 'execute-sql' }, false],
+            ['write in the connected project', { tool: 'feature-flag-delete' }, true],
+            ['destructive-annotated name with no verb', { tool: 'workflows-publish' }, true],
+            ['no arguments at all', undefined, true],
+            ['tool argument missing', { connection_id: '1' }, true],
+            ['tool argument not a string', { tool: { name: 'execute-sql' } }, true],
+        ])('posthog-connection-call with %s → destructive: %s', (_case, input, expected) =>
+            expect(isPostHogDestructiveSubTool('posthog-connection-call', input)).toBe(expected)
+        )
     })
 
     describe('defaultPermissionDecision', () => {
@@ -118,6 +132,27 @@ describe('toolPolicy', () => {
             ],
             // An exec call we can't resolve to a concrete sub-tool fails closed.
             ['exec call with no sub-tool', makeRecord({ input: { command: 'call --json' } }), 'prompt'],
+            // The connected-project wrapper is judged by the tool it forwards, end to end through
+            // the exec command parser — a read there is as free as a read here.
+            [
+                'connection call running a read',
+                makeRecord({
+                    input: {
+                        command:
+                            'call posthog-connection-call {"connection_id":"1","tool":"execute-sql","arguments":{"query":"select 1"}}',
+                    },
+                }),
+                'auto_allow',
+            ],
+            [
+                'connection call running a delete',
+                makeRecord({
+                    input: {
+                        command: 'call posthog-connection-call {"connection_id":"1","tool":"feature-flag-delete"}',
+                    },
+                }),
+                'prompt',
+            ],
             // A permission frame carrying no canonical tool name isn't a positively-identified built-in.
             [
                 'unidentified frame',

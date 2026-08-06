@@ -51,6 +51,9 @@ class TestPostHogConnectionForward:
     def _forward_url(self) -> str:
         return f"/api/environments/{self.team.pk}/posthog_connections/{self.integration.id}/forward/"
 
+    def _target_url(self) -> str:
+        return f"/api/environments/{self.team.pk}/posthog_connections/{self.integration.id}/target/"
+
     def test_forward_injects_token_and_passes_through(self, client: HttpClient):
         client.force_login(self.user)
         with patch(FORWARD_PATH) as mock_request:
@@ -216,4 +219,62 @@ class TestPostHogConnectionForward:
                     content_type="application/json",
                 )
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        mock_request.assert_not_called()
+
+    def test_target_reports_the_connected_project_not_the_local_one(self, client: HttpClient):
+        # Callers build target API paths from this, so it must report the far side. Reporting the
+        # local project id would send every subsequent forward to a project that isn't there.
+        client.force_login(self.user)
+        me = {
+            "team": {"id": 4242, "name": "EU Team"},
+            "organization": {"id": "org-uuid", "name": "EU Org"},
+        }
+        with patch(FORWARD_PATH, return_value=_mock_response(200, me)) as mock_request:
+            response = client.get(self._target_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "project_id": 4242,
+            "project_name": "EU Team",
+            "organization_id": "org-uuid",
+            "organization_name": "EU Org",
+            "region": "EU",
+            "base_url": "https://eu.posthog.com",
+        }
+        assert mock_request.call_args[0][1] == "https://eu.posthog.com/api/users/@me/"
+
+    @pytest.mark.parametrize(
+        "status_code,body",
+        [
+            (200, {"organization": {"id": "org-uuid"}}),
+            (401, {"detail": "Invalid token"}),
+            (200, {}),
+        ],
+    )
+    def test_target_fails_closed_when_the_far_side_has_no_project(self, client: HttpClient, status_code, body):
+        # Half-resolving is worse than not resolving: a caller trusting a missing project id would
+        # build `api/projects/None/...` paths and blame the target for the 404.
+        client.force_login(self.user)
+        with patch(FORWARD_PATH, return_value=_mock_response(status_code, body)):
+            response = client.get(self._target_url())
+
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+        assert "error" in response.json()
+
+    def test_target_rejects_non_creator(self, client: HttpClient):
+        # The connection acts as its creator, so reading where it points is as restricted as using it.
+        client.force_login(self.other_user)
+        with patch(FORWARD_PATH) as mock_request:
+            response = client.get(self._target_url())
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_request.assert_not_called()
+
+    def test_target_refuses_a_request_already_forwarded(self, client: HttpClient):
+        # Same anti-chaining rule as forward — a connection must not be reachable one hop in.
+        client.force_login(self.user)
+        with patch(FORWARD_PATH) as mock_request:
+            response = client.get(self._target_url(), headers={"X-PostHog-Connection": "1"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         mock_request.assert_not_called()

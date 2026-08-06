@@ -15,12 +15,6 @@ import {
     PosthogConnectionsForwardCreateBody,
     PosthogConnectionsForwardCreateParams,
 } from '@/generated/integrations/api'
-import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
-import {
-    executeConfirmedAction,
-    prepareConfirmedAction,
-    type PrepareConfirmedActionResult,
-} from '@/tools/confirmed-action-runtime'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -181,57 +175,14 @@ const PosthogConnectionForwardSchema = PosthogConnectionsForwardCreateParams.omi
     PosthogConnectionsForwardCreateBody.shape
 )
 
-const PosthogConnectionForwardSchemaExecute = z.strictObject({
-    confirmation_hash: z
-        .string()
-        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
-    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
-})
-
-const posthogConnectionForwardPrepare = (): ToolBase<
+const posthogConnectionForward = (): ToolBase<
     typeof PosthogConnectionForwardSchema,
-    PrepareConfirmedActionResult
-> => ({
-    name: 'posthog-connection-forward-prepare',
-    schema: PosthogConnectionForwardSchema,
-    handler: async (context: Context, params: z.infer<typeof PosthogConnectionForwardSchema>) => {
-        const __runtime = getConfirmedActionRuntime()
-        const __scopeProjectId = await context.stateManager.getProjectId()
-        return await prepareConfirmedAction(context, {
-            args: params,
-            purpose: 'posthog-connection-forward',
-            actionLabel: 'forward request through PostHog connection',
-            messageTemplate:
-                "About to forward a {method} request to `{path}` in another PostHog project through this connection. It runs against the connected project with the creator's granted scopes, and a write there changes that project's data the same as a direct write would. Reply 'confirm' to send it.\n",
-            codec: __runtime.codec,
-            stash: __runtime.stash,
-            boundScope: { projectId: String(__scopeProjectId) },
-        })
-    },
-})
-
-const posthogConnectionForwardExecute = (): ToolBase<
-    typeof PosthogConnectionForwardSchemaExecute,
     Schemas.PostHogConnectionForwardResponse
 > => ({
-    name: 'posthog-connection-forward-execute',
-    schema: PosthogConnectionForwardSchemaExecute,
-    handler: async (context: Context, confirmationParams: z.infer<typeof PosthogConnectionForwardSchemaExecute>) => {
-        const __runtime = getConfirmedActionRuntime()
-        const __scopeProjectId = await context.stateManager.getProjectId()
-        const __guard = await executeConfirmedAction<z.infer<typeof PosthogConnectionForwardSchema>>(context, {
-            incomingArgs: confirmationParams,
-            purpose: 'posthog-connection-forward',
-            codec: __runtime.codec,
-            ledger: __runtime.ledger,
-            stash: __runtime.stash,
-            expectedScope: { projectId: String(__scopeProjectId) },
-        })
-        if (!__guard.ok) {
-            return __guard.result as never
-        }
-        const params = __guard.verifiedArgs
-        const projectId = __scopeProjectId
+    name: 'posthog-connection-forward',
+    schema: PosthogConnectionForwardSchema,
+    handler: async (context: Context, params: z.infer<typeof PosthogConnectionForwardSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.method !== undefined) {
             body['method'] = params.method
@@ -262,6 +213,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'integrations-jira-projects-retrieve': integrationsJiraProjectsRetrieve,
     'integrations-linear-teams-retrieve': integrationsLinearTeamsRetrieve,
     'integrations-list': integrationsList,
-    'posthog-connection-forward-prepare': posthogConnectionForwardPrepare,
-    'posthog-connection-forward-execute': posthogConnectionForwardExecute,
+    'posthog-connection-forward': posthogConnectionForward,
 }
