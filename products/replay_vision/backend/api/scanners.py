@@ -32,6 +32,7 @@ from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.experiments.backend.models.experiment import Experiment
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.filters import (
     MultiChoiceFilter,
@@ -182,6 +183,7 @@ class ScannerExperimentTargetingSerializer(serializers.Serializer):
     variant_keys = serializers.ListField(
         child=serializers.CharField(max_length=400),
         allow_empty=True,
+        max_length=50,
         help_text="Targeted experiment variants. Empty means every variant.",
     )
     use_exposure_fallback = serializers.BooleanField(
@@ -195,13 +197,18 @@ class ScannerExperimentTargetingSerializer(serializers.Serializer):
 class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     """A Replay Vision scanner: its type, targeting query, and AI configuration."""
 
-    experiment_targeting = ScannerExperimentTargetingSerializer(
-        required=False,
-        allow_null=True,
-        help_text=(
-            "The experiment this scanner's targeting watches, if any. "
-            "Set null when the experiment targeting is removed."
-        ),
+    # A JSONField validated whole in validate_experiment_targeting, not a nested serializer field:
+    # PATCH makes the parent serializer partial, which DRF propagates into nested serializers, so a
+    # nested field would accept and save a half-filled object.
+    experiment_targeting = extend_schema_field(ScannerExperimentTargetingSerializer(allow_null=True))(  # type: ignore[type-var]
+        serializers.JSONField(
+            required=False,
+            allow_null=True,
+            help_text=(
+                "The experiment this scanner's targeting watches, if any. "
+                "Set null when the experiment targeting is removed."
+            ),
+        )
     )
     name = serializers.CharField(
         max_length=255,
@@ -404,6 +411,19 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         self._validate_scanner_config(attrs)
         self._validate_and_strip_query(attrs)
         return attrs
+
+    def validate_experiment_targeting(self, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        nested = ScannerExperimentTargetingSerializer(data=value)
+        nested.is_valid(raise_exception=True)
+        data = dict(nested.validated_data)
+        # Scoped like a foreign key even though it's JSON: accepting a cross-team id would hand
+        # every later consumer of the field an experiment the caller can't access.
+        team = self.context["get_team"]()
+        if not Experiment.objects.filter(team=team, id=data["experiment_id"]).exists():
+            raise serializers.ValidationError("Experiment not found in this project.")
+        return data
 
     def validate_sampling_rate(self, value: float) -> float:
         # Below one modulo bucket the candidate query samples nothing — reject instead of silently scanning zero.
@@ -632,7 +652,7 @@ class ReplayScannerFilter(django_filters.FilterSet):
         tokens = split_csv(value)
         if not tokens:
             return queryset
-        invalid = sorted(t for t in tokens if not t.isdigit())
+        invalid = sorted(t for t in tokens if not t.isdecimal())
         if invalid:
             raise ValidationError({"created_by": f"Non-numeric value(s) {invalid}; user IDs must be integers."})
         return queryset.filter(created_by_id__in=tokens)
@@ -640,7 +660,8 @@ class ReplayScannerFilter(django_filters.FilterSet):
     @staticmethod
     def _filter_experiment_id(queryset: QuerySet[ReplayScanner], _name: str, value: str) -> QuerySet[ReplayScanner]:
         # An int, not NumberFilter's Decimal, which the JSONField lookup can't serialize to JSON.
-        if not value.strip().isdigit():
+        # isdecimal, not isdigit: isdigit accepts characters like superscripts that int() rejects.
+        if not value.strip().isdecimal() or int(value) < 1:
             raise ValidationError({"experiment_id": "Must be a positive integer."})
         return queryset.filter(experiment_targeting__experiment_id=int(value))
 
