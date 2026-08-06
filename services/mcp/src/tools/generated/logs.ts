@@ -16,6 +16,7 @@ import {
     LogsAlertsPartialUpdateParams,
     LogsAlertsRetrieveParams,
     LogsAlertsSimulateCreateBody,
+    LogsAnomaliesScanCreateBody,
     LogsAttributesRetrieveQueryParams,
     LogsCountCreateBody,
     LogsCountRangesCreateBody,
@@ -456,6 +457,33 @@ const logsAttributeValuesList = (): ToolBase<typeof LogsAttributeValuesListSchem
     },
 })
 
+const LogsAnomaliesScanSchema = LogsAnomaliesScanCreateBody
+
+const logsAnomaliesScan = (): ToolBase<typeof LogsAnomaliesScanSchema, Schemas.LogsAnomalyScanResponse> => ({
+    name: 'logs-anomalies-scan',
+    schema: LogsAnomaliesScanSchema,
+    handler: async (context: Context, params: z.infer<typeof LogsAnomaliesScanSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.serviceName !== undefined) {
+            body['serviceName'] = params.serviceName
+        }
+        if (params.dateFrom !== undefined) {
+            body['dateFrom'] = params.dateFrom
+        }
+        if (params.dateTo !== undefined) {
+            body['dateTo'] = params.dateTo
+        }
+        const result = await context.api.request<Schemas.LogsAnomalyScanResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/anomalies/scan/`,
+            body,
+        })
+        const filtered = omitResponseFields(result, ['series.*.buckets']) as typeof result
+        return filtered
+    },
+})
+
 const LogsAttributesListSchema = LogsAttributesRetrieveQueryParams
 
 const logsAttributesList = (): ToolBase<typeof LogsAttributesListSchema, Schemas._LogsAttributesResponse> => ({
@@ -675,6 +703,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'logs-alerts-retrieve': logsAlertsRetrieve,
     'logs-alerts-simulate-create': logsAlertsSimulateCreate,
     'logs-attribute-values-list': logsAttributeValuesList,
+    'logs-anomalies-scan': logsAnomaliesScan,
     'logs-attributes-list': logsAttributesList,
     'logs-count': logsCount,
     'logs-count-ranges': logsCountRanges,
