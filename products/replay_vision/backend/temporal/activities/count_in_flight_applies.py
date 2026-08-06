@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from django.db.models import Count, Q
 
 import structlog
@@ -35,22 +37,32 @@ async def count_in_flight_applies_activity(inputs: CountInFlightAppliesInputs) -
         return 0
 
 
+def count_in_flight(team_id: int, scanner_id: UUID, backfill_id: UUID | None = None) -> dict[str, int]:
+    """Count in-flight (pending/running) observations for a scanner, its whole team, and optionally one backfill.
+
+    Counts DB rows rather than Temporal visibility so concurrency shares the quota system's
+    single notion of in-flight (rows + enqueue claims); the sweep and backfill throttles must
+    both go through here so a new pending source can't update one and drift the other.
+    """
+    aggregates = {
+        "team": Count("id"),
+        "scanner": Count("id", filter=Q(scanner_id=scanner_id)),
+    }
+    if backfill_id is not None:
+        aggregates["backfill"] = Count("id", filter=Q(backfill_id=backfill_id))
+    counts = ReplayObservation.in_flight_for_team(team_id).aggregate(**aggregates)
+    # On-demand scans hold enqueue claims until their rows persist.
+    counts["team"] += pending_enqueue_claims_for_team(team_id)
+    counts["scanner"] += pending_enqueue_claims_for_scanner(scanner_id)
+    return counts
+
+
 @activity.defn
 @track_activity()
 def count_in_flight_by_team_activity(inputs: CountInFlightAppliesInputs) -> InFlightApplyCounts:
-    """Count in-flight (pending/running) observations for this scanner and for its whole team.
-
-    Counts DB rows rather than Temporal visibility so concurrency shares the quota system's
-    single notion of in-flight. Rows stranded by failed workflows keep counting until the orphan
-    reaper clears them, which throttles sweeps during an incident instead of piling on new work.
-    """
-    counts = ReplayObservation.in_flight_for_team(inputs.team_id).aggregate(
-        team=Count("id"),
-        scanner=Count("id", filter=Q(scanner_id=inputs.scanner_id)),
-    )
-    # On-demand scans hold enqueue claims until their rows persist.
-    team = counts["team"] + pending_enqueue_claims_for_team(inputs.team_id)
-    scanner = counts["scanner"] + pending_enqueue_claims_for_scanner(inputs.scanner_id)
+    counts = count_in_flight(inputs.team_id, inputs.scanner_id)
+    team = counts["team"]
+    scanner = counts["scanner"]
     # The workflow makes the same call on these counts; recorded here because metrics
     # can't be emitted from deterministic workflow code.
     if in_flight_headroom(scanner, team) <= 0:

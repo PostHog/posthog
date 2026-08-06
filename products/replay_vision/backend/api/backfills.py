@@ -32,32 +32,12 @@ from products.replay_vision.backend.models.replay_scanner_backfill import (
 from products.replay_vision.backend.queries.scanner_candidate_query import BackfillCandidateQuery
 from products.replay_vision.backend.quota import compute_quota_snapshot
 from products.replay_vision.backend.scanner_access import scanner_for_reading_observations
-from products.replay_vision.backend.temporal.schedule import (
-    a_delete_backfill_schedule,
-    a_resume_backfill_schedule,
-    a_upsert_backfill_schedule,
-)
-from products.replay_vision.backend.temporal.types import BackfillScannerSnapshot
+from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot
 
 logger = structlog.get_logger(__name__)
 
 # The enumeration runs inside the request; a pathological filter must fail the request, not hang it.
 ENUMERATION_MAX_EXECUTION_SECONDS = 30
-
-
-def _build_backfill_snapshot(scanner: ReplayScanner) -> BackfillScannerSnapshot:
-    return BackfillScannerSnapshot(
-        name=scanner.name,
-        scanner_type=scanner.scanner_type,
-        scanner_version=scanner.scanner_version,
-        model=scanner.model,
-        provider=scanner.provider,
-        emits_signals=scanner.emits_signals,
-        scanner_config=scanner.scanner_config,
-        query=scanner.query,
-        sampling_rate=scanner.sampling_rate,
-        sampling_mode=scanner.sampling_mode,
-    )
 
 
 class BackfillWindowSerializer(serializers.Serializer):
@@ -145,7 +125,7 @@ class ReplayScannerBackfillViewSet(
     # `objects` is fail-closed; `safely_get_queryset` re-scopes to the request team and scanner.
     queryset = ReplayScannerBackfill.objects.unscoped()
 
-    _WRITE_ACTIONS = {"create", "estimate", "cancel", "resume"}
+    _WRITE_ACTIONS = frozenset(scope_object_write_actions)
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         # Same authorization as /observe/: a backfill dispatches scans, which exposes recording contents.
@@ -196,7 +176,7 @@ class ReplayScannerBackfillViewSet(
         return window_start, window_end
 
     def _enumerate(self, scanner: ReplayScanner, window_start: datetime, window_end: datetime) -> int:
-        snapshot = _build_backfill_snapshot(scanner)
+        snapshot = BackfillScannerSnapshot.from_scanner(scanner)
         return BackfillCandidateQuery(
             team=scanner.team,
             query=scanner.recordings_query(),
@@ -242,7 +222,7 @@ class ReplayScannerBackfillViewSet(
         if ReplayScannerBackfill.objects.filter(scanner=scanner, status__in=ACTIVE_BACKFILL_STATUSES).exists():
             raise ValidationError("This scanner already has an active backfill.")
 
-        snapshot = _build_backfill_snapshot(scanner)
+        snapshot = BackfillScannerSnapshot.from_scanner(scanner)
         total = self._enumerate(scanner, window_start, window_end)
         try:
             backfill = ReplayScannerBackfill.objects.create(
@@ -259,13 +239,19 @@ class ReplayScannerBackfillViewSet(
             # Concurrent create lost the one-active-per-scanner race.
             raise ValidationError("This scanner already has an active backfill.")
 
+        # noqa below: keeps the temporalio client stack off the API module-load path.
+        from products.replay_vision.backend.temporal.schedule import a_upsert_backfill_schedule  # noqa: PLC0415
+
         try:
             async_to_sync(a_upsert_backfill_schedule)(backfill.id, scanner.team_id, scanner.id)
         except Exception:
             # The reconciler recreates missing schedules for running backfills, so don't fail the request.
             logger.exception("replay_vision.backfill_schedule_create_failed", backfill_id=str(backfill.id))
 
-        return Response(self._serialize_row(backfill.id), status=status.HTTP_201_CREATED)
+        # A just-created backfill has no observations; skip the aggregate re-query.
+        for count_attr in ("succeeded_count", "failed_count", "ineligible_count", "in_flight_count"):
+            setattr(backfill, count_attr, 0)
+        return Response(self.get_serializer(backfill).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(responses={200: ReplayScannerBackfillSerializer})
     @action(detail=True, methods=["post"], pagination_class=None)
@@ -276,12 +262,16 @@ class ReplayScannerBackfillViewSet(
             status=BackfillStatus.CANCELLED, finished_at=timezone.now()
         )
         if updated:
+            from products.replay_vision.backend.temporal.schedule import a_delete_backfill_schedule  # noqa: PLC0415
+
             try:
                 async_to_sync(a_delete_backfill_schedule)(backfill.pk)
             except Exception:
                 # The tick workflow and the reconciler both delete schedules of terminal rows.
                 logger.exception("replay_vision.backfill_schedule_delete_failed", backfill_id=str(backfill.pk))
-        return Response(self._serialize_row(backfill.pk))
+            backfill.status = BackfillStatus.CANCELLED
+            backfill.finished_at = timezone.now()
+        return Response(self.get_serializer(backfill).data)
 
     @extend_schema(responses={200: ReplayScannerBackfillSerializer})
     @action(detail=True, methods=["post"], pagination_class=None)
@@ -293,12 +283,11 @@ class ReplayScannerBackfillViewSet(
         )
         if not updated:
             raise ValidationError("Only a backfill paused on quota can be resumed.")
+        from products.replay_vision.backend.temporal.schedule import a_resume_backfill_schedule  # noqa: PLC0415
+
         try:
             async_to_sync(a_resume_backfill_schedule)(backfill.pk)
         except Exception:
             logger.exception("replay_vision.backfill_schedule_resume_failed", backfill_id=str(backfill.pk))
-        return Response(self._serialize_row(backfill.pk))
-
-    def _serialize_row(self, backfill_id: uuid.UUID) -> dict[str, Any]:
-        row = self.get_queryset().get(pk=backfill_id)
-        return self.get_serializer(row).data
+        backfill.status = BackfillStatus.RUNNING
+        return Response(self.get_serializer(backfill).data)

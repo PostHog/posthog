@@ -140,10 +140,16 @@ async def upsert_interval_schedule(
     )
     if await a_schedule_exists(client, schedule_id):
         await a_update_schedule(client, schedule_id, schedule, search_attributes=search_attributes)
-    else:
+        return
+    try:
         await a_create_schedule(
             client, schedule_id, schedule, trigger_immediately=True, search_attributes=search_attributes
         )
+    except RPCError as e:
+        if e.status != RPCStatusCode.ALREADY_EXISTS:
+            raise
+        # Concurrent upsert beat us to create; treat as update.
+        await a_update_schedule(client, schedule_id, schedule, search_attributes=search_attributes)
 
 
 async def a_upsert_scanner_schedule(scanner_id: UUID, team_id: int) -> None:
@@ -180,66 +186,53 @@ async def a_upsert_scanner_schedule(scanner_id: UUID, team_id: int) -> None:
         await a_update_schedule(client, schedule_id, schedule, search_attributes=search_attributes)
 
 
-def _build_backfill_schedule(backfill_id: UUID, team_id: int, scanner_id: UUID) -> Schedule:
-    return Schedule(
-        action=ScheduleActionStartWorkflow(
-            BACKFILL_SCANNER_WORKFLOW_NAME,
-            BackfillTickInputs(backfill_id=backfill_id, team_id=team_id, scanner_id=scanner_id),
-            id=f"{BACKFILL_SCANNER_WORKFLOW_NAME}-{backfill_id}",
-            task_queue=settings.REPLAY_VISION_TASK_QUEUE,
-            execution_timeout=BACKFILL_TICK_EXECUTION_TIMEOUT,
-            retry_policy=common.RetryPolicy(maximum_attempts=1),
-        ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=BACKFILL_TICK_INTERVAL)]),
-        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP, catchup_window=BACKFILL_TICK_INTERVAL),
-    )
-
-
-async def a_upsert_backfill_schedule(backfill_id: UUID, team_id: int, scanner_id: UUID) -> None:
+async def a_upsert_backfill_schedule(
+    backfill_id: UUID, team_id: int, scanner_id: UUID, client: Client | None = None
+) -> None:
     """Create (or repair) the per-backfill tick schedule; first creation triggers immediately."""
-    client = await async_connect()
-    schedule_id = backfill_schedule_id(backfill_id)
-    schedule = _build_backfill_schedule(backfill_id, team_id, scanner_id)
-    search_attributes = TypedSearchAttributes(
-        search_attributes=[
-            SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team_id),
-            SearchAttributePair(key=POSTHOG_SCHEDULE_TYPE_KEY, value=BACKFILL_SCHEDULE_TYPE),
-        ]
+    client = client or await async_connect()
+    await upsert_interval_schedule(
+        client,
+        schedule_id=backfill_schedule_id(backfill_id),
+        workflow_name=BACKFILL_SCANNER_WORKFLOW_NAME,
+        workflow_id=f"{BACKFILL_SCANNER_WORKFLOW_NAME}-{backfill_id}",
+        inputs=BackfillTickInputs(backfill_id=backfill_id, team_id=team_id, scanner_id=scanner_id),
+        interval=BACKFILL_TICK_INTERVAL,
+        execution_timeout=BACKFILL_TICK_EXECUTION_TIMEOUT,
+        search_attributes=TypedSearchAttributes(
+            search_attributes=[
+                SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team_id),
+                SearchAttributePair(key=POSTHOG_SCHEDULE_TYPE_KEY, value=BACKFILL_SCHEDULE_TYPE),
+            ]
+        ),
     )
-    if await a_schedule_exists(client, schedule_id):
-        await a_update_schedule(client, schedule_id, schedule, search_attributes=search_attributes)
-        return
-    try:
-        await a_create_schedule(
-            client, schedule_id, schedule, trigger_immediately=True, search_attributes=search_attributes
-        )
-    except RPCError as e:
-        if e.status != RPCStatusCode.ALREADY_EXISTS:
-            raise
-        await a_update_schedule(client, schedule_id, schedule, search_attributes=search_attributes)
 
 
-async def a_delete_backfill_schedule(backfill_id: UUID) -> None:
-    """Idempotent — only swallows NOT_FOUND races; other RPC failures propagate."""
-    client = await async_connect()
-    schedule_id = backfill_schedule_id(backfill_id)
-    if not await a_schedule_exists(client, schedule_id):
-        return
+async def _a_delete_schedule_idempotent(schedule_id: str, log_event: str, client: Client | None = None) -> None:
+    """Delete directly and swallow the NOT_FOUND race; other RPC failures propagate."""
+    client = client or await async_connect()
     try:
         await a_delete_schedule(client, schedule_id)
     except RPCError as e:
         if e.status != RPCStatusCode.NOT_FOUND:
             raise
-        logger.info("replay_vision.delete_backfill_schedule.already_gone", backfill_id=str(backfill_id))
+        logger.info(log_event, schedule_id=schedule_id)
+
+
+async def a_delete_backfill_schedule(backfill_id: UUID, client: Client | None = None) -> None:
+    await _a_delete_schedule_idempotent(
+        backfill_schedule_id(backfill_id), "replay_vision.delete_backfill_schedule.already_gone", client
+    )
 
 
 async def a_pause_backfill_schedule(backfill_id: UUID, note: str) -> None:
-    """Idempotent — pausing a missing or already-paused schedule is a no-op."""
+    """Idempotent — pausing a missing schedule is a no-op."""
     client = await async_connect()
-    schedule_id = backfill_schedule_id(backfill_id)
-    if not await a_schedule_exists(client, schedule_id):
-        return
-    await a_pause_schedule(client, schedule_id, note=note)
+    try:
+        await a_pause_schedule(client, backfill_schedule_id(backfill_id), note=note)
+    except RPCError as e:
+        if e.status != RPCStatusCode.NOT_FOUND:
+            raise
 
 
 async def a_resume_backfill_schedule(backfill_id: UUID) -> None:
@@ -251,14 +244,4 @@ async def a_resume_backfill_schedule(backfill_id: UUID) -> None:
 
 
 async def a_delete_scanner_schedule(scanner_id: UUID) -> None:
-    """Idempotent — only swallows NOT_FOUND races; other RPC failures propagate."""
-    client = await async_connect()
-    schedule_id = scanner_schedule_id(scanner_id)
-    if not await a_schedule_exists(client, schedule_id):
-        return
-    try:
-        await a_delete_schedule(client, schedule_id)
-    except RPCError as e:
-        if e.status != RPCStatusCode.NOT_FOUND:
-            raise
-        logger.info("replay_vision.delete_schedule.already_gone", scanner_id=str(scanner_id))
+    await _a_delete_schedule_idempotent(scanner_schedule_id(scanner_id), "replay_vision.delete_schedule.already_gone")

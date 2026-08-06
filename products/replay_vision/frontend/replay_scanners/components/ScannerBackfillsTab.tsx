@@ -8,6 +8,7 @@ import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { urls } from 'scenes/urls'
 
 import { DateMappingOption } from '~/types'
@@ -33,16 +34,7 @@ const BACKFILL_STATUS_TAG: Record<BackfillStatusEnumApi, { label: string; type: 
 
 /** Convert a DateFilter token (`-30d`, an ISO date, or null) into an ISO instant for the API. */
 export function resolveWindowBound(value: string | null, fallback: dayjs.Dayjs): string {
-    if (!value) {
-        return fallback.toISOString()
-    }
-    const relative = /^-(\d+)([dhwmy])$/.exec(value)
-    if (relative) {
-        const unit = { d: 'day', h: 'hour', w: 'week', m: 'month', y: 'year' }[relative[2]] as dayjs.ManipulateType
-        return dayjs().subtract(Number(relative[1]), unit).toISOString()
-    }
-    const parsed = dayjs(value)
-    return parsed.isValid() ? parsed.toISOString() : fallback.toISOString()
+    return ((value && dateStringToDayJs(value)) || fallback).toISOString()
 }
 
 export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.Element {

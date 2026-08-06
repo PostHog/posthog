@@ -221,7 +221,8 @@ async def test_upsert_stamps_fingerprint_attribute(org_team) -> None:
 
 @parameterized.expand(
     [
-        ("noop_when_schedule_missing", False, None, False, None),
+        # Delete is issued unconditionally (no exists pre-check RPC); a missing schedule surfaces as NOT_FOUND.
+        ("noop_when_schedule_missing", False, RPCStatusCode.NOT_FOUND, True, None),
         ("calls_delete_when_present", True, None, True, None),
         ("swallows_not_found_race", True, RPCStatusCode.NOT_FOUND, True, None),
         ("propagates_other_rpc_errors", True, RPCStatusCode.UNAVAILABLE, True, RPCError),

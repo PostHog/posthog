@@ -16,24 +16,12 @@ from products.replay_vision.backend.models.replay_scanner_backfill import Backfi
 from products.replay_vision.backend.quota import compute_quota_snapshot
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.metrics import record_consent_skip, record_quota_exhausted_skip
-from products.replay_vision.backend.temporal.types import (
-    BackfillScannerSnapshot,
-    CreateObservationInputs,
-    CreateObservationOutput,
-    ScannerSnapshot,
-)
+from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot, ScannerSnapshot
+from products.replay_vision.backend.temporal.types import CreateObservationInputs, CreateObservationOutput
 
 
 def _build_scanner_snapshot(scanner: ReplayScanner) -> dict[str, Any]:
-    return ScannerSnapshot(
-        name=scanner.name,
-        scanner_type=scanner.scanner_type,
-        scanner_version=scanner.scanner_version,
-        model=scanner.model,
-        provider=scanner.provider,
-        emits_signals=scanner.emits_signals,
-        scanner_config=scanner.scanner_config,
-    ).model_dump(mode="json")
+    return ScannerSnapshot.from_scanner(scanner).model_dump(mode="json")
 
 
 @activity.defn

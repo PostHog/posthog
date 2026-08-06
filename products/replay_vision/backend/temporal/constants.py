@@ -1,14 +1,6 @@
 import datetime as dt
 from uuid import UUID
 
-# Re-exported from the leaf module so the query layer can use them without importing this package.
-from products.replay_vision.backend.session_limits import (
-    MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S as MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
-    MAX_SESSION_ID_LENGTH as MAX_SESSION_ID_LENGTH,
-    MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S as MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
-    MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S as MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S,
-)
-
 APPLY_SCANNER_WORKFLOW_NAME = "replay-vision-apply-scanner"
 SWEEP_SCANNER_WORKFLOW_NAME = "replay-vision-sweep-scanner"
 

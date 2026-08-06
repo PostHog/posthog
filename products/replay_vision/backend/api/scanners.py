@@ -83,8 +83,8 @@ from products.replay_vision.backend.quota import (
 )
 from products.replay_vision.backend.scanner_config import scanner_config_error
 from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN, run_inline_scan, scan_existing_scanner
+from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
-from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
 
 # Date is set by the schedule at trigger time, not by the user — strip on save.
 _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")

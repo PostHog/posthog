@@ -1,8 +1,9 @@
 """Activities for the per-backfill tick workflow: gatekeeping, candidate walk, cursor advance, schedule ops."""
 
+import asyncio
 from uuid import UUID
 
-from django.db.models import Count, F, Q
+from django.db.models import F
 from django.utils import timezone
 
 import structlog
@@ -15,11 +16,6 @@ from posthog.schema import RecordingsQuery
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
-from products.replay_vision.backend.enqueue_claims import (
-    pending_enqueue_claims_for_scanner,
-    pending_enqueue_claims_for_team,
-)
-from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner_backfill import (
     ACTIVE_BACKFILL_STATUSES,
     BackfillStatus,
@@ -27,6 +23,7 @@ from products.replay_vision.backend.models.replay_scanner_backfill import (
 )
 from products.replay_vision.backend.queries.scanner_candidate_query import BackfillCandidateQuery
 from products.replay_vision.backend.quota import compute_quota_snapshot
+from products.replay_vision.backend.temporal.activities.count_in_flight_applies import count_in_flight
 from products.replay_vision.backend.temporal.backfill_types import (
     AdvanceBackfillCursorInputs,
     AdvanceBackfillCursorOutput,
@@ -49,6 +46,7 @@ from products.replay_vision.backend.temporal.schedule import (
     a_pause_backfill_schedule,
     a_upsert_backfill_schedule,
 )
+from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot
 from products.replay_vision.backend.temporal.sweep_types import CandidateSessionPayload
 
 logger = structlog.get_logger(__name__)
@@ -85,14 +83,8 @@ def prepare_backfill_tick_activity(inputs: BackfillTickInputs) -> PrepareBackfil
         record_backfill_tick_outcome("paused_quota")
         return PrepareBackfillTickOutput(action=BackfillTickAction.PAUSE)
 
-    in_flight = ReplayObservation.in_flight_for_team(inputs.team_id).aggregate(
-        team=Count("id"),
-        scanner=Count("id", filter=Q(scanner_id=backfill.scanner_id)),
-        backfill=Count("id", filter=Q(backfill_id=backfill.id)),
-    )
-    team = in_flight["team"] + pending_enqueue_claims_for_team(inputs.team_id)
-    scanner = in_flight["scanner"] + pending_enqueue_claims_for_scanner(backfill.scanner_id)
-    budget = backfill_dispatch_budget(scanner, team, in_flight["backfill"])
+    in_flight = count_in_flight(inputs.team_id, backfill.scanner_id, backfill_id=backfill.id)
+    budget = backfill_dispatch_budget(in_flight["scanner"], in_flight["team"], in_flight["backfill"])
     if budget <= 0:
         record_backfill_tick_outcome("throttled")
         return PrepareBackfillTickOutput(action=BackfillTickAction.SKIP)
@@ -103,13 +95,14 @@ def prepare_backfill_tick_activity(inputs: BackfillTickInputs) -> PrepareBackfil
 @activity.defn
 @track_activity()
 def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> FindBackfillCandidatesOutput:
-    backfill = _load_backfill(inputs.backfill_id, inputs.team_id)
+    backfill = (
+        ReplayScannerBackfill.objects.for_team(inputs.team_id)
+        .select_related("team")
+        .filter(pk=inputs.backfill_id)
+        .first()
+    )
     if backfill is None:
         return FindBackfillCandidatesOutput(candidates=[], saturated=False)
-
-    # noqa comment below: `types` must never load before the `scanners` package it cycles with, and this
-    # module is imported ahead of the provider activities that pull `scanners` in.
-    from products.replay_vision.backend.temporal.types import BackfillScannerSnapshot  # noqa: PLC0415
 
     snapshot = BackfillScannerSnapshot.load_for_backfill(backfill.id, backfill.scanner_snapshot)
     try:
@@ -193,6 +186,7 @@ async def reap_backfill_schedules_activity() -> None:
     active = await database_sync_to_async(_active_backfills_by_id)()
     prefix = f"{BACKFILL_SCHEDULE_ID_PREFIX}-"
     seen: set[UUID] = set()
+    fixes = []
     async for listing in await client.list_schedules(query=f'PostHogScheduleType = "{BACKFILL_SCHEDULE_TYPE}"'):
         if not listing.id.startswith(prefix):
             continue
@@ -204,8 +198,10 @@ async def reap_backfill_schedules_activity() -> None:
         seen.add(backfill_id)
         if backfill_id not in active:
             logger.info("replay_vision.backfill_reaper.deleting_stale", backfill_id=str(backfill_id))
-            await a_delete_backfill_schedule(backfill_id)
+            fixes.append(a_delete_backfill_schedule(backfill_id, client))
     for backfill_id, (team_id, scanner_id) in active.items():
         if backfill_id not in seen:
             logger.info("replay_vision.backfill_reaper.recreating_missing", backfill_id=str(backfill_id))
-            await a_upsert_backfill_schedule(backfill_id, team_id, scanner_id)
+            fixes.append(a_upsert_backfill_schedule(backfill_id, team_id, scanner_id, client))
+    if fixes:
+        await asyncio.gather(*fixes)

@@ -40,9 +40,6 @@ export interface backfillsLogicActions {
     cancelBackfill: (id: string) => {
         id: string
     }
-    clearEstimate: () => {
-        value: true
-    }
     createBackfill: (
         windowStart: string,
         windowEnd: string
@@ -54,7 +51,7 @@ export interface backfillsLogicActions {
         value: true
     }
     loadBackfills: (background?: any) => {
-        background: boolean
+        background: any
     }
     loadBackfillsFailure: () => {
         value: true
@@ -114,7 +111,6 @@ export const backfillsLogic = kea<backfillsLogicType>([
         requestEstimate: (windowStart: string, windowEnd: string) => ({ windowStart, windowEnd }),
         requestEstimateSuccess: (estimate: BackfillEstimateResponseApi) => ({ estimate }),
         requestEstimateFailure: true,
-        clearEstimate: true,
         createBackfill: (windowStart: string, windowEnd: string) => ({ windowStart, windowEnd }),
         createBackfillDone: true,
         cancelBackfill: (id: string) => ({ id }),
@@ -143,7 +139,6 @@ export const backfillsLogic = kea<backfillsLogicType>([
             {
                 requestEstimate: () => null,
                 requestEstimateSuccess: (_, { estimate }) => estimate,
-                clearEstimate: () => null,
                 createBackfillDone: () => null,
             },
         ],
@@ -153,7 +148,6 @@ export const backfillsLogic = kea<backfillsLogicType>([
                 requestEstimate: () => true,
                 requestEstimateSuccess: () => false,
                 requestEstimateFailure: () => false,
-                clearEstimate: () => false,
             },
         ],
         creatingBackfill: [

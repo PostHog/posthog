@@ -22,7 +22,8 @@ from products.replay_vision.backend.temporal.backfill_types import (
     BackfillTickAction,
     BackfillTickInputs,
 )
-from products.replay_vision.backend.temporal.types import BackfillScannerSnapshot, CreateObservationInputs
+from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot
+from products.replay_vision.backend.temporal.types import CreateObservationInputs
 
 _WINDOW_END = dt.datetime(2026, 5, 1, tzinfo=dt.UTC)
 _WINDOW_START = _WINDOW_END - dt.timedelta(days=30)
@@ -43,20 +44,7 @@ def _make_scanner(**overrides) -> ReplayScanner:
 
 
 def _frozen_snapshot(scanner: ReplayScanner, **overrides) -> dict:
-    snapshot = BackfillScannerSnapshot(
-        name=scanner.name,
-        scanner_type=scanner.scanner_type,
-        scanner_version=scanner.scanner_version,
-        model=scanner.model,
-        provider=scanner.provider,
-        emits_signals=scanner.emits_signals,
-        scanner_config=scanner.scanner_config,
-        query=scanner.query,
-        sampling_rate=scanner.sampling_rate,
-        sampling_mode=scanner.sampling_mode,
-    ).model_dump(mode="json")
-    snapshot.update(overrides)
-    return snapshot
+    return {**BackfillScannerSnapshot.from_scanner(scanner).model_dump(mode="json"), **overrides}
 
 
 def _make_backfill(scanner: ReplayScanner, **overrides) -> ReplayScannerBackfill:
@@ -244,7 +232,7 @@ class TestBackfillsApi(APIBaseTest):
             "window_end": (self.scanner.last_swept_at + dt.timedelta(days=1)).isoformat(),
         }
 
-    @patch("products.replay_vision.backend.api.backfills.a_upsert_backfill_schedule", new_callable=AsyncMock)
+    @patch("products.replay_vision.backend.temporal.schedule.a_upsert_backfill_schedule", new_callable=AsyncMock)
     @patch("products.replay_vision.backend.api.backfills.BackfillCandidateQuery")
     def test_create_freezes_config_clamps_window_and_rejects_second_active(
         self, mock_query: MagicMock, mock_upsert: AsyncMock
@@ -285,7 +273,7 @@ class TestBackfillsApi(APIBaseTest):
         response = self.client.post(f"{self.base_url}/estimate/", body, format="json")
         assert response.status_code == 400
 
-    @patch("products.replay_vision.backend.api.backfills.a_delete_backfill_schedule", new_callable=AsyncMock)
+    @patch("products.replay_vision.backend.temporal.schedule.a_delete_backfill_schedule", new_callable=AsyncMock)
     def test_cancel_marks_terminal(self, _mock_delete: AsyncMock) -> None:
         backfill = _make_backfill(self.scanner)
         response = self.client.post(f"{self.base_url}/{backfill.id}/cancel/")
@@ -294,7 +282,7 @@ class TestBackfillsApi(APIBaseTest):
         assert backfill.status == BackfillStatus.CANCELLED
         assert backfill.finished_at is not None
 
-    @patch("products.replay_vision.backend.api.backfills.a_resume_backfill_schedule", new_callable=AsyncMock)
+    @patch("products.replay_vision.backend.temporal.schedule.a_resume_backfill_schedule", new_callable=AsyncMock)
     def test_resume_only_applies_to_quota_paused_backfills(self, _mock_resume: AsyncMock) -> None:
         backfill = _make_backfill(self.scanner, status=BackfillStatus.PAUSED_QUOTA)
         response = self.client.post(f"{self.base_url}/{backfill.id}/resume/")

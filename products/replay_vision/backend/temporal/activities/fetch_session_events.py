@@ -14,7 +14,7 @@ from posthog.models.person.util import get_person_by_distinct_id
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
-from products.replay_vision.backend.temporal.constants import (
+from products.replay_vision.backend.session_limits import (
     MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
     MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
     MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S,
