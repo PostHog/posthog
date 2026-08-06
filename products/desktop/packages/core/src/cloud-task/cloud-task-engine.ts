@@ -476,7 +476,8 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
    * Relay-designated server names per run (docs/cloud-mcp-relay.md).
    * In-memory by design: only the client that created a run in this app
    * session may execute relay requests for it; requests for undesignated
-   * runs or names are dropped.
+   * runs or names are dropped. Entries live for the app session rather than
+   * the run, so a run resumed after completing keeps relaying.
    */
   private readonly relayDesignations = new Map<string, Set<string>>();
   /** requestId dedupe — the event stream is at-least-once and replays on reconnect. */
@@ -522,7 +523,14 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     if (!this.mcpRelayExecutor) return;
     const designated = this.relayDesignations.get(watcher.runId);
     if (!designated?.has(data.server)) {
-      // Not created by this client, or a name the run never declared.
+      // Not created by this client, or a name the run never declared. Staying
+      // silent on the wire is deliberate, but the sandbox only sees a 60s
+      // timeout and then drops the server, so leave a trace of the real cause.
+      this.log.debug("Dropping relay request for an undesignated run/server", {
+        runId: watcher.runId,
+        server: data.server,
+        requestId: data.requestId,
+      });
       return;
     }
     if (this.handledRelayRequestIds.has(data.requestId)) return;
@@ -2175,10 +2183,11 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       watcher.lastStatusUpdatedAt = updatedAt;
     }
 
-    // A terminal run gets no further relay requests; drop its designation and
-    // approval state so the maps don't grow for the lifetime of the app session.
+    // Approvals are scoped to a run's active life, so a resumed run re-prompts.
+    // The designation is not: resume_in_cloud revives a terminal run under the
+    // same id and its new sandbox rebuilds relay endpoints from the names
+    // Django persisted, so dropping ours would strand every relayed server.
     if (isTerminalStatus(watcher.lastStatus)) {
-      this.relayDesignations.delete(watcher.runId);
       this.evictRelayApprovalState(watcher.runId);
     }
 

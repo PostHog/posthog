@@ -12,9 +12,20 @@ Client coordination: `CloudTaskService.handleMcpRelayRequest`
 
 Implementation notes where reality refined the design: relay designations are
 held in memory by the creating client's main process — an app restart drops
-them, and relayed servers stop working for in-flight runs (they 503 after the
-liveness window) rather than surviving a handoff. Tool allowlisting for
-relayed servers persists for the session lifetime, not to the backend.
+them, and relayed servers stop working for in-flight runs rather than
+surviving a handoff. They do outlive the run itself, though: `resume_in_cloud`
+revives a terminal run under the same id, and its new sandbox rebuilds relay
+endpoints from the names Django persisted, so a designation must not be
+evicted when the run completes. Tool allowlisting for relayed servers persists
+for the session lifetime, not to the backend.
+
+A missing designation does not surface as a 503. The 503 gate keys on client
+reachability, and a desktop attached to the run's stream but missing the
+designation is reachable — it just never answers. The sandbox waits out the
+60 s timeout, the MCP client drops the server for the whole run, and the agent
+sees neither the relayed tools nor an error. `CloudTaskEngine` logs the drop,
+which is the only signal separating this from a server that was never
+configured at all.
 
 ## Problem
 
@@ -249,6 +260,7 @@ persisted, with caps and the no-secrets rule above.**
 | Desktop never attaches (offline from session start) | Request buffers until it times out (60 s) → agent gets JSON-RPC `-32001`; the endpoint does **not** 503 during startup (that would drop the server for the whole run). |
 | Desktop disconnects mid-run (was reachable, now gone) | Endpoint 503s (`everReachable && !reachable`); agent sees a clean "requires the desktop app" MCP error rather than a hang. |
 | Desktop disconnects mid-call | Sandbox timeout fires (60 s), agent gets JSON-RPC `-32001`. |
+| Desktop attached but designation lost (app restart, or the run reattached by a client that did not create it) | Requests are dropped silently, so the endpoint never 503s — the desktop is reachable, just not authorized. The session-start handshake times out and the MCP client drops the server for the whole run. Logged by `CloudTaskEngine`. |
 | Desktop reconnects after backlog | Replayed `mcp_request` events past `expiresAt` are dropped; unexpired ones are deduped by `requestId`. |
 | stdio process crashes | Desktop replies with `error`; next request lazily respawns. |
 | Two desktops attached | First `mcp_response` per `requestId` wins; later ones are dropped by the pending-map lookup (same as double permission responses). |

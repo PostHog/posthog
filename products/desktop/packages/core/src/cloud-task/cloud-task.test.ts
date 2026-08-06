@@ -3688,7 +3688,10 @@ describe("CloudTaskEngine MCP relay", () => {
     expect(lastPermissionRequestUpdate(updates)).toBeUndefined();
   });
 
-  it("evicts a run's relay designation once the run reaches a terminal status", async () => {
+  it("keeps a run's relay designation after it reaches a terminal status", async () => {
+    // resume_in_cloud revives a terminal run under the same id, and its new
+    // sandbox rebuilds relay endpoints from the names Django persisted. Evicting
+    // the designation here left the resumed run with no relayed servers at all.
     mockStreamFetch.mockResolvedValueOnce(
       createOpenSseResponse(
         `data: ${JSON.stringify({
@@ -3701,10 +3704,13 @@ describe("CloudTaskEngine MCP relay", () => {
     relayService.designateRelayedMcpServers("run-1", ["slack"]);
     watchRun("run-1");
 
-    await waitFor(() => mockStreamFetch.mock.calls.length > 0);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await waitFor(() => mcpRelayExecutor.execute.mock.calls.length > 0);
 
-    expect(mcpRelayExecutor.execute).not.toHaveBeenCalled();
+    expect(mcpRelayExecutor.execute).toHaveBeenCalledWith(
+      "run-1",
+      "slack",
+      expect.objectContaining({ method: "initialize" }),
+    );
   });
 
   it("drops an expired relay request without executing it", async () => {
