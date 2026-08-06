@@ -681,29 +681,30 @@ export function OverviewTab({
                                         setMatchingFlagIds(null)
                                     }}
                                 />
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    icon={<IconArchive />}
-                                    data-attr="bulk-archive-flags-button"
-                                    loading={bulkArchiveRunning}
-                                    disabledReason={
-                                        filters.archived === 'true'
-                                            ? 'These flags are already archived'
-                                            : ctx.selectedCount > BULK_ARCHIVE_MAX_FLAGS
-                                              ? `Archiving supports up to ${BULK_ARCHIVE_MAX_FLAGS} flags at once`
-                                              : undefined
-                                    }
-                                    onClick={() => {
-                                        openBulkArchiveFlagsDialog(ctx.selectedCount, () => {
-                                            bulkArchiveFlags([...ctx.selectedKeys])
-                                            ctx.clearSelection()
-                                            setMatchingFlagIds(null)
-                                        })
-                                    }}
-                                >
-                                    Archive selected
-                                </LemonButton>
+                                {/* Nothing to archive when the list is already filtered to archived flags */}
+                                {filters.archived !== 'true' && (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        icon={<IconArchive />}
+                                        data-attr="bulk-archive-flags-button"
+                                        loading={bulkArchiveRunning}
+                                        disabledReason={
+                                            ctx.selectedCount > BULK_ARCHIVE_MAX_FLAGS
+                                                ? `Archiving supports up to ${BULK_ARCHIVE_MAX_FLAGS} flags at once`
+                                                : undefined
+                                        }
+                                        onClick={() => {
+                                            openBulkArchiveFlagsDialog(ctx.selectedCount, () => {
+                                                bulkArchiveFlags([...ctx.selectedKeys])
+                                                ctx.clearSelection()
+                                                setMatchingFlagIds(null)
+                                            })
+                                        }}
+                                    >
+                                        Archive selected
+                                    </LemonButton>
+                                )}
                                 <LemonButton
                                     type="primary"
                                     status="danger"
