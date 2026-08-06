@@ -1,11 +1,21 @@
 import type { Task, TaskRun, TaskRunArtifact } from "@posthog/shared";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   runs: [] as TaskRun[],
   openArtifactTab: vi.fn(),
   openExternalUrl: vi.fn(),
+  getCloudAttachmentPreviewUrl: vi.fn(),
+}));
+
+vi.mock("@posthog/core/sessions/sessionService", () => ({
+  SESSION_SERVICE: Symbol("SESSION_SERVICE"),
+}));
+vi.mock("@posthog/di/react", () => ({
+  useService: () => ({
+    getCloudAttachmentPreviewUrl: mocks.getCloudAttachmentPreviewUrl,
+  }),
 }));
 
 vi.mock("@posthog/ui/shell/openExternal", () => ({
@@ -71,6 +81,7 @@ describe("TaskArtifactsList", () => {
     mocks.runs = [run("run-1", { prNumber: 1 }), run("run-2", { prNumber: 2 })];
     mocks.openArtifactTab.mockReset();
     mocks.openExternalUrl.mockReset();
+    mocks.getCloudAttachmentPreviewUrl.mockReset();
     useReviewNavigationStore.setState({
       reviewModes: {},
       selectedPrUrls: {},
@@ -171,6 +182,54 @@ describe("TaskArtifactsList", () => {
       artifactId: "b",
       name: "new.md",
     });
+  });
+
+  it("shows permanent view and download actions for an artifact", () => {
+    mocks.runs = [
+      run("run-1", { artifacts: [outputFile({ id: "a", name: "report.md" })] }),
+    ];
+
+    render(<TaskArtifactsList task={task} timeline={[]} />);
+
+    expect(screen.getByRole("button", { name: "View report.md" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Download report.md" }),
+    ).toBeTruthy();
+  });
+
+  it("downloads an artifact from its action", async () => {
+    mocks.runs = [
+      run("run-1", { artifacts: [outputFile({ id: "a", name: "report.md" })] }),
+    ];
+    mocks.getCloudAttachmentPreviewUrl.mockResolvedValue(
+      "https://files.example/report.md",
+    );
+    const fetchArtifact = vi
+      .spyOn(window, "fetch")
+      .mockResolvedValue(new Response("file contents"));
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:artifact");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined);
+
+    render(<TaskArtifactsList task={task} timeline={[]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Download report.md" }));
+
+    await waitFor(() => expect(click).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Download report.md" }),
+      ).toBeEnabled(),
+    );
+    expect(mocks.getCloudAttachmentPreviewUrl).toHaveBeenCalledWith(
+      "task-1",
+      "run-1",
+      "a",
+    );
+    expect(fetchArtifact).toHaveBeenCalledWith(
+      "https://files.example/report.md",
+    );
   });
 
   // Agents revise a deliverable and upload it again under the same name.
