@@ -77,6 +77,15 @@ logger = get_logger()
 MAX_CREDIT_USD = Decimal("1000000")
 
 
+def _format_group_type_created_at(value: datetime | None) -> str:
+    """Millisecond precision, matching the RPC, so the overview and the edit form agree.
+
+    The edit form prefills from this, so dropping the sub-second part here would make an
+    untouched save rewrite created_at.
+    """
+    return value.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if value else ""
+
+
 @dataclasses.dataclass(frozen=True)
 class ReplayActivityContext(ActivityContextBase):
     reason: str
@@ -392,6 +401,7 @@ class TeamAdmin(admin.ModelAdmin):
                     **m,
                     "detail_dashboard_id": detail_dashboard_id,
                     "detail_dashboard_url": detail_dashboard_url,
+                    "created_at_display": _format_group_type_created_at(m.get("created_at")),
                     "edit_url": reverse(
                         "admin:posthog_team_edit_group_type_mapping",
                         args=[team.pk, m["group_type_index"]],
@@ -463,10 +473,7 @@ class TeamAdmin(admin.ModelAdmin):
                 "team": team,
                 "mapping": mapping_dict,
                 "default_columns_json": default_columns_json,
-                # Millisecond precision, matching the RPC, so an untouched prefill round-trips exactly.
-                "created_at_display": (
-                    existing_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if existing_created_at else ""
-                ),
+                "created_at_display": _format_group_type_created_at(existing_created_at),
                 "title": f"Edit group type mapping - {team.name} - index {group_type_index}",
             }
             return render(request, "admin/posthog/team/group_type_mapping_edit.html", context)
@@ -491,7 +498,7 @@ class TeamAdmin(admin.ModelAdmin):
                 )
 
         created_at_raw = request.POST.get("created_at", "").strip()
-        parsed_created_at: datetime | None = None
+        created_at_millis: int | None = None
         if created_at_raw:
             parsed_created_at = parse_datetime(created_at_raw)
             if parsed_created_at is None:
@@ -501,6 +508,7 @@ class TeamAdmin(admin.ModelAdmin):
                 )
             if parsed_created_at.tzinfo is None:
                 parsed_created_at = parsed_created_at.replace(tzinfo=UTC)
+            created_at_millis = int(parsed_created_at.timestamp() * 1000)
 
         update_mask = ["name_singular", "name_plural"]
         update_kwargs: dict[str, Any] = {
@@ -513,13 +521,12 @@ class TeamAdmin(admin.ModelAdmin):
             update_mask.append("default_columns")
             if parsed_default_columns is not None:
                 update_kwargs["default_columns"] = json.dumps(parsed_default_columns).encode()
-        if parsed_created_at is not None:
-            created_at_millis = int(parsed_created_at.timestamp() * 1000)
-            existing_millis = int(existing_created_at.timestamp() * 1000) if existing_created_at else None
-            # The form prefills this field, so saving any other field would otherwise rewrite
-            # created_at. Only send it when the value actually moved.
-            if created_at_millis != existing_millis:
-                update_mask.append("created_at")
+        # The form prefills created_at, so an untouched field matches what is stored and is left
+        # alone; a cleared field sends the mask path with no value, which nulls the column.
+        existing_millis = int(existing_created_at.timestamp() * 1000) if existing_created_at else None
+        if created_at_millis != existing_millis:
+            update_mask.append("created_at")
+            if created_at_millis is not None:
                 update_kwargs["created_at"] = created_at_millis
         update_kwargs["update_mask"] = update_mask
 

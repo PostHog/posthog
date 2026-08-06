@@ -518,7 +518,11 @@ class FakePersonHogClient:
                     elif field == "default_columns":
                         m.default_columns = request.default_columns
                     elif field == "created_at":
-                        m.created_at = request.created_at
+                        # Mirror the replica: the path in the mask with no value nulls the column.
+                        if request.HasField("created_at"):
+                            m.created_at = request.created_at
+                        else:
+                            m.ClearField("created_at")
                 return group_pb2.UpdateGroupTypeMappingResponse(mapping=m)
         import grpc
 

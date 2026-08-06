@@ -27,6 +27,7 @@ from posthog.models import Organization
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 from posthog.personhog_client.fake_client import FakePersonHogClient
+from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdRequest
 
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 
@@ -826,16 +827,15 @@ class TestTeamAdminEditGroupTypeMappingView(BaseTest):
 
     @parameterized.expand(
         [
-            ("set", "2026-02-20 08:15:00", int(datetime(2026, 2, 20, 8, 15, tzinfo=UTC).timestamp() * 1000)),
+            ("whole_seconds", "2026-02-20 08:15:00", int(datetime(2026, 2, 20, 8, 15, tzinfo=UTC).timestamp() * 1000)),
             (
-                "set_with_millis",
+                "with_millis",
                 "2026-02-20 08:15:00.456",
                 int(datetime(2026, 2, 20, 8, 15, tzinfo=UTC).timestamp() * 1000) + 456,
             ),
-            ("blank_keeps_unchanged", "", None),
         ]
     )
-    def test_post_updates_created_at_via_personhog(self, _name: str, created_at_raw: str, expected_millis) -> None:
+    def test_post_sets_created_at_via_personhog(self, _name: str, created_at_raw: str, expected_millis: int) -> None:
         response = self._post(created_at_raw)
 
         assert response.status_code == 302
@@ -843,11 +843,26 @@ class TestTeamAdminEditGroupTypeMappingView(BaseTest):
         update_calls = [c for c in self.fake_client.calls if c.method == "update_group_type_mapping"]
         assert len(update_calls) == 1
         update_request = update_calls[0].request
-        if expected_millis is None:
-            assert "created_at" not in update_request.update_mask
-        else:
-            assert "created_at" in update_request.update_mask
-            assert update_request.created_at == expected_millis
+        assert "created_at" in update_request.update_mask
+        assert update_request.created_at == expected_millis
+
+    def test_post_clears_created_at_when_field_is_blank(self) -> None:
+        # The mask path with no value is how the replica is told to null the column.
+        response = self._post("")
+
+        assert response.status_code == 302
+        update_calls = [c for c in self.fake_client.calls if c.method == "update_group_type_mapping"]
+        assert len(update_calls) == 1
+        update_request = update_calls[0].request
+        assert "created_at" in update_request.update_mask
+        assert not update_request.HasField("created_at")
+        assert (
+            not self.fake_client.get_group_type_mappings_by_project_id(
+                GetGroupTypeMappingsByProjectIdRequest(project_id=self.team.project_id)
+            )
+            .mappings[0]
+            .HasField("created_at")
+        )
 
     def test_unedited_prefill_does_not_rewrite_created_at(self) -> None:
         # Feeding GET's prefill straight back must be a no-op. Fails if the prefill loses
