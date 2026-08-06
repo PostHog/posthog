@@ -18,6 +18,7 @@ import { router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -499,11 +500,16 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                     ...values.survey,
                     start_date: new Date().toISOString(),
                 }
-                const createdSurvey = await api.surveys.create(surveyData)
-                actions.launchSurveySuccess(createdSurvey)
+                // Editing an existing survey must update it — calling create would make a duplicate.
+                const launchedSurvey =
+                    props.id === 'new'
+                        ? await api.surveys.create(surveyData)
+                        : await api.surveys.update(props.id, surveyData)
+                actions.launchSurveySuccess(launchedSurvey)
             } catch (e) {
-                actions.launchSurveyFailure(String(e))
-                lemonToast.error('Failed to create survey')
+                const detail = e instanceof ApiError ? e.detail : null
+                actions.launchSurveyFailure(detail || String(e))
+                lemonToast.error(detail || 'Failed to launch survey')
             }
         },
         launchSurveySuccess: ({ survey }) => {
@@ -533,8 +539,9 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                 const createdSurvey = await api.surveys.create(values.survey)
                 actions.saveDraftSuccess(createdSurvey)
             } catch (e) {
-                actions.saveDraftFailure(String(e))
-                lemonToast.error('Failed to save draft')
+                const detail = e instanceof ApiError ? e.detail : null
+                actions.saveDraftFailure(detail || String(e))
+                lemonToast.error(detail || 'Failed to save draft')
             }
         },
         saveDraftSuccess: ({ survey }) => {
@@ -556,8 +563,9 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                 const updatedSurvey = await api.surveys.update(props.id, values.survey)
                 actions.updateSurveySuccess(updatedSurvey)
             } catch (e) {
-                actions.updateSurveyFailure(String(e))
-                lemonToast.error('Failed to update survey')
+                const detail = e instanceof ApiError ? e.detail : null
+                actions.updateSurveyFailure(detail || String(e))
+                lemonToast.error(detail || 'Failed to update survey')
             }
         },
         updateSurveySuccess: ({ survey }) => {

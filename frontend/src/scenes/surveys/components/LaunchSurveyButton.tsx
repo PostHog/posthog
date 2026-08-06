@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { ReactNode } from 'react'
 
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
@@ -17,7 +17,9 @@ import { AccessControlLevel, AccessControlResourceType, SurveyType } from '~/typ
 
 export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNode }): JSX.Element {
     const { survey, surveyWarnings } = useValues(surveyLogic)
-    const { launchSurvey } = useActions(surveyLogic)
+    // Promise-returning dispatch so the confirm dialog can await the launch (shouldAwaitSubmit),
+    // keeping its button in a loading/disabled state until the request settles.
+    const { launchSurvey } = useAsyncActions(surveyLogic)
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
 
@@ -38,6 +40,7 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                 onClick={() => {
                     LemonDialog.open({
                         title: 'Launch this survey?',
+                        shouldAwaitSubmit: true,
                         content: (
                             <div className="flex flex-col gap-3">
                                 <SdkVersionWarnings warnings={surveyWarnings} />
@@ -69,14 +72,14 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                         primaryButton: {
                             children: isHostedSurvey ? 'Launch and copy link' : 'Launch',
                             type: 'primary',
-                            onClick: () => {
+                            onClick: async () => {
                                 if (needsOptIn) {
                                     updateCurrentTeam({ surveys_opt_in: true })
                                 }
                                 if (isHostedSurvey) {
                                     void copyToClipboard(getSurveyUrl(survey.id), 'survey link')
                                 }
-                                launchSurvey()
+                                await launchSurvey()
                             },
                             size: 'small',
                         },

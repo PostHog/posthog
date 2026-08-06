@@ -21,6 +21,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -2045,6 +2046,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.LaunchSurvey)
 
                 actions.loadSurveys()
+            },
+            launchSurveyFailure: ({ error, errorObject }) => {
+                // `launchSurvey` is on the ERROR_FILTER_ALLOW_LIST, so the generic loaders toast
+                // skips it and we surface the backend's reason here instead of a silent no-op.
+                const detail = errorObject instanceof ApiError ? errorObject.detail : null
+                lemonToast.error(detail || error || 'Failed to launch survey')
             },
             stopSurveySuccess: () => {
                 actions.loadSurveys()

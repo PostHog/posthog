@@ -174,6 +174,51 @@ describe('surveyWizardLogic', () => {
         })
     })
 
+    describe('launch dispatches create vs update', () => {
+        let postCalled: boolean
+        let patchedSurveyId: string | null
+
+        beforeEach(() => {
+            initKeaTests()
+            postCalled = false
+            patchedSurveyId = null
+
+            useMocks({
+                get: {
+                    '/api/projects/:team/surveys/': () => [200, { count: 0, results: [], next: null, previous: null }],
+                    '/api/projects/:team/surveys/responses_count': () => [200, {}],
+                    '/api/projects/:team/surveys/:id/': () => [200, createMockSurvey()],
+                },
+                post: {
+                    '/api/projects/:team/surveys/': () => {
+                        postCalled = true
+                        return [200, { ...createMockSurvey(), id: 'new-survey-123' }]
+                    },
+                },
+                patch: {
+                    '/api/projects/:team/surveys/:id/': ({ params }) => {
+                        patchedSurveyId = params.id as string
+                        return [200, { ...createMockSurvey(), start_date: new Date().toISOString() }]
+                    },
+                    '/api/environments/:team_id/add_product_intent/': () => [200, {}],
+                },
+            })
+        })
+
+        it('updates an existing survey instead of creating a duplicate', async () => {
+            const logic = surveyWizardLogic({ id: 'existing-survey-id' })
+            logic.mount()
+            surveyLogic({ id: 'existing-survey-id' }).mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.launchSurvey()
+            }).toFinishAllListeners()
+
+            expect(patchedSurveyId).toBe('existing-survey-id')
+            expect(postCalled).toBe(false)
+        })
+    })
+
     describe('wizard step navigation', () => {
         beforeEach(() => {
             initKeaTests()

@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { getNextSurveyStep } from 'posthog-js/dist/surveys-preview'
 import { useEffect, useState } from 'react'
@@ -67,7 +67,10 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
         currentStepHasErrors,
     } = useValues(surveyWizardLogic)
     const isEditing = id !== 'new'
-    const { nextStep, setStep, launchSurvey, saveDraft, updateSurvey } = useActions(surveyWizardLogic)
+    const { nextStep, setStep, saveDraft, updateSurvey } = useActions(surveyWizardLogic)
+    // Promise-returning dispatch so the confirm dialog can await the launch (shouldAwaitSubmit),
+    // keeping its button in a loading/disabled state until the request settles.
+    const { launchSurvey } = useAsyncActions(surveyWizardLogic)
 
     const { survey, surveyWarnings } = useValues(surveyLogic)
     const { setSurveyValue, loadSurvey } = useActions(surveyLogic)
@@ -242,7 +245,7 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
         return summary
     }
 
-    const showLaunchConfirmation = (onConfirm: () => void): void => {
+    const showLaunchConfirmation = (onConfirm: () => Promise<void>): void => {
         const isHostedSurvey = survey.type === SurveyType.ExternalSurvey
         const hasConditions = !isHostedSurvey && doesSurveyHaveDisplayConditions(survey)
         const conditionsSummary = isHostedSurvey ? [] : getConditionsSummary()
@@ -277,10 +280,11 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                     )}
                 </div>
             ),
+            shouldAwaitSubmit: true,
             primaryButton: {
                 children: 'Launch',
                 type: 'primary',
-                onClick: onConfirm,
+                onClick: () => onConfirm(),
             },
             secondaryButton: {
                 children: 'Cancel',
