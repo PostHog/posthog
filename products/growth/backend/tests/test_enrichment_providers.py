@@ -90,12 +90,20 @@ async def test_enrich_by_domain_tolerates_missing_related_companies():
 
 
 @pytest.mark.asyncio
-async def test_enrich_by_domain_tolerates_parent_resolution_raising():
+@pytest.mark.parametrize(
+    "client_kwargs,expected_captures",
+    [
+        pytest.param({"parent_side_effect": RuntimeError("boom")}, 1, id="resolution_raises"),
+        pytest.param({"parent_company": None}, 0, id="resolution_returns_none"),
+        pytest.param({"parent_company": ["not", "a", "dict"]}, 0, id="resolution_returns_non_dict"),
+    ],
+)
+async def test_enrich_by_domain_tolerates_failed_parent_resolution(client_kwargs, expected_captures):
     company = {
         "companyType": "STARTUP",
         "relatedCompanies": {"acquiredBy": {"companyUrn": "urn:harmonic:company:111"}},
     }
-    cm, client = _fake_harmonic_client(company, parent_side_effect=RuntimeError("boom"))
+    cm, client = _fake_harmonic_client(company, **client_kwargs)
     with (
         patch("products.growth.backend.enrichment.providers.AsyncHarmonicClient", return_value=cm),
         patch("products.growth.backend.enrichment.providers.capture_exception") as mock_capture,
@@ -106,20 +114,20 @@ async def test_enrich_by_domain_tolerates_parent_resolution_raising():
     assert lookup.fields.company_type == "STARTUP"
     assert lookup.fields.parent_company is None
     assert lookup.fields.parent_company_domain is None
-    mock_capture.assert_called_once()
+    assert mock_capture.call_count == expected_captures
 
 
 @pytest.mark.asyncio
-async def test_enrich_by_domain_tolerates_parent_resolution_returning_none():
+async def test_enrich_by_domain_skips_parent_resolution_for_empty_urn():
     company = {
         "companyType": "STARTUP",
-        "relatedCompanies": {"acquiredBy": {"companyUrn": "urn:harmonic:company:111"}},
+        "relatedCompanies": {"acquiredBy": {"companyUrn": ""}},
     }
-    cm, client = _fake_harmonic_client(company, parent_company=None)
+    cm, client = _fake_harmonic_client(company)
     with patch("products.growth.backend.enrichment.providers.AsyncHarmonicClient", return_value=cm):
         lookup = await HarmonicEnrichmentProvider().enrich_by_domain("posthog.com")
 
     assert lookup.fields is not None
-    assert lookup.fields.company_type == "STARTUP"
     assert lookup.fields.parent_company is None
     assert lookup.fields.parent_company_domain is None
+    client.get_company_by_urn.assert_not_awaited()

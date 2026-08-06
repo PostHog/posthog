@@ -74,6 +74,7 @@ async def test_strict_falls_back_to_second_variation_after_error():
 
 
 @pytest.mark.asyncio
+@patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
 async def test_get_company_by_urn_returns_parsed_json():
     client = _client_with_get_responses(
         _response(json_data={"name": "Salesforce", "website": {"domain": "salesforce.com"}})
@@ -81,17 +82,21 @@ async def test_get_company_by_urn_returns_parsed_json():
     result = await client.get_company_by_urn("urn:harmonic:company:9801263")
     assert result == {"name": "Salesforce", "website": {"domain": "salesforce.com"}}
     client.session.get.assert_called_once_with(
-        "https://api.harmonic.ai/companies/9801263", headers={"apikey": "test-key"}
+        "https://api.harmonic.ai/companies/9801263",
+        headers={"apikey": "test-key"},
+        timeout=aiohttp.ClientTimeout(total=10),
     )
 
 
 @pytest.mark.asyncio
+@patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
 async def test_get_company_by_urn_returns_none_on_not_found():
     client = _client_with_get_responses(_response(status=404))
     assert await client.get_company_by_urn("urn:harmonic:company:999999999") is None
 
 
 @pytest.mark.asyncio
+@patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
 async def test_get_company_by_urn_reraises_on_http_error():
     client = _client_with_get_responses(_http_500())
     with pytest.raises(aiohttp.ClientResponseError):

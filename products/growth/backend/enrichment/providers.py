@@ -54,7 +54,7 @@ def _parent_company_urn(company: dict[str, Any]) -> Optional[str]:
         return None
     for key in ("subsidiaryOf", "acquiredBy"):
         link = related.get(key)
-        if isinstance(link, dict) and isinstance(urn := link.get("companyUrn"), str):
+        if isinstance(link, dict) and isinstance(urn := link.get("companyUrn"), str) and urn:
             return urn
     return None
 
@@ -84,7 +84,7 @@ class HarmonicEnrichmentProvider(EnrichmentProvider):
             capture_exception(e)
             return fields
 
-        if not parent:
+        if not isinstance(parent, dict):
             return fields
 
         website = parent.get("website")
