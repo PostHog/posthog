@@ -68,6 +68,12 @@ INITIAL_RETRY_INTERVAL_SECONDS = 1
 DEFAULT_MAX_RETRY_INTERVAL_SECONDS = 3600
 DEFAULT_MAX_STAGE_RETRY_INTERVAL_SECONDS = 600
 
+STAGE_NON_RETRYABLE_ERROR_TYPES = (
+    "InvalidFilterError",
+    "DataIntervalEndInFutureError",
+    "HogQLQueryResourceLimitExceededError",
+)
+
 
 async def execute_batch_export_using_internal_stage(
     activity: BatchExportInsertActivity,
@@ -182,6 +188,11 @@ async def execute_batch_export_using_internal_stage(
         failure_check_window=failure_check_window,
     )
 
+    # Tracks whether an in-flight failure came from the stage activity, so the status mapping below
+    # only consults the stage's non-retryable list for stage failures (the same `except` also catches
+    # main-activity failures, whose retry policy has no such list).
+    stage_failed = False
+
     try:
         stage_inputs = BatchExportInsertIntoInternalStageInputs(
             team_id=batch_export_inputs.team_id,
@@ -204,9 +215,10 @@ async def execute_batch_export_using_internal_stage(
                 initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
                 maximum_interval=dt.timedelta(seconds=maximum_stage_retry_interval_seconds),
                 maximum_attempts=maximum_attempts,
-                non_retryable_error_types=["InvalidFilterError", "DataIntervalEndInFutureError"],
+                non_retryable_error_types=list(STAGE_NON_RETRYABLE_ERROR_TYPES),
             ),
         }
+        stage_failed = True
         # The stage activity's return type changed from `str` (just the folder) to
         # `InternalStageResult`. Guard with `workflow.patched` so workflows whose history
         # recorded the old bare-string result still replay correctly during a rolling deploy.
@@ -227,6 +239,7 @@ async def execute_batch_export_using_internal_stage(
             batch_export_inputs.stage_folder = await workflow.execute_activity(
                 "insert_into_internal_stage_activity", stage_inputs, result_type=str, **stage_activity_kwargs
             )
+        stage_failed = False
         result = await workflow.execute_activity(
             activity,
             inputs,
@@ -248,6 +261,15 @@ async def execute_batch_export_using_internal_stage(
     except exceptions.ActivityError as e:
         if isinstance(e.cause, exceptions.CancelledError):
             finish_inputs.status = BatchExportRun.Status.CANCELLED
+        elif (
+            stage_failed
+            and isinstance(e.cause, exceptions.ApplicationError)
+            and e.cause.type in STAGE_NON_RETRYABLE_ERROR_TYPES
+        ):
+            # A non-retryable stage failure (bad filter, future interval, or a HogQL query that blew
+            # a per-query resource limit) will fail identically on retry, so the run is terminally
+            # failed rather than retryable.
+            finish_inputs.status = BatchExportRun.Status.FAILED
         else:
             finish_inputs.status = BatchExportRun.Status.FAILED_RETRYABLE
 

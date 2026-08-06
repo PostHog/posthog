@@ -134,6 +134,7 @@ BATCH_EXPORT_MAX_CONCURRENT_ON_DEMAND_PER_TEAM: int = get_from_env(
     "BATCH_EXPORT_MAX_CONCURRENT_ON_DEMAND_PER_TEAM", 20, type_cast=int
 )
 
+
 BATCH_EXPORTS_FILE_DOWNLOAD_ROLE_ARN: str = os.getenv("BATCH_EXPORTS_FILE_DOWNLOAD_ROLE_ARN", "role")
 BATCH_EXPORTS_FILE_DOWNLOAD_BUCKET: str = os.getenv("BATCH_EXPORTS_FILE_DOWNLOAD_BUCKET", "bucket")
 BATCH_EXPORTS_FILE_DOWNLOAD_REGION: str = os.getenv("BATCH_EXPORTS_FILE_DOWNLOAD_REGION", "us-east-1")
@@ -141,3 +142,16 @@ BATCH_EXPORTS_FILE_DOWNLOAD_REGION: str = os.getenv("BATCH_EXPORTS_FILE_DOWNLOAD
 BATCH_EXPORTS_FILE_DOWNLOAD_EXPIRATION_SECONDS: int = get_from_env(
     "BATCH_EXPORTS_FILE_DOWNLOAD_EXPIRATION_SECONDS", 3600, type_cast=int
 )
+
+# Per-query ClickHouse resource limits for HogQL-powered batch exports.
+# Since we accept arbitrary user-supplied queries, we need to set conservative limits to avoid
+# monopolising the offline cluster.
+BATCH_EXPORT_HOGQL_MAX_EXECUTION_TIME: int = get_from_env(
+    "BATCH_EXPORT_HOGQL_MAX_EXECUTION_TIME", 900, type_cast=int
+)  # 15 minutes (deliberately under the file-download stage timeout of 20 minutes)
+BATCH_EXPORT_HOGQL_MAX_MEMORY_USAGE: int = get_from_env(
+    "BATCH_EXPORT_HOGQL_MAX_MEMORY_USAGE", 50 * 1000 * 1000 * 1000, type_cast=int
+)  # 50GB (rather arbitrary for now, can always increase later)
+BATCH_EXPORT_HOGQL_MAX_BYTES_TO_READ: int = get_from_env(
+    "BATCH_EXPORT_HOGQL_MAX_BYTES_TO_READ", 200 * 1000 * 1000 * 1000, type_cast=int
+)  # 200GB (again, rather arbitrary for now)

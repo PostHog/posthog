@@ -4,6 +4,7 @@ import datetime as dt
 from dataclasses import dataclass
 
 import pytest
+from unittest.mock import AsyncMock, patch
 
 from django.conf import settings
 
@@ -15,6 +16,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.clickhouse import ClickHouseError
 from posthog.temporal.tests.utils.models import afetch_batch_export_runs
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
@@ -264,6 +266,57 @@ class TestErrorHandling:
         run = await self._run_workflow(inputs, expect_workflow_failure=True)
         assert run.status == "FailedRetryable"
         assert run.latest_error == "DummyRetryableError: This is an unexpected internal error"
+
+    # A real per-query memory-limit message; the stage activity recognises this and, for the hogql
+    # model, converts it to the non-retryable HogQLQueryResourceLimitExceededError.
+    _QUERY_MEMORY_ERROR = ClickHouseError(
+        "Code: 241. DB::Exception: Query memory limit exceeded: would use 30.01 GiB "
+        "(attempt to allocate chunk of 4.00 MiB), maximum: 30.00 GiB. (MEMORY_LIMIT_EXCEEDED)"
+    )
+
+    async def test_hogql_per_query_resource_limit_fails_terminally(self, batch_export):
+        """A HogQL query that blows a per-query ClickHouse limit fails the run terminally, not retryably.
+
+        Re-running the same query would blow the same limit, so the run should land `Failed`. The stage
+        activity is failed by patching its query execution to raise a real per-query memory error.
+        """
+        inputs = DummyExportInputs(
+            team_id=batch_export.team_id,
+            batch_export_id=str(batch_export.id),
+            interval="hour",
+            data_interval_end=dt.datetime(2025, 7, 21, 13, 0, 0, tzinfo=dt.UTC).isoformat(),
+            batch_export_model=BatchExportModel(
+                name="hogql", schema=None, hogql_query="SELECT event AS event FROM events"
+            ),
+        )
+        with patch(
+            "products.batch_exports.backend.temporal.pipeline.internal_stage._write_batch_export_record_batches_to_internal_stage",
+            new=AsyncMock(side_effect=self._QUERY_MEMORY_ERROR),
+        ):
+            run = await self._run_workflow(inputs, expect_workflow_failure=True)
+
+        assert run.status == "Failed"
+
+    async def test_per_query_resource_limit_only_applies_to_hogql(self, batch_export):
+        """The identical ClickHouse error under a fixed model stays retryable, unchanged.
+
+        Only the user-supplied `hogql` model treats a per-query limit as terminal; the events/persons/
+        sessions models keep raising the raw (retryable) ClickHouse error.
+        """
+        inputs = DummyExportInputs(
+            team_id=batch_export.team_id,
+            batch_export_id=str(batch_export.id),
+            interval="hour",
+            data_interval_end=dt.datetime(2025, 7, 21, 13, 0, 0, tzinfo=dt.UTC).isoformat(),
+            batch_export_model=BatchExportModel(name="events", schema=None),
+        )
+        with patch(
+            "products.batch_exports.backend.temporal.pipeline.internal_stage._write_batch_export_record_batches_to_internal_stage",
+            new=AsyncMock(side_effect=self._QUERY_MEMORY_ERROR),
+        ):
+            run = await self._run_workflow(inputs, expect_workflow_failure=True)
+
+        assert run.status == "FailedRetryable"
 
     async def test_successful_run(self, batch_export_by_interval, interval):
         inputs = DummyExportInputs(

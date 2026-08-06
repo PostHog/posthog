@@ -20,7 +20,13 @@ from temporalio.testing import ActivityEnvironment
 from posthog.models.scoping import team_scope
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
-from posthog.temporal.common.clickhouse import ClickHouseClient, ClickHouseClientTimeoutError, ClickHouseQueryStatus
+from posthog.temporal.common.clickhouse import (
+    ClickHouseClient,
+    ClickHouseClientTimeoutError,
+    ClickHouseError,
+    ClickHouseQueryStatus,
+    get_client,
+)
 from posthog.temporal.tests.utils.events import (
     generate_test_events,
     insert_event_values_in_clickhouse,
@@ -38,6 +44,7 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
     DataIntervalEndInFutureError,
     _execute_query,
+    _is_non_retryable_hogql_query_error,
     _write_batch_export_record_batches_to_internal_stage,
     compute_num_partitions,
     insert_into_internal_stage_activity,
@@ -382,6 +389,134 @@ async def test_execute_query_recovers_written_rows_from_query_log_on_timeout(que
 
     assert result == query_log_written_rows
     client.aget_written_rows_from_query_log.assert_awaited_once()
+
+
+@pytest.mark.parametrize("timed_out_first", [False, True], ids=["while_awaiting_query", "while_waiting_for_completion"])
+async def test_execute_query_cancels_the_query_when_cancelled(timed_out_first: bool):
+    """Being cancelled kills the insert instead of leaving it running.
+
+    Dropping the connection is not enough to stop an INSERT, so without an explicit kill the
+    query would keep writing to the stage and holding memory after we stopped waiting for it.
+    Covers cancellation both while awaiting the query's response and while polling for it to
+    finish after the response timed out.
+    """
+    started = asyncio.Event()
+
+    async def block_forever(*args, **kwargs):
+        started.set()
+        await asyncio.Event().wait()
+
+    client = AsyncMock()
+    if timed_out_first:
+        client.execute_query_with_summary.side_effect = ClickHouseClientTimeoutError("INSERT ...", "test-query-id")
+        client.acheck_query.side_effect = block_forever
+    else:
+        client.execute_query_with_summary.side_effect = block_forever
+
+    task = asyncio.create_task(_execute_query(client, "INSERT INTO FUNCTION s3(...) SELECT ...", {}))
+    await started.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    client.acancel_query.assert_awaited_once()
+    # The kill has to target the query we started, which is the id the insert was sent with.
+    query_id = client.execute_query_with_summary.await_args.kwargs["query_id"]
+    assert client.acancel_query.await_args.args == (query_id,)
+
+
+async def test_execute_query_still_cancels_when_the_kill_fails():
+    """A kill that fails must not mask the cancellation."""
+    started = asyncio.Event()
+
+    async def block_forever(*args, **kwargs):
+        started.set()
+        await asyncio.Event().wait()
+
+    client = AsyncMock()
+    client.execute_query_with_summary.side_effect = block_forever
+    client.acancel_query.side_effect = ClickHouseClientTimeoutError("KILL ...", "test-query-id")
+
+    task = asyncio.create_task(_execute_query(client, "INSERT INTO FUNCTION s3(...) SELECT ...", {}))
+    await started.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    client.acancel_query.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "message,expected",
+    [
+        # A query's own memory budget: this query alone was too big, so it cannot succeed on retry.
+        (
+            "Code: 241. DB::Exception: Query memory limit exceeded: would use 30.01 GiB "
+            "(attempt to allocate chunk of 4.00 MiB), maximum: 30.00 GiB. (MEMORY_LIMIT_EXCEEDED)",
+            True,
+        ),
+        # A shared user's budget or the whole server's: not this query's fault, so leave it retryable.
+        (
+            "Code: 241. DB::Exception: User memory limit exceeded: would use 5.02 MiB, "
+            "maximum: 976.56 KiB. (MEMORY_LIMIT_EXCEEDED)",
+            False,
+        ),
+        (
+            "Code: 241. DB::Exception: (total) memory limit exceeded: would use 99.97 GiB, "
+            "maximum: 111.19 GiB. (MEMORY_LIMIT_EXCEEDED)",
+            False,
+        ),
+        # Query timeout and bytes-read, matched by their stable ClickHouse error-code names.
+        (
+            "Code: 159. DB::Exception: Timeout exceeded: elapsed 900.372 seconds, maximum: 900. (TIMEOUT_EXCEEDED)",
+            True,
+        ),
+        (
+            "Code: 307. DB::Exception: Limit for rows or bytes to read exceeded, max bytes: 1.00 TiB. (TOO_MANY_BYTES)",
+            True,
+        ),
+        # A result-size limit (a different code we don't impose) must not be mistaken for bytes-read.
+        (
+            "Code: 396. DB::Exception: Limit for result exceeded, max rows: 1.00 million. (TOO_MANY_ROWS_OR_BYTES)",
+            False,
+        ),
+        # An unrelated failure is not a resource limit, so it stays retryable.
+        ("Code: 60. DB::Exception: Table default.nope does not exist. (UNKNOWN_TABLE)", False),
+    ],
+    ids=[
+        "query_memory",
+        "user_memory",
+        "total_memory",
+        "timeout",
+        "too_many_bytes",
+        "result_rows_or_bytes",
+        "unrelated",
+    ],
+)
+def test_is_non_retryable_hogql_query_error(message: str, expected: bool):
+    """The per-query resource limits are recognised; everything else is left retryable."""
+    assert _is_non_retryable_hogql_query_error(ClickHouseError(message)) is expected
+
+
+async def test_is_non_retryable_hogql_query_error_matches_real_clickhouse_memory_limit():
+    """The per-query memory wording the detector relies on is a real message, checked against a live server.
+
+    Only the query's own memory scope is matched by prose (the error code alone can't tell the query's
+    budget from a shared user's or the server's), and ClickHouse has reworded that scope before. Asking
+    the server keeps the match honest: a version that changes the wording fails here, rather than silently
+    letting a query that can never fit retry until it times out.
+    """
+    async with get_client() as client:
+        with pytest.raises(ClickHouseError) as exc_info:
+            await client.execute_query_with_summary(
+                "SELECT groupArray(toString(number)) FROM numbers(10000000)",
+                query_id=f"test-hogql-memory-limit-{uuid.uuid4()}",
+                settings={"max_memory_usage": "1000000"},
+            )
+
+    assert _is_non_retryable_hogql_query_error(exc_info.value)
 
 
 class PersonToExport(t.TypedDict):
@@ -1058,8 +1193,14 @@ async def test_insert_into_stage_activity_uses_static_default_without_previous_r
 
 
 async def _assert_staging_query_settings(clickhouse_client: ClickHouseClient, batch_export_id: str) -> None:
-    """Currently every model's staging query should run with the same batch export settings applied."""
-    actual_settings = await _fetch_staging_query_settings(clickhouse_client, batch_export_id)
+    """The fixed models (events/persons/sessions) run their staging query with the shared settings.
+
+    The hogql model diverges — it applies the tighter per-query user-query limits — so it asserts its
+    own settings separately rather than going through this helper.
+    """
+    actual_settings = await _fetch_staging_query_settings(
+        clickhouse_client, batch_export_id, ["max_bytes_before_external_sort", "optimize_aggregation_in_order"]
+    )
     # one staging query, with max_bytes_before_external_sort and optimize_aggregation_in_order set
     assert actual_settings == [["50000000000", "1"]]
 
@@ -1067,10 +1208,11 @@ async def _assert_staging_query_settings(clickhouse_client: ClickHouseClient, ba
 async def _fetch_staging_query_settings(
     clickhouse_client: ClickHouseClient,
     batch_export_id: str,
+    setting_names: list[str],
     max_wait_time: float = 10.0,
     poll_interval: float = 0.5,
 ) -> list[list[str]]:
-    """Return the settings ClickHouse recorded for this export's staging queries.
+    """Return the given settings ClickHouse recorded for this export's staging queries.
 
     Looking the queries up by their log comment means a result is also proof the log
     comment was attached.
@@ -1082,11 +1224,12 @@ async def _fetch_staging_query_settings(
     Matching on `query_kind` rather than the query text keeps this query from finding
     itself: it runs with the same log comment as the export it is looking up.
     """
+    selected = ", ".join(f"Settings['{name}']" for name in setting_names)
     elapsed_time = 0.0
     while True:
         await clickhouse_client.execute_query("SYSTEM FLUSH LOGS")
         rows = await clickhouse_client.read_query(
-            "SELECT Settings['max_bytes_before_external_sort'], Settings['optimize_aggregation_in_order'] "
+            f"SELECT {selected} "
             "FROM system.query_log "
             f"WHERE JSONExtractString(log_comment, 'batch_export_id') = '{batch_export_id}' "
             "AND JSONExtractString(log_comment, 'product') = 'batch_export' "
@@ -1364,6 +1507,11 @@ class TestHogQLModel:
             (e["uuid"], e["event"], e["distinct_id"]) for e in events
         )
 
+    @override_settings(
+        BATCH_EXPORT_HOGQL_MAX_EXECUTION_TIME=900,
+        BATCH_EXPORT_HOGQL_MAX_MEMORY_USAGE=30_000_000_000,
+        BATCH_EXPORT_HOGQL_MAX_BYTES_TO_READ=200_000_000_000,
+    )
     async def test_applies_settings_and_log_comment(
         self,
         hogql_model_test_data,
@@ -1374,10 +1522,12 @@ class TestHogQLModel:
         data_interval_start,
         data_interval_end,
     ):
-        """The batch export settings and log comment reach the query ClickHouse actually runs.
+        """The per-query resource limits and log comment reach the query ClickHouse actually runs.
 
-        Neither is written into the query text; they are both sent as query paramaters, so this
-        asserts against ClickHouse's own record of the query rather than the SQL we generated.
+        Neither is written into the query text; they are both sent as query parameters, so this
+        asserts against ClickHouse's own record of the query rather than the SQL we generated. This
+        also proves the settings names are ones ClickHouse accepts — it rejects unknown settings, so
+        a typo would fail the export rather than being silently dropped.
         """
         batch_export_id = str(uuid.uuid4())
 
@@ -1391,4 +1541,19 @@ class TestHogQLModel:
             batch_export_id=batch_export_id,
         )
 
-        await _assert_staging_query_settings(clickhouse_client, batch_export_id)
+        # `Settings` in `system.query_log` records only settings changed from their default, so the
+        # overflow modes are absent here (`throw` is already ClickHouse's default, and we pin it only
+        # to avoid inheriting a `break` from a cluster profile). That we send them is covered by
+        # `test_get_clickhouse_request_settings`.
+        actual_settings = await _fetch_staging_query_settings(
+            clickhouse_client,
+            batch_export_id,
+            [
+                "max_execution_time",
+                "max_memory_usage",
+                "max_bytes_before_external_sort",
+                "max_bytes_ratio_before_external_sort",
+                "max_bytes_to_read",
+            ],
+        )
+        assert actual_settings == [["900", "30000000000", "15000000000", "0", "200000000000"]]

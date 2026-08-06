@@ -25,7 +25,11 @@ from products.batch_exports.backend.hogql_source import (
 )
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.metrics import log_query_duration
-from products.batch_exports.backend.temporal.sql.common import HogQLQueryBatchExportSettings, get_s3_function_call
+from products.batch_exports.backend.temporal.sql.common import (
+    HogQLQueryBatchExportSettings,
+    get_hogql_user_query_batch_export_settings,
+    get_s3_function_call,
+)
 from products.batch_exports.backend.temporal.sql.sessions import SELECT_FROM_SESSIONS_HOGQL
 
 LOGGER = get_write_only_logger()
@@ -340,7 +344,7 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
         # Sent with the request instead of set on the query AST, because the user query may
         # not parse to a simple `ast.SelectQuery` (e.g. a UNION parses to an
         # `ast.SelectSetQuery`, which has no `settings` field to attach these to).
-        return _as_clickhouse_request_settings(HogQLQueryBatchExportSettings())
+        return _as_clickhouse_request_settings(get_hogql_user_query_batch_export_settings())
 
 
 def resolve_batch_exports_model(

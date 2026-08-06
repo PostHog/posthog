@@ -75,12 +75,44 @@ from products.batch_exports.backend.temporal.utils import set_status_to_running_
 LOGGER = get_write_only_logger()
 TRACER = trace.get_tracer(__name__)
 
+# How long to wait for a `KILL QUERY` issued while we are being cancelled ourselves.
+CANCEL_QUERY_TIMEOUT_SECONDS = 30
+
 
 class DataIntervalEndInFutureError(Exception):
     """Raised when a batch export's 'data_interval_end' is after now."""
 
     def __init__(self, data_interval_end: dt.datetime) -> None:
         super().__init__(f"The provided 'data_interval_end' ({data_interval_end.isoformat()}) is in the future")
+
+
+class HogQLQueryResourceLimitExceededError(Exception):
+    """A user's HogQL batch export query exceeded a per-query ClickHouse resource limit.
+
+    Raised in place of the raw ClickHouse error so the workflow can treat it as non-retryable
+    (see the stage activity's `non_retryable_error_types`): the query asked for more memory, time,
+    or bytes than a single query is allowed, so re-running it unchanged would fail the same way.
+
+    Only raised for the `hogql` model. The fixed models (events/persons/sessions) keep their
+    ClickHouse errors as-is and stay retryable — their queries are ours and predictable, so a
+    resource blowup there is more likely a transient spike than a permanent misfit.
+    """
+
+
+# ClickHouse error markers for the per-query resource limits imposed on user HogQL queries (see
+# `HogQLUserQueryBatchExportSettings`). Timeout and bytes-read are matched by their ClickHouse
+# error-code names, which are a stable part of the error taxonomy. Memory has to be matched by the
+# scope prose instead: the code (MEMORY_LIMIT_EXCEEDED) does not say whether this query, a shared
+# user's budget, or the whole server blew the limit, and only the query's own limit is this query's
+# fault. Only the exact query-scope wording is recognised; anything else (a user or total breach, or
+# a reworded message) is left to propagate as a retryable ClickHouse error, which is the safe default.
+_NON_RETRYABLE_QUERY_ERROR_MARKERS = ("timeout_exceeded", "too_many_bytes", "query memory limit exceeded")
+
+
+def _is_non_retryable_hogql_query_error(exc: ClickHouseError) -> bool:
+    """Whether a ClickHouse error means a user's HogQL query exceeded a per-query resource limit."""
+    message = str(exc).lower()
+    return any(marker in message for marker in _NON_RETRYABLE_QUERY_ERROR_MARKERS)
 
 
 def _is_local_dev_or_test() -> bool:
@@ -310,17 +342,25 @@ async def insert_into_internal_stage_activity(
             )
             query_or_model = query
 
-        records_total = await _write_batch_export_record_batches_to_internal_stage(
-            query_or_model=query_or_model,
-            full_range=full_range,
-            query_parameters=query_parameters,
-            team_id=inputs.team_id,
-            batch_export_id=inputs.batch_export_id,
-            data_interval_start=inputs.data_interval_start,
-            data_interval_end=inputs.data_interval_end,
-            s3_staging_folder_url=s3_staging_folder.url,
-            num_partitions=num_partitions,
-        )
+        try:
+            records_total = await _write_batch_export_record_batches_to_internal_stage(
+                query_or_model=query_or_model,
+                full_range=full_range,
+                query_parameters=query_parameters,
+                team_id=inputs.team_id,
+                batch_export_id=inputs.batch_export_id,
+                data_interval_start=inputs.data_interval_start,
+                data_interval_end=inputs.data_interval_end,
+                s3_staging_folder_url=s3_staging_folder.url,
+                num_partitions=num_partitions,
+            )
+        except ClickHouseError as e:
+            # A user's HogQL query that blew a per-query resource limit cannot succeed on retry, so
+            # convert it to a non-retryable signal. Other models, and other ClickHouse errors, keep
+            # their existing (retryable) behaviour.
+            if model_name == "hogql" and _is_non_retryable_hogql_query_error(e):
+                raise HogQLQueryResourceLimitExceededError(str(e)) from e
+            raise
     logger.info("Staging data completed successfully", records_total=records_total)
     return InternalStageResult(stage_folder=s3_staging_folder.folder, records_total=records_total)
 
@@ -697,20 +737,47 @@ async def _execute_query(
     query_id = str(uuid.uuid4())
     logger = LOGGER.bind(query_id=query_id)
     with log_query_duration(logger=logger, query_id=query_id, query_type="insert_into_internal_stage"):
+        # The cancellation handler wraps the timeout handler rather than sitting beside it, so that it
+        # also covers being cancelled while waiting out a query that outlived our response.
         try:
-            summary = await client.execute_query_with_summary(
-                query, query_parameters=query_parameters, query_id=query_id, timeout=300, settings=query_settings
-            )
-        except ClickHouseClientTimeoutError:
-            logger.warning(
-                "Timed-out waiting for insert into S3. Will attempt to check query status and wait for completion",
-                timeout=300,
-            )
-            await _wait_for_query_completion(client, query_id)
-            # The summary is gone with the timed-out response, but the query has finished, so
-            # recover the written-row count from its query log entry.
-            return await client.aget_written_rows_from_query_log(query_id)
+            try:
+                summary = await client.execute_query_with_summary(
+                    query, query_parameters=query_parameters, query_id=query_id, timeout=300, settings=query_settings
+                )
+            except ClickHouseClientTimeoutError:
+                logger.warning(
+                    "Timed-out waiting for insert into S3. Will attempt to check query status and wait for completion",
+                    timeout=300,
+                )
+                await _wait_for_query_completion(client, query_id)
+                # The summary is gone with the timed-out response, but the query has finished, so
+                # recover the written-row count from its query log entry.
+                return await client.aget_written_rows_from_query_log(query_id)
+        except asyncio.CancelledError:
+            # Dropping the connection does not stop the query: `cancel_http_readonly_queries_on_client_close`
+            # only covers reads, and this is an INSERT. Without an explicit kill it would keep writing to the
+            # stage until it hits its own execution time limit, holding memory we have stopped waiting for.
+            logger.warning("Cancelled while waiting for insert into S3. Attempting to cancel the query")
+            await _cancel_query_after_cancellation(client, query_id)
+            raise
     return _written_rows_from_summary(summary)
+
+
+async def _cancel_query_after_cancellation(client: ClickHouseClient, query_id: str) -> None:
+    """Make a best-effort attempt to kill `query_id` while being cancelled ourselves.
+
+    Shielded so the cancellation we are already handling does not immediately abort the kill,
+    and bounded by a timeout so a slow or unreachable ClickHouse cannot hold up the
+    cancellation indefinitely. Failures are logged and swallowed: we are on our way out, and
+    the query's own execution time limit remains the backstop.
+    """
+    logger = LOGGER.bind(query_id=query_id)
+    try:
+        await asyncio.wait_for(asyncio.shield(client.acancel_query(query_id)), timeout=CANCEL_QUERY_TIMEOUT_SECONDS)
+    except asyncio.CancelledError:
+        logger.warning("Cancelled again while cancelling query")
+    except Exception:
+        logger.warning("Failed to cancel query after cancellation", exc_info=True)
 
 
 async def _wait_for_query_completion(client: ClickHouseClient, query_id: str) -> None:
@@ -724,12 +791,16 @@ async def _wait_for_query_completion(client: ClickHouseClient, query_id: str) ->
         ClickHouseError: If the query were are trying to check has failed.
     """
     logger = LOGGER.bind(query_id=query_id)
-    num_attempts = 5
-    # Sometimes this check can fail, especially when ClickHouse is under heavy load, so we retry a few times
+    num_attempts = 10
+    # Sometimes this check can fail, especially when ClickHouse is under heavy load, so we retry a few times.
+    # The retry budget has to outlast the gap between a query leaving `system.processes` and landing in
+    # `system.query_log` (the log is flushed periodically, every 7.5s by default). Give up too early and a
+    # query the server killed for exceeding a limit surfaces as `ClickHouseQueryNotFound` instead of the
+    # error it actually failed with, which reads as a transient blip and gets retried from scratch.
     check_query = make_retryable_with_exponential_backoff(
         client.acheck_query,
         max_attempts=num_attempts,
-        max_retry_delay=1,
+        max_retry_delay=5,
         retryable_exceptions=(ClickHouseQueryNotFound, ClickHouseCheckQueryStatusError),
     )
 
