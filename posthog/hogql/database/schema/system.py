@@ -1905,12 +1905,17 @@ support_tickets: PostgresTable = PostgresTable(
         "first_response_at": DateTimeDatabaseField(
             name="first_response_at",
             nullable=True,
-            description="When the support team or AI first replied, ignoring the message that opened the ticket (tickets the team composes outbound start with their own message); NULL if there has been no reply yet. Time to first response = first_response_at - created_at. Not backfilled for tickets imported from another helpdesk.",
+            description="When the support team or AI first replied, not counting a first message the team itself sent to open "
+            "the ticket; NULL if nobody has replied yet. Time to first response = first_response_at - created_at. "
+            "Not backfilled for tickets imported from another helpdesk.",
         ),
         "resolved_at": DateTimeDatabaseField(
             name="resolved_at",
             nullable=True,
-            description="The LATEST time the ticket entered the resolved status. NULL while it is not resolved: reopening clears it, and resolving again overwrites it. This is current state, not a resolution log, so it cannot reconstruct how many tickets were resolved in a past period. Resolution time = resolved_at - created_at. Not backfilled for tickets imported from another helpdesk, so those can be resolved with a NULL resolved_at.",
+            description="The latest time the ticket entered the resolved status: reopening clears it, resolving again overwrites "
+            "it. Resolution time = resolved_at - created_at. Current state rather than a resolution log, so it cannot count how "
+            "many tickets were resolved in a past period. Not backfilled for imported tickets, which can be resolved with a "
+            "NULL resolved_at.",
         ),
         "priority": StringDatabaseField(
             name="priority", nullable=True, description="Ticket priority, e.g. 'low', 'high'."
