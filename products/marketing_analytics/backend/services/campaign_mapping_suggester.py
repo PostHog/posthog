@@ -12,6 +12,7 @@ Pure function. Feed it `get_campaigns_with_spend` and `get_utm_campaign_catalogu
 
 import re
 from collections import Counter, defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal, NamedTuple
 
@@ -140,14 +141,21 @@ def suggest_campaign_name_mappings(
     claimed_clean_names: dict[str, str] = {}
 
     for orphan in considered:
-        _classify(
+        verdict = _classify(
             orphan=orphan,
             campaigns_by_source=campaigns_by_source,
             mappings=mappings,
             seen_by_source=seen_by_source,
             claimed_clean_names=claimed_clean_names,
-            result=result,
         )
+        match verdict:
+            case CampaignMappingProposal():
+                claimed_clean_names[verdict.clean_name] = verdict.observed_utm_source
+                result.proposals.append(verdict)
+            case _Ambiguous(entry):
+                result.ambiguous.append(entry)
+            case _Unresolved(entry):
+                result.unresolved.append(entry)
 
     result.proposals.sort(key=lambda p: (-p.campaign_spend, -p.event_count, p.raw_utm_campaign))
     result.ambiguous.sort(key=lambda a: -a.event_count)
@@ -205,6 +213,19 @@ class _Target(NamedTuple):
     native: NativeMarketingSource
 
 
+class _Ambiguous(NamedTuple):
+    """Several plausible targets. Distinct from `_Unresolved` only in which list it lands in."""
+
+    entry: AmbiguousCampaign
+
+
+class _Unresolved(NamedTuple):
+    entry: AmbiguousCampaign
+
+
+_Verdict = CampaignMappingProposal | _Ambiguous | _Unresolved | None
+
+
 def _refuse(orphan: _Orphan, reason: str, candidates: list[tuple[str, float]] | None = None) -> AmbiguousCampaign:
     return AmbiguousCampaign(
         raw_utm_campaign=orphan.raw_utm_campaign,
@@ -221,9 +242,10 @@ def _classify(
     campaigns_by_source: dict[str, list[Campaign]],
     mappings: TeamMappings,
     seen_by_source: dict[str, set[str]],
-    claimed_clean_names: dict[str, str],
-    result: CampaignMappingSuggestions,
-) -> None:
+    claimed_clean_names: Mapping[str, str],
+) -> _Verdict:
+    """Decide one orphan's fate. Returns the verdict rather than filing it, so the caller owns
+    both accumulators — `claimed_clean_names` is read here and written only there."""
     scoped_source = resolve_source(orphan.dominant_utm_source, mappings)
     scoped_group = campaigns_by_source.get(scoped_source)
 
@@ -234,7 +256,7 @@ def _classify(
         method, cutoff = "fuzzy_unscoped", UNSCOPED_SCORE_CUTOFF
 
     if not candidates:
-        return
+        return None
 
     seen = (
         seen_by_source.get(scoped_source, set())
@@ -272,7 +294,7 @@ def _classify(
         ranked = []
 
     if not ranked:
-        result.unresolved.append(
+        return _Unresolved(
             _refuse(
                 orphan,
                 f"No platform campaign is within {cutoff:.0f}% similarity of "
@@ -280,13 +302,12 @@ def _classify(
                 "distance can match, or this traffic isn't from a connected ad platform.",
             )
         )
-        return
 
     top_value, top_score = ranked[0]
     margin = top_score - ranked[1][1] if len(ranked) > 1 else 100.0
 
     if margin < MIN_MARGIN:
-        result.ambiguous.append(
+        return _Ambiguous(
             _refuse(
                 orphan,
                 f"'{orphan.raw_utm_campaign}' is a near-equal match for "
@@ -296,13 +317,12 @@ def _classify(
                 ranked,
             )
         )
-        return
 
     # A name two platforms both run ties *at* the top, so the margin reads 100 and the spend
     # tiebreak would silently pick the platform. Unreachable when scoped.
     contenders = natives_by_value.get(top_value, set())
     if len(contenders) > 1:
-        result.ambiguous.append(
+        return _Ambiguous(
             _refuse(
                 orphan,
                 f"'{top_value}' is a campaign on {' and '.join(sorted(contenders))}, and "
@@ -312,7 +332,6 @@ def _classify(
                 ranked,
             )
         )
-        return
 
     campaign, native = by_value[top_value]
 
@@ -324,32 +343,29 @@ def _classify(
             claimed_by=claimed_by,
             skipped=orphan.raw_utm_campaign,
         )
-        return
-    claimed_clean_names[top_value] = orphan.dominant_utm_source
+        return None
 
     expected_utm_source = normalize_source_name(campaign.source_name)
     display_name = display_name_for_key(NATIVE_TO_KEY[native])
-    result.proposals.append(
-        CampaignMappingProposal(
-            integration=native.value,
-            integration_display_name=display_name,
-            clean_name=top_value,
-            raw_utm_campaign=orphan.raw_utm_campaign,
-            event_count=orphan.event_count,
-            campaign_spend=campaign.spend,
-            score=round(top_score, 1),
-            confidence=_confidence(top_score),
-            safe_to_batch=(method == "fuzzy_exact_scope" and top_score >= BATCH_SCORE and margin >= BATCH_MARGIN),
-            method=method,  # type: ignore[arg-type]
-            reason=(
-                f"'{orphan.raw_utm_campaign}' — {orphan.event_count:,} events, {top_score:.0f}% similar to "
-                f"{display_name} campaign '{top_value}', which has {campaign.spend:,.0f} spend and no "
-                "matched events."
-            ),
-            observed_utm_source=orphan.dominant_utm_source,
-            expected_utm_campaign=top_value,
-            expected_utm_source=expected_utm_source,
-        )
+    return CampaignMappingProposal(
+        integration=native.value,
+        integration_display_name=display_name,
+        clean_name=top_value,
+        raw_utm_campaign=orphan.raw_utm_campaign,
+        event_count=orphan.event_count,
+        campaign_spend=campaign.spend,
+        score=round(top_score, 1),
+        confidence=_confidence(top_score),
+        safe_to_batch=(method == "fuzzy_exact_scope" and top_score >= BATCH_SCORE and margin >= BATCH_MARGIN),
+        method=method,  # type: ignore[arg-type]
+        reason=(
+            f"'{orphan.raw_utm_campaign}' — {orphan.event_count:,} events, {top_score:.0f}% similar to "
+            f"{display_name} campaign '{top_value}', which has {campaign.spend:,.0f} spend and no "
+            "matched events."
+        ),
+        observed_utm_source=orphan.dominant_utm_source,
+        expected_utm_campaign=top_value,
+        expected_utm_source=expected_utm_source,
     )
 
 
