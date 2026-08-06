@@ -22,7 +22,8 @@ describe('CopyToClipboardInline', () => {
 
         render(<CopyToClipboardInline selectable explicitValue="the-value" description="property value" />)
 
-        const button = screen.getByRole('button', { name: 'Copy property value' })
+        // getByLabelText matches the aria-label, which is exactly the accessible name we're guarding.
+        const button = screen.getByLabelText('Copy property value')
         await userEvent.click(button)
 
         expect(copyToClipboard).toHaveBeenCalledWith('the-value', 'property value')
@@ -35,7 +36,7 @@ describe('CopyToClipboardInline', () => {
 
         render(<CopyToClipboardInline selectable explicitValue="the-value" description="property value" />)
 
-        await userEvent.click(screen.getByRole('button', { name: 'Copy property value' }))
+        await userEvent.click(screen.getByLabelText('Copy property value'))
 
         expect(copyToClipboard).toHaveBeenCalled()
         await waitFor(() => expect(copyToClipboard).toHaveReturned())
