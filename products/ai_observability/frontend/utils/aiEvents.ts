@@ -19,31 +19,52 @@ const AI_STALE_EVENT_SECONDS = AI_STALE_EVENT_DAYS * 24 * 60 * 60
  * Uses a two-tier approach:
  * 1. Fast path: Check EventDefinition table (Postgres)
  * 2. Fallback: Query ClickHouse directly for recent events (for new users)
+ *
+ * Returns `undefined` when neither tier could answer. Callers must not read that as "no AI
+ * events", or a failing detection sends a team that has data to the setup screen.
  */
-export async function hasRecentAIEvents(): Promise<boolean> {
-    // Fast path: check EventDefinition (works for most existing users)
-    const aiEventDefinitions = await api.eventDefinitions.list({
-        event_type: EventDefinitionType.Event,
-        search: '$ai_',
-    })
+export async function hasRecentAIEvents(): Promise<boolean | undefined> {
+    try {
+        // Fast path: check EventDefinition (works for most existing users)
+        const aiEventDefinitions = await api.eventDefinitions.list({
+            event_type: EventDefinitionType.Event,
+            search: '$ai_',
+        })
 
-    const validDefinition = aiEventDefinitions?.results?.find(
-        (r) => AI_EVENT_NAMES.includes(r.name) && !isDefinitionStale(r, AI_STALE_EVENT_SECONDS)
-    )
+        const validDefinition = aiEventDefinitions?.results?.find(
+            (r) => AI_EVENT_NAMES.includes(r.name) && !isDefinitionStale(r, AI_STALE_EVENT_SECONDS)
+        )
 
-    if (validDefinition) {
-        return true
+        if (validDefinition) {
+            return true
+        }
+
+        // Fallback: query ClickHouse directly for recent events (new users).
+        //
+        // Reads the dedicated `ai_events` table rather than the shared `events` table. This
+        // branch only runs when Postgres found no fresh AI event definition, so the answer is
+        // almost always "no rows", and on `events` that means ClickHouse walks every event the
+        // team sent in the window before it can say so. `ai_events` holds nothing but AI
+        // events, so its `team_id` key prefix prunes the same lookup to nothing. Ingestion
+        // double-writes every AI event there (see nodejs split-ai-events-step.ts) and its
+        // retention is far longer than the window below, so the two tables agree here.
+        const response = await api.query<HogQLQuery>(
+            {
+                kind: NodeKind.HogQLQuery,
+                query: hogql`SELECT 1 FROM posthog.ai_events AS ai_events WHERE event IN ${[...AI_EVENT_NAMES]} AND timestamp > now() - INTERVAL 12 HOUR LIMIT 1`,
+                tags: { productKey: ProductKey.AI_OBSERVABILITY },
+            },
+            // The setup screen re-runs detection on a timer to flip to the real product as soon
+            // as the first event lands, which a cached answer (stale for up to 6 hours) would
+            // defeat. Forcing a recompute is only affordable because the query above is cheap.
+            { refresh: 'force_blocking' }
+        )
+
+        return (response.results?.length ?? 0) > 0
+    } catch (error) {
+        // Detection runs on a poll, so letting the rejection through means an error toast and a
+        // captured exception every tick for as long as the setup screen is open.
+        console.warn('[aiEvents] AI event detection failed', error)
+        return undefined
     }
-
-    // Fallback: query ClickHouse directly for recent events (new users)
-    const response = await api.query<HogQLQuery>(
-        {
-            kind: NodeKind.HogQLQuery,
-            query: hogql`SELECT 1 FROM events WHERE event IN ${[...AI_EVENT_NAMES]} AND timestamp > now() - INTERVAL 12 HOUR LIMIT 1`,
-            tags: { productKey: ProductKey.AI_OBSERVABILITY },
-        },
-        { refresh: 'force_blocking' }
-    )
-
-    return (response.results?.length ?? 0) > 0
 }

@@ -93,6 +93,9 @@ describe('aiObservabilitySharedLogic', () => {
         it.each([
             [true, 'has-data'],
             [false, 'needs-setup'],
+            // `undefined` is "detection couldn't answer", so it must fail open to the scene
+            // rather than show the setup screen to a team that already has AI events.
+            [undefined, 'unknown'],
         ])('pushes hasSentAiEvent=%s into productSetupStatusLogic as %s', async (hasEvents, expected) => {
             mockHasRecentAIEvents.mockResolvedValue(hasEvents)
             const logic = aiObservabilitySharedLogic()

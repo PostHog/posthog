@@ -178,10 +178,10 @@ export interface aiObservabilitySharedLogicActions {
         errorObject?: any
     }
     loadAIEventDefinitionSuccess: (
-        hasSentAiEvent: boolean,
+        hasSentAiEvent: boolean | undefined,
         payload?: any
     ) => {
-        hasSentAiEvent: boolean
+        hasSentAiEvent: boolean | undefined
         payload?: any
     }
     setDates: (
@@ -321,37 +321,48 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
     loaders(() => ({
         hasSentAiEvent: {
             __default: undefined as boolean | undefined,
-            loadAIEventDefinition: async (): Promise<boolean> => {
+            loadAIEventDefinition: async (): Promise<boolean | undefined> => {
                 return hasRecentAIEvents()
             },
         },
     })),
 
-    listeners(({ actions, values, cache }) => ({
-        loadAIEventDefinitionSuccess: ({ hasSentAiEvent }) => {
-            // Feed the app-wide setup-status layer (drives the scene empty-state gate).
-            actions.setDetectedStatus(hasSentAiEvent ? 'has-data' : 'needs-setup')
-            if (hasSentAiEvent) {
-                cache.disposables.dispose('setupPoll')
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.IngestFirstLlmEvent)
-            }
-        },
-        loadAIEventDefinitionFailure: () => {
-            // A failing detection query must not strand the empty-state gate on its
-            // spinner. If nothing (preload included) has answered yet, publish
-            // `unknown` so the gate fails open to the real scene. A failure never
-            // downgrades an existing answer.
+    listeners(({ actions, values, cache }) => {
+        // A detection that couldn't answer must not strand the empty-state gate on its
+        // spinner. If nothing (preload included) has answered yet, publish `unknown` so the
+        // gate fails open to the real scene. It never downgrades an existing answer.
+        const publishUnknownIfUnanswered = (): void => {
             if (values.setupStatus === 'loading') {
                 actions.setDetectedStatus('unknown')
             }
-        },
-        setShouldFilterTestAccounts: ({ shouldFilterTestAccounts }) => {
-            const divergesFromEffectiveDefault = shouldFilterTestAccounts !== values.filterTestAccountsDefault
-            if (divergesFromEffectiveDefault) {
-                actions.setLocalDefault(shouldFilterTestAccounts)
-            }
-        },
-    })),
+        }
+
+        return {
+            loadAIEventDefinitionSuccess: ({ hasSentAiEvent }) => {
+                // `undefined` means detection failed, not "no AI events", so treat it like a
+                // rejection rather than sending a team that has data to the setup screen.
+                if (hasSentAiEvent === undefined) {
+                    publishUnknownIfUnanswered()
+                    return
+                }
+                // Feed the app-wide setup-status layer (drives the scene empty-state gate).
+                actions.setDetectedStatus(hasSentAiEvent ? 'has-data' : 'needs-setup')
+                if (hasSentAiEvent) {
+                    cache.disposables.dispose('setupPoll')
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.IngestFirstLlmEvent)
+                }
+            },
+            loadAIEventDefinitionFailure: () => {
+                publishUnknownIfUnanswered()
+            },
+            setShouldFilterTestAccounts: ({ shouldFilterTestAccounts }) => {
+                const divergesFromEffectiveDefault = shouldFilterTestAccounts !== values.filterTestAccountsDefault
+                if (divergesFromEffectiveDefault) {
+                    actions.setLocalDefault(shouldFilterTestAccounts)
+                }
+            },
+        }
+    }),
 
     selectors({
         activeTab: [

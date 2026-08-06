@@ -107,7 +107,32 @@ describe('aiEventsUtils', () => {
             const result = await hasRecentAIEvents()
 
             expect(result).toBe(true)
-            expect(queryApiSpy).toHaveBeenCalled()
+            // Pointing this back at the shared `events` table costs a full scan of the team's
+            // 12-hour window, because this branch only runs for teams with nothing to match.
+            expect(queryApiSpy.mock.calls[0][0]).toMatchObject({
+                query: expect.stringContaining('FROM posthog.ai_events'),
+            })
+        })
+
+        it('returns undefined instead of throwing when the detection query fails', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/event_definitions/': {
+                        results: [],
+                        count: 0,
+                    },
+                },
+            })
+
+            jest.spyOn(api, 'query').mockRejectedValue(new Error('ClickHouse error while executing query.'))
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+            try {
+                // Callers poll this, so a rejection would toast and report on every tick.
+                await expect(hasRecentAIEvents()).resolves.toBeUndefined()
+            } finally {
+                warnSpy.mockRestore()
+            }
         })
 
         it('returns false when neither Postgres nor ClickHouse has AI events', async () => {
