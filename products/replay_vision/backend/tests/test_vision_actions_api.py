@@ -19,7 +19,7 @@ from products.replay_vision.backend.api.vision_actions import (
     _redact_webhook_url,
 )
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
 
 # The webhook destination template lives in the nodejs registry (no Python source object like Slack's).
@@ -107,6 +107,26 @@ class _VisionActionAPITestCase(APIBaseTest):
 
 
 class TestVisionActionViewSet(_VisionActionAPITestCase):
+    def test_create_rejects_an_inline_scan_as_the_target(self) -> None:
+        # Binding an action to an inline scan would put a scheduled digest on a row minted for one
+        # throwaway question, and keep it alive past the reaper by giving it observations forever.
+        scan = ReplayScanner.all_origins.create(
+            team=self.team,
+            name="",
+            origin=ScannerOrigin.INLINE,
+            inline_key="k",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "one-off"},
+            model=ScannerModel.GEMINI_3_6_FLASH,
+            enabled=False,
+            sampling_rate=0.0,
+        )
+
+        resp = self.client.post(self.actions_url, data=self._create_payload(scanner=str(scan.id)), format="json")
+
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertIn("scanner", resp.json()["attr"] or "")
+
     def test_create_happy_path(self) -> None:
         resp = self.client.post(self.actions_url, data=self._create_payload(), format="json")
         self.assertEqual(resp.status_code, 201, resp.content)

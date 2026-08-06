@@ -125,15 +125,7 @@ Your organization is the first part of your Gladly URL — for `myorg.gladly.com
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        try:
-            if validate_gladly_credentials(config.organization, config.agent_email, config.api_token):
-                return True, None
-        except ValueError as e:
-            # A malformed organization is a distinct, actionable error — surface it
-            # instead of the generic credentials message.
-            return False, str(e)
-
-        return False, "Invalid Gladly credentials"
+        return validate_gladly_credentials(config.organization, config.agent_email, config.api_token)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[GladlyResumeConfig]:
         return ResumableSourceManager[GladlyResumeConfig](inputs, GladlyResumeConfig)
