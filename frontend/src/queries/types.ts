@@ -29,6 +29,12 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     emptyStateHeading?: string
     emptyStateDetail?: string | JSX.Element
     emptyStateIcon?: JSX.Element
+    /**
+     * Rendered alongside the retry button when a DataTable query fails to resolve its columns.
+     * Lets a scene offer a recovery action (e.g. resetting broken saved columns) instead of
+     * dead-ending on a raw resolver error that "Try again" would only repeat.
+     */
+    errorStateCTA?: JSX.Element
     renderEmptyStateAsSkeleton?: boolean
     rowProps?: (record: unknown) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     /**

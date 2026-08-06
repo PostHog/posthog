@@ -674,6 +674,8 @@ export interface InsightErrorStateProps {
     excludeActions?: boolean
     supportOnly?: boolean
     fixWithAIComponent?: JSX.Element
+    /** Extra recovery action rendered next to the retry button, e.g. resetting broken saved columns. */
+    extraActions?: JSX.Element
     onRetry?: () => void
 }
 
@@ -685,6 +687,7 @@ export function InsightErrorState({
     excludeActions = false,
     supportOnly = false,
     fixWithAIComponent,
+    extraActions,
     onRetry,
 }: InsightErrorStateProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
@@ -749,9 +752,10 @@ export function InsightErrorState({
             {supportOnly && <div className="mt-4">{bugReportLink}</div>}
 
             {!excludeActions && (
-                <div className="flex gap-2 mt-4">
+                <div className="flex gap-2 mt-4 flex-wrap justify-center">
                     {onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />}
                     {fixWithAIComponent ?? null}
+                    {extraActions ?? null}
                 </div>
             )}
             <QueryIdDisplay queryId={queryId} />

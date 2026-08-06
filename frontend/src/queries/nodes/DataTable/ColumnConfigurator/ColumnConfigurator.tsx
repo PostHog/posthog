@@ -97,7 +97,12 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
             ? query.context
             : isGroupsQuery(query.source)
               ? { type: 'groups', groupTypeIndex: query.source.group_type_index as GroupTypeIndex }
-              : { type: 'team_columns' },
+              : // `team_columns` persists to the events-scoped `live_events_columns`, so only the events
+                // table may default into it. Other tables (sessions, actors) persist via their own
+                // `contextKey`; letting them inherit `team_columns` corrupts the events defaults.
+                isEventsQuery(query.source)
+                ? { type: 'team_columns' }
+                : undefined,
         contextKey: query.contextKey,
         showTableViews: query.showTableViews,
     }

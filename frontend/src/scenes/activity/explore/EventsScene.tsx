@@ -1,5 +1,8 @@
 import { useActions, useValues } from 'kea'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -14,8 +17,13 @@ import { ActivityTab } from '~/types'
 import { eventsSceneLogic } from './eventsSceneLogic'
 
 export function EventsScene(): JSX.Element {
-    const { query } = useValues(eventsSceneLogic())
-    const { setQuery } = useActions(eventsSceneLogic())
+    const { query, onProjectDefaultColumns } = useValues(eventsSceneLogic())
+    const { setQuery, showPostHogDefaultView, resetProjectDefaultColumns } = useActions(eventsSceneLogic())
+
+    const columnResetRestrictionReason = useRestrictedArea({
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+        scope: RestrictionScope.Project,
+    })
 
     return (
         <SceneContent>
@@ -36,6 +44,20 @@ export function EventsScene(): JSX.Element {
                     showOpenEditorButton: true,
                     extraDataTableQueryFeatures: [QueryFeature.highlightExceptionEventRows],
                     dataTableMaxPaginationLimit: 200,
+                    errorStateCTA: onProjectDefaultColumns ? (
+                        <>
+                            <LemonButton type="secondary" onClick={showPostHogDefaultView}>
+                                Show PostHog default view
+                            </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                onClick={resetProjectDefaultColumns}
+                                disabledReason={columnResetRestrictionReason}
+                            >
+                                Reset project columns
+                            </LemonButton>
+                        </>
+                    ) : undefined,
                 }}
             />
         </SceneContent>

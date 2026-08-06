@@ -69,6 +69,18 @@ describe('insight error states', () => {
         expect(container.querySelector('.LemonButtonWithSideAction') !== null).toBe(expectsSideAction)
     })
 
+    it('renders a recovery action beside retry so a resolver error is not a dead end', () => {
+        render(
+            <InsightErrorState
+                title="Unable to resolve field: session_id"
+                onRetry={() => {}}
+                extraActions={<button>Reset project columns</button>}
+            />
+        )
+
+        expect(screen.getByText('Reset project columns')).toBeTruthy()
+    })
+
     it('shows support without retry guidance for persistent errors', () => {
         preflightLogic.actions.loadPreflightSuccess({ cloud: true } as any)
 

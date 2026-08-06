@@ -280,8 +280,9 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
                     console.error('Error saving default columns to event definition:', error)
                     lemonToast.error(error.detail || 'Failed to save columns to event definition')
                 }
-            } else {
-                // Team-wide default columns
+            } else if (props.context?.type === 'team_columns') {
+                // Team-wide default columns. `live_events_columns` is events-scoped, so only the events
+                // table reaches here; other tables persist through `contextKey` above.
                 teamLogic.actions.updateCurrentTeam({ live_events_columns: [HOGQL_COLUMNS_KEY, ...values.columns] })
             }
 

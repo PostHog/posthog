@@ -189,6 +189,12 @@ export function DataTable({
     } = useValues(dataNodeLogic(dataNodeLogicProps))
     const { loadData } = useActions(dataNodeLogic(dataNodeLogicProps))
 
+    // A resolver error means the query references a column the table doesn't have (e.g. a stale
+    // saved column). Retrying can't help, so we surface a recovery action instead.
+    const responseErrorMessage =
+        response && 'error' in response ? String(response.error ?? '') : String(responseError ?? '')
+    const isColumnResolutionError = /unable to resolve field|unknown field|cannot resolve/i.test(responseErrorMessage)
+
     const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
     const hasCustomerAnalyticsEnabled = useFeatureFlag('CUSTOMER_ANALYTICS')
     const preComputeStrategy = response && 'preComputeStrategy' in response ? response.preComputeStrategy : undefined
@@ -1044,6 +1050,9 @@ export function DataTable({
                                                 query={query}
                                                 excludeDetail
                                                 onRetry={() => loadData('force_blocking')}
+                                                extraActions={
+                                                    isColumnResolutionError ? context?.errorStateCTA : undefined
+                                                }
                                                 title={
                                                     queryCancelled
                                                         ? 'The query was cancelled'
