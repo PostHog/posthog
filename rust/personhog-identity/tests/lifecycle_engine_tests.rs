@@ -1,9 +1,9 @@
 //! Engine tests against a dummy op type: the engine must be generic over op
-//! types, so these drive a two-step fake op (registered under 'merge', the
-//! other op_type the schema's CHECK constraint allows — the real merge
-//! driver does not exist yet) and assert the create-or-attach, lease, CAS
-//! advance, recorded-outcome, and sweeper behaviors that every op type
-//! shares.
+//! types, so these drive a two-step fake op (registered under 'delete' —
+//! the real DeleteDriver is never registered here, and squatting 'delete'
+//! keeps 'merge' free for the real merge driver's own tests) and assert
+//! the create-or-attach, lease, CAS advance, recorded-outcome, and
+//! sweeper behaviors that every op type shares.
 
 mod common;
 
@@ -36,7 +36,7 @@ impl DummyDriver {
 #[async_trait]
 impl OpDriver for DummyDriver {
     fn op_type(&self) -> &'static str {
-        "merge"
+        "delete"
     }
 
     fn initial_step(&self) -> &'static str {
@@ -179,7 +179,7 @@ async fn resume_picks_up_an_op_from_its_saved_step() {
     sqlx::query(
         r#"
         INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request, lease_expires_at)
-        VALUES ($1, 'merge', $2, 'half', '{}'::jsonb, now() - interval '1 minute')
+        VALUES ($1, 'delete', $2, 'half', '{}'::jsonb, now() - interval '1 minute')
         "#,
     )
     .bind(op_id)
@@ -213,7 +213,7 @@ async fn the_sweeper_resumes_abandoned_ops_and_gc_reaps_completed_ones() {
     sqlx::query(
         r#"
         INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request, lease_expires_at)
-        VALUES ($1, 'merge', $2, 'started', '{}'::jsonb, now() - interval '1 minute')
+        VALUES ($1, 'delete', $2, 'started', '{}'::jsonb, now() - interval '1 minute')
         "#,
     )
     .bind(op_id)
@@ -262,7 +262,7 @@ async fn a_live_lease_blocks_a_second_driver_until_it_lapses() {
     sqlx::query(
         r#"
         INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request, lease_expires_at)
-        VALUES ($1, 'merge', $2, 'started', '{}'::jsonb, now() + interval '1 hour')
+        VALUES ($1, 'delete', $2, 'started', '{}'::jsonb, now() + interval '1 hour')
         "#,
     )
     .bind(op_id)
@@ -306,7 +306,7 @@ async fn resume_bails_immediately_when_another_driver_holds_the_lease() {
     sqlx::query(
         r#"
         INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request, lease_expires_at)
-        VALUES ($1, 'merge', $2, 'started', '{}'::jsonb, now() + interval '1 hour')
+        VALUES ($1, 'delete', $2, 'started', '{}'::jsonb, now() + interval '1 hour')
         "#,
     )
     .bind(op_id)
@@ -364,7 +364,7 @@ struct StolenLeaseDriver {
 #[async_trait]
 impl OpDriver for StolenLeaseDriver {
     fn op_type(&self) -> &'static str {
-        "merge"
+        "delete"
     }
 
     fn initial_step(&self) -> &'static str {
