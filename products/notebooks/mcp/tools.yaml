@@ -194,8 +194,8 @@ tools:
             Retrieve the notebook first to get the latest version. If the notebook content is a single
             ph-markdown-notebook node, preserve that structure and update attrs.markdown with valid markdown instead of
             replacing it with legacy rich-text blocks. Markdown notebooks can embed a published Channels canvas with a
-            `<Canvas id="<canvas uuid>" />` component tag (optional `channelId` attribute adds an open-in-desktop
-            link); it renders the canvas's published build inline.
+            `<Canvas id="<canvas uuid>" />` component tag (optional `channelId` attribute adds an open-in-desktop link);
+            it renders the canvas's published build inline.
         exclude_params:
             - _create_in_folder
         feature_flag: notebooks-collaboration
