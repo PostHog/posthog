@@ -1269,6 +1269,14 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         default=NetworkAccess.TRUSTED,
         db_default=NetworkAccess.TRUSTED,
     )
+    # Optional agent-model pin for this scout's runs, e.g. `claude-opus-4-5`. Null keeps the
+    # normal resolution chain (the `scouts-model-selection` experiment gate, then the pipeline
+    # runtime pin, then the agent-server default). Honored at dispatch only while the
+    # `scouts-model-config` flag is on for the team, so a stored value is inert outside the
+    # dogfood — the flag is the kill switch, which is why the value itself is not cleared when
+    # the flag goes off. Free-form rather than a choices list: the model catalog changes
+    # without deploys, and `model_selection` already treats an unroutable id defensively.
+    model = models.CharField(max_length=200, null=True, blank=True)
     # Optional destinations for each finding or report this scout emits. Kept as a typed JSON object at
     # the API boundary so adding another destination does not require another pair of nullable
     # config columns. A Slack destination is active only when both its integration and channel
