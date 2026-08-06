@@ -33,6 +33,7 @@ from posthog.email import is_email_available
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailValidationHelper, validate_display_name
+from posthog.helpers.verified_domain_enforcement import resolve_login_organization
 from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -552,6 +553,17 @@ class InviteSignupSerializer(serializers.Serializer):
                 code="sso_enforced",
             )
 
+        # The check above keys on the email's own domain; this one keys on the org:
+        # an org that requires a verified email domain only admits members on its verified domains,
+        # so a pre-existing outside-domain invite can't be accepted.
+        if invite.target_email and OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(
+            invite.target_email, invite.organization
+        ):
+            raise serializers.ValidationError(
+                "This organization only allows members with a verified email domain. Please use an email address on one of the organization's domains.",
+                code="verified_domain_required",
+            )
+
         with transaction.atomic():
             if not user:
                 is_new_user = True
@@ -819,6 +831,10 @@ def process_social_invite_signup(
             invite = TeamInviteSurrogate(invite_id)
         except Team.DoesNotExist:
             return None
+        # Legacy team signup tokens bind to no email and never expire, so this branch must run the
+        # domain gate itself — real invites get it upstream via their resolved organization.
+        if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(email, invite.organization):
+            return None
 
     # Capture before invite.use() — use() deletes the invite row, so the in-memory boolean is
     # the only safe source of truth for delegation routing.
@@ -922,6 +938,16 @@ def process_social_domain_jit_provisioning_signup(
     return user
 
 
+def _resolve_invite_organization(invite_id: str) -> Optional[Organization]:
+    """Organization an invite grants access to, or None for legacy team-invite surrogates / missing invites."""
+    try:
+        # nosemgrep: idor-lookup-without-org (invite UUID from server session serves as auth token)
+        invite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
+    except (OrganizationInvite.DoesNotExist, ValidationError):
+        return None
+    return invite.organization
+
+
 @partial
 def social_create_user(
     strategy: DjangoStrategy,
@@ -947,6 +973,25 @@ def social_create_user(
     if not invite_id and organization_domain_id:
         invite = lookup_invite_for_saml(email, organization_domain_id)
         invite_id = invite.id if invite else None
+
+    # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
+    # Joins (below) stay blocked for everyone.
+    if user and not resolve_login_organization(user):
+        logger.warning("social_create_user_blocked_domain_enforcement", user_id=user.pk)
+        return redirect("/login?error_code=verified_domain_required")
+
+    invite_organization = _resolve_invite_organization(invite_id) if invite_id else None
+    enforcement_email = user.email if user else email
+    if (
+        invite_organization is not None
+        and enforcement_email
+        and OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(enforcement_email, invite_organization)
+    ):
+        logger.warning(
+            "social_create_user_blocked_domain_enforcement",
+            organization=str(invite_organization.id),
+        )
+        return redirect("/login?error_code=verified_domain_required")
 
     if user:
         # If the user is already authenticated, we're looking for outstanding invites for them
