@@ -5,7 +5,7 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { initKeaTests } from '~/test/init'
 
 import { toggleSubscriptionEnabled } from 'products/subscriptions/frontend/components/Subscriptions/toggleSubscriptionEnabled'
-import { subscriptionsDeliveriesList, subscriptionsList } from 'products/subscriptions/frontend/generated/api'
+import { subscriptionsList } from 'products/subscriptions/frontend/generated/api'
 import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { isMCPRecurringReport, mcpRecurringReportsLogic } from './mcpRecurringReportsLogic'
@@ -13,7 +13,6 @@ import { isMCPRecurringReport, mcpRecurringReportsLogic } from './mcpRecurringRe
 jest.mock('lib/utils/deleteWithUndo', () => ({ deleteWithUndo: jest.fn() }))
 jest.mock('products/subscriptions/frontend/generated/api', () => ({
     subscriptionsList: jest.fn(),
-    subscriptionsDeliveriesList: jest.fn(),
 }))
 jest.mock('products/subscriptions/frontend/components/Subscriptions/toggleSubscriptionEnabled', () => ({
     toggleSubscriptionEnabled: jest.fn(),
@@ -21,7 +20,6 @@ jest.mock('products/subscriptions/frontend/components/Subscriptions/toggleSubscr
 
 const mockedDeleteWithUndo = jest.mocked(deleteWithUndo)
 const mockedList = jest.mocked(subscriptionsList)
-const mockedDeliveries = jest.mocked(subscriptionsDeliveriesList)
 const mockedToggle = jest.mocked(toggleSubscriptionEnabled)
 
 const MCP_PROMPT = 'Summarize $mcp_intent on $mcp_tool_call events this week.'
@@ -50,7 +48,6 @@ describe('mcpRecurringReportsLogic', () => {
         initKeaTests()
         mockedDeleteWithUndo.mockReset().mockResolvedValue()
         mockedToggle.mockReset().mockResolvedValue(true)
-        mockedDeliveries.mockReset().mockResolvedValue({ next: null, previous: null, results: [] } as any)
         mockedList.mockReset()
         listReturns([])
 
@@ -95,36 +92,6 @@ describe('mcpRecurringReportsLogic', () => {
         await expectLogic(logic, () => logic.actions.loadReports()).toFinishAllListeners()
 
         expect(logic.values.reports.map((report) => report.id)).toEqual([2])
-    })
-
-    it('surfaces a failed last run', async () => {
-        listReturns([makeReport(1)])
-        mockedDeliveries.mockResolvedValue({
-            next: null,
-            previous: null,
-            results: [{ id: 'd1', subscription: 1, status: 'failed' }],
-        } as any)
-
-        await expectLogic(logic, () => logic.actions.loadReports())
-            .toFinishAllListeners()
-            .toMatchValues({ deliveryStatuses: { 1: 'failed' } })
-    })
-
-    it('still lists a report when its status lookup fails', async () => {
-        // The status decorates a row we can already render, so losing it must not lose the row.
-        listReturns([makeReport(1)])
-        mockedDeliveries.mockRejectedValue(new Error('boom'))
-
-        await expectLogic(logic, () => logic.actions.loadReports()).toFinishAllListeners()
-
-        expect(logic.values.reports.map((report) => report.id)).toEqual([1])
-        expect(logic.values.deliveryStatuses).toEqual({})
-    })
-
-    it('skips the delivery lookup entirely when there are no reports', async () => {
-        await expectLogic(logic, () => logic.actions.loadReports()).toFinishAllListeners()
-
-        expect(mockedDeliveries).not.toHaveBeenCalled()
     })
 
     it('flags a failed load so the banner can offer a retry', async () => {
@@ -174,5 +141,39 @@ describe('mcpRecurringReportsLogic', () => {
         await expectLogic(logic, () => logic.actions.deleteReport(logic.values.reports[0])).toFinishAllListeners()
 
         expect(logic.values.reports.map((report) => report.id)).toEqual([2])
+    })
+
+    it('puts the row back when the delete fails', async () => {
+        // deleteWithUndo swallows its own API errors and resolves without calling back, so the row
+        // would otherwise stay optimistically gone while the report is alive and still delivering.
+        listReturns([makeReport(1), makeReport(2)])
+        await expectLogic(logic, () => logic.actions.loadReports()).toFinishAllListeners()
+        mockedDeleteWithUndo.mockResolvedValue()
+
+        await expectLogic(logic, () => logic.actions.deleteReport(logic.values.reports[0])).toFinishAllListeners()
+
+        expect(logic.values.reports.map((report) => report.id).sort()).toEqual([1, 2])
+    })
+
+    it('undoing one delete does not resurrect a different deleted report', async () => {
+        // Restoring from a whole-list snapshot would replay the state before the second delete.
+        listReturns([makeReport(1), makeReport(2)])
+        await expectLogic(logic, () => logic.actions.loadReports()).toFinishAllListeners()
+
+        const [first, second] = logic.values.reports
+        let undoFirst: (() => void) | undefined
+        mockedDeleteWithUndo.mockImplementation(async ({ object, callback }: any) => {
+            if (object.id === first.id) {
+                undoFirst = () => callback(true, object)
+            } else {
+                callback(false, object)
+            }
+        })
+
+        await expectLogic(logic, () => logic.actions.deleteReport(first)).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.deleteReport(second)).toFinishAllListeners()
+        undoFirst?.()
+
+        expect(logic.values.reports.map((report) => report.id)).toEqual([first.id])
     })
 })

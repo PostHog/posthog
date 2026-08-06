@@ -12,42 +12,19 @@ import { urls } from 'scenes/urls'
 
 import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
-import { MCPReportDeliveryStatus, mcpRecurringReportsLogic } from './mcpRecurringReportsLogic'
+import { mcpRecurringReportsLogic } from './mcpRecurringReportsLogic'
 import { MCP_RECURRING_REPORTS, MCPRecurringReport, urlForRecurringReport } from './recurringReportDefinitions'
 
-function LastRunTag({ status }: { status?: MCPReportDeliveryStatus }): JSX.Element | null {
-    // Only the outcomes that change what you'd do get a tag. A report that ran fine needs no badge, and
-    // its next delivery date already says it's alive.
-    if (status === 'failed') {
-        return (
-            <LemonTag type="danger" size="small">
-                Last run failed
-            </LemonTag>
-        )
-    }
-    if (status === 'skipped') {
-        return (
-            <LemonTag type="warning" size="small">
-                Last run skipped
-            </LemonTag>
-        )
-    }
-    return null
-}
-
 function SavedReportRow({ report }: { report: SubscriptionApi }): JSX.Element {
-    const { deliveryStatuses, pendingToggleIds, reportsLoading } = useValues(mcpRecurringReportsLogic)
+    const { pendingToggleIds } = useValues(mcpRecurringReportsLogic)
     const { toggleReportEnabled, deleteReport } = useActions(mcpRecurringReportsLogic)
 
     return (
         <div className="flex items-center gap-2 rounded border p-2">
             <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                    <Link to={urls.subscription(report.id)} className="truncate font-medium">
-                        {report.title || 'Untitled report'}
-                    </Link>
-                    <LastRunTag status={deliveryStatuses[report.id]} />
-                </div>
+                <Link to={urls.subscription(report.id)} className="truncate font-medium">
+                    {report.title || 'Untitled report'}
+                </Link>
                 <div className="text-xs text-muted">
                     {report.summary}
                     {report.next_delivery_date && report.enabled ? (
@@ -62,18 +39,12 @@ function SavedReportRow({ report }: { report: SubscriptionApi }): JSX.Element {
                 checked={!!report.enabled}
                 onChange={() => toggleReportEnabled(report.id, !report.enabled)}
                 loading={!!pendingToggleIds[report.id]}
-                // Refresh in flight: a mutation started now could be clobbered by the stale response
-                disabled={reportsLoading}
                 aria-label={`Enable ${report.title || 'report'}`}
             />
             <ConfirmDeleteButton
                 onDelete={() => deleteReport(report)}
                 disabledReason={
-                    reportsLoading
-                        ? 'Refreshing reports…'
-                        : pendingToggleIds[report.id]
-                          ? 'Waiting for the enable/disable update to finish…'
-                          : undefined
+                    pendingToggleIds[report.id] ? 'Waiting for the enable/disable update to finish…' : undefined
                 }
                 data-attr="mcp-analytics-recurring-report-delete"
             />
