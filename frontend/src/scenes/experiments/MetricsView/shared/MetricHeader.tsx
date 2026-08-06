@@ -220,13 +220,17 @@ export const MetricHeader = ({
 
     const canAddBreakdown = (metric.breakdownFilter?.breakdowns || []).length < MAX_BREAKDOWNS
 
-    const metricUuid = metric.uuid || (metric as any).query?.uuid
+    const metricUuid = metric.uuid
     const sectionUuids =
         (isPrimaryMetric ? experiment.primary_metrics_ordered_uuids : experiment.secondary_metrics_ordered_uuids) ?? []
     // An experiment still has to measure something, so the last primary metric can't leave.
     const isLastPrimaryMetric = isPrimaryMetric && sectionUuids.length <= 1
 
     const handleMoveSection = (): void => {
+        // The menu item only renders when the metric has a uuid.
+        if (!metricUuid) {
+            return
+        }
         // Flips shared-metric links, prunes the ordering arrays and realigns existing
         // results in one update.
         moveMetricsBetweenSections(isPrimaryMetric === false, sectionUuids, [], [metricUuid])
