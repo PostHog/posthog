@@ -433,30 +433,6 @@ const logsAlertsSimulateCreate = (): ToolBase<
     },
 })
 
-const LogsAttributeValuesListSchema = LogsValuesRetrieveQueryParams
-
-const logsAttributeValuesList = (): ToolBase<typeof LogsAttributeValuesListSchema, Schemas._LogsValuesResponse> => ({
-    name: 'logs-attribute-values-list',
-    schema: LogsAttributeValuesListSchema,
-    handler: async (context: Context, params: z.infer<typeof LogsAttributeValuesListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas._LogsValuesResponse>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/values/`,
-            query: {
-                attribute_type: params.attribute_type,
-                dateRange: params.dateRange,
-                filterGroup: params.filterGroup,
-                key: params.key,
-                serviceNames: params.serviceNames,
-                value: params.value,
-            },
-        })
-        const filtered = pickResponseFields(result, ['results']) as typeof result
-        return filtered
-    },
-})
-
 const LogsAnomaliesScanSchema = LogsAnomaliesScanCreateBody
 
 const logsAnomaliesScan = (): ToolBase<typeof LogsAnomaliesScanSchema, Schemas.LogsAnomalyScanResponse> => ({
@@ -477,6 +453,30 @@ const logsAnomaliesScan = (): ToolBase<typeof LogsAnomaliesScanSchema, Schemas.L
             body,
         })
         const filtered = omitResponseFields(result, ['series.*.buckets']) as typeof result
+        return filtered
+    },
+})
+
+const LogsAttributeValuesListSchema = LogsValuesRetrieveQueryParams
+
+const logsAttributeValuesList = (): ToolBase<typeof LogsAttributeValuesListSchema, Schemas._LogsValuesResponse> => ({
+    name: 'logs-attribute-values-list',
+    schema: LogsAttributeValuesListSchema,
+    handler: async (context: Context, params: z.infer<typeof LogsAttributeValuesListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas._LogsValuesResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/values/`,
+            query: {
+                attribute_type: params.attribute_type,
+                dateRange: params.dateRange,
+                filterGroup: params.filterGroup,
+                key: params.key,
+                serviceNames: params.serviceNames,
+                value: params.value,
+            },
+        })
+        const filtered = pickResponseFields(result, ['results']) as typeof result
         return filtered
     },
 })
@@ -699,8 +699,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'logs-alerts-partial-update': logsAlertsPartialUpdate,
     'logs-alerts-retrieve': logsAlertsRetrieve,
     'logs-alerts-simulate-create': logsAlertsSimulateCreate,
-    'logs-attribute-values-list': logsAttributeValuesList,
     'logs-anomalies-scan': logsAnomaliesScan,
+    'logs-attribute-values-list': logsAttributeValuesList,
     'logs-attributes-list': logsAttributesList,
     'logs-count': logsCount,
     'logs-count-ranges': logsCountRanges,
