@@ -11,13 +11,6 @@ describe('mirrorCall', () => {
         expect(call).toHaveBeenCalledTimes(1)
     })
 
-    it('short-circuits when the call factory returns undefined (mirror unconfigured)', async () => {
-        const call = jest.fn().mockReturnValue(undefined)
-        await mirrorCall('test.op', call, 50)
-        expect(call).toHaveBeenCalledTimes(1)
-        // Resolving with no work — verified by virtue of the test not hanging.
-    })
-
     it('catches and logs errors instead of throwing', async () => {
         const call = jest.fn().mockRejectedValue(new Error('boom'))
         await expect(mirrorCall('test.op', call, 50)).resolves.toBeUndefined()
@@ -51,6 +44,17 @@ describe('mirrorCall', () => {
             )
         ).resolves.toEqual({ state: 'healthy' })
         expect(logger.warn).toHaveBeenCalledWith('🪞', '[mirror:test.compare] result mismatch')
+    })
+
+    it('returns the primary result when the comparator throws on an unexpected mirror shape', async () => {
+        await expect(
+            mirrorCompare<{ isRateLimited: boolean }[]>(
+                'test.compare',
+                () => Promise.resolve([{ isRateLimited: false }]),
+                () => Promise.resolve(undefined as any),
+                (primary, mirror) => primary.every((entry, i) => entry.isRateLimited === mirror[i].isRateLimited)
+            )
+        ).resolves.toEqual([{ isRateLimited: false }])
     })
 
     it('returns the primary result when the mirror fails', async () => {

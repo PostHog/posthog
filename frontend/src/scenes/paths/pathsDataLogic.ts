@@ -31,6 +31,7 @@ import type {
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '../../queries/schema/schema-general'
+import type { PathsV2Query } from '../../queries/schema/schema-general'
 import type { QuerySourceUpdate } from '../insights/insightVizDataLogic'
 import { PathNodeData } from './pathUtils'
 import { Paths, PathsNode } from './types'
@@ -81,6 +82,7 @@ export interface pathsDataLogicValues {
         | FunnelsQuery
         | LifecycleQuery
         | PathsQuery
+        | PathsV2Query
         | RetentionQuery
         | StickinessQuery
         | TrendsQuery

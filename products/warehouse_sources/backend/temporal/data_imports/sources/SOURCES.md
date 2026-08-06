@@ -102,6 +102,7 @@ the row lists both.
 | beehiiv                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | better_stack                     | HTTP                        | requests                                                        | ✅                          |
 | bettermode                       | HTTP (GraphQL)              | requests                                                        | ✅                          |
+| bigcommerce                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | bigmailer                        | HTTP                        | requests                                                        | ✅                          |
 | bigquery                         | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bill_com                         | HTTP                        | requests                                                        | ✅                          |
@@ -833,7 +834,6 @@ doesn't conflict with concurrent PRs.
 - basecamp
 - bcms
 - bexio
-- bigcommerce
 - bigeye
 - billit
 - billomat
@@ -1150,6 +1150,7 @@ doesn't conflict with concurrent PRs.
 - mono
 - moodle
 - motherduck
+- motion
 - moxie
 - mycase
 - nager_date
