@@ -121,8 +121,7 @@ def _user(login: str) -> str:
 
 
 def _base(full_name: str, ref: str = "", default_branch: str = "") -> str:
-    # base.repo is a full repository object in the real payload, so it carries default_branch;
-    # the run webhook's minimal `repository` (see _run_row) never does.
+    # Mirrors the real payload: base.repo is a full repository object, so it carries default_branch.
     repo = f'{{"full_name": "{full_name}", "default_branch": "{default_branch}"}}'
     return f'{{"ref": "{ref}", "repo": {repo}}}'
 

@@ -585,11 +585,11 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
                 source=source,
                 credential=credential,
             )
-        # The curated run source joins the PR snapshot for default-branch attribution, so it always
-        # needs a real table of that shape. Detectors that read no PR data (flaky, duration) leave
-        # pr_rows unset and get an empty one; the default-branch detector seeds real rows.
+        # The curated run source joins the PR snapshot to attribute each run to the PR that produced
+        # it, so a table of that shape must always exist. Only the default-branch detector reads its
+        # rows; the flaky and duration detectors leave pr_rows unset and get an empty table.
         prs_table, _source, _credential = self._seed_table(
-            pr_rows if pr_rows is not None else [],
+            pr_rows or [],
             table_name="github_pull_requests",
             columns=PULL_REQUESTS_COLUMNS,
             source=source,
