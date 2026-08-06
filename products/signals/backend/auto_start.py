@@ -174,19 +174,6 @@ _PR_DESCRIPTION_FORM_RULES = (
 )
 
 
-# An implementation run has no reviewer looking over its shoulder while it works, so its first
-# draft keeps whatever scaffolding it built on the way to the fix. `/simplify` is a Claude Code
-# built-in, so a run on a runtime that lacks it falls back to the manual reread this ends with.
-_SIMPLIFY_PASS_INSTRUCTION = (
-    "Before you open the PR, run the `/simplify` skill over your branch and apply what it finds. "
-    "An autonomous first draft carries scaffolding a human wouldn't ship: a helper called once, a "
-    "config option nobody asked for, a rewrite of code you only needed to read. Keep the fix, cut "
-    "the rest, and rerun the tests afterwards so the cleanup can't quietly break it. This pass only "
-    "removes; it is not the place to widen the change. If the `/simplify` skill isn't available to "
-    "you, do the same pass by rereading your own diff.\n\n"
-)
-
-
 SELF_DRIVING_HEAD_BRANCH_PREFIX = "posthog-self-driving/"
 
 
@@ -277,7 +264,17 @@ def _build_autostart_task_description(
         "the user to that branch so they can review the changes and decide how to proceed, and explain in your "
         "turn summary why you didn't open the PR directly. Err on the side of caution to avoid committing a "
         "social faux pas in someone else's project.\n\n"
-        f"{_SIMPLIFY_PASS_INSTRUCTION}"
+        # `/simplify` is a Claude Code built-in, but the implementation step can be pinned to
+        # another runtime via `resolve_agent_runtime`, so this ends with a manual reread fallback.
+        "Before you open the PR, run the `/simplify` skill over your branch and apply what it "
+        "finds. Cut the scaffolding an autonomous draft accumulates: a helper called once, a config "
+        "option nobody asked for, a rewrite of code you only needed to read. Scale its depth to the "
+        "diff, since the deep reuse and altitude sweeps earn their cost on a large change and not "
+        "on a few lines. Comments are the exception and always get a pass at any size, because one "
+        "that narrates the code or records how the change came about costs every later reader. This "
+        "pass only removes; it is not the place to widen the change. If it removed anything, rerun "
+        "the tests so the cleanup can't quietly break the fix. If `/simplify` isn't available to "
+        "you, do the same pass by rereading your own diff.\n\n"
         f"{_PR_DESCRIPTION_FORM_RULES}"
         f"{source_reference_instruction}"
         "When opening the PR, include this report link in the description footer, "
