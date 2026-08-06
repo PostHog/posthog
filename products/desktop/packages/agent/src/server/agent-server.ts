@@ -21,6 +21,7 @@ import {
   type Adapter,
   buildPrOutput,
   getErrorMessage,
+  type McpServerConnection,
   mergePrUrls,
   parseMcpToolName,
   readMcpToolDescriptor,
@@ -117,7 +118,6 @@ import { RunUsageAccumulator } from "./run-usage";
 import {
   handoffLocalGitStateSchema,
   jsonRpcRequestSchema,
-  type RemoteMcpServer,
   validateCommandParams,
 } from "./schemas";
 import type { AgentServerConfig } from "./types";
@@ -439,7 +439,7 @@ export class AgentServer {
    * servers and return their session mcpServers entries. No designations →
    * no relay server, no entries.
    */
-  private async startMcpRelayServer(): Promise<RemoteMcpServer[]> {
+  private async startMcpRelayServer(): Promise<McpServerConnection[]> {
     const names = this.config.relayMcpServers ?? [];
     if (names.length === 0) return [];
     if (!this.mcpRelayServer) {
@@ -1575,7 +1575,9 @@ export class AgentServer {
         return null;
       }),
     ]);
-    this.taskRepositories = preTask?.repository ? [preTask.repository] : [];
+    this.taskRepositories =
+      preTask?.repositories ??
+      (preTask?.repository ? [preTask.repository] : []);
 
     this.prewarmedRun =
       (preTaskRun?.state as Record<string, unknown> | undefined)?.prewarmed ===
@@ -1789,7 +1791,7 @@ export class AgentServer {
     let effectiveSessionMeta: typeof sessionMeta & {
       nativeGoal?: NonNullable<ResumeState["nativeGoal"]>;
     } = sessionMeta;
-    let sessionMcpServers: RemoteMcpServer[];
+    let sessionMcpServers: McpServerConnection[];
     try {
       await this.installSkillBundleArtifacts(
         payload.task_id,

@@ -4,8 +4,8 @@ import type { CloudRunSource, PrAuthorshipMode } from "./cloud";
 import type { Task } from "./domain-types";
 import type { ExecutionMode } from "./exec-types";
 import type {
-  CloudMcpServerImport,
   CloudMcpServerRelayDesignation,
+  McpServerConnection,
 } from "./local-mcp-domain";
 import type { WorkspaceMode } from "./workspace";
 import type { Workspace } from "./workspace-domain";
@@ -24,6 +24,7 @@ export interface TaskCreationInput {
   filePaths?: string[];
   repoPath?: string;
   repository?: string | null;
+  repositories?: string[];
   workspaceMode?: WorkspaceMode;
   branch?: string | null;
   // When the branch exists only on the remote, opt in to fetching and checking
@@ -88,7 +89,7 @@ export interface TaskCreationInput {
    * the cloud sandbox in the run-creation payload. Cloud-only; local sessions
    * already read the user's config directly.
    */
-  importedMcpServers?: CloudMcpServerImport[];
+  importedMcpServers?: McpServerConnection[];
   /**
    * Desktop-only local MCP servers (stdio / private URL) designated for
    * relaying into the cloud run via the creating desktop

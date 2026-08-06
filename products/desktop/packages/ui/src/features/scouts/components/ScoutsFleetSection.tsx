@@ -43,7 +43,6 @@ import { useScoutRuns } from "../hooks/useScoutRuns";
 import { useScoutSkillCreators } from "../hooks/useScoutSkillCreators";
 import { FleetFindingsCallout } from "./FleetFindingsCallout";
 import { FleetMemoryCallout } from "./FleetMemoryCallout";
-import { ScoutAlphaBanner } from "./ScoutAlphaBanner";
 import { ScoutHelperSkillLinks } from "./ScoutHelperSkillLinks";
 import { ScoutRowCard } from "./ScoutRowCard";
 
@@ -110,7 +109,6 @@ export function ScoutsFleetSection() {
 
   return (
     <Flex direction="column" gap="3">
-      <ScoutAlphaBanner />
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
@@ -448,7 +446,6 @@ function ScoutsEmptyState() {
   useTrackFleetViewed(EMPTY_CONFIGS);
   return (
     <Flex direction="column" gap="3">
-      <ScoutAlphaBanner />
       <Flex
         direction="column"
         gap="2"

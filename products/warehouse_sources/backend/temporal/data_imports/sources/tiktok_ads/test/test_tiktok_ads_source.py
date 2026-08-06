@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source import TikTokAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import (
     TIKTOK_TRANSIENT_ERROR_MESSAGE,
+    TikTokAdsAPIError,
     TikTokAdsPaginator,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
@@ -136,6 +137,44 @@ class TestTikTokAdsSource:
                 self.source.get_oauth_accounts(self.integration_id, self.team_id)
 
         assert str(exc_info.value) == TIKTOK_TRANSIENT_ERROR_MESSAGE
+
+    @parameterized.expand(
+        [
+            ("invalid_access_token", 40105, "Invalid access_token"),
+            ("no_advertiser_permission", 40110, "No permission to access this advertiser"),
+            (
+                "app_token_mismatch",
+                40000,
+                "The app_id is inconsistent with the token's app information. Please retry after correcting it.",
+            ),
+        ]
+    )
+    def test_get_oauth_accounts_maps_auth_errors_to_reconnect_message(self, name, api_code, message):
+        """Auth-rejection responses — including the app/token mismatch TikTok returns under the
+        generic 40000 code — must surface as an actionable reconnect message, not escape as a bug."""
+        _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source"
+        error = TikTokAdsAPIError(message, api_code=api_code)
+        with (
+            patch.object(self.source, "get_oauth_integration", return_value=self.mock_integration),
+            patch(f"{_MODULE}.list_advertisers", side_effect=error),
+        ):
+            with pytest.raises(IntegrationAccountListingError) as exc_info:
+                self.source.get_oauth_accounts(self.integration_id, self.team_id)
+
+        assert "reconnect your TikTok Ads integration" in str(exc_info.value)
+
+    def test_get_oauth_accounts_does_not_treat_other_40000_errors_as_auth(self):
+        """Code 40000 is a generic params-error bucket with many unrelated messages — only the
+        specific app/token mismatch text should map to the reconnect message; anything else must
+        keep surfacing as a bug so real request-construction errors aren't hidden."""
+        _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source"
+        error = TikTokAdsAPIError("Invalid parameter: advertiser_id", api_code=40000)
+        with (
+            patch.object(self.source, "get_oauth_integration", return_value=self.mock_integration),
+            patch(f"{_MODULE}.list_advertisers", side_effect=error),
+        ):
+            with pytest.raises(TikTokAdsAPIError):
+                self.source.get_oauth_accounts(self.integration_id, self.team_id)
 
     def test_get_source_config(self):
         """Test source configuration generation."""

@@ -26,6 +26,7 @@ from products.engineering_analytics.backend.logic.ci_signals_config import (
     update_ci_signals_config,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries.workflow_flakiness import BY_DESIGN_FAILURES
 from products.engineering_analytics.backend.logic.signals.contracts import (
     SOURCE_PRODUCT,
     SOURCE_TYPE_BROKEN_DEFAULT_BRANCH,
@@ -71,6 +72,8 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
+_BY_DESIGN_JOB_NAMES = [entry.split("/", 2)[2] for entry in BY_DESIGN_FAILURES]
+
 _COORDINATOR = "products.engineering_analytics.backend.logic.signals.coordinator"
 _DETECT = "products.engineering_analytics.backend.logic.signals.detect"
 _DETECTORS = "products.engineering_analytics.backend.logic.signals.detectors"
@@ -94,6 +97,7 @@ def _run_row(
     head_branch: str = "main",
     status: str = "completed",
     default_branch: str = "main",
+    repository: str = "PostHog/posthog",
 ) -> dict[str, Any]:
     started_s = _ts(started)
     return {
@@ -108,7 +112,7 @@ def _run_row(
         "updated_at": _ts(started + timedelta(seconds=duration_seconds)),
         "run_attempt": run_attempt,
         "pull_requests": None,
-        "repository": json.dumps({"full_name": "PostHog/posthog", "default_branch": default_branch}),
+        "repository": json.dumps({"full_name": repository, "default_branch": default_branch}),
     }
 
 
@@ -667,23 +671,58 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         assert findings[0].extra["run_id"] == 3
         _assert_emittable(findings[0])
 
-    def test_flaky_check_ignores_required_check_aggregators(self) -> None:
-        # A `* Pass` gate fails only because a job it gates failed, so counting it emits a second
-        # signal for every real flake. Real aggregators settle in 3-5s; real jobs run 60s+.
+    @parameterized.expand(
+        [
+            # A `* Pass` gate fails only because a job it gates failed, so counting it emits a second
+            # signal for every real flake. NO_OP_JOB_MAX_SECONDS drops this one.
+            ("Tests Pass", 3),
+            # 46s clears the duration floor, so only BY_DESIGN_FAILURES can drop these.
+            *[(name, 46) for name in _BY_DESIGN_JOB_NAMES],
+        ]
+    )
+    def test_flaky_check_ignores_excluded_jobs(self, job_name: str, duration_seconds: int) -> None:
         now = datetime.now(UTC).replace(tzinfo=None)
         rows = [_run_row(1, "CI", "shaG", "success", now - timedelta(hours=2), 60, run_attempt=2)]
         jobs = [
             _job_row(
-                200, 1, "Tests Pass", "shaG", "failure", now - timedelta(hours=3), run_attempt=1, duration_seconds=3
+                200,
+                1,
+                job_name,
+                "shaG",
+                "failure",
+                now - timedelta(hours=3),
+                run_attempt=1,
+                duration_seconds=duration_seconds,
             ),
             _job_row(
-                201, 1, "Tests Pass", "shaG", "success", now - timedelta(hours=2), run_attempt=2, duration_seconds=3
+                201,
+                1,
+                job_name,
+                "shaG",
+                "success",
+                now - timedelta(hours=2),
+                run_attempt=2,
+                duration_seconds=duration_seconds,
             ),
             _job_row(202, 1, "real-test-job", "shaG", "failure", now - timedelta(hours=3), run_attempt=1),
             _job_row(203, 1, "real-test-job", "shaG", "success", now - timedelta(hours=2), run_attempt=2),
         ]
         findings = detect_flaky_checks(self._curated_over_runs(rows, jobs), min_flaky_runs=1)
         assert {f.extra["job_name"] for f in findings} == {"real-test-job"}
+
+    @parameterized.expand([(name,) for name in _BY_DESIGN_JOB_NAMES])
+    def test_flaky_check_reports_by_design_job_names_in_another_repo(self, job_name: str) -> None:
+        # Every team runs this detector over its own repos, so the repo qualifier has to hold.
+        now = datetime.now(UTC).replace(tzinfo=None)
+        rows = [
+            _run_row(1, "CI", "shaS", "success", now - timedelta(hours=2), 60, run_attempt=2, repository="acme/webapp")
+        ]
+        jobs = [
+            _job_row(300, 1, job_name, "shaS", "failure", now - timedelta(hours=3), run_attempt=1, duration_seconds=46),
+            _job_row(301, 1, job_name, "shaS", "success", now - timedelta(hours=2), run_attempt=2, duration_seconds=46),
+        ]
+        findings = detect_flaky_checks(self._curated_over_runs(rows, jobs), min_flaky_runs=1)
+        assert {f.extra["job_name"] for f in findings} == {job_name}
 
     def test_broken_default_branch_fires_only_on_failing_default_branch(self) -> None:
         now = datetime.now(UTC).replace(tzinfo=None)
@@ -763,20 +802,31 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
             _run_row(2, "slow-ci", "c2", "success", current - timedelta(hours=1), 120),
             _run_row(3, "slow-ci", "b1", "success", baseline, 10),
             _run_row(4, "slow-ci", "b2", "success", baseline - timedelta(hours=1), 10),
+            # long-ci: 1000s → 1350s (+35% / +350s) clears both gates well short of a doubling → regression.
+            _run_row(13, "long-ci", "c7", "success", current, 1350),
+            _run_row(14, "long-ci", "c8", "success", current - timedelta(hours=1), 1350),
+            _run_row(15, "long-ci", "b7", "success", baseline, 1000),
+            _run_row(16, "long-ci", "b8", "success", baseline - timedelta(hours=1), 1000),
             # steady-ci: 100s → 104s (+4% / +4s) fails the absolute-jump guard → no signal.
             _run_row(5, "steady-ci", "c3", "success", current, 104),
             _run_row(6, "steady-ci", "c4", "success", current - timedelta(hours=1), 104),
             _run_row(7, "steady-ci", "b3", "success", baseline, 100),
             _run_row(8, "steady-ci", "b4", "success", baseline - timedelta(hours=1), 100),
+            # mild-ci: 950s → 1100s (+16% / +150s) clears the absolute floor but fails the relative gate → no signal.
+            _run_row(17, "mild-ci", "c9", "success", current, 1100),
+            _run_row(18, "mild-ci", "c10", "success", current - timedelta(hours=1), 1100),
+            _run_row(19, "mild-ci", "b9", "success", baseline, 950),
+            _run_row(20, "mild-ci", "b10", "success", baseline - timedelta(hours=1), 950),
             _run_row(9, "thin-ci", "c5", "success", current, 120),
             _run_row(10, "thin-ci", "c6", "failure", current - timedelta(hours=1), 120),
             _run_row(11, "thin-ci", "b5", "success", baseline, 10),
             _run_row(12, "thin-ci", "b6", "failure", baseline - timedelta(hours=1), 10),
         ]
         findings = detect_ci_duration_regressions(self._curated_over_runs(rows), min_runs=2)
-        assert {f.extra["workflow_name"] for f in findings} == {"slow-ci"}
-        assert findings[0].source_type == SOURCE_TYPE_DURATION_REGRESSION
-        _assert_emittable(findings[0])
+        assert {f.extra["workflow_name"] for f in findings} == {"slow-ci", "long-ci"}
+        for finding in findings:
+            assert finding.source_type == SOURCE_TYPE_DURATION_REGRESSION
+            _assert_emittable(finding)
 
     def test_duration_regression_ignores_no_op_dominated_windows(self) -> None:
         # A window of mostly sub-10s no-op gate successes plus one real run passes a

@@ -2200,6 +2200,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The number of tokens in the input prompt that was sent to the LLM API.",
             "examples": [23],
         },
+        "$ai_blob_count": {
+            "label": "AI binary payload count (LLM)",
+            "description": "Number of large binary payloads (images, audio, documents, or other base64 content) in this call.",
+            "examples": [2],
+            "type": "Numeric",
+        },
+        "$ai_blob_bytes": {
+            "label": "AI binary payload size (LLM)",
+            "description": "Total decoded size in bytes of the large binary payloads in this call.",
+            "examples": [245760],
+            "type": "Numeric",
+        },
         "$ai_output_choices": {
             "label": "AI output (LLM)",
             "description": "The output message choices JSON that was received from the LLM API.",
@@ -2466,8 +2478,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$ai_target_type": {
             "label": "AI Target Type (LLM)",
-            "description": "ID space of $ai_target_id. `generation_uuid` resolves against `events.uuid`; `trace_id` resolves against the `$ai_trace_id` property.",
-            "examples": ["generation_uuid", "trace_id"],
+            "description": "ID space of $ai_target_id. `generation_uuid` resolves against `events.uuid`, `trace_id` resolves against the `$ai_trace_id` property, and `session_id` resolves against the `$ai_session_id` property.",
+            "examples": ["generation_uuid", "trace_id", "session_id"],
         },
         "$ai_metric_name": {
             "label": "AI Metric Name (LLM)",
@@ -2727,6 +2739,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Upstream HTTP status code when an MCP tool call failed against a PostHog API (e.g. 429, 500). Only set for API-originated failures.",
             "type": "Numeric",
             "examples": [429, 500, 403],
+        },
+        "$mcp_error_code": {
+            "label": "MCP error code",
+            "description": "Machine-readable code for the leaf failure mode of an errored MCP tool call: the API's validation error code, or the exec dispatcher's rejection reason. Carries error codes only, never caller-supplied values. Only set when $mcp_is_error is true.",
+            "examples": ["invalid", "required", "unknown_tool", "invalid_json"],
+        },
+        "$mcp_error_field": {
+            "label": "MCP error field",
+            "description": "Field path the PostHog API's validation error pointed at, with array indexes normalized to N so one failure mode groups to one value. Only set for validation failures.",
+            "examples": ["actions__N__inputs__email", "query"],
         },
         "$mcp_error_message": {
             "label": "MCP error message",
