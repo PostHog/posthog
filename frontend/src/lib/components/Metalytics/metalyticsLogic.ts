@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { rethrowUnlessAccessDenied } from 'lib/api-error'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -180,10 +181,12 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
                 actions.loadViewCount()
                 actions.loadUsersLast30days()
 
-                void api.create(`/api/projects/${values.currentProjectId}/metalytics/`, {
-                    metric_name: 'viewed',
-                    instance_id: instanceId,
-                })
+                void api
+                    .create(`/api/projects/${values.currentProjectId}/metalytics/`, {
+                        metric_name: 'viewed',
+                        instance_id: instanceId,
+                    })
+                    .catch(rethrowUnlessAccessDenied)
             }
         },
     })),

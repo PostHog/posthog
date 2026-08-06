@@ -1,4 +1,21 @@
-import { ApiError } from './api-error'
+import { ApiError, rethrowUnlessAccessDenied } from './api-error'
+
+describe('api-error', () => {
+    describe('rethrowUnlessAccessDenied', () => {
+        it('swallows an access-denied 403 so a fire-and-forget request stays quiet', () => {
+            const error = new ApiError('Access denied.', 403, undefined, { code: 'permission_denied' })
+
+            expect(() => rethrowUnlessAccessDenied(error)).not.toThrow()
+        })
+
+        it.each([
+            ['a 403 without the permission_denied code', new ApiError('Forbidden', 403, undefined, {})],
+            ['a non-403 error', new ApiError('Server error', 500, undefined, {})],
+        ])('re-throws %s so genuine failures still surface', (_, error) => {
+            expect(() => rethrowUnlessAccessDenied(error)).toThrow(error)
+        })
+    })
+})
 
 describe('ApiError.fromResponse', () => {
     it.each([

@@ -6,6 +6,17 @@ export function isAccessDeniedError(error: { status?: number; code?: string | nu
     return error.status === 403 && error.code === 'permission_denied'
 }
 
+/**
+ * `.catch()` handler for best-effort, fire-and-forget requests: swallow an expected access-denied 403
+ * (the AccessDenied scene already surfaces that state), but re-throw anything else so genuine failures
+ * still reach error tracking instead of vanishing.
+ */
+export function rethrowUnlessAccessDenied(error: { status?: number; code?: string | null }): void {
+    if (!isAccessDeniedError(error)) {
+        throw error
+    }
+}
+
 export class ApiError extends Error {
     /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null

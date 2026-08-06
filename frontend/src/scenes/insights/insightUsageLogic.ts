@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { rethrowUnlessAccessDenied } from 'lib/api-error'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { projectLogic } from 'scenes/projectLogic'
@@ -108,9 +109,11 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
             // Report the insight being viewed to our '/viewed' endpoint.
             // Used for "recently viewed insights", and in insights dashboard.
             if (values.insight.id && !isSharedView()) {
-                void api.create(`api/environments/${values.currentProjectId}/insights/viewed`, {
-                    insight_ids: [values.insight.id],
-                })
+                void api
+                    .create(`api/environments/${values.currentProjectId}/insights/viewed`, {
+                        insight_ids: [values.insight.id],
+                    })
+                    .catch(rethrowUnlessAccessDenied)
             }
 
             // Debounce to avoid noisy events from the query changing multiple times.
