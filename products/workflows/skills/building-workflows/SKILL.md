@@ -96,14 +96,13 @@ Event trigger, wait 1 day, send email, exit. Note: exactly one `trigger`, every 
       "type": "function_email",
       "config": {
         "template_id": "template-email",
+        "template_uuid": "<uuid returned by workflows-create-email-template>",
         "message_category_type": "marketing",
         "inputs": {
           "email": {
             "value": {
               "to": { "email": "{person.properties.email}", "name": "" },
-              "from": { "email": "hi@example.com", "name": "Example" },
-              "subject": "Don't forget to finish setting up",
-              "html": "<p>Hi {person.properties.first_name}, …</p>"
+              "from": { "email": "hi@example.com", "name": "Example" }
             }
           }
         }
@@ -124,7 +123,7 @@ Event trigger, wait 1 day, send email, exit. Note: exactly one `trigger`, every 
 }
 ```
 
-For anything beyond a placeholder email body, author the design with the **`designing-email-templates`** skill and reference the template. Don't hand-write production email HTML here.
+Email bodies are authored design-first, before the workflow: create a library template with the **`designing-email-templates`** skill (author the `design`, omit `html` - the server renders html from the design), then reference the template's UUID in `config.template_uuid` as above. The save snapshots the template's subject, text, html, and design into the step, and the email stays editable - as blocks in the visual editor, and via `workflows-patch-action-email` design operations over MCP. Always give the template a real plain-text `text` alongside the design: clients that block rich content show only `text`, so filler like "placeholder" reaches real inboxes.
 
 ## Hard rules to surface to the user, not work around
 

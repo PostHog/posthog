@@ -62,7 +62,8 @@ Call `workflows-create-email-template` with:
 ```
 
 - `subject` is required for email templates.
-- Always provide `text` — it's the fallback for clients that block rich content and improves deliverability.
+- Always author the `design` and omit `html` - the server renders html from the design. Sending hand-written html without a design produces an email the visual editor can only show as one raw block.
+- Always provide `text` as a real plain-text rendering of the message - clients that block rich content show only `text`, so filler like "placeholder" reaches real inboxes, and a text part that doesn't match the html hurts deliverability.
 - The tool result returns an edit link into the PostHog library.
 - After creating (or updating), call `workflows-show-email-template` — it renders an inline preview so the user sees the result.
 
