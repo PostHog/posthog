@@ -39,6 +39,9 @@ from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
 from products.signals.backend.temporal.signal_queries import (
+    SIGNAL_DOCUMENT_PRODUCT,
+    SIGNAL_DOCUMENT_RENDERING,
+    SIGNAL_DOCUMENT_TYPE,
     FetchSignalsForReportInput,
     FetchSignalsForReportOutput,
     FetchSignalTypeExamplesInput,
@@ -46,6 +49,7 @@ from products.signals.backend.temporal.signal_queries import (
     RunSignalSemanticSearchInput,
     RunSignalSemanticSearchOutput,
     WaitForClickHouseInput,
+    WaitForClickHouseMode,
     WaitForClickHouseSignal,
     fetch_signal_type_examples_activity,
     fetch_signals_for_report_activity,
@@ -736,9 +740,9 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     emit_embedding_request(
                         content=input.description,
                         team_id=input.team_id,
-                        product="signals",
-                        document_type="signal",
-                        rendering="plain",
+                        product=SIGNAL_DOCUMENT_PRODUCT,
+                        document_type=SIGNAL_DOCUMENT_TYPE,
+                        rendering=SIGNAL_DOCUMENT_RENDERING,
                         document_id=input.signal_id,
                         models=[m.value for m in EmbeddingModelName],
                         timestamp=ts,
@@ -853,9 +857,9 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             emit_embedding_request(
                 content=input.description,
                 team_id=input.team_id,
-                product="signals",
-                document_type="signal",
-                rendering="plain",
+                product=SIGNAL_DOCUMENT_PRODUCT,
+                document_type=SIGNAL_DOCUMENT_TYPE,
+                rendering=SIGNAL_DOCUMENT_RENDERING,
                 document_id=input.signal_id,
                 models=[m.value for m in EmbeddingModelName],
                 timestamp=ts,
@@ -1385,6 +1389,9 @@ async def _process_signal_batch(
                     for sid, result in emitted_signals
                 ],
                 max_wait_time_seconds=3600,
+                # Fresh emissions: the store's confirmation is enough for the next batch's
+                # semantic search — don't spend ClickHouse queries on the happy path.
+                mode=WaitForClickHouseMode.OPTIMISTIC,
             ),
             start_to_close_timeout=timedelta(hours=1, minutes=5),
             heartbeat_timeout=timedelta(minutes=2),
