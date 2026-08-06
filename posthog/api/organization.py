@@ -50,7 +50,7 @@ from posthog.permissions import (
 from posthog.rate_limit import PostHogAIAccessRequestIPThrottle, PostHogAIAccessRequestUserThrottle
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
 from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin, visible_teams_for_user
+from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin, visible_teams_for_user
 from posthog.tasks.email import send_posthog_ai_access_request
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_safe_cache, safe_cache_set
@@ -683,9 +683,14 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def data_freshness(self, request: Request, **kwargs) -> Response:
         """When each project in the organization last received data, broken down by kind of data."""
         organization = self.organization
-        visible_teams = visible_teams_for_user(organization, self.user_access_control, self.user_permissions).only(
-            "id", "project_id", "ingested_event"
-        )
+        user = cast(User, request.user)
+        # `self.user_access_control` is scoped to the user's current organization, which on this route isn't
+        # necessarily the one being requested - so build one for the organization actually in the URL
+        visible_teams = visible_teams_for_user(
+            organization,
+            UserAccessControl(user=user, organization_id=str(organization.id)),
+            UserPermissions(user=user),
+        ).only("id", "project_id", "ingested_event")
         results = get_organization_data_freshness(str(organization.id), list(visible_teams))
         return Response(
             OrganizationDataFreshnessSerializer(
