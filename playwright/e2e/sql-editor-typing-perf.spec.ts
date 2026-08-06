@@ -3,14 +3,15 @@ import { Page } from '@playwright/test'
 import { SqlInsight } from '../page-models/insights/sqlInsight'
 import { expect, PlaywrightWorkspaceSetupResult, test } from '../utils/workspace-test-base'
 
-// Manual performance benchmark for typing latency in the SQL editor on a long query.
-// Not part of the CI suite (perf numbers are machine-dependent and would be flaky as an
-// assertion) — gated behind RUN_PERF_BENCH so it is skipped unless run explicitly:
+// Manual performance benchmarks for the SQL editor on a long query: typing latency, and
+// scroll latency. Not part of the CI suite (perf numbers are machine-dependent and would be
+// flaky as an assertion) — gated behind RUN_PERF_BENCH so they are skipped unless run
+// explicitly:
 //
 //   RUN_PERF_BENCH=1 BASE_URL='http://localhost:8010' \
 //     pnpm --filter=@posthog/playwright exec playwright test sql-editor-typing-perf --workers 1
 //
-// It types a fixed burst of keystrokes into a large query and reports main-thread long-task
+// Each test drives a fixed burst of input at a large query and reports main-thread long-task
 // time via PerformanceObserver. To compare before/after a change, run it, `git stash` the
 // change, run again, then `git stash pop` — the printed numbers are the result, not pass/fail.
 
@@ -18,6 +19,12 @@ import { expect, PlaywrightWorkspaceSetupResult, test } from '../utils/workspace
 const TYPE_MARKER = 'perfbenchmark'
 const TYPE_CHARS = TYPE_MARKER.repeat(6) // 78 keystrokes
 const TYPE_DELAY_MS = 40 // faster than the 150ms decoration debounce, so coalescing is visible
+
+// Monaco emits a scroll event per wheel tick. Ticks land faster than a 60fps frame so that
+// per-event work has to compete with painting, which is what makes coalescing measurable.
+const SCROLL_TICKS = 60
+const SCROLL_DELTA_PX = 120
+const SCROLL_TICK_DELAY_MS = 8
 
 interface TypingStats {
     // Primary: main-thread jank. A requestAnimationFrame loop runs during the burst; whenever a
@@ -65,6 +72,24 @@ function buildLargeQuery(): string {
         '-- nested tail',
         nested + ';',
     ].join('\n')
+}
+
+// The scroll benchmark needs a different shape of query than the typing one. The active-query
+// outline overlay is repositioned on every scroll event and has to bound its whole range, so the
+// cost scales with how many lines that range covers. The range is the *innermost SELECT
+// containing the cursor* — and `findInnermostSelectAtOffset` returns null unless at least two
+// SELECTs enclose the cursor, so a flat top-level query draws no outline at all and would measure
+// nothing. Hence: a trivial outer SELECT wrapping a very long inner one, with the cursor parked
+// inside the inner one. Must be syntactically valid HogQL or the outline never resolves; unknown
+// column names are fine, since this only needs to parse, not resolve.
+const SCROLL_QUERY_LINES = 900
+
+function buildNestedLongQuery(): string {
+    const columns = Array.from({ length: SCROLL_QUERY_LINES }, (_, i) => `        sum(metric_${i}) AS agg_${i}`).join(
+        ',\n'
+    )
+
+    return `SELECT sub.agg_0\nFROM (\n    SELECT\n${columns}\n    FROM events\n) AS sub`
 }
 
 async function startMeasuring(page: Page): Promise<void> {
@@ -132,7 +157,7 @@ async function goToSqlEditor(page: Page): Promise<void> {
         .catch(() => {})
 }
 
-test.describe('SQL editor typing performance', () => {
+test.describe('SQL editor performance', () => {
     test.describe.configure({ mode: 'serial' })
     test.setTimeout(180000)
     test.skip(!process.env.RUN_PERF_BENCH, 'Perf benchmark — run manually with RUN_PERF_BENCH=1')
@@ -181,6 +206,61 @@ test.describe('SQL editor typing performance', () => {
             testInfo.annotations.push({ type: 'typing-perf', description: summary })
             // eslint-disable-next-line no-console
             console.log(`\n[SQL editor typing perf] ${summary}\n`)
+        })
+    })
+
+    test('measure main-thread blocking while scrolling a long query', async ({ page }, testInfo) => {
+        const editorArea = page.getByTestId('hogql-query-editor')
+
+        await test.step('load a long nested query into the editor', async () => {
+            // Load via the editor's own `q` hash param instead of typing the query in. The editor
+            // restores whichever query was last open, so writing into it is not reproducible — a
+            // stale (and much larger) document from an earlier run gets measured instead.
+            await page.goto('/sql#q=' + encodeURIComponent(buildNestedLongQuery()))
+            await expect(page.getByTestId('editor-scene')).toBeVisible({ timeout: 60000 })
+            await expect(editorArea).toBeVisible()
+            // Let the initial parse + metadata request settle so warm-up cost is not measured.
+            await page.waitForTimeout(3000)
+        })
+
+        await test.step('put the cursor inside the long inner SELECT', async () => {
+            // Lines are: 1 `SELECT sub.agg_0`, 2 `FROM (`, 3 `SELECT`, 4+ the columns. Landing on
+            // line 5 puts the cursor inside the inner SELECT, so the outline spans ~900 lines.
+            await editorArea.click()
+            await page.keyboard.press('ControlOrMeta+Home')
+            for (let i = 0; i < 4; i++) {
+                await page.keyboard.press('ArrowDown')
+            }
+            await page.keyboard.press('End')
+        })
+
+        await test.step('confirm the active-query outline is showing', async () => {
+            // Without an active outline the scroll handler early-returns and this benchmark
+            // measures nothing at all, so fail loudly rather than print a misleading 0.
+            const outline = editorArea.locator('.active-query-outline')
+            await expect(outline).toBeVisible({ timeout: 15000 })
+        })
+
+        await test.step('scroll a fixed burst and measure main-thread blocking', async () => {
+            const box = await editorArea.boundingBox()
+            expect(box).not.toBeNull()
+            await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2)
+
+            await startMeasuring(page)
+            for (let i = 0; i < SCROLL_TICKS; i++) {
+                await page.mouse.wheel(0, SCROLL_DELTA_PX)
+                await page.waitForTimeout(SCROLL_TICK_DELAY_MS)
+            }
+            await page.waitForTimeout(600) // let any trailing work run
+            const stats = await stopMeasuring(page)
+
+            const summary =
+                `wheelTicks=${SCROLL_TICKS} ` +
+                `frameBlockedMs=${stats.frameBlockedMs} maxFrameGapMs=${stats.maxFrameGapMs} ` +
+                `frames=${stats.frames} eventMaxMs=${stats.eventMaxMs} longTasks=${stats.longTasks}`
+            testInfo.annotations.push({ type: 'scroll-perf', description: summary })
+            // eslint-disable-next-line no-console
+            console.log(`\n[SQL editor scroll perf] ${summary}\n`)
         })
     })
 })
