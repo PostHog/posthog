@@ -2946,13 +2946,16 @@ class TestTicketNoteAPI(APIBaseTest):
 
 
 class TestTicketResolvedAtStamping(BaseTest):
-    def test_resolved_at_tracks_the_latest_resolve_across_update_fields_saves(self):
-        ticket = Ticket.objects.create_with_number(
+    def _make_ticket(self) -> Ticket:
+        return Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id="session-resolved-at",
             distinct_id="user-123",
             channel_source="widget",
         )
+
+    def test_resolved_at_tracks_the_latest_resolve_across_update_fields_saves(self):
+        ticket = self._make_ticket()
         assert ticket.resolved_at is None
 
         # every transition path saves with update_fields, which drops anything save() sets
@@ -2972,6 +2975,19 @@ class TestTicketResolvedAtStamping(BaseTest):
             ticket.status = Status.RESOLVED
             ticket.save(update_fields=["status", "updated_at"])
         assert Ticket.objects.get(pk=ticket.pk).resolved_at == second_resolve
+
+    def test_resolved_at_cleared_by_a_stale_instance_writing_a_non_resolved_status(self):
+        ticket = self._make_ticket()
+        # loaded while the ticket is still open, so it never sees the resolve below
+        stale = Ticket.objects.get(pk=ticket.pk)
+
+        ticket.status = Status.RESOLVED
+        ticket.save(update_fields=["status", "updated_at"])
+        assert Ticket.objects.get(pk=ticket.pk).resolved_at is not None
+
+        stale.status = Status.OPEN
+        stale.save(update_fields=["status", "updated_at"])
+        assert Ticket.objects.get(pk=ticket.pk).resolved_at is None
 
     def test_resolved_at_not_back_dated_on_rows_that_reached_resolved_without_save(self):
         # The Zendesk import writes already-resolved tickets with bulk_create, which bypasses

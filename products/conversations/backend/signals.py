@@ -1,8 +1,9 @@
+from datetime import datetime
 from email.utils import make_msgid
 from typing import Any, cast
 
 from django.db import transaction
-from django.db.models import Case, DateTimeField, F, Q, Value, When
+from django.db.models import DateTimeField, F, Q, Value
 from django.db.models.functions import Greatest, Least
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
@@ -37,6 +38,26 @@ def _is_private_message(item_context: dict | None) -> bool:
     if not isinstance(item_context, dict):
         return False
     return item_context.get("is_private", False) is True
+
+
+def _has_earlier_public_message(team_id: int, item_id: str, created_at: datetime) -> bool:
+    """Whether another customer-visible message existed on the ticket before created_at.
+
+    Asks the messages rather than reading the denormalized message_count, so the answer doesn't
+    depend on the order these deferred updates land in. Soft-deleted messages still count: the
+    question is whether an earlier message opened the ticket, which stays true once it's deleted.
+    """
+    return (
+        Comment.objects.filter(
+            team_id=team_id,
+            scope="conversations_ticket",
+            item_id=item_id,
+            created_at__lt=created_at,
+        )
+        # NULL-safe private check, same predicate as the soft-delete recalculation below.
+        .filter(~Q(item_context__is_private=True) | Q(item_context__is_private__isnull=True))
+        .exists()
+    )
 
 
 def _get_comment_created_by_id(comment: Comment) -> int | None:
@@ -160,18 +181,16 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
 
         if is_team_message:
             update_fields["unread_customer_count"] = F("unread_customer_count") + 1
-            # A reply only counts as the first response if something preceded it: tickets we
-            # compose outbound open with our own message, and counting that would report a time
-            # to first response of ~0. message_count is evaluated against the pre-UPDATE row, so
-            # >0 means this isn't the opening message.
-            candidate = Case(
-                When(message_count__gt=0, then=Value(created_at)),
-                output_field=DateTimeField(),
-            )
-            # These updates run on commit, so replies can land out of created_at order. Postgres
-            # LEAST ignores NULLs, which gives us "keep the earliest of the two" and "keep
-            # whichever side isn't null" in one expression.
-            update_fields["first_response_at"] = Least(F("first_response_at"), candidate)
+            # A reply only counts as the first response if a visible message came before it:
+            # tickets the team composes outbound open with our own message, and counting that
+            # would report a time to first response of ~0.
+            if _has_earlier_public_message(team_id, item_id, created_at):
+                # These updates run on commit, so replies can land out of created_at order.
+                # Postgres LEAST ignores NULLs, which gives us "keep the earliest of the two"
+                # and "keep whichever side isn't null" in one expression.
+                update_fields["first_response_at"] = Least(
+                    F("first_response_at"), Value(created_at, output_field=DateTimeField())
+                )
 
         Ticket.objects.filter(id=item_id, team_id=team_id).update(**update_fields)
 

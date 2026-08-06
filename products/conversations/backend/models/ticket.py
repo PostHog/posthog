@@ -247,29 +247,35 @@ class Ticket(UUIDTModel):
         self._status_at_load = self.status
 
     def _sync_resolved_at(self, save_kwargs: dict) -> None:
-        """Keep resolved_at in step with status, stamping only on a real transition.
+        """Keep resolved_at in step with the status this save writes.
 
         Status is written from many places (agent UI, external/workflow API, GitHub issue sync,
         snooze wake task) and all of them go through save(), so this is the one spot that can't
-        be forgotten. Reacting to a transition rather than to status merely being `resolved`
-        matters for rows that were never stamped: the Zendesk import writes already-resolved
-        tickets with bulk_create, which bypasses save(), and a state-based check would back-date
-        those to whenever an unrelated save happened to touch them next.
+        be forgotten.
         """
-        if self._state.adding:
-            # UUIDTModel assigns pk in __init__, so _state.adding is the only new-row signal.
-            was_resolved = False
-        elif self._status_at_load is None:
-            return  # status wasn't loaded, so there's no baseline to compare against
-        else:
-            was_resolved = self._status_at_load == Status.RESOLVED
-
-        is_resolved = self.status == Status.RESOLVED
-        if is_resolved == was_resolved:
+        update_fields = save_kwargs.get("update_fields")
+        if update_fields is not None and "status" not in update_fields:
+            # This save isn't writing status, so it has nothing to say about resolved_at. Acting
+            # on the in-memory status here would let a save about some other field clobber a
+            # resolve that landed after this instance was loaded.
             return
 
-        self.resolved_at = timezone.now() if is_resolved else None
-        _extend_update_fields(save_kwargs, "resolved_at")
+        if self.status != Status.RESOLVED:
+            # Cleared unconditionally rather than only when this instance saw the ticket as
+            # resolved: a stale instance can't see a resolved_at set since it was loaded, and
+            # writing a non-resolved status must never leave a resolution time behind.
+            self.resolved_at = None
+            _extend_update_fields(save_kwargs, "resolved_at")
+            return
+
+        # Stamp on entry to resolved only, so re-asserting `resolved` keeps the original time.
+        # Rows that reached `resolved` without save() (the Zendesk import writes them with
+        # bulk_create) keep a NULL stamp rather than being back-dated to whenever a later save
+        # happened to touch them. UUIDTModel assigns pk in __init__, so _state.adding is the
+        # only new-row signal.
+        if self._state.adding or self._status_at_load != Status.RESOLVED:
+            self.resolved_at = timezone.now()
+            _extend_update_fields(save_kwargs, "resolved_at")
 
     def __str__(self):
         return f"Ticket {self.id} - {self.widget_session_id[:8]}..."

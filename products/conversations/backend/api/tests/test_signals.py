@@ -177,6 +177,16 @@ class TestTicketMessageSignals(BaseTest):
         expected = None if expected_index is None else messages[expected_index].created_at
         assert self.ticket.first_response_at == expected
 
+    def test_first_response_at_counts_a_reply_after_a_soft_deleted_opening_message(self, mock_on_commit):
+        opening = self._create_customer_message("please help")
+        opening.deleted = True
+        opening.save()
+
+        reply = self._create_team_message("on it")
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.first_response_at == reply.created_at
+
     def test_non_conversations_comment_ignored(self, mock_on_commit):
         # Comment for a different scope (e.g., recordings)
         Comment.objects.create(
