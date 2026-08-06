@@ -499,6 +499,7 @@ export class SesWebhookHandler {
                 await this.fetchText(subscribeUrl)
             } else {
                 logger.warn('[SesWebhookHandler] SubscriptionConfirmation without SubscribeURL - cannot confirm')
+                return { status: 400, body: { error: 'Missing SubscribeURL' } }
             }
             return { status: 200, body: { ok: true } }
         }
