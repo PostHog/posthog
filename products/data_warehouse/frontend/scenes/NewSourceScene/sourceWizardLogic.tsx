@@ -1313,6 +1313,7 @@ export interface sourceWizardLogicActions {
             | 'MonteCarlo'
             | 'Moodle'
             | 'Motherduck'
+            | 'Motion'
             | 'Moxie'
             | 'MSSQL'
             | 'Mux'
