@@ -20,6 +20,9 @@ describe('sidepanelTicketsLogic', () => {
     }
 
     beforeEach(() => {
+        // `billing_issue` defaults to whether we're on a billing page, so a test that navigates would
+        // otherwise grant every later test a silent support exemption
+        window.history.replaceState(null, '', '/')
         initKeaTests()
         ;(posthog as any).conversations = {
             isAvailable: () => true,
@@ -169,6 +172,39 @@ describe('sidepanelTicketsLogic', () => {
         }).toFinishAllListeners()
 
         expect(logic.values.canCreateTicket).toBe(true)
+    })
+
+    // A generic CTA on a billing page counts as a billing question even though it passes no
+    // `billing_issue`. Routed through `canCreateTicket`, so it holds for CTAs that never open the
+    // composer too — those don't reach `startTicketFromSupportForm`, where the sticky grant happens.
+    it('treats a generic CTA fired from a billing page as a billing question', async () => {
+        window.history.replaceState(null, '', '/organization/billing')
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        setSubscriptionLevel('free')
+        expect(logic.values.canCreateTicket).toBe(false)
+
+        await expectLogic(logic, () => {
+            supportLogic.actions.openSupportForm({ kind: 'bug', target: 'sidePanel' })
+        }).toFinishAllListeners()
+
+        expect(logic.values.canCreateTicket).toBe(true)
+    })
+
+    // Segment match, not substring — a path that merely contains the word must not qualify
+    it('does not treat an unrelated page as a billing question', async () => {
+        window.history.replaceState(null, '', '/project/2/insights')
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        setSubscriptionLevel('free')
+
+        await expectLogic(logic, () => {
+            supportLogic.actions.openSupportForm({ kind: 'bug', target: 'sidePanel' })
+        }).toFinishAllListeners()
+
+        expect(logic.values.canCreateTicket).toBe(false)
     })
 
     // The error boundary offers to "email an engineer" on a crash. Blocking that on plan would break a

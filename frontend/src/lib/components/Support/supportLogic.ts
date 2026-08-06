@@ -64,6 +64,15 @@ function getSessionReplayLink(): string {
     return golink ? `\nSession: ${golink}` : ''
 }
 
+// Billing questions are answered on every plan, and a support CTA fired from a billing page is
+// almost always one — so treat it as such even when the caller doesn't say so. Segment match rather
+// than substring: every billing route carries it as its own segment (/organization/billing,
+// /organization/billing/:section, /billing/authorization_status), so a URL that merely contains the
+// word doesn't qualify.
+function isOnBillingPage(): boolean {
+    return window.location.pathname.split('/').includes('billing')
+}
+
 const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
     support: 'Contact support',
     feedback: 'Give feedback',
@@ -254,8 +263,8 @@ export type SupportFormFields = {
     message: string
     /**
      * Billing questions are answered on every plan, so a billing CTA earns a support exemption even
-     * when the plan itself doesn't include support. This replaced an implicit `target_area === 'billing'`
-     * check, which stopped being expressible once triage fields were dropped.
+     * when the plan itself doesn't include support. Defaults to whether the user is on a billing
+     * page, so a generic CTA fired from there qualifies without every call site opting in.
      */
     billing_issue?: boolean
     exception_event?: SupportTicketExceptionEvent
@@ -545,7 +554,7 @@ export const supportLogic = kea<supportLogicType>([
                 kind,
                 message: message ?? values.sendSupportRequest.message ?? '',
                 exception_event,
-                billing_issue: billing_issue ?? false,
+                billing_issue: billing_issue ?? isOnBillingPage(),
             })
 
             if (isEmailFormOpen === 'true' || isEmailFormOpen === true) {
