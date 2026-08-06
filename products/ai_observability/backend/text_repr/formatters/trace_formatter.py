@@ -75,7 +75,9 @@ def _nest_events(llm_trace: LLMTrace) -> list[dict[str, Any]]:
     for event in llm_trace.events:
         if event.event in FEEDBACK_EVENT_TYPES:
             continue
-        node_id = _first_set_property(event.properties, "$ai_generation_id", "$ai_span_id") or event.id
+        node_id = _first_set_property(event.properties, "$ai_generation_id", "$ai_span_id")
+        if node_id is None:
+            node_id = event.id
         events_by_node_id[node_id] = event
         parent_id = _first_set_property(event.properties, "$ai_parent_id", "$ai_trace_id")
         if parent_id is not None:

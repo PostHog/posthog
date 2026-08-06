@@ -122,7 +122,11 @@ export type summaryViewLogicType = MakeLogicType<
     summaryViewLogicMeta
 >
 
-/** Days either side of the entity's own timestamp to search for it, instead of the endpoint's 30-day default. */
+/**
+ * Days either side of the entity's own timestamp to search for it, instead of the endpoint's 30-day
+ * default. Narrow keeps the lookup off traces that reuse a customer-supplied ID, and a single trace
+ * rarely spans longer than this.
+ */
 const LOOKUP_WINDOW_DAYS = 1
 
 function lookupWindow(createdAt: string): Pick<SummarizeRequestApi, 'date_from' | 'date_to'> {
