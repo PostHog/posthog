@@ -4036,6 +4036,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.setInitialVariablesLoaded(true)
         },
         updateDashboardLastRefresh: ({ lastDashboardRefresh }) => {
+            if (!values.canEditDashboard) {
+                return
+            }
             dashboardsModel.actions.updateDashboard({
                 id: props.id,
                 last_refresh: lastDashboardRefresh.toISOString(),
@@ -4047,6 +4050,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.triggerDashboardUpdate({ tags })
         },
         setTileOverride: ({ tile }) => {
+            if (!values.canEditDashboard) {
+                return
+            }
             const tileLogicProps = { dashboardId: props.id, tileId: tile.id, filtersOverrides: tile.filters_overrides }
             const logic = tileLogic(tileLogicProps)
 
@@ -4068,9 +4074,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 onSubmit: async () => {
                     const tileFilterOverrides = logic.values.overrides
 
-                    await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${props.id}`, {
-                        tiles: [{ id: tile.id, filters_overrides: tileFilterOverrides }],
-                    })
+                    try {
+                        await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${props.id}`, {
+                            tiles: [{ id: tile.id, filters_overrides: tileFilterOverrides }],
+                        })
+                    } catch (error) {
+                        lemonToast.error(
+                            error instanceof ApiError ? (error.detail ?? error.message) : 'Could not save tile filters'
+                        )
+                        return
+                    }
 
                     tile.filters_overrides = tileFilterOverrides
                     actions.refreshDashboardItem({ tile })

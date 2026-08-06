@@ -15,14 +15,6 @@ import { parseDashboardWidgetConfigApiError } from './widgets/registry'
 
 export type WidgetFieldErrors = Record<string, string | undefined>
 
-/**
- * Whether the current user can edit a dashboard, mirroring the backend's write-path enforcement.
- *
- * The backend requires BOTH the RBAC access level (AccessControlPermission -> `user_access_level`) and the
- * legacy collaboration restriction (CanEditDashboard -> `effective_privilege_level`) to pass. Gating the edit
- * UI on RBAC alone opened editors the API then rejected on save, so users lost unsaved work on legacy-restricted
- * dashboards. Checking both here keeps the UI honest about what the API will accept.
- */
 export function canEditDashboard(
     dashboard: Pick<DashboardBasicType, 'user_access_level' | 'effective_privilege_level'>
 ): boolean {
@@ -34,8 +26,6 @@ export function canEditDashboard(
           )
         : false
 
-    // A missing effective_privilege_level (e.g. an older/partial payload) must not silently add a restriction,
-    // so treat it as CanEdit and let RBAC be the deciding factor in that case.
     const legacyAllowsEditing =
         (dashboard.effective_privilege_level ?? DashboardPrivilegeLevel.CanEdit) >= DashboardPrivilegeLevel.CanEdit
 

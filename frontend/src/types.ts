@@ -2602,11 +2602,6 @@ export interface DashboardBasicType extends WithAccessControl {
     deleted: boolean
     creation_mode: 'default' | 'template' | 'duplicate' | 'unlisted'
     tags?: string[]
-    /**
-     * Legacy collaboration privilege the current user has on this dashboard. Collapses the legacy
-     * `restriction_level` and per-user privilege into a single value (`CanEdit` for unrestricted dashboards).
-     * The backend still enforces this on the write path alongside RBAC `user_access_level`.
-     */
     effective_privilege_level?: DashboardPrivilegeLevel
     /** Project-tree folder the dashboard is filed under, e.g. 'Unfiled/Dashboards'. Empty string is the project root; null means no file system entry. */
     folder?: string | null

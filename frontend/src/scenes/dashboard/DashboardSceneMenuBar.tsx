@@ -268,14 +268,16 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
             )}
             {showEditMenu && (
                 <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
-                    <SceneMenuBarItem
-                        opensFloatingUi
-                        onClick={() => showDuplicateDashboardModal(dashboard.id, dashboard.name)}
-                        data-attr={`${RESOURCE_TYPE}-menubar-duplicate`}
-                    >
-                        <IconCopy />
-                        Duplicate
-                    </SceneMenuBarItem>
+                    {canEditDashboard && (
+                        <SceneMenuBarItem
+                            opensFloatingUi
+                            onClick={() => showDuplicateDashboardModal(dashboard.id, dashboard.name)}
+                            data-attr={`${RESOURCE_TYPE}-menubar-duplicate`}
+                        >
+                            <IconCopy />
+                            Duplicate
+                        </SceneMenuBarItem>
+                    )}
                     {canEditDashboard && hasDashboardColors && (
                         <SceneMenuBarItem
                             opensFloatingUi

@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconInfo, IconPulse, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
+import { canEditDashboard as canEditDashboardAccess } from '@posthog/products-dashboards/frontend/utils'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButton'
@@ -243,13 +244,10 @@ export function InsightMeta({
 
     // For dashboard-specific actions (remove from dashboard, change tile color), check dashboard permissions
     const currentDashboard = dashboardId ? nameSortedDashboards.find((d) => d.id === dashboardId) : null
-    const canEditDashboard = currentDashboard?.user_access_level
-        ? accessLevelSatisfied(
-              AccessControlResourceType.Dashboard,
-              currentDashboard.user_access_level,
-              AccessControlLevel.Editor
-          )
-        : true
+    const canEditDashboard =
+        dashboardId === null ||
+        dashboardId === undefined ||
+        (!!currentDashboard && canEditDashboardAccess(currentDashboard))
 
     // Feedback buttons for Customer Analytics
     const feedbackButtons =
