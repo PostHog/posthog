@@ -48,6 +48,7 @@ class TestMigrateHideWeekends(BaseTest):
     def _source(self, insight: Insight) -> dict:
         insight.refresh_from_db()
         query = insight.query
+        assert query is not None
         return query["source"] if query.get("kind") == "InsightVizNode" else query
 
     @parameterized.expand(
