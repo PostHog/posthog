@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -10,6 +12,7 @@ from parameterized import parameterized
 
 from posthog.models import Organization, Team
 
+from products.data_modeling.backend.logic.cohort_scheduling import Tier
 from products.data_modeling.backend.logic.tier_membership import EPHEMERAL_SKIPPED, SCHEDULED, LiveTier, classify_node
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -35,7 +38,7 @@ class TestClassifyNodeEphemeral(SimpleTestCase):
             dag_id="d1",
             dag_name="Default",
             live_tiers=[self._tier("n1")],
-            expected_interval=900,
+            expected_tier=Tier(timedelta(seconds=900)),
             has_backing_table=has_backing_table,
         ).verdict
 
