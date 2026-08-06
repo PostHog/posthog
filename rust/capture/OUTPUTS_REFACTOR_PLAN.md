@@ -264,7 +264,7 @@ When all steps land, the five strata hold:
 | 1 · Routing golden oracle | done | `test(capture): consolidate routing golden oracle with headers and counters` |
 | 2 · Pure `route()` | done | `refactor(capture): extract pure route() from prepare_record` |
 | 3 · `OutputRegistry` + completeness | done | `refactor(capture): output registry with startup completeness check` |
-| 4 · Serialization layer | pending | `refactor(capture): serialization layer — format and envelope behind one seam` |
+| 4 · Serialization layer | done | `refactor(capture): serialization layer behind one seam` |
 | 5 · `Pipeline` + `Lane`; lane resolution | pending | `refactor(capture): pipeline and lane address; lane decision moves to the pipeline layer` |
 | 6 · Kafka sink → backend mechanism | pending | `refactor(capture): narrow the kafka sink to backend mechanism over prepared payloads` |
 | 7 · Outputs layer with policies; composites retired | pending | `feat(capture): outputs layer owns failover and split policies` |
