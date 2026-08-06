@@ -101,6 +101,49 @@ export interface EditorRef extends _EditorRef {}
 
 type JSONTemplate = Parameters<Editor['loadDesign']>[0]
 
+/**
+ * Wrap raw html in an Unlayer design holding a single custom HTML block. Emails authored
+ * programmatically (API/MCP) often have html but no design; loading a wrapped design shows the
+ * email in the canvas instead of a blank editor whose save would clobber the stored html.
+ * Mirrors build_html_wrap_design in posthog/cdp/validation.py.
+ */
+export function buildHtmlWrapDesign(html: string): JSONTemplate {
+    const nodeId = (): string => Math.random().toString(36).slice(2, 12)
+    return {
+        counters: { u_row: 1, u_column: 1, u_content_html: 1 },
+        schemaVersion: 16,
+        body: {
+            id: nodeId(),
+            headers: [],
+            footers: [],
+            rows: [
+                {
+                    id: nodeId(),
+                    cells: [1],
+                    columns: [
+                        {
+                            id: nodeId(),
+                            contents: [
+                                {
+                                    id: nodeId(),
+                                    type: 'html',
+                                    values: {
+                                        html,
+                                        _meta: { htmlID: 'u_content_html_1', htmlClassNames: 'u_content_html' },
+                                    },
+                                },
+                            ],
+                            values: { _meta: { htmlID: 'u_column_1', htmlClassNames: 'u_column' } },
+                        },
+                    ],
+                    values: { _meta: { htmlID: 'u_row_1', htmlClassNames: 'u_row' } },
+                },
+            ],
+            values: {},
+        },
+    } as unknown as JSONTemplate
+}
+
 export interface EmailTemplaterLogicProps {
     value: EmailTemplate | null
     onChange: (value: EmailTemplate) => void
@@ -524,6 +567,10 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             if (props.value?.design) {
                 cache.lastEditorDesign = props.value.design
                 values.emailEditorRef?.editor?.loadDesign(props.value.design)
+            } else if (props.value?.html) {
+                const wrapped = buildHtmlWrapDesign(props.value.html)
+                cache.lastEditorDesign = wrapped
+                values.emailEditorRef?.editor?.loadDesign(wrapped)
             }
         },
 

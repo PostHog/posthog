@@ -170,6 +170,35 @@ describe('emailTemplaterLogic', () => {
         })
     })
 
+    describe('html-only emails', () => {
+        it('loads a design wrapping the html so the canvas shows the email instead of starting blank', () => {
+            const loadDesign = jest.fn()
+            logic = emailTemplaterLogic(
+                makeProps({ value: { ...DEFAULT_EMAIL_TEMPLATE, design: null, html: '<p>raw</p>' } })
+            )
+            logic.mount()
+            logic.actions.setEmailEditorRef({ editor: { loadDesign } } as unknown as EditorRef)
+            logic.actions.onEmailEditorReady()
+
+            expect(loadDesign).toHaveBeenCalledTimes(1)
+            const design = loadDesign.mock.calls[0][0]
+            expect(design.body.rows[0].columns[0].contents[0]).toMatchObject({
+                type: 'html',
+                values: { html: '<p>raw</p>' },
+            })
+        })
+
+        it('does not load anything when there is neither design nor html', () => {
+            const loadDesign = jest.fn()
+            logic = emailTemplaterLogic(makeProps({ value: { ...DEFAULT_EMAIL_TEMPLATE, design: null, html: '' } }))
+            logic.mount()
+            logic.actions.setEmailEditorRef({ editor: { loadDesign } } as unknown as EditorRef)
+            logic.actions.onEmailEditorReady()
+
+            expect(loadDesign).not.toHaveBeenCalled()
+        })
+    })
+
     describe('inline layout live propagation', () => {
         let onChange: jest.Mock
         let loadDesign: jest.Mock
