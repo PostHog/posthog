@@ -181,16 +181,19 @@ def classify_message_is_agent_directed(
     task_title: str,
     thread_history: list[dict[str, str]],
 ) -> bool:
-    """Classify whether a Slack thread reply is addressing the running PostHog
-    Slack App or pure side chatter between humans.
+    """Classify whether a Slack thread reply is clearly addressing the running
+    PostHog Slack App, versus a conversation between humans that the app was
+    not invited into.
 
-    The prompt leans toward forwarding when the message could plausibly help
-    the agent or advance the task — a false positive is a single wasted turn
-    the human can correct; a false negative forces the human to re-tag
-    ``@PostHog`` to recover. Cheap pre-LLM heuristics still drop trivial
-    messages (one word, emoji-only, very short) before paying for Haiku, and
-    the function still returns ``False`` on a Haiku call error so a transient
-    LLM outage can't fan out spurious forwards.
+    The prompt is conservative: it forwards only when the reply is plainly
+    meant for the app, and stays out whenever that is unclear. The two errors
+    are not symmetric. A false positive has the app barge into a human
+    conversation uninvited — the intrusive behavior that led us to keep this
+    path off by default — while a false negative just means the human re-tags
+    ``@PostHog`` to continue. So on the fence we stay silent. Cheap pre-LLM
+    heuristics drop trivial messages (emoji-only) before paying for Haiku, and
+    the function returns ``False`` on a Haiku call error so a transient LLM
+    outage can't fan out spurious forwards.
 
     ``thread_history`` is the conversation so far (oldest first), as returned
     by ``collect_thread_messages`` — each entry is ``{"user", "text", "ts"}``.
@@ -208,31 +211,36 @@ def classify_message_is_agent_directed(
     history_block = "\n".join(f"{m.get('user', 'Unknown')}: {m.get('text', '')[:500]}" for m in recent) or "(empty)"
 
     prompt = (
-        "You are routing replies in a Slack thread where the PostHog Slack App is "
-        "currently working on a task. Decide whether the latest message is meant "
-        "for the Slack App to read — instructions, corrections, follow-up asks, "
-        "questions about the task, or context that helps it — versus pure side "
-        "chatter between humans.\n\n"
-        "Lean toward true when the message could plausibly help the Slack App or "
-        "advance the task. Examples of agent_directed=true:\n"
-        "  - Direct address ('@PostHog', 'agent, please…', 'bot, …').\n"
-        "  - Instructions, corrections, or scope changes ('also handle the empty "
-        "    case', 'use the new helper instead', 'actually skip the migration').\n"
-        "  - Questions about the task or the Slack App's last update ('why did "
-        "    you skip X?', 'what does this PR cover?', 'can you also do Y?').\n"
-        "  - Task-relevant context (an error message, a URL, a file path, an "
-        "    affected team/customer ID, a stack trace, a reproduction).\n"
-        "  - Replies that elaborate on the human's earlier ask in this thread.\n\n"
-        "Return agent_directed=false for clearly off-topic side chatter:\n"
-        "  - Pure acknowledgements with no new info ('thanks', 'lgtm', 'nice', "
+        "You are routing replies in a Slack thread where the PostHog Slack App "
+        "worked on a task earlier. The app did NOT ask anyone to reply and was "
+        "not @-mentioned in this message. Decide whether the latest message is "
+        "clearly directed at the app — a deliberate instruction, correction, or "
+        "question aimed at it — versus a conversation between humans that the app "
+        "was not invited into.\n\n"
+        "The app must stay out of human conversations. Only return "
+        "agent_directed=true when the message plainly speaks TO the app. "
+        "Examples of agent_directed=true:\n"
+        "  - Direct address ('@PostHog', 'agent, please…', 'bot, …', 'hey "
+        "    posthog, …').\n"
+        "  - An unambiguous instruction to continue or change the task, phrased "
+        "    at the app ('also handle the empty case', 'use the new helper "
+        "    instead', 'actually skip the migration', 'now open the PR').\n"
+        "  - A question clearly asking the app about its own work ('why did you "
+        "    skip X?', 'what does your PR cover?', 'can you also do Y?').\n\n"
+        "Return agent_directed=false whenever the message is not plainly for the "
+        "app, including:\n"
+        "  - Pure acknowledgements or reactions ('thanks', 'lgtm', 'nice', "
         "    'cool', emoji-only, '+1').\n"
-        "  - Conversation clearly directed at another human (mentions another "
-        "    user, answers their question, refers to people in third person).\n"
-        "  - Off-topic chat unrelated to the task ('lunch in 5?', 'gn').\n\n"
-        "When you're genuinely on the fence, prefer true — the human can correct "
-        "the agent if it misreads, but a missed follow-up means the human has to "
-        "re-tag @PostHog.\n\n"
-        f"Task the Slack App is working on: {task_title or '(unknown)'}\n\n"
+        "  - Anything directed at another human (mentions another user, answers "
+        "    their question, refers to people in the third person, discusses the "
+        "    task without asking the app to act).\n"
+        "  - Bare context with no request — an error message, URL, file path, or "
+        "    screenshot dropped into the thread with no instruction to the app.\n"
+        "  - Off-topic chat ('lunch in 5?', 'gn').\n\n"
+        "When you are on the fence, return false. A wrong true has the app barge "
+        "into a human conversation uninvited; a wrong false just means someone "
+        "re-tags @PostHog to continue. Silence is the safer mistake.\n\n"
+        f"Task the Slack App worked on: {task_title or '(unknown)'}\n\n"
         f"Thread so far (oldest first):\n{history_block}\n\n"
         f"Latest message (from a human in this thread): {event_text}\n\n"
         'Respond with ONLY a JSON object: {"agent_directed": true} or {"agent_directed": false}'
