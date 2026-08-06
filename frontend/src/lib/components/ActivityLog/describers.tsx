@@ -44,7 +44,10 @@ import { alertConfigurationActivityDescriber } from 'products/alerts/frontend/co
 import { ticketActivityDescriber } from 'products/conversations/frontend/activityDescriber'
 import { externalDataSourceActivityDescriber } from 'products/data_warehouse/frontend/shared/components/activityDescriptions'
 import { endpointActivityDescriber } from 'products/endpoints/frontend/activityDescriber'
-import { signalScoutConfigActivityDescriber } from 'products/signals/frontend/activityDescriber'
+import {
+    signalScoutConfigActivityDescriber,
+    signalTeamConfigActivityDescriber,
+} from 'products/signals/frontend/activityDescriber'
 import { workflowActivityDescriber } from 'products/workflows/frontend/Workflows/misc/workflowActivityDescriber'
 
 export const describerFor = (logItem?: ActivityLogItem): Describer | undefined => {
@@ -131,6 +134,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return ticketActivityDescriber
         case ActivityScope.SIGNAL_SCOUT_CONFIG:
             return signalScoutConfigActivityDescriber
+        case ActivityScope.SIGNAL_TEAM_CONFIG:
+            return signalTeamConfigActivityDescriber
         case ActivityScope.LLM_PROMPT:
             return promptActivityDescriber
         case ActivityScope.LLM_PROMPT_LABEL:

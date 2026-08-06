@@ -3,6 +3,8 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.activity_logging.activity_log import ActivityLog
+
 from products.signals.backend.models import SignalTeamConfig
 
 
@@ -153,3 +155,40 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         self.config.refresh_from_db()
         assert self.config.autostart_enabled is False
+
+    def _activity(self) -> list[ActivityLog]:
+        return list(ActivityLog.objects.filter(team_id=self.team.id, scope="SignalTeamConfig"))
+
+    def test_auto_created_config_is_not_activity_logged(self):
+        # Every team gets a row with default settings it never chose, so logging its creation
+        # would put a spurious entry in every new project's activity log.
+        assert self._activity() == []
+
+    def test_threshold_change_is_activity_logged_with_who_and_what(self):
+        response = self.client.post(self._url(), data={"default_autostart_priority": "P1"}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        entries = self._activity()
+        assert len(entries) == 1
+        entry = entries[0]
+        assert entry.activity == "updated"
+        assert entry.user == self.user
+        assert entry.detail is not None
+        assert entry.detail["changes"] == [
+            {
+                "type": "SignalTeamConfig",
+                "action": "changed",
+                "field": "default_autostart_priority",
+                "before": "P4",
+                "after": "P1",
+            }
+        ]
+
+    def test_resending_current_values_is_not_activity_logged(self):
+        response = self.client.post(
+            self._url(),
+            data={"default_autostart_priority": self.config.default_autostart_priority},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self._activity() == []

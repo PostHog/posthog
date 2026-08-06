@@ -128,7 +128,15 @@ class AutonomyPriority(models.TextChoices):
     P4 = "P4", "P4"
 
 
-class SignalTeamConfig(UUIDModel):
+class SignalTeamConfig(ModelActivityMixin, UUIDModel):
+    """Team-wide inbox autonomy settings: the autostart switch, its priority threshold, the
+    default Slack channel, and per-repo base branches.
+
+    Changes are activity-logged (they decide which reports agents act on, so a team needs to be
+    able to see who moved the threshold). The auto-provisioned row itself is not — see
+    `handle_signal_team_config_change`.
+    """
+
     team = models.OneToOneField(
         "posthog.Team",
         on_delete=models.CASCADE,

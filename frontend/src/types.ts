@@ -6036,6 +6036,7 @@ export enum ActivityScope {
     TICKET = 'Ticket',
     INSTANCE_SETTING = 'InstanceSetting',
     SIGNAL_SCOUT_CONFIG = 'SignalScoutConfig',
+    SIGNAL_TEAM_CONFIG = 'SignalTeamConfig',
 }
 
 export type CommentType = {
