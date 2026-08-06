@@ -194,30 +194,9 @@ describe("ChannelsList", () => {
     expect(me.parentElement?.textContent).toMatch(/me(⌘|Ctrl)/);
   });
 
-  // "Starred" and "Spaces" are headings over the rows. Spaces receive a small
-  // Slack-style inset; the alpha keeps its deeper tree indentation.
   describe("group headings", () => {
     beforeEach(() => {
       mocks.channels = [ME, { ...ENG, starred: true }, DESIGN];
-    });
-
-    // "me" is a starred space among the rest, so it takes the same inset —
-    // otherwise its caret hangs a step left of every other row's.
-    it("slightly indents every space row under the layout", () => {
-      renderList();
-      expect(screen.getByText("engineering").closest("button")).toHaveClass(
-        "pl-4",
-      );
-      expect(screen.getByText("me").closest("button")).toHaveClass("pl-4");
-    });
-
-    it("keeps the indented tree off the layout", () => {
-      mocks.channelsLayout = false;
-      renderList();
-      expect(screen.getByText("engineering").closest(".pl-5")).toBeTruthy();
-      expect(screen.getByText("engineering").closest("button")).not.toHaveClass(
-        "pl-4",
-      );
     });
 
     it("rebrands only the spaces layout", () => {

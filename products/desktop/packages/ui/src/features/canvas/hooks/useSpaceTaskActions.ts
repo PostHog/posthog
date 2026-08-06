@@ -4,7 +4,7 @@ import { useCommandCenterStore } from "@posthog/ui/features/command-center/comma
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { toast } from "@posthog/ui/primitives/toast";
 import { navigateToCommandCenter } from "@posthog/ui/router/navigationBridge";
-import { createContext, useContext, useMemo, useRef } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef } from "react";
 
 /**
  * What a session row in the space tree can do to its task, from its hover card
@@ -35,9 +35,13 @@ export function useSpaceTaskActions(): SpaceTaskActions {
   const assignTask = useCommandCenterStore((state) => state.assignTask);
 
   // `archiveTask` is a new function every render, so it goes through a ref to
-  // keep the object below stable while still calling the current one.
+  // keep the object below stable while still calling the current one. The ref
+  // is written after the commit, not during the render, because a render can be
+  // thrown away and a row only reads this from an event handler.
   const archiveRef = useRef(archiveTask);
-  archiveRef.current = archiveTask;
+  useEffect(() => {
+    archiveRef.current = archiveTask;
+  });
 
   return useMemo<SpaceTaskActions>(
     () => ({
