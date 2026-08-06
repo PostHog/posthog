@@ -230,7 +230,7 @@ class TestLLMSkillAPI(APIBaseTest):
                 "name": "many-files-skill",
                 "description": "Has too many files.",
                 "body": "# Body",
-                "files": [{"path": f"file-{i}.txt", "content": "content"} for i in range(51)],
+                "files": [{"path": f"file-{i}.txt", "content": "content"} for i in range(201)],
             },
             format="json",
         )

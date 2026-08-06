@@ -16,6 +16,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+DISCOVER_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source.discover_report_types"
+)
+_STATIC_SCHEMAS = ["disputes", "reports", "payments", "payment_actions", "customers", "instruments"]
+
 
 class TestCheckoutComSource:
     def setup_method(self):
@@ -36,7 +41,7 @@ class TestCheckoutComSource:
         assert config.iconPath == "/static/services/checkout_com.png"
 
         field_names = [f.name for f in config.fields]
-        assert field_names == ["environment", "client_id", "client_secret"]
+        assert field_names == ["environment", "client_id", "client_secret", "start_date"]
 
     def test_environment_field_is_a_select_with_default(self):
         config = self.source.get_source_config
@@ -61,6 +66,8 @@ class TestCheckoutComSource:
             f"HTTP 401 from the OAuth2 token endpoint: invalid_client {OAUTH2_PERMANENT_ERROR_MARKER}",
             f"HTTP 400 from the OAuth2 token endpoint {OAUTH2_PERMANENT_ERROR_MARKER}",
             "403 Client Error: Forbidden for url: https://api.checkout.com/disputes?limit=250",
+            "403 Client Error: Forbidden for url: https://api.checkout.com/reports?limit=100",
+            "403 Client Error: Forbidden for url: https://api.sandbox.checkout.com/reports/rpt_1/files/file_1",
         ],
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error):
@@ -75,21 +82,79 @@ class TestCheckoutComSource:
             "401 Client Error: Unauthorized for url: https://api.checkout.com/disputes",
             # Transient token-endpoint errors (429/5xx) carry no marker and stay retryable.
             "HTTP 429 from the OAuth2 token endpoint",
+            # An expired signed report-file URL is a different host and must stay retryable.
+            "403 Client Error: Forbidden for url: https://checkout-reports.s3.amazonaws.com/file_1",
         ],
     )
     def test_non_retryable_errors_does_not_match_unrelated(self, other_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
-    def test_get_schemas(self):
+    @mock.patch(DISCOVER_PATCH)
+    def test_get_schemas_static_catalog(self, mock_discover):
+        mock_discover.return_value = {}
+
         schemas = self.source.get_schemas(self.config, self.team_id)
 
-        assert [s.name for s in schemas] == ["disputes"]
+        assert [s.name for s in schemas] == _STATIC_SCHEMAS
         assert all(schema.supports_incremental for schema in schemas)
-        assert [f["field"] for f in schemas[0].incremental_fields] == ["last_update"]
+        cursors = {s.name: [f["field"] for f in s.incremental_fields] for s in schemas}
+        assert cursors == {
+            "disputes": ["last_update"],
+            "reports": ["created_on"],
+            "payments": ["requested_on"],
+            "payment_actions": ["payment_requested_on"],
+            "customers": ["payment_requested_on"],
+            "instruments": ["payment_requested_on"],
+        }
 
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
+    @mock.patch(DISCOVER_PATCH)
+    def test_get_schemas_appends_discovered_report_tables(self, mock_discover):
+        mock_discover.return_value = {"payments_report": "Payments", "financial_actions_report": "FinancialActions"}
+
+        schemas = self.source.get_schemas(self.config, self.team_id)
+
+        assert [s.name for s in schemas] == [*_STATIC_SCHEMAS, "financial_actions_report", "payments_report"]
+        report_table = next(s for s in schemas if s.name == "financial_actions_report")
+        assert report_table.supports_incremental is True
+        # Boundary re-reads on the inclusive `created_after` filter make append unsafe.
+        assert report_table.supports_append is False
+        assert [f["field"] for f in report_table.incremental_fields] == ["report_created_on"]
+        mock_discover.assert_called_once_with("production", "ack_id", "secret")
+
+    @mock.patch(DISCOVER_PATCH)
+    def test_get_schemas_without_credentials_never_discovers(self, mock_discover):
+        config = CheckoutComSourceConfig(environment="production", client_id="", client_secret="")
+
+        schemas = self.source.get_schemas(config, self.team_id)
+
+        # The credential-free path serves public docs and placeholder configs, so it
+        # must never reach the API.
+        mock_discover.assert_not_called()
+        assert [s.name for s in schemas] == _STATIC_SCHEMAS
+
+    @mock.patch(DISCOVER_PATCH)
+    def test_get_schemas_discovery_failure_degrades_to_static(self, mock_discover):
+        mock_discover.side_effect = Exception("boom")
+
+        schemas = self.source.get_schemas(self.config, self.team_id)
+
+        assert [s.name for s in schemas] == _STATIC_SCHEMAS
+
+    @pytest.mark.parametrize(
+        "names, expected",
+        [
+            (["nope"], []),
+            (["financial_actions_report"], ["financial_actions_report"]),
+        ],
+    )
+    @mock.patch(DISCOVER_PATCH)
+    def test_get_schemas_names_filter_spans_static_and_discovered(self, mock_discover, names, expected):
+        mock_discover.return_value = {"financial_actions_report": "FinancialActions"}
+
+        schemas = self.source.get_schemas(self.config, self.team_id, names=names)
+
+        assert [s.name for s in schemas] == expected
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
@@ -153,3 +218,51 @@ class TestCheckoutComSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_co_source.call_args.kwargs["db_incremental_field_last_value"] is None
+
+    @pytest.mark.parametrize("schema_name", ["reports", "financial_actions_report"])
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source.checkout_com_reports_source"
+    )
+    def test_source_for_pipeline_routes_report_schemas(self, mock_reports_source, schema_name):
+        inputs = mock.MagicMock()
+        inputs.schema_name = schema_name
+        inputs.should_use_incremental_field = True
+        inputs.db_incremental_field_last_value = "2024-01-02T03:04:05Z"
+        manager = mock.MagicMock()
+
+        self.source.source_for_pipeline(self.config, manager, inputs)
+
+        mock_reports_source.assert_called_once()
+        kwargs = mock_reports_source.call_args.kwargs
+        assert kwargs["environment"] == "production"
+        assert kwargs["client_id"] == "ack_id"
+        assert kwargs["client_secret"] == "secret"
+        assert kwargs["schema_name"] == schema_name
+        assert kwargs["logger"] is inputs.logger
+        assert kwargs["resumable_source_manager"] is manager
+        assert kwargs["should_use_incremental_field"] is True
+        assert kwargs["db_incremental_field_last_value"] == "2024-01-02T03:04:05Z"
+
+    @pytest.mark.parametrize("schema_name", ["payments", "payment_actions", "customers", "instruments"])
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source.checkout_com_payments_source"
+    )
+    def test_source_for_pipeline_routes_payments_schemas(self, mock_payments_source, schema_name):
+        config = CheckoutComSourceConfig(
+            environment="production", client_id="ack_id", client_secret="secret", start_date="2024-01-01"
+        )
+        inputs = mock.MagicMock()
+        inputs.schema_name = schema_name
+        inputs.should_use_incremental_field = True
+        inputs.db_incremental_field_last_value = "2024-01-02T03:04:05Z"
+        manager = mock.MagicMock()
+
+        self.source.source_for_pipeline(config, manager, inputs)
+
+        mock_payments_source.assert_called_once()
+        kwargs = mock_payments_source.call_args.kwargs
+        assert kwargs["schema_name"] == schema_name
+        assert kwargs["start_date"] == "2024-01-01"
+        assert kwargs["logger"] is inputs.logger
+        assert kwargs["resumable_source_manager"] is manager
+        assert kwargs["db_incremental_field_last_value"] == "2024-01-02T03:04:05Z"
