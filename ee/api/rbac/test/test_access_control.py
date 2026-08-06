@@ -2302,6 +2302,24 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
         )
         assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
 
+    def test_object_rules_write_requires_access_control_write_scope(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="Scoped", created_by=self.user)
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test_key",
+            secure_value=hash_key_value(key_value),
+            scopes=["access_control:read"],
+        )
+
+        res = self.client.put(
+            "/api/projects/@current/access_control_object_rules",
+            {"resource": "dashboard", "resource_id": str(dashboard.id), "access_level": "viewer"},
+            headers={"authorization": f"Bearer {key_value}"},
+        )
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+        assert "access_control:write" in res.json()["detail"]
+
     def test_object_rules_write_keeps_permission_and_level_validation(self):
         creator = User.objects.create_and_join(self.organization, "creator@posthog.com", None)
         dashboard = Dashboard.objects.create(team=self.team, name="Locked", created_by=creator)

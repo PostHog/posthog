@@ -236,6 +236,8 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             "access_control_object_search",
         ]:
             return ["access_control:read"]
+        if request.method == "PUT" and self.action == "access_control_object_rules":
+            return ["access_control:write"]
         parent = getattr(super(), "dangerously_get_required_scopes", None)
         return parent(request, view) if parent is not None else None
 
