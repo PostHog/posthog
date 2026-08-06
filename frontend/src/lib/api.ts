@@ -5188,7 +5188,9 @@ const api = {
         },
         async update(
             featureId: EarlyAccessFeatureType['id'],
-            data: Pick<EarlyAccessFeatureType, 'name' | 'description' | 'stage' | 'documentation_url'> & {
+            data: Partial<
+                Pick<EarlyAccessFeatureType, 'name' | 'description' | 'stage' | 'documentation_url' | 'assignee'>
+            > & {
                 rollout_to_all?: boolean
             }
         ): Promise<EarlyAccessFeatureType> {
