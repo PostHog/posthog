@@ -68,7 +68,8 @@ tools:
             LifecycleQuery>}` for product-analytics insights; or (c) `{kind: "SavedInsightNode", shortId: "..."}` to
             embed a saved insight. The server rejects other shapes and auto-corrects the common `InsightVizNode`
             wrapping a SQL chart. Give every embedded node a short `attrs.title` saying what it shows — it renders in
-            the node's header and is what a reader skims instead of the query.
+            the node's header and is what a reader skims instead of the query. A published Channels canvas can be
+            embedded with `{type: "ph-canvas", attrs: {nodeId, id: "<canvas uuid>"}}`.
         exclude_params:
             - _create_in_folder
         feature_flag: revamped-py-notebooks
@@ -192,7 +193,9 @@ tools:
             updating the content field, you must provide the current version number for optimistic concurrency control.
             Retrieve the notebook first to get the latest version. If the notebook content is a single
             ph-markdown-notebook node, preserve that structure and update attrs.markdown with valid markdown instead of
-            replacing it with legacy rich-text blocks.
+            replacing it with legacy rich-text blocks. Markdown notebooks can embed a published Channels canvas with a
+            `<Canvas id="<canvas uuid>" />` component tag (optional `channelId` attribute adds an open-in-desktop
+            link); it renders the canvas's published build inline.
         exclude_params:
             - _create_in_folder
         feature_flag: notebooks-collaboration

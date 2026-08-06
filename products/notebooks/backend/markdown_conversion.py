@@ -45,6 +45,7 @@ NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG: Mapping[str, str] = {
     "ph-related-groups": "RelatedGroups",
     "ph-customer-journey": "CustomerJourney",
     "ph-support-tickets": "SupportTickets",
+    "ph-canvas": "Canvas",
 }
 
 RICH_CONTENT_NODE_TYPE_ALIASES: Mapping[str, str] = {

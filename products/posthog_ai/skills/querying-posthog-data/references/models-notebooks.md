@@ -70,6 +70,7 @@ Type | Description
 `ph-person` | Person profile embed
 `ph-cohort` | Cohort embed
 `ph-feature-flag` | Feature flag embed
+`ph-canvas` | Published Channels canvas embed (markdown tag `<Canvas id="…" />`)
 `codeBlock` | Code snippet
 
 ### Key Relationships

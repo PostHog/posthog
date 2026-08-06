@@ -72,6 +72,7 @@ export enum NotebookNodeType {
     RelatedGroups = 'ph-related-groups',
     CustomerJourney = 'ph-customer-journey',
     SupportTickets = 'ph-support-tickets',
+    Canvas = 'ph-canvas',
 }
 
 export type NotebookNodeResource = {

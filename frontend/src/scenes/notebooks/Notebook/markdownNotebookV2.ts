@@ -78,6 +78,7 @@ export const NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG: Partial<Record<NotebookNodeType
     [NotebookNodeType.RelatedGroups]: 'RelatedGroups',
     [NotebookNodeType.CustomerJourney]: 'CustomerJourney',
     [NotebookNodeType.SupportTickets]: 'SupportTickets',
+    [NotebookNodeType.Canvas]: 'Canvas',
 }
 
 const RICH_CONTENT_NODE_TYPE_ALIASES: Record<string, string> = {

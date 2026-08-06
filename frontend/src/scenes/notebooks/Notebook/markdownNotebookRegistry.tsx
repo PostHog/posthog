@@ -1,3 +1,4 @@
+import '../Nodes/NotebookNodeCanvas/NotebookNodeCanvas'
 import '../Nodes/NotebookNodeCohort'
 import '../Nodes/NotebookNodeCustomerJourney/NotebookNodeCustomerJourney'
 import '../Nodes/NotebookNodeSQLV2'
@@ -154,6 +155,7 @@ export const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, Notebook
     RelatedGroups: NotebookNodeType.RelatedGroups,
     CustomerJourney: NotebookNodeType.CustomerJourney,
     SupportTickets: NotebookNodeType.SupportTickets,
+    Canvas: NotebookNodeType.Canvas,
 }
 
 export const MARKDOWN_NODE_DEFINITIONS: {
@@ -226,6 +228,14 @@ export const MARKDOWN_NODE_DEFINITIONS: {
     { tagName: 'RelatedGroups', category: 'PostHog' },
     { tagName: 'CustomerJourney', category: 'PostHog' },
     { tagName: 'SupportTickets', category: 'PostHog' },
+    // Insertion is feature-flag gated in getMarkdownRegistryForFeatureFlags.
+    {
+        tagName: 'Canvas',
+        category: 'PostHog',
+        insertCommand: {
+            aliases: ['canvas', 'bluebird'],
+        },
+    },
     { tagName: 'EarlyAccessFeature', category: 'PostHog', label: 'Early access feature' },
     {
         tagName: 'FeatureFlagCodeExample',
@@ -287,6 +297,9 @@ export function getMarkdownRegistryForFeatureFlags(featureFlags: FeatureFlagsSet
     const hiddenTags: string[] = []
     if (!featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]) {
         hiddenTags.push('SQLV2', 'PythonV2')
+    }
+    if (!featureFlags[FEATURE_FLAGS.PROJECT_BLUEBIRD]) {
+        hiddenTags.push('Canvas')
     }
 
     if (hiddenTags.length === 0) {

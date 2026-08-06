@@ -65,6 +65,16 @@ describe('markdownNotebookRegistry', () => {
             expect(flagOff.components.SQLV2.insertCommand).toBeUndefined()
             expect(flagOff.components.PythonV2.insertCommand).toBeUndefined()
         })
+
+        it('offers the Canvas node only behind the bluebird flag, while always rendering it', () => {
+            const flagOn = getMarkdownRegistryForFeatureFlags({ [FEATURE_FLAGS.PROJECT_BLUEBIRD]: true })
+            expect(flagOn.components.Canvas.insertCommand).toBeTruthy()
+
+            const flagOff = getMarkdownRegistryForFeatureFlags({})
+            expect(flagOff.components.Canvas.insertCommand).toBeUndefined()
+            // Only insertion is gated - an already-inserted canvas must still render.
+            expect(flagOff.components.Canvas.ViewComponent).toBeTruthy()
+        })
     })
 
     describe('insert menu SQL commands', () => {

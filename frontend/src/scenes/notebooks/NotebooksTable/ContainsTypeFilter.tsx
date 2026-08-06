@@ -43,6 +43,7 @@ export const fromNodeTypeToLabel: Omit<
     [NotebookNodeType.RelatedGroups]: 'Related groups',
     [NotebookNodeType.CustomerJourney]: 'Customer journey',
     [NotebookNodeType.SupportTickets]: 'Support tickets',
+    [NotebookNodeType.Canvas]: 'Canvases',
 }
 
 export function ContainsTypeFilters({

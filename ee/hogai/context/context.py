@@ -461,6 +461,10 @@ class AssistantContextManager(AssistantContextMixin):
                     "one saying what it shows, so a reader can skim the notebook without opening each block."
                 ),
                 (
+                    '- `<Canvas id="<canvas uuid>" />` embeds a published Channels canvas (an agent-built app '
+                    "page) inline. Only reference canvas ids the user or context provided — never invent one."
+                ),
+                (
                     "When the current user asks you to change broad notebook content, use notebook tools against "
                     "the current notebook instead of explaining how the user could do it. "
                     "For Markdown notebook v2, preserve the single ph-markdown-notebook node and update "

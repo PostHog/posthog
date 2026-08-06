@@ -1,5 +1,6 @@
 import {
     IconAI,
+    IconApps,
     IconChat,
     IconCheckCircle,
     IconCode,
@@ -60,4 +61,5 @@ export const NODE_ICONS: Partial<Record<NotebookNodeType, JSX.Element>> = {
     [NotebookNodeType.ZendeskTickets]: <IconChat />,
     [NotebookNodeType.TaskCreate]: <IconCheckCircle />,
     [NotebookNodeType.CustomerJourney]: <IconUserPaths />,
+    [NotebookNodeType.Canvas]: <IconApps />,
 }
