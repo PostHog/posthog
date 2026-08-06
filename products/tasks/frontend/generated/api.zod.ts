@@ -251,11 +251,11 @@ export const LoopsCreateBody = /* @__PURE__ */ zod
         context_target: zod
             .union([
                 zod.object({
-                    folder_id: zod.string().describe('Desktop folder id of the context this loop is attached to.'),
+                    channel_id: zod.string().describe('Id of the channel (context) this loop is attached to.'),
                     name: zod
                         .string()
                         .max(loopsCreateBodyContextTargetOneNameMax)
-                        .describe('Context (channel) name, used to file runs into its feed.'),
+                        .describe("Display name of the context, shown in the loop's publish prompt."),
                     outputs: zod
                         .object({
                             post_to_feed: zod
@@ -307,7 +307,7 @@ export const LoopsCreateBody = /* @__PURE__ */ zod
                         .unknown()
                         .optional()
                         .describe(
-                            'Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels}`; api takes no config.'
+                            'Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels, payload}`. Use `actions` for the event action; `payload` is for anything else in the webhook body, as a list of `{path, equals}` conditions where `path` is a dot-path of object keys and `equals` is a string or list of strings, e.g. `[{\"path\": \"requested_team.slug\", \"equals\": \"team-security\"}]` to run only when that team is asked to review. All filters must match. API triggers take no config.'
                         ),
                 })
             )
@@ -552,11 +552,11 @@ export const LoopsPartialUpdateBody = /* @__PURE__ */ zod
         context_target: zod
             .union([
                 zod.object({
-                    folder_id: zod.string().describe('Desktop folder id of the context this loop is attached to.'),
+                    channel_id: zod.string().describe('Id of the channel (context) this loop is attached to.'),
                     name: zod
                         .string()
                         .max(loopsPartialUpdateBodyContextTargetOneNameMax)
-                        .describe('Context (channel) name, used to file runs into its feed.'),
+                        .describe("Display name of the context, shown in the loop's publish prompt."),
                     outputs: zod
                         .object({
                             post_to_feed: zod
@@ -608,7 +608,7 @@ export const LoopsPartialUpdateBody = /* @__PURE__ */ zod
                         .unknown()
                         .optional()
                         .describe(
-                            'Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels}`; api takes no config.'
+                            'Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels, payload}`. Use `actions` for the event action; `payload` is for anything else in the webhook body, as a list of `{path, equals}` conditions where `path` is a dot-path of object keys and `equals` is a string or list of strings, e.g. `[{\"path\": \"requested_team.slug\", \"equals\": \"team-security\"}]` to run only when that team is asked to review. All filters must match. API triggers take no config.'
                         ),
                 })
             )
@@ -1067,6 +1067,79 @@ export const TaskChannelsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('GitHub repositories inherited by new tasks in this channel.'),
 })
+
+/**
+ * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
+ * provisions the requester's personal "#me" channel; creation is resolve-or-create
+ * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * @summary Set or clear the channel's CONTEXT.md generation task
+ */
+export const TaskChannelsContextGenerationUpdateBody = /* @__PURE__ */ zod
+    .object({
+        task_id: zod.uuid().nullable(),
+    })
+    .describe("The task currently generating this channel's CONTEXT.md, or null.")
+
+/**
+ * Publish a new version of the channel's CONTEXT.md instructions. Pass base_version (the version you read) so a concurrent edit is rejected with 409 instead of overwritten.
+ * @summary Publish channel instructions
+ */
+export const taskChannelsInstructionsUpdateBodyContentMax = 100000
+
+export const taskChannelsInstructionsUpdateBodyBaseVersionMin = 0
+
+export const TaskChannelsInstructionsUpdateBody = /* @__PURE__ */ zod
+    .object({
+        content: zod
+            .string()
+            .max(taskChannelsInstructionsUpdateBodyContentMax)
+            .describe('The complete markdown instructions (CONTEXT.md) for the channel.'),
+        base_version: zod
+            .number()
+            .min(taskChannelsInstructionsUpdateBodyBaseVersionMin)
+            .nullish()
+            .describe(
+                'Optimistic-concurrency guard: the version the edit is based on (0 for a channel with no instructions yet). A stale base is rejected with 409; omit to publish unguarded.'
+            ),
+    })
+    .describe('Request body for publishing a new instructions version.')
+
+/**
+ * Publish a new version of the channel's CONTEXT.md instructions. Pass base_version (the version you read) so a concurrent edit is rejected with 409 instead of overwritten.
+ * @summary Publish channel instructions
+ */
+export const taskChannelsInstructionsPartialUpdateBodyContentMax = 100000
+
+export const taskChannelsInstructionsPartialUpdateBodyBaseVersionMin = 0
+
+export const TaskChannelsInstructionsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        content: zod
+            .string()
+            .max(taskChannelsInstructionsPartialUpdateBodyContentMax)
+            .optional()
+            .describe('The complete markdown instructions (CONTEXT.md) for the channel.'),
+        base_version: zod
+            .number()
+            .min(taskChannelsInstructionsPartialUpdateBodyBaseVersionMin)
+            .nullish()
+            .describe(
+                'Optimistic-concurrency guard: the version the edit is based on (0 for a channel with no instructions yet). A stale base is rejected with 409; omit to publish unguarded.'
+            ),
+    })
+    .describe('Request body for publishing a new instructions version.')
+
+/**
+ * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
+ * provisions the requester's personal "#me" channel; creation is resolve-or-create
+ * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * @summary Star or unstar a channel for the requesting user
+ */
+export const TaskChannelsStarCreateBody = /* @__PURE__ */ zod
+    .object({
+        starred: zod.boolean(),
+    })
+    .describe('Request body for starring\/unstarring a channel for the requesting user.')
 
 /**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
@@ -2251,13 +2324,13 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             ),
         model: zod.string().optional().describe('LLM model identifier to run in the selected runtime.'),
         reasoning_effort: zod
-            .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+            .enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
             .describe(
-                '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                '\* `off` - off\n\* `minimal` - minimal\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
             )
             .optional()
             .describe(
-                'Reasoning effort to request for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                'Reasoning effort to request for models that expose an effort control.\n\n\* `off` - off\n\* `minimal` - minimal\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
             ),
         context_window: zod
             .enum(['200k', '1m'])

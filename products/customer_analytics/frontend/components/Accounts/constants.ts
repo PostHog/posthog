@@ -41,6 +41,7 @@ export const AccountsEvents = {
     ViewSelected: 'customer analytics accounts view selected',
     ViewDeleted: 'customer analytics accounts view deleted',
     RoleAssigned: 'customer analytics account role assigned',
+    TagsUpdated: 'customer analytics account tags updated',
     LinkClicked: 'customer analytics account link clicked',
     NoteClicked: 'customer analytics account note clicked',
     NoteCreated: 'customer analytics accounts note created',

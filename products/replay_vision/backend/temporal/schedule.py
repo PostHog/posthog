@@ -1,7 +1,5 @@
 """Per-scanner Temporal schedule lifecycle helpers."""
 
-import json
-import hashlib
 import datetime as dt
 from typing import Any
 from uuid import UUID
@@ -32,6 +30,7 @@ from posthog.temporal.common.search_attributes import (
     POSTHOG_TEAM_ID_KEY,
 )
 
+from products.replay_vision.backend.fingerprint import SCHEDULE_FINGERPRINT_LENGTH, config_fingerprint
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.temporal.constants import (
     SCANNER_SCHEDULE_INTERVAL,
@@ -60,8 +59,7 @@ _FINGERPRINT_FIELDS = (
 
 def compute_schedule_fingerprint(snapshot: dict[str, Any] | None) -> str:
     # `sort_keys=True` is recursive over dicts but not lists; assumes JSONField list ordering is stable.
-    canonical = json.dumps(snapshot or {}, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode()).hexdigest()[:16]
+    return config_fingerprint(snapshot, length=SCHEDULE_FINGERPRINT_LENGTH)
 
 
 def _compute_offset(scanner_id: UUID) -> dt.timedelta:

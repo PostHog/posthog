@@ -18,12 +18,12 @@ export interface GatewayModel {
   allowed?: boolean;
 }
 
-type ModelFamily = "anthropic" | "openai" | "cloudflare";
+type ModelFamily = "anthropic" | "openai" | "cloudflare" | "baseten";
 
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
 function findBuiltinModel(family: ModelFamily, id: string) {
-  if (family === "cloudflare") {
+  if (family === "cloudflare" || family === "baseten") {
     return undefined;
   }
 
@@ -42,14 +42,16 @@ function detectFamily(model: GatewayModel): ModelFamily {
   if (model.owned_by === "cloudflare" || model.id.startsWith("@cf/")) {
     return "cloudflare";
   }
+  if (model.owned_by === "baseten" || model.id.startsWith("deepseek-ai/")) {
+    return "baseten";
+  }
   return "anthropic";
 }
 
 /**
  * The gateway URL a model of the given pi `api` should be routed through for
- * a given region. `openai-responses` models are served off the gateway's
- * `/v1` surface; every other API this provider uses is served off the
- * product root.
+ * a given region. OpenAI-compatible models are served off the gateway's `/v1`
+ * surface; Anthropic Messages is served off the product root.
  */
 export function gatewayBaseUrlForApi(
   api: string,
@@ -57,7 +59,7 @@ export function gatewayBaseUrlForApi(
   baseUrl = getLlmGatewayUrl(region),
 ): string {
   const normalizedBaseUrl = baseUrl.replace(/\/$/, "");
-  if (api !== "openai-responses" || normalizedBaseUrl.endsWith("/v1")) {
+  if (!api.startsWith("openai-") || normalizedBaseUrl.endsWith("/v1")) {
     return normalizedBaseUrl;
   }
 
@@ -95,11 +97,12 @@ function toModelConfig(
     };
   }
 
-  if (family === "cloudflare") {
+  if (family === "cloudflare" || family === "baseten") {
     return {
       id: model.id,
       name,
-      api: "anthropic-messages",
+      api: "openai-completions",
+      baseUrl: gatewayBaseUrlForApi("openai-completions", region),
       reasoning: false,
       input,
       cost: ZERO_COST,
@@ -216,6 +219,9 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
   },
 ];
 
+// DeepSeek V4 Flash is deliberately absent from the fallback list: the gateway
+// only serves it to flag-gated posthog_code callers, so it is offered only when
+// the live /v1/models listing advertises it.
 export function fallbackModelConfigs(
   region: CloudRegion,
 ): ProviderModelConfig[] {

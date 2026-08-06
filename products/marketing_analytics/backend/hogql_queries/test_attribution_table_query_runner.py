@@ -83,7 +83,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         utm_campaign: str | None = None,
         utm_source: str | None = None,
         utm_medium: str | None = None,
-        referring_domain: str = "$direct",
+        referring_domain: str | None = "$direct",
         pageviews: int = 1,
     ) -> None:
         """One session's worth of pageviews. uuid7 seeds the session id so `$start_timestamp` lands on
@@ -101,7 +101,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
                     "$session_id": session_id,
                     "$current_url": "https://example.com/",
                     "$pathname": "/",
-                    "$referring_domain": referring_domain,
+                    **({"$referring_domain": referring_domain} if referring_domain is not None else {}),
                     **({"utm_campaign": utm_campaign} if utm_campaign else {}),
                     **({"utm_source": utm_source} if utm_source else {}),
                     **({"utm_medium": utm_medium} if utm_medium else {}),
@@ -122,6 +122,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         breakdown: MarketingAnalyticsAttributionBreakdown,
         *,
         exclude_direct: bool = False,
+        exclude_unattributed: bool = False,
         date_from: str = "2023-01-01",
         date_to: str = "2023-01-31",
         lookback_days: int | None = None,
@@ -133,6 +134,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
             breakdownBy=breakdown,
             conversionGoalId=GOAL_ID,
             excludeDirectTraffic=exclude_direct,
+            excludeUnattributed=exclude_unattributed,
             lookbackWindowDays=lookback_days,
             allowMultipleConversionsPerVisitor=allow_multiple_conversions,
             properties=[],
@@ -374,6 +376,159 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         )
         self.assertNotIn("Direct", without_direct)
         self.assertAlmostEqual(without_direct[paid_channel][AttributionMode.LINEAR], 1.0, places=4)
+
+    def test_excluding_unattributed_redistributes_the_none_rows_credit(self):
+        # Same before-the-weights placement as the direct exclusion, judged on the breakdown's raw
+        # session field: a session with no utm_campaign renders as the "(none)" row, and excluding it
+        # hands its share to the campaigns that were actually tagged.
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", TWO_DAYS_BEFORE, utm_campaign="summer")
+        self._session("p1", ONE_DAY_BEFORE)  # no utm_campaign -> the "(none)" row
+        self._conversion("p1", CONVERSION_AT)
+
+        with_none = self._by_breakdown(self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN))
+        self.assertIn("", with_none)
+        self.assertAlmostEqual(with_none["summer"][AttributionMode.LINEAR], 0.5, places=4)
+
+        without_none = self._by_breakdown(
+            self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, exclude_unattributed=True)
+        )
+        self.assertNotIn("", without_none)
+        self.assertAlmostEqual(without_none["summer"][AttributionMode.LINEAR], 1.0, places=4)
+
+    def test_excluding_unattributed_drops_unknown_channels(self):
+        # Channel is special-cased: the classifier's raw value can literally be "Unknown" (a session with
+        # no referrer sentinel at all), which must be treated as unattributed alongside empty values.
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", TWO_DAYS_BEFORE, utm_source="google", utm_medium="cpc")
+        self._session("p1", ONE_DAY_BEFORE, referring_domain=None)  # unclassifiable -> Unknown
+        self._conversion("p1", CONVERSION_AT)
+
+        with_unknown = self._by_breakdown(self._run(MarketingAnalyticsAttributionBreakdown.CHANNEL))
+        self.assertIn("Unknown", with_unknown)
+        paid_channel = next(channel for channel in with_unknown if channel != "Unknown")
+        self.assertAlmostEqual(with_unknown[paid_channel][AttributionMode.LINEAR], 0.5, places=4)
+
+        without_unknown = self._by_breakdown(
+            self._run(MarketingAnalyticsAttributionBreakdown.CHANNEL, exclude_unattributed=True)
+        )
+        self.assertNotIn("Unknown", without_unknown)
+        self.assertAlmostEqual(without_unknown[paid_channel][AttributionMode.LINEAR], 1.0, places=4)
+
+    def test_campaign_name_mappings_collapse_dirty_utm_spellings(self):
+        # The team's own mapping says these two spellings are one campaign, and the Dashboard reports
+        # them as one. Left unmapped here, each spelling is its own row and the models credit them
+        # independently — first touch names one spelling, last touch the other — so the model comparison
+        # this table exists for would read as a difference between campaigns that are the same campaign.
+        config = self.team.marketing_analytics_config
+        config.campaign_name_mappings = {"GoogleAds": {"Spring Sale 2026": ["spring_sale_2026", "spring-sale-2026"]}}
+        config.save()
+
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", TWO_DAYS_BEFORE, utm_source="google", utm_campaign="spring_sale_2026")
+        self._session("p1", ONE_DAY_BEFORE, utm_source="google", utm_campaign="spring-sale-2026")
+        self._conversion("p1", CONVERSION_AT)
+
+        rows = self._by_breakdown(self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN))
+
+        self.assertEqual(list(rows), ["Spring Sale 2026"])
+        # One campaign touched twice holds the whole conversion under every model.
+        for model in [AttributionMode.FIRST_TOUCH, AttributionMode.LAST_TOUCH, AttributionMode.LINEAR]:
+            self.assertAlmostEqual(rows["Spring Sale 2026"][model], 1.0, places=4)
+
+    def test_campaign_name_mappings_are_scoped_to_the_mapped_integration(self):
+        # The mapping keys off the touchpoint's source, so the same spelling arriving on a source that
+        # doesn't belong to the mapped integration must stay as it came.
+        config = self.team.marketing_analytics_config
+        config.campaign_name_mappings = {"GoogleAds": {"Spring Sale 2026": ["spring_sale_2026"]}}
+        config.save()
+
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", TWO_DAYS_BEFORE, utm_source="google", utm_campaign="spring_sale_2026")
+        self._session("p1", ONE_DAY_BEFORE, utm_source="newsletter", utm_campaign="spring_sale_2026")
+        self._conversion("p1", CONVERSION_AT)
+
+        rows = self._by_breakdown(self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN))
+
+        self.assertEqual(sorted(rows), ["Spring Sale 2026", "spring_sale_2026"])
+
+    def test_campaign_id_matching_preference_leaves_the_displayed_campaign_raw(self):
+        # With match_field=campaign_id the mapping's clean_name is an *id*, which the Dashboard uses to
+        # find the cost row while leaving the displayed campaign name untouched. There is no cost join
+        # here, so applying it would put a bare id in the campaign column.
+        config = self.team.marketing_analytics_config
+        config.campaign_name_mappings = {"GoogleAds": {"10042": ["spring_sale_2026"]}}
+        config.campaign_field_preferences = {"GoogleAds": {"match_field": "campaign_id"}}
+        config.save()
+
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", ONE_DAY_BEFORE, utm_source="google", utm_campaign="spring_sale_2026")
+        self._conversion("p1", CONVERSION_AT)
+
+        rows = self._by_breakdown(self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN))
+
+        self.assertEqual(list(rows), ["spring_sale_2026"])
+
+    def test_an_empty_campaign_is_never_mapped_onto_a_real_name(self):
+        # Nothing stops a team listing "" among a campaign's raw values, but an empty utm_campaign is the
+        # absence of a campaign rather than a misspelling of one. Mapping it would invent attribution and
+        # would leave "Exclude unattributed traffic" dropping a row labelled like a campaign that stayed.
+        config = self.team.marketing_analytics_config
+        config.campaign_name_mappings = {"GoogleAds": {"Spring Sale 2026": ["", "spring_sale_2026"]}}
+        config.save()
+
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", TWO_DAYS_BEFORE, utm_source="google", utm_campaign="spring_sale_2026")
+        self._session("p1", ONE_DAY_BEFORE, utm_source="google")  # no utm_campaign
+        self._conversion("p1", CONVERSION_AT)
+
+        rows = self._by_breakdown(self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN))
+        self.assertEqual(sorted(rows), ["", "Spring Sale 2026"])
+
+        # ...and it stays the row the exclusion drops.
+        excluded = self._by_breakdown(
+            self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, exclude_unattributed=True)
+        )
+        self.assertEqual(list(excluded), ["Spring Sale 2026"])
+
+    def test_excluding_unattributed_drops_the_organic_source_row(self):
+        # Source is the breakdown where "unattributed" is easiest to get wrong: an empty utm_source is
+        # *displayed* as "organic", a real-looking name, so it renders nothing like the "(none)" row the
+        # other UTM breakdowns produce. It is still the absence of a source, so it goes — and the credit
+        # it held renormalizes onto the sources that were actually tagged.
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", TWO_DAYS_BEFORE, utm_source="google")
+        self._session("p1", ONE_DAY_BEFORE)  # no utm_source -> displayed as "organic"
+        self._conversion("p1", CONVERSION_AT)
+
+        with_organic = self._by_breakdown(self._run(MarketingAnalyticsAttributionBreakdown.SOURCE))
+        self.assertIn("organic", with_organic)
+        self.assertAlmostEqual(with_organic["google"][AttributionMode.LINEAR], 0.5, places=4)
+
+        without_organic = self._by_breakdown(
+            self._run(MarketingAnalyticsAttributionBreakdown.SOURCE, exclude_unattributed=True)
+        )
+        self.assertNotIn("organic", without_organic)
+        self.assertAlmostEqual(without_organic["google"][AttributionMode.LINEAR], 1.0, places=4)
+
+    def test_excluding_unattributed_drops_the_direct_referring_domain_sentinel(self):
+        # `$entry_referring_domain` holds the "$direct" sentinel rather than an empty value when a session
+        # arrived with no referrer, so an emptiness test alone would leave a raw sentinel in the results
+        # as if it were a real referrer.
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", TWO_DAYS_BEFORE, referring_domain="google.com")
+        self._session("p1", ONE_DAY_BEFORE)  # defaults to the "$direct" sentinel
+        self._conversion("p1", CONVERSION_AT)
+
+        with_direct = self._by_breakdown(self._run(MarketingAnalyticsAttributionBreakdown.REFERRING_DOMAIN))
+        self.assertIn("$direct", with_direct)
+        self.assertAlmostEqual(with_direct["google.com"][AttributionMode.LINEAR], 0.5, places=4)
+
+        without_direct = self._by_breakdown(
+            self._run(MarketingAnalyticsAttributionBreakdown.REFERRING_DOMAIN, exclude_unattributed=True)
+        )
+        self.assertNotIn("$direct", without_direct)
+        self.assertAlmostEqual(without_direct["google.com"][AttributionMode.LINEAR], 1.0, places=4)
 
     def test_repeat_touches_on_one_dimension_sum_their_weight(self):
         # A dimension touched on three of four sessions should hold 0.75 of the linear credit as one row,

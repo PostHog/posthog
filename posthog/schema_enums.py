@@ -2465,6 +2465,11 @@ class ExternalDataSourceType(StrEnum):
     ODOO = "Odoo"
     AIRBRIDGE = "Airbridge"
     SNOVIO = "Snovio"
+    RAISELY = "Raisely"
+    WINDSOR_AI = "WindsorAi"
+    WIX = "Wix"
+    SEVALLA = "Sevalla"
+    MOTION = "Motion"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2936,6 +2941,11 @@ class LogsSparklineBreakdownBy(StrEnum):
     SERVICE = "service"
 
 
+class LogsSparklineRankBy(StrEnum):
+    COUNT = "count"
+    BYTES = "bytes"
+
+
 class NeighborDirection(StrEnum):
     BEFORE = "before"
     AFTER = "after"
@@ -3225,6 +3235,7 @@ class NodeKind(StrEnum):
     MARKETING_ANALYTICS_TABLE_QUERY = "MarketingAnalyticsTableQuery"
     MARKETING_ANALYTICS_AGGREGATED_QUERY = "MarketingAnalyticsAggregatedQuery"
     MARKETING_ANALYTICS_ATTRIBUTION_QUERY = "MarketingAnalyticsAttributionQuery"
+    MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY = "MarketingAnalyticsAttributionPathsQuery"
     NON_INTEGRATED_CONVERSIONS_TABLE_QUERY = "NonIntegratedConversionsTableQuery"
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
@@ -3698,33 +3709,35 @@ class Theme(StrEnum):
     SYSTEM = "system"
 
 
+class SidebarDensity(StrEnum):
+    COMFORTABLE = "comfortable"
+    COMPACT = "compact"
+
+
 class SlackIntegrationScope(StrEnum):
     APP_MENTIONS_READ = "app_mentions:read"
+    ASSISTANT_WRITE = "assistant:write"
+    CANVASES_WRITE = "canvases:write"
     CHANNELS_HISTORY = "channels:history"
+    CHANNELS_MANAGE = "channels:manage"
     CHANNELS_READ = "channels:read"
     CHAT_WRITE = "chat:write"
     CHAT_WRITE_CUSTOMIZE = "chat:write.customize"
+    COMMANDS = "commands"
+    FILES_READ = "files:read"
+    FILES_WRITE = "files:write"
     GROUPS_HISTORY = "groups:history"
     GROUPS_READ = "groups:read"
+    IM_HISTORY = "im:history"
     LINKS_READ = "links:read"
     LINKS_WRITE = "links:write"
+    MPIM_HISTORY = "mpim:history"
+    MPIM_READ = "mpim:read"
     REACTIONS_READ = "reactions:read"
     REACTIONS_WRITE = "reactions:write"
     TEAM_READ = "team:read"
     USERS_READ = "users:read"
     USERS_READ_EMAIL = "users:read.email"
-
-
-class SlackIntegrationScopeInReview(StrEnum):
-    ASSISTANT_WRITE = "assistant:write"
-    CANVASES_WRITE = "canvases:write"
-    CHANNELS_MANAGE = "channels:manage"
-    COMMANDS = "commands"
-    FILES_READ = "files:read"
-    FILES_WRITE = "files:write"
-    IM_HISTORY = "im:history"
-    MPIM_HISTORY = "mpim:history"
-    MPIM_READ = "mpim:read"
 
 
 class SlashCommandName(StrEnum):

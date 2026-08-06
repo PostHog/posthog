@@ -18,12 +18,12 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig, PaginatedResponse } from 'lib/api'
 
-import { DataModelingJob, DataWarehouseSavedQuery } from '~/types'
+import { DataModelingJob, DataModelingSyncInterval, DataWarehouseSavedQuery } from '~/types'
 
 import { warehouseSavedQueriesResumeCreate } from 'products/data_warehouse/frontend/generated/api'
 
 import type { CountedPaginatedResponse } from '../../../lib/api'
-import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
+import { DEFAULT_MATERIALIZE_SYNC_FREQUENCY, dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 
 const REFRESH_INTERVAL = 10000
 const DEFAULT_JOBS_PAGE_SIZE = 10
@@ -37,6 +37,7 @@ export interface materializationJobsLogicValues {
     dataModelingJobs: PaginatedResponse<DataModelingJob> | null
     dataModelingJobsLoading: boolean
     hasMoreJobsToLoad: boolean
+    initialSyncFrequency: DataModelingSyncInterval
     resumingMaterialization: boolean
     savedQuery: DataWarehouseSavedQuery | null
     savedQueryLoading: boolean
@@ -120,6 +121,9 @@ export interface materializationJobsLogicActions {
     resumeMaterialization: () => {
         value: true
     }
+    setInitialSyncFrequency: (syncFrequency: DataModelingSyncInterval) => {
+        syncFrequency: DataModelingSyncInterval
+    }
     setResumingMaterialization: (resuming: boolean) => {
         resuming: boolean
     }
@@ -154,6 +158,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
         setStartingMaterialization: (starting: boolean) => ({ starting }),
         resumeMaterialization: true,
         setResumingMaterialization: (resuming: boolean) => ({ resuming }),
+        setInitialSyncFrequency: (syncFrequency: DataModelingSyncInterval) => ({ syncFrequency }),
     }),
     loaders(({ values, props }) => ({
         savedQuery: [
@@ -195,6 +200,15 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
         ],
     })),
     reducers({
+        // What the not-yet-materialized panel will ask for. Kept here rather than in component state
+        // so it survives the panel remounting while the saved query reloads.
+        initialSyncFrequency: [
+            DEFAULT_MATERIALIZE_SYNC_FREQUENCY,
+            {
+                setInitialSyncFrequency: (_, { syncFrequency }: { syncFrequency: DataModelingSyncInterval }) =>
+                    syncFrequency,
+            },
+        ],
         resumingMaterialization: [
             false,
             {
