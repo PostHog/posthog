@@ -41,6 +41,7 @@ import {
 
 import type { SeriesRename } from 'lib/components/EntityFilterInfo'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
+import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { isDefinitionStale } from 'lib/utils/definitions'
 
@@ -702,7 +703,11 @@ export function TaxonomicFilterMenu({
                     // popover's default focusable flow until rendered).
                     initialFocus={comboboxOverlaysTrigger ? comboboxInputRef : undefined}
                     className={cn(
-                        'p-0 gap-0 overflow-hidden flex flex-col w-[calc(100%_-_2rem)] @[720px]/main-content-container:w-[720px] h-[400px]'
+                        'p-0 gap-0 overflow-hidden flex flex-col w-[calc(100%_-_2rem)] @[720px]/main-content-container:w-[720px] h-[400px]',
+                        // Portaled out of any enclosing Lemon Popover, so mark it
+                        // as inside — otherwise picking a property dismisses the
+                        // parent overlay (e.g. a table's column header menu).
+                        CLICK_OUTSIDE_BLOCK_CLASS
                     )}
                 >
                     {state.kind === 'combobox' && (
@@ -784,7 +789,7 @@ export function TaxonomicFilterMenu({
                     onBack={state.origin === 'menu' ? openMenu : openDwhPick}
                 />
             )}
-            <DropdownMenuContent align="start" className="min-w-[240px]">
+            <DropdownMenuContent align="start" className={cn('min-w-[240px]', CLICK_OUTSIDE_BLOCK_CLASS)}>
                 {/* The input-trigger box already does "type to make a new filter",
                     so the explicit "New filter…" row would be redundant there. */}
                 {!useInputTrigger && (

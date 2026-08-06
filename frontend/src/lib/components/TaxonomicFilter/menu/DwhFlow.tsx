@@ -55,11 +55,13 @@ import {
     Tabs,
     TabsList,
     TabsTrigger,
+    cn,
 } from '@posthog/quill'
 
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { DatabaseTablePreview } from 'lib/components/TablePreview/DatabaseTablePreview'
 import type { TablePreviewExpressionColumn } from 'lib/components/TablePreview/types'
+import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { Link } from 'lib/lemon-ui/Link'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { urls } from 'scenes/urls'
@@ -287,7 +289,10 @@ export function MenuFilterDwhConfig({
                 // three-row grid, body scroll) comes from Quill's
                 // base dialog styling regardless of size.
                 size="wide"
-                className="gap-0 p-0"
+                // `CLICK_OUTSIDE_BLOCK_CLASS`: portaled out of any enclosing
+                // Lemon Popover, so mark it as inside — otherwise configuring
+                // a table dismisses the parent overlay.
+                className={cn('gap-0 p-0', CLICK_OUTSIDE_BLOCK_CLASS)}
             >
                 <DialogHeader className="flex-row items-center gap-2 px-4 py-3 border-b">
                     <Button
