@@ -17,8 +17,9 @@ interface QueueEntry {
 }
 
 // Above this many queued invocations a program's queue is dispatched immediately instead of
-// waiting for the tick to end. Matches the Rust side's rayon chunk size, past which a bigger
-// batch buys no more parallelism.
+// waiting for the tick to end, bounding how much converted-event memory a single batch holds
+// and how long the first waiter sits in the queue. The Rust side derives its rayon chunk size
+// from the batch it receives, so this cap doesn't limit fan-out.
 export const DEFAULT_MAX_BATCH_SIZE = 500
 
 /**
