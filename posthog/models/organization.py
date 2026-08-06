@@ -57,6 +57,10 @@ class OrganizationUsageInfo(TypedDict):
     ai_credits: OrganizationUsageResource | None
     signals_credits: OrganizationUsageResource | None
     posthog_code_credits: OrganizationUsageResource | None
+    posthog_code_token_credits: OrganizationUsageResource | None
+    sandbox_compute_credits: OrganizationUsageResource | None
+    sandbox_compute_cpu_millicore_seconds: OrganizationUsageResource | None
+    sandbox_compute_memory_mib_seconds: OrganizationUsageResource | None
     workflow_emails: OrganizationUsageResource | None
     workflow_push: OrganizationUsageResource | None
     workflow_destinations_dispatched: OrganizationUsageResource | None
