@@ -810,6 +810,7 @@ export class PostgresPersonRepository
                         FROM posthog_persondistinctid
                         WHERE person_id = $2
                           AND team_id = $3
+                          AND is_deleted = false
                         ORDER BY id
                         FOR UPDATE SKIP LOCKED
                         LIMIT $4
@@ -824,6 +825,7 @@ export class PostgresPersonRepository
                     SET person_id = $1, version = COALESCE(version, 0)::numeric + 1
                     WHERE person_id = $2
                       AND team_id = $3
+                      AND is_deleted = false
                     RETURNING *
                 `
 
@@ -939,6 +941,7 @@ export class PostgresPersonRepository
                     SET person_id = $1, version = COALESCE(version, 0)::numeric + 1
                     WHERE person_id = ANY($2::bigint[])
                       AND team_id = $3
+                      AND is_deleted = false
                     RETURNING *`,
                 [target.id, sourceIds, target.team_id],
                 'updateDistinctIdPersonFold'
@@ -1177,14 +1180,14 @@ export class PostgresPersonRepository
             update
         ).map(
             (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
-        )} WHERE id = $${idParamIndex} AND team_id = $${teamIdParamIndex}
+        )} WHERE id = $${idParamIndex} AND team_id = $${teamIdParamIndex} AND is_deleted = false
         RETURNING ${PERSON_COLUMNS}, COALESCE(pg_column_size(properties)::bigint, 0::bigint) as properties_size_bytes
         /* operation='updatePersonWithPropertiesSize',purpose='${tag || 'update'}' */`
 
         // Potentially overriding values badly if there was an update to the person after computing updateValues above
         const queryString = `UPDATE posthog_person SET version = ${versionString}, ${Object.keys(update).map(
             (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
-        )} WHERE id = $${idParamIndex} AND team_id = $${teamIdParamIndex}
+        )} WHERE id = $${idParamIndex} AND team_id = $${teamIdParamIndex} AND is_deleted = false
         RETURNING ${PERSON_COLUMNS}
         /* operation='updatePerson',purpose='${tag || 'update'}' */`
 
@@ -1264,7 +1267,7 @@ export class PostgresPersonRepository
                     is_identified = $4,
                     last_seen_at = $5,
                     version = COALESCE(version, 0)::numeric + 1
-                WHERE team_id = $6 AND uuid = $7 AND version = $8
+                WHERE team_id = $6 AND uuid = $7 AND version = $8 AND is_deleted = false
                 RETURNING ${PERSON_COLUMNS}
                 `,
                 [
@@ -1390,7 +1393,7 @@ export class PostgresPersonRepository
                     $7::text[],
                     $8::text[]
                 ) AS batch(batch_uuid, batch_team_id, new_properties, new_properties_last_updated_at, new_properties_last_operation, new_is_identified, new_created_at, new_last_seen_at)
-                WHERE p.uuid = batch.batch_uuid AND p.team_id = batch.batch_team_id
+                WHERE p.uuid = batch.batch_uuid AND p.team_id = batch.batch_team_id AND p.is_deleted = false
                 RETURNING ${PERSON_COLUMNS_PREFIXED}
                 `,
                 [

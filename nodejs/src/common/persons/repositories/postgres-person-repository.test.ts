@@ -220,6 +220,29 @@ describe('PostgresPersonRepository', () => {
             )
         }
 
+        function buildPersonUpdate(person: InternalPerson, distinctId: string, version: number) {
+            return {
+                id: person.id,
+                team_id: person.team_id,
+                uuid: person.uuid,
+                distinct_id: distinctId,
+                properties: { name: 'Jane' },
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                created_at: person.created_at,
+                version,
+                is_identified: person.is_identified,
+                is_user_id: person.is_user_id,
+                last_seen_at: person.last_seen_at,
+                needs_write: true,
+                properties_to_set: { name: 'Jane' },
+                properties_to_unset: [],
+                original_is_identified: false,
+                original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+                original_last_seen_at: null,
+            }
+        }
+
         it('excludes tombstoned persons from person reads', async () => {
             const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'tombstoned-person-did')
@@ -252,6 +275,89 @@ describe('PostgresPersonRepository', () => {
             await expect(repository.countDistinctIdsForPersons(team.id, [person.id])).resolves.toEqual(
                 new Map([[person.id, 1]])
             )
+        })
+
+        it('updatePerson does not touch a tombstoned person', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const person = await createTestPerson(team.id, 'guard-update-did')
+            await tombstonePerson(person)
+
+            await expect(
+                repository.updatePerson(
+                    person,
+                    createPersonUpdateFields(person, { properties: { a: 1 } }),
+                    'guard-test'
+                )
+            ).rejects.toThrow(NoRowsUpdatedError)
+        })
+
+        it('updatePersonAssertVersion does not touch a tombstoned person even at the matching version', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const person = await createTestPerson(team.id, 'guard-assert-did')
+            await tombstonePerson(person)
+
+            // The tombstone bumped the row to person.version + 1; assert against that exact
+            // version so only the is_deleted guard can reject the write.
+            const [version, messages] = await repository.updatePersonAssertVersion(
+                buildPersonUpdate(person, 'guard-assert-did', person.version + 1)
+            )
+
+            expect(version).toBeUndefined()
+            expect(messages).toEqual([])
+        })
+
+        it('updatePersonsBatch skips tombstoned persons and leaves the death version intact', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const livePerson = await createTestPerson(team.id, 'guard-batch-live-did')
+            const deadPerson = await createTestPerson(team.id, 'guard-batch-dead-did')
+            await tombstonePerson(deadPerson)
+            const deathVersion = deadPerson.version + 1
+
+            const results = await repository.updatePersonsBatch([
+                buildPersonUpdate(livePerson, 'guard-batch-live-did', livePerson.version),
+                buildPersonUpdate(deadPerson, 'guard-batch-dead-did', deathVersion),
+            ])
+
+            expect(results.get(livePerson.uuid)).toMatchObject({ success: true })
+            expect(results.get(deadPerson.uuid)?.success).toBe(false)
+            expect(results.get(deadPerson.uuid)?.error).toBeInstanceOf(NoRowsUpdatedError)
+
+            const rows = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT version FROM posthog_person WHERE team_id = $1 AND id = $2',
+                [team.id, deadPerson.id],
+                'fetchDeadPersonVersion'
+            )
+            expect(Number(rows.rows[0].version)).toBe(deathVersion)
+        })
+
+        it.each([
+            [
+                'moveDistinctIds',
+                (source: InternalPerson, target: InternalPerson) => repository.moveDistinctIds(source, target),
+            ],
+            [
+                'moveDistinctIds with limit',
+                (source: InternalPerson, target: InternalPerson) => repository.moveDistinctIds(source, target, 10),
+            ],
+            [
+                'moveDistinctIdsFromPersons',
+                (source: InternalPerson, target: InternalPerson) =>
+                    repository.moveDistinctIdsFromPersons([source], target),
+            ],
+        ])('%s moves only live distinct id mappings', async (_name, move) => {
+            const team = await getFirstTeam(hub.postgres)
+            const source = await createTestPerson(team.id, 'guard-move-live-did')
+            const target = await createTestPerson(team.id, 'guard-move-target-did')
+            await repository.addDistinctId(source, 'guard-move-dead-did', 0)
+            await tombstoneDistinctId(team.id, 'guard-move-dead-did')
+
+            const result = await move(source, target)
+
+            expect(result).toMatchObject({ success: true, distinctIdsMoved: ['guard-move-live-did'] })
+            const sourceRows = await fetchDistinctIds(postgres, source)
+            expect(sourceRows).toHaveLength(1)
+            expect(sourceRows[0].distinct_id).toBe('guard-move-dead-did')
         })
     })
 
