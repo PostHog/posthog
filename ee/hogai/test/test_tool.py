@@ -506,6 +506,10 @@ class TestDangerousOperationBindsApprovedArguments(BaseTest):
         thinking_message: str = "test"
         args_schema: type[BaseModel] = _ApprovalArgs
 
+        def get_required_resource_access(self):
+            # Every registered tool must declare this, and subclassing registers under the shared name.
+            return [("feature_flag", "editor")]
+
         async def is_dangerous_operation(self, **kwargs) -> bool:
             return True
 
