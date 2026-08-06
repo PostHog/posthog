@@ -173,6 +173,27 @@ async def test_unparseable_config_routes_through_handler():
 
 
 @pytest.mark.asyncio
+async def test_schema_deleted_mid_sync_routes_through_handler():
+    # The schema can be deleted (or soft-deleted) between the job being created and this
+    # activity's mid-run re-fetch of it, e.g. a user removes the table while its sync is in
+    # flight. Every retry re-reads the same gone row, so it must be treated as non-retryable
+    # instead of crash-looping on every attempt.
+    error = ExternalDataSchema.DoesNotExist("ExternalDataSchema matching query does not exist.")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+
+    with _patched_activity(source) as handle_mock:
+        module._get_external_data_schema.side_effect = error
+        handle_mock.side_effect = NonRetryableException()
+        with pytest.raises(NonRetryableException):
+            await import_data_activity_sync(_inputs())
+
+    handle_mock.assert_awaited_once()
+    assert handle_mock.await_args.args[5] is error
+    source.parse_config.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_source_classified_retryable_error_logged_as_warning_not_exception():
     # A rate-limit / transient error the source retries internally reaches _handle_import_error only
     # once those retries exhaust. Temporal retries the whole activity, so it must be logged at
