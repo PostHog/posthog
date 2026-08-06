@@ -205,7 +205,7 @@ export enum NodeKind {
     MCPToolDescriptionsQuery = 'MCPToolDescriptionsQuery',
     MCPToolSampleIntentsQuery = 'MCPToolSampleIntentsQuery',
     MCPToolNeighborsQuery = 'MCPToolNeighborsQuery',
-    MCPUnmetDemandQuery = 'MCPUnmetDemandQuery',
+    MCPMissingCapabilitiesQuery = 'MCPMissingCapabilitiesQuery',
 
     // Property values
     PropertyValuesQuery = 'PropertyValuesQuery',
@@ -286,7 +286,7 @@ export type AnyDataNode =
     | MCPToolDescriptionsQuery
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
-    | MCPUnmetDemandQuery
+    | MCPMissingCapabilitiesQuery
 
 /**
  * @discriminator kind
@@ -414,7 +414,7 @@ export type QuerySchema =
     | MCPToolDescriptionsQuery
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
-    | MCPUnmetDemandQuery
+    | MCPMissingCapabilitiesQuery
 
     // Property values
     | PropertyValuesQuery
@@ -3261,8 +3261,8 @@ export interface MCPToolNeighborsQuery extends DataNode<MCPToolNeighborsQueryRes
 
 export type CachedMCPToolNeighborsQueryResponse = CachedQueryResponse<MCPToolNeighborsQueryResponse>
 
-/** One unmet-demand report: a capability an agent asked for and could not get. */
-export interface MCPUnmetDemandItem {
+/** One missing-capability report: a capability an agent asked for and could not get. */
+export interface MCPMissingCapabilitiesItem {
     timestamp: string
     /** The agent's own words for the capability it wanted, from $mcp_intent. */
     intent: string
@@ -3276,15 +3276,15 @@ export interface MCPUnmetDemandItem {
     person_properties: string
 }
 
-export interface MCPUnmetDemandQueryResponse extends AnalyticsQueryResponseBase {
-    results: MCPUnmetDemandItem[]
+export interface MCPMissingCapabilitiesQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPMissingCapabilitiesItem[]
     /** Whether more reports exist past this page. */
     has_next: boolean
 }
 
 /** Chronological feed of $mcp_missing_capability reports — what agents asked for and could not get. */
-export interface MCPUnmetDemandQuery extends DataNode<MCPUnmetDemandQueryResponse> {
-    kind: NodeKind.MCPUnmetDemandQuery
+export interface MCPMissingCapabilitiesQuery extends DataNode<MCPMissingCapabilitiesQueryResponse> {
+    kind: NodeKind.MCPMissingCapabilitiesQuery
     dateRange?: DateRange
     /** Case-insensitive substring match over the report text. */
     search?: string
@@ -3295,7 +3295,7 @@ export interface MCPUnmetDemandQuery extends DataNode<MCPUnmetDemandQueryRespons
     offset?: integer
 }
 
-export type CachedMCPUnmetDemandQueryResponse = CachedQueryResponse<MCPUnmetDemandQueryResponse>
+export type CachedMCPMissingCapabilitiesQueryResponse = CachedQueryResponse<MCPMissingCapabilitiesQueryResponse>
 
 export enum WebStatsBreakdown {
     Page = 'Page',

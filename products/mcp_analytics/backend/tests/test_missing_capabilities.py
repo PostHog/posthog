@@ -6,15 +6,15 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import DateRange, MCPUnmetDemandItem, MCPUnmetDemandQuery
+from posthog.schema import DateRange, MCPMissingCapabilitiesItem, MCPMissingCapabilitiesQuery
 
 from posthog.rbac.user_access_control import UserAccessControlError
 
-from products.mcp_analytics.backend.hogql_queries.unmet_demand import MCPUnmetDemandQueryRunner
+from products.mcp_analytics.backend.hogql_queries.missing_capabilities import MCPMissingCapabilitiesQueryRunner
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 
-class TestMCPUnmetDemandQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
     def _emit(
         self,
         *,
@@ -36,12 +36,12 @@ class TestMCPUnmetDemandQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhouse
             properties=properties,
         )
 
-    def _run(self, **kwargs: Any) -> list[MCPUnmetDemandItem]:
+    def _run(self, **kwargs: Any) -> list[MCPMissingCapabilitiesItem]:
         return self._response(**kwargs).results
 
     def _response(self, *, date_from: str = "-30d", **kwargs: Any) -> Any:
-        runner = MCPUnmetDemandQueryRunner(
-            query=MCPUnmetDemandQuery(dateRange=DateRange(date_from=date_from), **kwargs),
+        runner = MCPMissingCapabilitiesQueryRunner(
+            query=MCPMissingCapabilitiesQuery(dateRange=DateRange(date_from=date_from), **kwargs),
             team=self.team,
         )
         return runner.calculate()
@@ -136,11 +136,11 @@ class TestMCPUnmetDemandQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhouse
 
     def test_allows_access_when_flag_enabled(self) -> None:
         # The mixin enables only the mcp-analytics flag, mirroring the DRF gate.
-        runner = MCPUnmetDemandQueryRunner(query=MCPUnmetDemandQuery(), team=self.team, user=self.user)
+        runner = MCPMissingCapabilitiesQueryRunner(query=MCPMissingCapabilitiesQuery(), team=self.team, user=self.user)
         assert runner.validate_query_runner_access(self.user) is True
 
     def test_blocks_access_when_flag_disabled(self) -> None:
-        runner = MCPUnmetDemandQueryRunner(query=MCPUnmetDemandQuery(), team=self.team, user=self.user)
+        runner = MCPMissingCapabilitiesQueryRunner(query=MCPMissingCapabilitiesQuery(), team=self.team, user=self.user)
         with patch("posthoganalytics.feature_enabled", return_value=False):
             with self.assertRaises(UserAccessControlError):
                 runner.validate_query_runner_access(self.user)

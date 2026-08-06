@@ -25,7 +25,7 @@ export const MCP_RECURRING_REPORTS: MCPRecurringReport[] = [
         // Scoped to $mcp_intent on tool calls, which is set on ~88% of calls, so "couldn't do it"
         // is inferred from the error flag on the same call. $mcp_missing_capability is a different
         // and stronger signal — the agent saying outright that the tools it had weren't enough —
-        // and projects do emit it; it has its own surface in the Unmet demand tab. Whether this
+        // and projects do emit it; it has its own surface in the Missing capabilities tab. Whether this
         // weekly report should also fold it in is an open product question.
         prompt: [
             'Summarize what AI agents were trying to do with our MCP server this week,',

@@ -1,4 +1,4 @@
-"""The unmet-demand feed: every `$mcp_missing_capability` report, newest first.
+"""The missing-capabilities feed: every `$mcp_missing_capability` report, newest first.
 
 When a server enables `reportMissing`, the SDK registers a virtual `get_more_tools`
 tool; an agent that calls it says, in its own words, what it wanted and could not
@@ -14,10 +14,10 @@ from functools import cached_property
 from typing import TYPE_CHECKING
 
 from posthog.schema import (
-    CachedMCPUnmetDemandQueryResponse,
-    MCPUnmetDemandItem,
-    MCPUnmetDemandQuery,
-    MCPUnmetDemandQueryResponse,
+    CachedMCPMissingCapabilitiesQueryResponse,
+    MCPMissingCapabilitiesItem,
+    MCPMissingCapabilitiesQuery,
+    MCPMissingCapabilitiesQueryResponse,
 )
 
 from posthog.hogql import ast
@@ -52,11 +52,11 @@ _REPORT_TEXT = "toString(properties.$mcp_intent)"
 _CONVERSATION_ID = "coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id))"
 
 
-class MCPUnmetDemandQueryRunner(AnalyticsQueryRunner[MCPUnmetDemandQueryResponse]):
+class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilitiesQueryResponse]):
     """Chronological feed of the capabilities agents asked for and could not get.
 
-    Powers the "Unmet demand" tab and the `query-mcp-unmet-demand` MCP tool from one
-    path. The client label is resolved server-side by `mcp_harness`; unlike the
+    Powers the "Missing capabilities" tab and the `query-mcp-missing-capabilities` MCP
+    tool from one path. The client label is resolved server-side by `mcp_harness`; unlike the
     aggregating runners this one uses `harness_label_or_token_sql`, because a report
     row is a single event, not a grouping key: an unrecognized client is worth naming
     verbatim, and a report that carries no client identity at all (common — the SDK
@@ -64,8 +64,8 @@ class MCPUnmetDemandQueryRunner(AnalyticsQueryRunner[MCPUnmetDemandQueryResponse
     a client we merely failed to recognize, which "Other" would hide.
     """
 
-    query: MCPUnmetDemandQuery
-    cached_response: CachedMCPUnmetDemandQueryResponse
+    query: MCPMissingCapabilitiesQuery
+    cached_response: CachedMCPMissingCapabilitiesQueryResponse
 
     def validate_query_runner_access(self, user: "User") -> bool:
         return validate_mcp_analytics_access(self.team, user)
@@ -149,17 +149,17 @@ class MCPUnmetDemandQueryRunner(AnalyticsQueryRunner[MCPUnmetDemandQueryResponse
             },
         )
 
-    def _calculate(self) -> MCPUnmetDemandQueryResponse:
+    def _calculate(self) -> MCPMissingCapabilitiesQueryResponse:
         with tags_context(
             product=Product.MCP_ANALYTICS,
             feature=Feature.QUERY,
             team_id=self.team.id,
-            name="mcp_unmet_demand_query",
+            name="mcp_missing_capabilities_query",
         ):
             response = execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
-                query_type="mcp_unmet_demand_query",
+                query_type="mcp_missing_capabilities_query",
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
@@ -168,7 +168,7 @@ class MCPUnmetDemandQueryRunner(AnalyticsQueryRunner[MCPUnmetDemandQueryResponse
         rows = response.results or []
         has_next = len(rows) > self.limit
         results = [
-            MCPUnmetDemandItem(
+            MCPMissingCapabilitiesItem(
                 timestamp=str(row[0] or ""),
                 intent=str(row[1] or ""),
                 harness=str(row[2] or ""),
@@ -179,7 +179,7 @@ class MCPUnmetDemandQueryRunner(AnalyticsQueryRunner[MCPUnmetDemandQueryResponse
             )
             for row in rows[: self.limit]
         ]
-        return MCPUnmetDemandQueryResponse(
+        return MCPMissingCapabilitiesQueryResponse(
             results=results,
             has_next=has_next,
             timings=response.timings,

@@ -22,10 +22,10 @@ import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
 import { MCPAnalyticsTab, TAB_AI_PROMPTS, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
 import { MCPAnalyticsSceneMenuBar } from './MCPAnalyticsSceneMenuBar'
 import { MCPAnalyticsToolQuality } from './MCPAnalyticsToolQuality'
+import { MCPAnalyticsMissingCapabilities } from './missingCapabilities/MCPAnalyticsMissingCapabilities'
 import { MCPAnalyticsNotifications } from './notifications/MCPAnalyticsNotifications'
 import { mcpAnalyticsNotificationsLogic } from './notifications/mcpAnalyticsNotificationsLogic'
 import { MCPSessionsPlaylist } from './sessions/MCPSessionsPlaylist'
-import { MCPAnalyticsUnmetDemand } from './unmetDemand/MCPAnalyticsUnmetDemand'
 
 export const scene: SceneExport = {
     component: MCPAnalyticsScene,
@@ -50,7 +50,7 @@ function MCPAnalyticsSceneContent(): JSX.Element {
     const { onboardingState, dashboardStage } = useValues(mcpAnalyticsOnboardingLogic)
     const { notificationCount } = useValues(mcpAnalyticsNotificationsLogic)
 
-    // search belongs to the Sessions and Unmet demand tabs (both free-text filters over their
+    // search belongs to the Sessions and Missing capabilities tabs (both free-text filters over their
     // own list) — drop it for every other tab; the date range stays shared everywhere.
     const { search: _search, ...sharedParams } = searchParams
 
@@ -96,11 +96,11 @@ function MCPAnalyticsSceneContent(): JSX.Element {
             'data-attr': 'mcp-analytics-intent-clustering-tab',
         },
         {
-            key: 'unmet-demand',
-            label: 'Unmet demand',
-            content: <MCPAnalyticsUnmetDemand />,
-            link: combineUrl(urls.mcpAnalyticsUnmetDemand(), searchParams).url,
-            'data-attr': 'mcp-analytics-unmet-demand-tab',
+            key: 'missing-capabilities',
+            label: 'Missing capabilities',
+            content: <MCPAnalyticsMissingCapabilities />,
+            link: combineUrl(urls.mcpAnalyticsMissingCapabilities(), searchParams).url,
+            'data-attr': 'mcp-analytics-missing-capabilities-tab',
         },
         {
             key: 'notifications',

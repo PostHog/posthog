@@ -51,8 +51,8 @@ describe('early data derivations', () => {
     // item must offer the in-app surface that shows them; with none, only the docs link makes sense.
     it.each([
         [0, 'pending', undefined],
-        [2, 'ok', '/mcp-analytics/unmet-demand'],
-    ])('grades %i unmet-demand reports as %s and links to %s', (reports, status, appLinkTo) => {
+        [2, 'ok', '/mcp-analytics/missing-capabilities'],
+    ])('grades %i missing-capability reports as %s and links to %s', (reports, status, appLinkTo) => {
         const item = buildChecklist(stats({ missingCapabilityReports: reports })).find(
             (i) => i.key === 'missing-capability'
         )

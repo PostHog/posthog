@@ -611,8 +611,8 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
-    [NodeKind.MCPUnmetDemandQuery]: {
-        name: 'MCP unmet demand',
+    [NodeKind.MCPMissingCapabilitiesQuery]: {
+        name: 'MCP missing capabilities',
         description: 'Capabilities agents asked an MCP server for and could not get.',
         icon: IconPieChart,
         inMenu: false,

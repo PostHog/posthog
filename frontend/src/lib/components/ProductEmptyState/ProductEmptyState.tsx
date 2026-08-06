@@ -15,7 +15,8 @@ export interface ProductEmptyStateProps {
     mode: ProductEmptyStateMode
 }
 
-const ACCENT_TEXT = 'text-[var(--empty-state-accent)] dark:text-[var(--empty-state-accent-dark)]'
+/** Product accent as text colour. Requires `--empty-state-accent(-dark)` on an ancestor. */
+export const ACCENT_TEXT = 'text-[var(--empty-state-accent)] dark:text-[var(--empty-state-accent-dark)]'
 
 /**
  * The product setup empty state: pitch + install command on the left, an animated

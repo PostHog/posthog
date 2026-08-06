@@ -625,9 +625,9 @@ const MCPToolDescriptionsQuery = z.object({
 
 const integer = z.coerce.number().int()
 
-const MCPUnmetDemandQuery = z.object({
+const MCPMissingCapabilitiesQuery = z.object({
     dateRange: DateRange.optional(),
-    kind: z.literal('MCPUnmetDemandQuery').default('MCPUnmetDemandQuery'),
+    kind: z.literal('MCPMissingCapabilitiesQuery').default('MCPMissingCapabilitiesQuery'),
     limit: integer.describe('Page size; defaults to 100, capped at 500.').optional(),
     offset: integer
         .describe(
@@ -690,9 +690,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
         schema: MCPToolDescriptionsQuery,
         kind: 'MCPToolDescriptionsQuery',
     }),
-    'query-mcp-unmet-demand': createQueryWrapper({
-        name: 'query-mcp-unmet-demand',
-        schema: MCPUnmetDemandQuery,
-        kind: 'MCPUnmetDemandQuery',
+    'query-mcp-missing-capabilities': createQueryWrapper({
+        name: 'query-mcp-missing-capabilities',
+        schema: MCPMissingCapabilitiesQuery,
+        kind: 'MCPMissingCapabilitiesQuery',
     }),
 }

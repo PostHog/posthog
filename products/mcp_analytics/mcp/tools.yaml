@@ -367,8 +367,8 @@ wrappers:
             - version
             - tags
         feature_flag: mcp-analytics
-    query-mcp-unmet-demand:
-        schema_ref: MCPUnmetDemandQuery
+    query-mcp-missing-capabilities:
+        schema_ref: MCPMissingCapabilitiesQuery
         enabled: true
         scopes:
             - query:read
@@ -377,9 +377,9 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
-        title: List MCP unmet-demand reports
+        title: List MCP missing-capability reports
         description: >
-            Return what agents asked this MCP server for and could not get — the unmet-demand feed. Each row is one
+            Return what agents asked this MCP server for and could not get — demand the server isn't serving. Each row is one
             $mcp_missing_capability report an agent filed through the SDK's virtual get_more_tools tool, in the agent's
             own words, with its timestamp, resolved client label, conversation id and person. Newest first, never
             aggregated: asks are near-unique, so ranking by repeat count would return a wall of ones. Accepts a
@@ -387,7 +387,7 @@ wrappers:
             has_next flag indicates whether more remain). This is the qualitative counterpart to the tool-usage
             queries: those say how the tools you have are doing, this says which tools you don't have. Use to answer
             "what do agents wish our MCP server could do?" or "what should we build next?".
-        system_prompt_hint: MCP unmet demand — capabilities agents asked for and could not get, newest first
+        system_prompt_hint: MCP missing capabilities — what agents asked for and could not get, newest first
         exclude_properties:
             - response
             - modifiers

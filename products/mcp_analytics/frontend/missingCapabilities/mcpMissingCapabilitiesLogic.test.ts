@@ -2,23 +2,23 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 
-import { MCPUnmetDemandItem } from '~/queries/schema/schema-general'
+import { MCPMissingCapabilitiesItem } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import {
-    UNMET_DEMAND_PAGE_SIZE,
+    MISSING_CAPABILITIES_PAGE_SIZE,
     isUnidentifiedClient,
-    mcpUnmetDemandLogic,
+    mcpMissingCapabilitiesLogic,
     parsePersonProperties,
-} from './mcpUnmetDemandLogic'
+} from './mcpMissingCapabilitiesLogic'
 
 jest.mock('lib/api')
 
 const mockApi = api as jest.Mocked<typeof api>
 
-type UnmetDemandLogic = ReturnType<typeof mcpUnmetDemandLogic.build>
+type MissingCapabilitiesLogic = ReturnType<typeof mcpMissingCapabilitiesLogic.build>
 
-const report = (intent: string, overrides: Partial<MCPUnmetDemandItem> = {}): MCPUnmetDemandItem => ({
+const report = (intent: string, overrides: Partial<MCPMissingCapabilitiesItem> = {}): MCPMissingCapabilitiesItem => ({
     timestamp: '2026-07-15 00:00:00',
     intent,
     harness: 'Claude Code',
@@ -28,7 +28,7 @@ const report = (intent: string, overrides: Partial<MCPUnmetDemandItem> = {}): MC
     ...overrides,
 })
 
-describe('unmet demand row helpers', () => {
+describe('missing capability row helpers', () => {
     // A report with no client identity is common (the SDK only stamps $mcp_client_name on
     // $mcp_initialize), so the table must tell that apart from a named client.
     it.each([
@@ -51,13 +51,13 @@ describe('unmet demand row helpers', () => {
     })
 })
 
-describe('mcpUnmetDemandLogic', () => {
-    let logic: UnmetDemandLogic | null = null
+describe('mcpMissingCapabilitiesLogic', () => {
+    let logic: MissingCapabilitiesLogic | null = null
 
     // Mounted per test, not in beforeEach: afterMount fires the first page load, so the
     // response for it has to be queued before the logic exists.
-    function mountLogic(): UnmetDemandLogic {
-        logic = mcpUnmetDemandLogic()
+    function mountLogic(): MissingCapabilitiesLogic {
+        logic = mcpMissingCapabilitiesLogic()
         logic.mount()
         return logic
     }
@@ -78,9 +78,9 @@ describe('mcpUnmetDemandLogic', () => {
 
         expect(mockApi.query).toHaveBeenCalledWith(
             expect.objectContaining({
-                kind: 'MCPUnmetDemandQuery',
+                kind: 'MCPMissingCapabilitiesQuery',
                 dateRange: { date_from: '-30d', date_to: null },
-                limit: UNMET_DEMAND_PAGE_SIZE,
+                limit: MISSING_CAPABILITIES_PAGE_SIZE,
                 offset: 0,
             })
         )
@@ -88,7 +88,7 @@ describe('mcpUnmetDemandLogic', () => {
 
     // A search or a date change is a different result set, so both reset to page one. The term
     // itself goes to the backend, which does the case-insensitive matching.
-    it.each<[string, (logic: UnmetDemandLogic) => void, Record<string, unknown>]>([
+    it.each<[string, (logic: MissingCapabilitiesLogic) => void, Record<string, unknown>]>([
         ['a search term', (l) => l.actions.setSearch('pdf'), { search: 'pdf', offset: 0 }],
         [
             'a date change',

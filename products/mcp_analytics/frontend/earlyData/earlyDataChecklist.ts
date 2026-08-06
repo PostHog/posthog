@@ -72,7 +72,7 @@ export function buildChecklist(stats: EarlyStats): ChecklistItem[] {
         },
         {
             key: 'missing-capability',
-            title: 'Unmet demand reporting',
+            title: 'Missing capability reporting',
             detail:
                 stats.missingCapabilityReports > 0
                     ? `Agents have filed ${stats.missingCapabilityReports} missing-capability report${stats.missingCapabilityReports === 1 ? '' : 's'}.`
@@ -81,7 +81,7 @@ export function buildChecklist(stats: EarlyStats): ChecklistItem[] {
             docsUrl: DOCS.missingCapability,
             appLink:
                 stats.missingCapabilityReports > 0
-                    ? { to: urls.mcpAnalyticsUnmetDemand(), label: 'Read the reports' }
+                    ? { to: urls.mcpAnalyticsMissingCapabilities(), label: 'Read the reports' }
                     : undefined,
         },
     ]
