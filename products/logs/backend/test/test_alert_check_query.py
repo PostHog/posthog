@@ -13,6 +13,7 @@ from parameterized import parameterized
 
 from posthog.schema import HogQLQueryModifiers
 
+from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.filters import replace_filters
@@ -50,17 +51,12 @@ def _seed_log_rows(
         for log_idx in range(count):
             ts = minute_start + dt.timedelta(seconds=10 + log_idx)
             rows.append(
-                {
-                    "uuid": f"{uuid_prefix}-{minute_idx:03d}-{log_idx:03d}",
-                    "team_id": team_id,
-                    "timestamp": ts.strftime("%Y-%m-%d %H:%M:%S.%f"),
-                    "body": "",
-                    "severity_text": "info",
-                    "severity_number": 9,
-                    "service_name": service,
-                    "resource_attributes": {},
-                    "attributes_map_str": {},
-                }
+                _log_row(
+                    team_id,
+                    f"{uuid_prefix}-{minute_idx:03d}-{log_idx:03d}",
+                    ts.strftime("%Y-%m-%d %H:%M:%S.%f"),
+                    service,
+                )
             )
     if rows:
         sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
@@ -1393,17 +1389,13 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
                 off = rng.randint(0, range_seconds - 1)
                 attributes = {"job_kind__str": rng.choice(attr_values)} if rng.random() < 0.5 else {}
                 all_rows.append(
-                    {
-                        "uuid": f"batched-equiv-{trial}-{i}",
-                        "team_id": self.team.id,
-                        "timestamp": (base + dt.timedelta(seconds=off)).strftime("%Y-%m-%d %H:%M:%S.%f"),
-                        "body": "",
-                        "severity_text": "info",
-                        "severity_number": 9,
-                        "service_name": service_name,
-                        "resource_attributes": {},
-                        "attributes_map_str": attributes,
-                    }
+                    _log_row(
+                        self.team.id,
+                        f"batched-equiv-{trial}-{i}",
+                        (base + dt.timedelta(seconds=off)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                        service_name,
+                        attributes=attributes,
+                    )
                 )
         if all_rows:
             sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in all_rows))
@@ -1731,59 +1723,60 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
             assert sum(b.count for b in single) > 0
 
 
+# Predicate hoisting: the batched query's outer WHERE carries the OR of
+# per-alert predicates (behind HOIST_BATCHED_ALERT_PREDICATES) so ClickHouse
+# can prune with the primary key and skip indexes. The redundant-looking OR
+# is the point: removing it reverts to scanning the whole time window, the
+# shape that made attribute-filter alerts exceed the 5 GiB read cap and
+# auto-disable in production.
 class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
-    """Predicate hoisting: the batched query's outer WHERE carries the OR of
-    per-alert predicates (behind HOIST_BATCHED_ALERT_PREDICATES) so ClickHouse
-    can prune with the primary key and skip indexes. The redundant-looking OR
-    is the point: removing it reverts to scanning the whole time window, the
-    shape that made attribute-filter alerts exceed the 5 GiB read cap and
-    auto-disable in production.
-    """
-
     ATTR_KEY = "job_kind"
     ATTR_VALUE = "usage-rollup"
     TARGET_SERVICE = "hoist_usage_reporter"
     NOISY_SERVICES = ("hoist_noisy_api", "hoist_noisy_worker", "hoist_noisy_web")
     NCA = datetime(2026, 2, 3, 10, 5, 0, tzinfo=UTC)
 
-    def setUp(self):
-        super().setUp()
+    CLASS_DATA_LEVEL_SETUP = True
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
         # Bulk of the team's volume comes from services the target alert does
         # not match, mirroring the production incident's data shape.
         base = datetime(2026, 2, 3, 9, 50, 0, tzinfo=UTC)
-        for svc in self.NOISY_SERVICES:
-            _seed_log_rows(self.team.id, svc, base, [3] * 15, f"hoist-noise-{svc}")
-        attrs = {f"{self.ATTR_KEY}__str": self.ATTR_VALUE}
+        for svc in cls.NOISY_SERVICES:
+            _seed_log_rows(cls.team.id, svc, base, [3] * 15, f"hoist-noise-{svc}")
+        attrs = {f"{cls.ATTR_KEY}__str": cls.ATTR_VALUE}
         rows = [
             _log_row(
-                self.team.id,
+                cls.team.id,
                 "hoist-target-1",
                 "2026-02-03 10:01:10",
-                self.TARGET_SERVICE,
+                cls.TARGET_SERVICE,
                 severity="error",
                 attributes=attrs,
             ),
             _log_row(
-                self.team.id,
+                cls.team.id,
                 "hoist-target-2",
                 "2026-02-03 10:02:20",
-                self.TARGET_SERVICE,
+                cls.TARGET_SERVICE,
                 severity="error",
                 attributes=attrs,
             ),
             # Same service and attribute but wrong severity: must be excluded
             # by the severity leg of the predicate.
             _log_row(
-                self.team.id,
+                cls.team.id,
                 "hoist-target-3",
                 "2026-02-03 10:03:30",
-                self.TARGET_SERVICE,
+                cls.TARGET_SERVICE,
                 severity="info",
                 attributes=attrs,
             ),
             # Same service and severity but no attribute: must be excluded by
             # the attribute leg.
-            _log_row(self.team.id, "hoist-target-4", "2026-02-03 10:04:40", self.TARGET_SERVICE, severity="error"),
+            _log_row(cls.team.id, "hoist-target-4", "2026-02-03 10:04:40", cls.TARGET_SERVICE, severity="error"),
         ]
         sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
 
@@ -1805,7 +1798,7 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
             self.ATTR_KEY, attr_value, services=[self.TARGET_SERVICE], severities=["error", "fatal"]
         )
 
-    def _print_query(self, query) -> tuple[str, dict]:
+    def _print_query(self, query: ast.SelectQuery) -> tuple[str, dict]:
         # Same modifier resolution and {filters} placeholder handling as
         # `execute_hogql_query`, so the printed SQL is the production query text.
         query = replace_filters(query, None, self.team)
@@ -1831,7 +1824,7 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
                 after = after[:cut]
         return after
 
-    def _build_two_alert_query(self, builder: str):
+    def _build_two_alert_query(self, builder: str) -> ast.SelectQuery:
         service_alert = self._make_alert(name="svc", filters={"serviceNames": [self.NOISY_SERVICES[0]]})
         attr_alert = self._make_alert(name="attr", filters=self._incident_filters(self.ATTR_VALUE))
         date_from = self.NCA - dt.timedelta(minutes=15)
@@ -1842,9 +1835,11 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
             date_to=self.NCA,
             projection_eligible=False,
         )
-        if builder == "bucketed":
-            return query._build_bucketed_query(5, 10_000)
-        return query._build_count_per_range_query(_rolling_check_ranges(self.NCA, 5, 5, 3))
+        builders = {
+            "bucketed": lambda: query._build_bucketed_query(5, 10_000),
+            "count_per_range": lambda: query._build_count_per_range_query(_rolling_check_ranges(self.NCA, 5, 5, 3)),
+        }
+        return builders[builder]()
 
     @parameterized.expand(
         [
