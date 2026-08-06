@@ -624,3 +624,91 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
 
         runner = AccountsQueryRunner(query=AccountsQuery(), team=self.team)
         self.assertRaises(UserAccessControlError, runner.validate_query_runner_access, self.user)
+
+    def test_multiple_aggregating_joins_preserve_left_join_defaults(self):
+        # Selecting tags + notebooks + a custom property together merges the sibling
+        # federated joins into one UNION ALL join; an account with none of them must
+        # keep the LEFT JOIN defaults (0 notebooks, [] tags, empty property) through
+        # the merged re-aggregation.
+        tag = Tag.objects.create(name="billing", team=self.team)
+        definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        full = create_account(team_id=self.team.id, name="Full")
+        full.tagged_items.create(tag=tag)
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user)
+        ResourceNotebook.objects.create(account=full, notebook=notebook)
+        CustomPropertyValue.objects.unscoped().create(
+            team_id=self.team.id, account=full, definition=definition, value_str="enterprise"
+        )
+        empty = create_account(team_id=self.team.id, name="Empty")
+
+        runner = AccountsQueryRunner(
+            query=AccountsQuery(
+                select=[
+                    "id",
+                    "accounts.tags.names AS tag_names",
+                    "accounts.notebooks.count AS notebook_count",
+                    f"accounts.custom_properties.values.`{definition.id}` AS plan",
+                ]
+            ),
+            team=self.team,
+            user=self.user,
+        )
+        response = runner.calculate()
+        rows = {str(row[runner.columns.index("id")]): row for row in response.results}
+        tags_idx = runner.columns.index("tag_names")
+        count_idx = runner.columns.index("notebook_count")
+        plan_idx = runner.columns.index("plan")
+
+        self.assertEqual(rows[str(full.id)][tags_idx], ["billing"])
+        self.assertEqual(rows[str(full.id)][count_idx], 1)
+        self.assertEqual(rows[str(full.id)][plan_idx], "enterprise")
+        self.assertEqual(rows[str(empty.id)][tags_idx], [])
+        self.assertEqual(rows[str(empty.id)][count_idx], 0)
+        self.assertFalse(rows[str(empty.id)][plan_idx])
+
+    def test_warehouse_join_columns_compile_alongside_aggregating_joins(self):
+        # Warehouse (s3) joins must be left out of the federated join merge: merging
+        # them once broke compilation with "Can't access field on LazyJoinType".
+        # Printing is enough to catch that regression — no s3 read happens here.
+        from posthog.hogql.query import HogQLQueryExecutor
+
+        from products.data_tools.backend.models.join import DataWarehouseJoin
+        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="account_list",
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            team=self.team,
+            credential=credential,
+            url_pattern="http://localhost:19000/bucket/account_list/*.csv",
+            columns={
+                "external_id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "valid": True},
+                "total_mrr": {"hogql": "FloatDatabaseField", "clickhouse": "Nullable(Float64)", "valid": True},
+            },
+        )
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="system.accounts",
+            source_table_key="external_id",
+            joining_table_name="account_list",
+            joining_table_key="external_id",
+            field_name="account_list",
+        )
+
+        runner = AccountsQueryRunner(
+            query=AccountsQuery(
+                select=[
+                    "id",
+                    "accounts.tags.names AS tag_names",
+                    "accounts.notebooks.count AS notebook_count",
+                    "accounts.account_list.total_mrr AS mrr",
+                ]
+            ),
+            team=self.team,
+            user=self.user,
+        )
+        sql, _context = HogQLQueryExecutor(
+            query=runner.to_query(), team=self.team, query_type="AccountsQuery", user=self.user
+        ).generate_clickhouse_sql()
+        self.assertIn("account_list", sql)
