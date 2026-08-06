@@ -54,6 +54,8 @@ export type Person = Message<'personhog.types.v1.Person'> & {
     propertiesLastOperation: Uint8Array
 
     /**
+     * Epoch milliseconds, as are all timestamps in this message.
+     *
      * @generated from field: int64 created_at = 7;
      */
     createdAt: bigint
@@ -74,6 +76,8 @@ export type Person = Message<'personhog.types.v1.Person'> & {
     isUserId?: boolean
 
     /**
+     * Epoch milliseconds (matching created_at); the writer decodes it as such.
+     *
      * @generated from field: optional int64 last_seen_at = 11;
      */
     lastSeenAt?: bigint

@@ -109,7 +109,7 @@ pub async fn load_person_from_pg(
         team_id: team_id as i64,
         approx_bytes: approx_person_bytes(properties_text_len),
         properties,
-        created_at: created_at.timestamp(),
+        created_at: created_at.timestamp_millis(),
         version: version.unwrap_or(0),
         is_identified,
     }))

@@ -406,9 +406,9 @@ impl PersonHogLeaderService {
 /// writer's upsert verbatim. Properties are guaranteed by admission
 /// (NUL sanitization plus the exact size measure); this checks the
 /// identity fields against the writer's bind conversions — uuid must
-/// parse, team_id must fit the column's `integer`, and created_at must
-/// sit inside a sanity range ([1970, 9999]) any legitimately created
-/// person satisfies.
+/// parse, team_id must fit the column's `integer`, and created_at — epoch
+/// milliseconds, like every timestamp in the proto — must sit inside a
+/// sanity range ([1970, 9999]) any legitimately created person satisfies.
 ///
 /// These three are the only fields that need checking because they are
 /// the only writer-bound fields representable in `CachedPerson`: the
@@ -416,7 +416,7 @@ impl PersonHogLeaderService {
 /// unconditionally empty in `cached_person_to_proto`, so a leader-produced
 /// record structurally cannot carry values the writer would refuse there.
 fn assert_writeable(p: &CachedPerson) -> Result<(), String> {
-    const MAX_EPOCH_SECS_YEAR_9999: i64 = 253_402_300_799;
+    const MAX_EPOCH_MS_YEAR_9999: i64 = 253_402_300_799_999;
     if Uuid::parse_str(&p.uuid).is_err() {
         return Err("uuid does not parse as a UUID".to_string());
     }
@@ -426,7 +426,7 @@ fn assert_writeable(p: &CachedPerson) -> Result<(), String> {
             p.team_id
         ));
     }
-    if p.created_at < 0 || p.created_at > MAX_EPOCH_SECS_YEAR_9999 {
+    if p.created_at < 0 || p.created_at > MAX_EPOCH_MS_YEAR_9999 {
         return Err(format!(
             "created_at epoch {} is outside sane bounds",
             p.created_at

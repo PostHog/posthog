@@ -123,13 +123,13 @@ fn push_person<'a>(arrays: &mut PreparedArrays<'a>, p: &'a Person) -> Result<(),
         .map_err(|e| unbindable("properties_last_updated_at", e))?;
     let properties_last_operation = bytes_to_optional_json_str(&p.properties_last_operation)
         .map_err(|e| unbindable("properties_last_operation", e))?;
-    let created_at = epoch_secs_to_datetime(p.created_at)
+    let created_at = epoch_ms_to_datetime(p.created_at)
         .ok_or_else(|| unbindable("created_at", format!("epoch {} out of range", p.created_at)))?;
     let last_seen_at = match p.last_seen_at {
         None => None,
-        Some(secs) => Some(
-            epoch_secs_to_datetime(secs)
-                .ok_or_else(|| unbindable("last_seen_at", format!("epoch {secs} out of range")))?,
+        Some(ms) => Some(
+            epoch_ms_to_datetime(ms)
+                .ok_or_else(|| unbindable("last_seen_at", format!("epoch {ms} out of range")))?,
         ),
     };
 
@@ -312,8 +312,8 @@ fn bytes_to_optional_json_str(bytes: &[u8]) -> Result<Option<&str>, String> {
         .map_err(|e| format!("non-UTF-8 JSON bytes: {e}"))
 }
 
-fn epoch_secs_to_datetime(epoch_secs: i64) -> Option<DateTime<Utc>> {
-    Utc.timestamp_opt(epoch_secs, 0).single()
+fn epoch_ms_to_datetime(epoch_ms: i64) -> Option<DateTime<Utc>> {
+    Utc.timestamp_millis_opt(epoch_ms).single()
 }
 
 #[cfg(test)]
@@ -365,10 +365,10 @@ mod tests {
     }
 
     #[test]
-    fn epoch_secs_conversion() {
-        let dt = epoch_secs_to_datetime(1700000000).unwrap();
-        assert_eq!(dt.timestamp(), 1700000000);
-        assert!(epoch_secs_to_datetime(i64::MAX).is_none());
+    fn epoch_ms_conversion() {
+        let dt = epoch_ms_to_datetime(1700000000000).unwrap();
+        assert_eq!(dt.timestamp_millis(), 1700000000000);
+        assert!(epoch_ms_to_datetime(i64::MAX).is_none());
     }
 
     #[tokio::test]
