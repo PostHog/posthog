@@ -21,6 +21,7 @@ import {
 } from "@posthog/shared";
 import type { ExecutionMode, Task } from "@posthog/shared/domain-types";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { useTaskRepositoryDraftStore } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { navigateToTaskPending } from "@posthog/ui/router/navigationBridge";
@@ -70,6 +71,7 @@ interface UseTaskCreationOptions {
   sessionId: string;
   selectedDirectory: string;
   selectedRepository?: string | null;
+  repositories?: string[];
   githubIntegrationId?: number;
   githubUserIntegrationId?: string;
   workspaceMode: WorkspaceMode;
@@ -174,6 +176,7 @@ export function useTaskCreation({
   sessionId,
   selectedDirectory,
   selectedRepository,
+  repositories,
   githubIntegrationId,
   githubUserIntegrationId,
   workspaceMode,
@@ -364,10 +367,11 @@ export function useTaskCreation({
           adapter,
         );
         const input = prepareTaskInput(serializedContent, filePaths, {
-          // In channels chat-box mode no repo is attached up front, even if a
-          // directory/repo is lingering in the persisted picker state.
-          selectedDirectory: allowNoRepo ? undefined : selectedDirectory,
+          // Repo-optional surfaces may still supply an explicit task folder or
+          // repository selection; otherwise creation falls back to scratch.
+          selectedDirectory: selectedDirectory || undefined,
           selectedRepository: allowNoRepo ? null : selectedRepository,
+          repositories,
           githubIntegrationId,
           githubUserIntegrationId,
           workspaceMode,
@@ -491,6 +495,12 @@ export function useTaskCreation({
           if (!contentOverride) {
             useDraftStore.getState().actions.setDraft(sessionId, null);
           }
+          // The task-level repository/folder pick is consumed by this task;
+          // the next one starts from the space defaults again ("save to
+          // space" is the durable path).
+          if (allowNoRepo && channelId) {
+            useTaskRepositoryDraftStore.getState().clearDraft(channelId);
+          }
           void trackTaskCreated(input, selectedDirectory, hostClient);
           // Repo-less channel tasks create no workspace row (the agent runs in
           // a scratch dir surfaced as a synthetic workspace), so the normal
@@ -547,6 +557,7 @@ export function useTaskCreation({
       sessionId,
       selectedDirectory,
       selectedRepository,
+      repositories,
       githubIntegrationId,
       githubUserIntegrationId,
       workspaceMode,
