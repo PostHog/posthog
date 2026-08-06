@@ -5,9 +5,13 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonRichContentEditor } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { CommentsLogicProps, commentsLogic } from './commentsLogic'
+import { SlackDestinationPicker } from './SlackDestinationPicker'
 
 export type CommentComposerProps = CommentsLogicProps & {
     /** The footer variant swaps to a "New comment" button while a reply is in progress; 'inline-reply' renders inside the thread */
@@ -15,11 +19,31 @@ export type CommentComposerProps = CommentsLogicProps & {
 }
 
 export const CommentComposer = ({ variant = 'footer', ...props }: CommentComposerProps): JSX.Element => {
-    const { key, isSendingComment, replyingCommentId, itemContext, isEmpty, currentComposerDraft } = useValues(
-        commentsLogic(props)
-    )
-    const { sendComposedContent, clearItemContext, setRichContentEditor, onRichContentEditorUpdate, startNewComment } =
-        useActions(commentsLogic(props))
+    const {
+        key,
+        isSendingComment,
+        replyingCommentId,
+        itemContext,
+        isEmpty,
+        currentComposerDraft,
+        composerSendToSlack,
+        composerSlackIntegrationId,
+        composerSlackChannel,
+    } = useValues(commentsLogic(props))
+    const {
+        sendComposedContent,
+        clearItemContext,
+        setRichContentEditor,
+        onRichContentEditorUpdate,
+        startNewComment,
+        setComposerSendToSlack,
+        setComposerSlackIntegrationId,
+        setComposerSlackChannel,
+    } = useActions(commentsLogic(props))
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    // Toggling a brand-new top-level comment straight to Slack; replies sync automatically.
+    const showSlackToggle = !replyingCommentId && !!featureFlags[FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC]
 
     const placeholder = replyingCommentId
         ? 'Reply...'
@@ -53,6 +77,14 @@ export const CommentComposer = ({ variant = 'footer', ...props }: CommentCompose
 
     const buttonSize = variant === 'inline-reply' ? 'small' : undefined
 
+    const primaryDisabledReason = isEmpty
+        ? 'No message'
+        : composerSendToSlack && !composerSlackIntegrationId
+          ? 'Select a Slack workspace'
+          : composerSendToSlack && !composerSlackChannel
+            ? 'Select a Slack channel'
+            : null
+
     return (
         <div className="flex flex-col gap-2">
             <LemonRichContentEditor
@@ -62,14 +94,36 @@ export const CommentComposer = ({ variant = 'footer', ...props }: CommentCompose
                 initialContent={currentComposerDraft}
                 onCreate={setRichContentEditor}
                 onUpdate={onRichContentEditorUpdate}
+                // Same guard as the primary button — otherwise the shortcut silently posts a
+                // plain comment while "Send to Slack" is toggled on without a channel picked.
                 onPressCmdEnter={() => {
-                    // The send buttons are disabled when empty - the shortcut must not bypass that
-                    if (!isEmpty) {
+                    if (!primaryDisabledReason && !isSendingComment) {
                         sendComposedContent(false)
                     }
                 }}
                 disabled={isSendingComment}
+                footerActions={
+                    showSlackToggle ? (
+                        <LemonButton
+                            size="small"
+                            icon={<IconSlack />}
+                            active={composerSendToSlack}
+                            onClick={() => setComposerSendToSlack(!composerSendToSlack)}
+                            tooltip="Send this comment to a Slack channel"
+                            data-attr="discussions-comment-send-to-slack-toggle"
+                        />
+                    ) : null
+                }
             />
+            {composerSendToSlack ? (
+                <SlackDestinationPicker
+                    integrationId={composerSlackIntegrationId}
+                    channel={composerSlackChannel}
+                    onIntegrationChange={setComposerSlackIntegrationId}
+                    onChannelChange={setComposerSlackChannel}
+                    className="rounded border border-border p-2"
+                />
+            ) : null}
             <div className="flex justify-between items-center gap-2">
                 <div className="flex-1" />
                 {itemContext ? (
@@ -83,7 +137,13 @@ export const CommentComposer = ({ variant = 'footer', ...props }: CommentCompose
                         type="secondary"
                         onClick={() => sendComposedContent(true)}
                         loading={isSendingComment}
-                        disabledReason={isEmpty ? 'No message' : null}
+                        disabledReason={
+                            composerSendToSlack
+                                ? 'Turn off the Slack toggle to add a task'
+                                : isEmpty
+                                  ? 'No message'
+                                  : null
+                        }
                         data-attr="discussions-comment-task"
                     >
                         Add as task
@@ -93,12 +153,14 @@ export const CommentComposer = ({ variant = 'footer', ...props }: CommentCompose
                     size={buttonSize}
                     type="primary"
                     onClick={() => sendComposedContent(false)}
+                    // Guard against double-submit: isSendingComment tracks the send (and the Slack
+                    // send) lifecycle, disabling the button while it's in flight.
                     loading={isSendingComment}
-                    disabledReason={isEmpty ? 'No message' : null}
+                    disabledReason={primaryDisabledReason}
                     sideIcon={<KeyboardShortcut command enter />}
                     data-attr="discussions-comment"
                 >
-                    Add {replyingCommentId ? 'reply' : 'comment'}
+                    {composerSendToSlack ? 'Send to Slack' : `Add ${replyingCommentId ? 'reply' : 'comment'}`}
                 </LemonButton>
             </div>
         </div>
