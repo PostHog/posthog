@@ -52,8 +52,8 @@ from products.tasks.backend.constants import (
     is_blocked_sandbox_env_key,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
-from products.tasks.backend.feature_flags import get_model_access_error
 from products.tasks.backend.exceptions import ComputeBillingLimitError
+from products.tasks.backend.feature_flags import get_model_access_error
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
