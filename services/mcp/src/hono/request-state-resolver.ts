@@ -42,7 +42,9 @@ export interface ResolvedState {
     /**
      * Whether the caller's team may reach third-party MCP tools through `exec`.
      * Gated on the same flag as the gateway UI — the tools are the gateway's payoff,
-     * so they roll out together.
+     * so they roll out together. Also forced off in read-only mode: a connected
+     * server's tools can mutate and PostHog can't prove otherwise, so the catalog's
+     * read-only filter has no equivalent to apply to them.
      *
      * Deliberately not folded into `allTools`: `instructions.ts` looks every entry up in
      * the static tool-definition registry (which throws on an unknown name) and renders
@@ -233,7 +235,7 @@ export class RequestStateResolver {
             sessionContext,
             allTools,
             scopeGatedTools,
-            gatewayToolsEnabled: useSingleExec && mergedFlags[MCP_GATEWAY_FLAG] === true,
+            gatewayToolsEnabled: useSingleExec && !readOnly && mergedFlags[MCP_GATEWAY_FLAG] === true,
             distinctId,
             renderUiEnabled,
             metadata,
