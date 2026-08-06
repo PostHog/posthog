@@ -1,7 +1,16 @@
+from typing import cast
+
 from unittest import TestCase
 from unittest.mock import patch
 
+from posthog.models.team.team import Team
+from posthog.models.user import User
+
 from products.dashboards.backend.warehouse_template_transfer import copy_referenced_warehouse_views
+
+# The DB / cross-project copy is mocked in these tests, so the team/user args are never dereferenced.
+_TEAM = cast(Team, None)
+_USER = cast(User, None)
 
 
 def _warehouse_tile(name: str, table_name: str) -> dict:
@@ -26,7 +35,7 @@ class TestWarehouseTemplateTileRewrite(TestCase):
     def test_renamed_view_rewrites_table_name(self, _copy) -> None:
         tiles = [_warehouse_tile("Revenue", "revenue")]
 
-        result = copy_referenced_warehouse_views(tiles=tiles, source_team=None, target_team=None, created_by=None)
+        result = copy_referenced_warehouse_views(tiles=tiles, source_team=_TEAM, target_team=_TEAM, created_by=_USER)
 
         assert result[0]["query"]["source"]["series"][0]["table_name"] == "revenue_copy"
         # Original tiles are not mutated in place.
@@ -46,7 +55,7 @@ class TestWarehouseTemplateTileRewrite(TestCase):
             },
         ]
 
-        result = copy_referenced_warehouse_views(tiles=tiles, source_team=None, target_team=None, created_by=None)
+        result = copy_referenced_warehouse_views(tiles=tiles, source_team=_TEAM, target_team=_TEAM, created_by=_USER)
 
         assert result[0]["query"]["source"]["series"][0]["table_name"] == "revenue_copy"
         assert result[1]["query"]["query"] == "SELECT amount FROM revenue_copy WHERE amount > 0"
@@ -55,7 +64,7 @@ class TestWarehouseTemplateTileRewrite(TestCase):
     def test_no_rename_returns_tiles_unchanged(self, _copy) -> None:
         tiles = [_warehouse_tile("Revenue", "revenue")]
 
-        result = copy_referenced_warehouse_views(tiles=tiles, source_team=None, target_team=None, created_by=None)
+        result = copy_referenced_warehouse_views(tiles=tiles, source_team=_TEAM, target_team=_TEAM, created_by=_USER)
 
         assert result is tiles
 
@@ -73,7 +82,7 @@ class TestWarehouseTemplateTileRewrite(TestCase):
             }
         ]
 
-        result = copy_referenced_warehouse_views(tiles=tiles, source_team=None, target_team=None, created_by=None)
+        result = copy_referenced_warehouse_views(tiles=tiles, source_team=_TEAM, target_team=_TEAM, created_by=_USER)
 
         assert result is tiles
         mock_copy.assert_not_called()
