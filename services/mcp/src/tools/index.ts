@@ -48,6 +48,7 @@ import updatePropertyDefinition from './projects/updatePropertyDefinition'
 import sessionRecordingSummarize from './replay/sessionRecordingSummarize'
 // Skills (deprecation aliases for the llma-skill-* → skill-* rename)
 import { SKILL_DEPRECATED_ALIASES } from './skills/deprecatedAliases'
+import { tasksArtifactsList, tasksCommentsList, tasksCommentsRetrieve } from './tasksContext'
 // Misc
 import {
     type ToolFilterOptions,
@@ -57,9 +58,13 @@ import {
 import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
 // Workflows (batch — orchestration over existing REST endpoints with a blast-radius guard)
 import { workflowsBlastRadius, workflowsRunBatch, workflowsScheduleCreate } from './workflows/batch'
-// Workflows (lifecycle — CRUD lives in generated/workflows.ts). workflows-disable is intentionally
-// not registered: editing active workflows is blocked, and exposing disable invited a
-// disable→edit→enable workaround. The factory stays in lifecycle.ts for easy re-enable.
+// Workflows (lifecycle — CRUD lives in generated/workflows.ts). workflows-disable is intentionally not
+// registered: draft routing is gated on ACTIVE status, so disable→edit→enable lands the edit straight on
+// the live row and resumes it, skipping the impact preview and signed confirm token that workflows-publish
+// makes unskippable. A tool description telling the agent not to do that isn't enforcement — prompt
+// injection reaching the agent would just ignore it. Register this only once edits made while disabled
+// stage a draft too, or re-enabling a workflow edited while disabled requires publish confirmation.
+// The factory stays in lifecycle.ts for that day.
 import { workflowsArchive, workflowsEnable } from './workflows/lifecycle'
 
 // Map of tool names to tool factory functions
@@ -106,6 +111,11 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Feedback
     'agent-feedback': submitFeedback,
+
+    // Current-task comments. The model never supplies a task id; the host-stamped MCP context does.
+    'tasks-artifacts-list': tasksArtifactsList,
+    'tasks-comments-list': tasksCommentsList,
+    'tasks-comments-retrieve': tasksCommentsRetrieve,
 
     // PostHog AI tools
     [EXECUTE_SQL_TOOL_NAME]: executeSql,

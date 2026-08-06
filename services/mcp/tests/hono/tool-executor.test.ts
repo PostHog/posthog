@@ -64,6 +64,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         sessionContext: null,
         allTools: tools as any,
         scopeGatedTools: [],
+        gatewayToolsEnabled: false,
         distinctId: 'test-distinct-id',
         renderUiEnabled: false,
         metadata: undefined,

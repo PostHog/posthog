@@ -1,5 +1,7 @@
 import {
   ArrowSquareOutIcon,
+  DownloadSimpleIcon,
+  EyeIcon,
   PackageIcon,
   SlackLogoIcon,
 } from "@phosphor-icons/react";
@@ -10,11 +12,20 @@ import {
 } from "@posthog/core/canvas/runArtifactSchemas";
 import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
 import {
+  SESSION_SERVICE,
+  type SessionService,
+} from "@posthog/core/sessions/sessionService";
+import { useService } from "@posthog/di/react";
+import {
+  Button,
   Empty,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@posthog/quill";
 import { readPrUrls } from "@posthog/shared";
 import type {
@@ -24,17 +35,16 @@ import type {
 } from "@posthog/shared/domain-types";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { useTaskRuns } from "@posthog/ui/features/canvas/hooks/useTaskRuns";
+import { canvasArtifactOpenHandler } from "@posthog/ui/features/canvas/utils/canvasArtifactNavigation";
 import { openPrInReview } from "@posthog/ui/features/code-review/openPrInReview";
 import { usePrArtifact } from "@posthog/ui/features/git-interaction/usePrArtifact";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { usePrComments } from "@posthog/ui/features/pr-review/usePrComments";
 import { usePrReviewThreads } from "@posthog/ui/features/pr-review/usePrReviewThreads";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
+import { toast } from "@posthog/ui/primitives/toast";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
-import { parseHttpsUrl, parseShareLink } from "@posthog/ui/utils/posthogLinks";
-import { navigateToShareTarget } from "@posthog/ui/utils/shareLinks";
-import { getPostHogUrl } from "@posthog/ui/utils/urls";
 import { type ReactNode, useMemo, useState } from "react";
 
 type ArtifactRow =
@@ -131,6 +141,7 @@ function ArtifactListRow({
   external,
   onOpen,
   onOpenExternal,
+  fileActions,
   onHoverStart,
 }: {
   icon: ReactNode;
@@ -141,6 +152,10 @@ function ArtifactListRow({
   /** Renders a trailing button that leaves the app instead of opening the
    *  artifact in place. Absent when there is nowhere safe to send the user. */
   onOpenExternal?: () => void;
+  fileActions?: {
+    onDownload: () => void;
+    downloading: boolean;
+  };
   onHoverStart?: () => void;
 }) {
   return (
@@ -172,6 +187,41 @@ function ArtifactListRow({
         >
           <ArrowSquareOutIcon size={12} />
         </button>
+      )}
+      {fileActions && onOpen && (
+        <div className="flex shrink-0 items-center gap-0.5 border-border border-l px-1">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="default"
+                  size="icon-sm"
+                  aria-label={`View ${title}`}
+                  onClick={onOpen}
+                />
+              }
+            >
+              <EyeIcon size={14} />
+            </TooltipTrigger>
+            <TooltipContent>View</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="default"
+                  size="icon-sm"
+                  aria-label={`Download ${title}`}
+                  disabled={fileActions.downloading}
+                  onClick={fileActions.onDownload}
+                />
+              }
+            >
+              <DownloadSimpleIcon size={14} />
+            </TooltipTrigger>
+            <TooltipContent>Download</TooltipContent>
+          </Tooltip>
+        </div>
       )}
     </div>
   );
@@ -230,22 +280,7 @@ function PrRow({
 }
 
 function CanvasRow({ name, url }: { name: string; url: string | null }) {
-  const parsed = url ? parseHttpsUrl(url) : null;
-  const target = parsed ? parseShareLink(parsed.href) : null;
-  const open =
-    parsed && target
-      ? () => {
-          const currentPostHogUrl = getPostHogUrl("/");
-          const currentPostHogOrigin = currentPostHogUrl
-            ? parseHttpsUrl(currentPostHogUrl)?.origin
-            : null;
-          if (parsed.origin === currentPostHogOrigin) {
-            navigateToShareTarget(target);
-          } else {
-            openExternalUrl(parsed.href);
-          }
-        }
-      : undefined;
+  const open = canvasArtifactOpenHandler(url);
   return (
     <ArtifactListRow
       icon={iconForTemplate("", { size: 14, className: "text-violet-9" })}
@@ -269,7 +304,9 @@ function FileRow({
   name: string;
   size: number | undefined;
 }) {
+  const sessionService = useService<SessionService>(SESSION_SERVICE);
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
+  const [downloading, setDownloading] = useState(false);
   const canOpen = !!runId && !!artifactId;
   const onOpen = canOpen
     ? () => {
@@ -280,12 +317,45 @@ function FileRow({
         });
       }
     : undefined;
+  const onDownload = canOpen
+    ? async () => {
+        setDownloading(true);
+        try {
+          const url = await sessionService.getCloudAttachmentPreviewUrl(
+            taskId,
+            runId as string,
+            artifactId as string,
+          );
+          if (!url) {
+            toast.error("This file is no longer available");
+            return;
+          }
+          const response = await fetch(url);
+          if (!response.ok) throw new Error("Artifact download failed");
+          const objectUrl = URL.createObjectURL(await response.blob());
+          const anchor = document.createElement("a");
+          anchor.href = objectUrl;
+          anchor.download = name;
+          anchor.click();
+          URL.revokeObjectURL(objectUrl);
+        } catch {
+          toast.error("Couldn't download file");
+        } finally {
+          setDownloading(false);
+        }
+      }
+    : undefined;
   return (
     <ArtifactListRow
       icon={<FileIcon filename={name} size={14} />}
       title={name}
       detail={["File", formatFileSize(size)].filter(Boolean).join(" · ")}
       onOpen={onOpen}
+      fileActions={
+        onDownload
+          ? { onDownload: () => void onDownload(), downloading }
+          : undefined
+      }
     />
   );
 }

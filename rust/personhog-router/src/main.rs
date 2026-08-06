@@ -36,6 +36,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Failed to install rustls crypto provider");
 
     let config = Config::init_from_env().expect("Invalid configuration");
+    if let Err(e) = config.validate_lease_timescales() {
+        panic!("invalid lease configuration: {e}");
+    }
     preregister_metrics();
 
     // Initialize tracing

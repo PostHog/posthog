@@ -223,6 +223,7 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
                 supports_incremental=endpoint_config.incremental_fields is not None,
                 supports_append=False,
                 incremental_fields=endpoint_config.incremental_fields or [],
+                should_sync_default=endpoint_config.should_sync_default,
             )
             for endpoint_config in REDDIT_ADS_CONFIG.values()
         ]
