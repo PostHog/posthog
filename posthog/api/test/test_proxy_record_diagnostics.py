@@ -251,6 +251,70 @@ class TestCheckLiveEvent(TestCase):
         self.assertEqual(result.status, "passed")
 
 
+class TestCheckLargeRecording(TestCase):
+    @parameterized.expand(
+        [
+            # A small recording reaches capture, a realistically sized one is dropped at the proxy
+            # hop: the core silent-loss bug. The customer's browser sees success; the diagnostic
+            # must not.
+            ("dropped", 200, requests.exceptions.ConnectionError("reset"), "failed", "didn't arrive", "config"),
+            # A body-size limit that answers 413 rather than dropping. capture allows 25 MB, so this
+            # limit isn't capture.
+            ("rejected_413", 200, 413, "failed", "413", "config"),
+            # A proxy that truncates the body turns valid JSON into a 4xx parse error at capture.
+            ("truncated_4xx", 200, 400, "failed", "truncated", "config"),
+            # Both sizes forwarded identically, so the proxy handles large bodies fine.
+            ("both_forwarded", 200, 200, "passed", "same as a small", None),
+            # capture rejects the synthetic payload equally at both sizes, so the transport is fine.
+            ("both_rejected", 400, 400, "passed", "same as a small", None),
+            # A transient 5xx on the large upload is non-blocking, not a proxy misconfiguration.
+            ("large_5xx", 200, 503, "warned", "temporary", None),
+        ]
+    )
+    @patch("posthog.api.proxy_record_diagnostics.requests.post")
+    def test_size_comparison(
+        self, _name, baseline, large, expected_status, expected_substr, expected_remediation, post_mock
+    ):
+        def to_effect(v):
+            return v if isinstance(v, Exception) else MagicMock(status_code=v)
+
+        post_mock.side_effect = [to_effect(baseline), to_effect(large)]
+
+        result = diagnostics._check_large_recording(_record())
+
+        self.assertEqual(result.status, expected_status)
+        self.assertIn(expected_substr, result.detail.lower())
+        if expected_remediation is None:
+            self.assertIsNone(result.remediation)
+        else:
+            assert result.remediation is not None
+            self.assertEqual(result.remediation.type, expected_remediation)
+
+    @patch("posthog.api.proxy_record_diagnostics.requests.post")
+    def test_no_baseline_is_non_blocking(self, post_mock):
+        # If even the small upload can't reach us, size isn't the story, so stay a warning and
+        # don't fire the large probe (nothing to compare against).
+        post_mock.side_effect = requests.exceptions.ConnectionError("refused")
+        result = diagnostics._check_large_recording(_record())
+        self.assertEqual(result.status, "warned")
+        self.assertIn("baseline", result.detail.lower())
+        self.assertEqual(post_mock.call_count, 1)
+
+    @patch("posthog.api.proxy_record_diagnostics.requests.post")
+    def test_probes_recording_endpoint_with_a_realistically_sized_body(self, post_mock):
+        # Guards the two properties that make the check meaningful: it hits `/s/`, and the large
+        # probe body actually exceeds the threshold (a padding regression would silently neuter it).
+        post_mock.return_value = MagicMock(status_code=200)
+
+        diagnostics._check_large_recording(_record(domain="e.example.com"))
+
+        self.assertEqual(post_mock.call_count, 2)
+        urls = [call.args[0] for call in post_mock.call_args_list]
+        self.assertTrue(all(url == "https://e.example.com/s/" for url in urls))
+        large_body = post_mock.call_args_list[1].kwargs["data"]
+        self.assertGreaterEqual(len(large_body), diagnostics.LARGE_RECORDING_PROBE_BYTES)
+
+
 class TestCheckCertExpiry(TestCase):
     @parameterized.expand(
         [
@@ -308,7 +372,37 @@ class TestDiagnoseOrchestrator(TestCase):
         report = diagnostics.diagnose(_record(target=target))
 
         self.assertEqual(report.summary.status, "healthy")
-        self.assertEqual([c.id for c in report.checks], ["cname", "live_event", "cert_expiry"])
+        self.assertEqual([c.id for c in report.checks], ["cname", "live_event", "large_recording", "cert_expiry"])
+        get_mock.assert_not_called()
+
+    @patch("posthog.api.proxy_record_diagnostics._check_cert_expiry")
+    @patch("posthog.api.proxy_record_diagnostics.requests.post")
+    @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
+    @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
+    def test_serving_proxy_dropping_large_recordings_reports_fail(self, ResolverMock, get_mock, post_mock, cert_mock):
+        # The reported symptom: the proxy serves small events (live_event passes) but silently drops
+        # large recording uploads. The report must surface a fail pinned to the large-recording check,
+        # not read as healthy.
+        cname = MagicMock()
+        cname.target.to_text.return_value = CF_TARGET
+        ResolverMock.return_value.resolve.return_value = [cname]
+        cert_mock.return_value = diagnostics.CheckResult(
+            id="cert_expiry", name="Certificate expiry", status="passed", detail="ok"
+        )
+        # live_event (/i/v0/e/) succeeds and the small /s/ baseline succeeds, but the large /s/ upload
+        # is dropped before arriving.
+        post_mock.side_effect = [
+            MagicMock(status_code=200),
+            MagicMock(status_code=200),
+            requests.exceptions.ConnectionError("reset"),
+        ]
+
+        report = diagnostics.diagnose(_record(target=CF_TARGET))
+
+        self.assertEqual(report.summary.status, "fail")
+        self.assertEqual(report.summary.primary_issue, "large_recording")
+        large = next(c for c in report.checks if c.id == "large_recording")
+        self.assertEqual(large.status, "failed")
         get_mock.assert_not_called()
 
     @patch("posthog.api.proxy_record_diagnostics.requests.post")

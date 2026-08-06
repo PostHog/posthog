@@ -110,6 +110,30 @@ def _msg_cert_expiring_soon(domain: str, days_remaining: int) -> str:
     )
 
 
+def _msg_large_recording_dropped(domain: str, size_kb: int, error: str) -> str:
+    return (
+        f"A small recording reached PostHog, but a {size_kb} KB test upload to `{domain}` didn't arrive "
+        f"({error}). Something in front of PostHog is dropping large request bodies, so session recordings "
+        "above roughly this size are lost even though the browser gets a success response."
+    )
+
+
+def _msg_large_recording_rejected(domain: str, size_kb: int) -> str:
+    return (
+        f"A {size_kb} KB test upload to `{domain}` was rejected with HTTP 413 before reaching PostHog. "
+        "PostHog accepts recording uploads up to 25 MB, so a smaller limit is being set by a reverse proxy "
+        "or CDN in front of your domain, and recordings above that size are lost."
+    )
+
+
+def _msg_large_recording_truncated(domain: str, size_kb: int, status_code: int) -> str:
+    return (
+        f"A small recording reached PostHog, but a {size_kb} KB upload to `{domain}` came back HTTP "
+        f"{status_code}. The large body is likely being truncated before it reaches us, which drops "
+        "recordings above roughly this size."
+    )
+
+
 LOGGER = structlog.get_logger(__name__)
 
 CheckStatus = Literal["passed", "warned", "failed", "skipped"]
@@ -121,6 +145,13 @@ RemediationType = Literal["dns", "config", "wait", "retry"]
 CHECK_TIMEOUT_S = 3.0
 DNS_QUERY_TIMEOUT_S = 1.0
 CERT_EXPIRY_WARN_DAYS = 14
+
+# The recording probe sends a body this large so a size-dependent drop is visible. Managed-proxy
+# customers have lost every recording above roughly 50 KB to a reverse proxy or CDN body-size limit
+# while the browser still got HTTP 200, so a trivial probe reports the proxy healthy and the loss
+# stays invisible. 256 KB sits well above that threshold and far below capture's 25 MB limit on
+# `/s/`, so the proxy hop is the only thing that could reject or truncate it.
+LARGE_RECORDING_PROBE_BYTES: Final[int] = 256 * 1024
 
 
 @dataclass
@@ -200,8 +231,12 @@ def diagnose(record: ProxyRecord) -> DiagnosticReport:
     checks.append(live_check)
 
     if live_check.status == "passed":
-        # Healthy — the endpoint works. The only remaining concern is renewal, read from the
-        # certificate the proxy is actually serving.
+        # The proxy serves and accepts a trivial event, but a reverse proxy or CDN body-size
+        # limit can still drop or truncate large recording uploads while returning 200, so probe
+        # with a realistically sized body before calling it healthy.
+        checks.append(_check_large_recording(record))
+        # The endpoint works. The only remaining concern is renewal, read from the certificate
+        # the proxy is actually serving.
         checks.append(_check_cert_expiry(record, is_cloudflare=is_cloudflare))
     elif is_cloudflare and cname_check.status == "passed":
         # Not serving, DNS resolves, and provisioned on the Cloudflare path — the custom hostname
@@ -261,13 +296,20 @@ def _build_summary(checks: list[CheckResult]) -> ReportSummary:
     live_event = by_id.get("live_event")
 
     if live_event is not None and live_event.status == "passed":
+        # A dropped large recording is silent data loss, so it outranks the renewal warning.
+        large = by_id.get("large_recording")
+        if large is not None and large.status == "failed":
+            next_action = large.remediation.summary if large.remediation else large.detail
+            return ReportSummary(status="fail", primary_issue="large_recording", next_action=next_action)
         cert = by_id.get("cert_expiry")
         if cert is not None and cert.status == "failed":
             return ReportSummary(status="warn", primary_issue="cert_expiry", next_action=cert.detail)
+        if large is not None and large.status == "warned":
+            return ReportSummary(status="warn", primary_issue="large_recording", next_action=large.detail)
         return ReportSummary(status="healthy", primary_issue=None, next_action=None)
 
     # Walk in priority order: things the customer can act on first, then fallthrough.
-    priority = ("cname", "caa", "http_challenge", "cloudflare", "live_event", "cert_expiry")
+    priority = ("cname", "caa", "http_challenge", "cloudflare", "large_recording", "live_event", "cert_expiry")
     for check_id in priority:
         c = by_id.get(check_id)
         if c is None or c.status not in ("failed", "warned"):
@@ -616,6 +658,137 @@ def _check_live_event(record: ProxyRecord) -> CheckResult:
         name="Live event probe",
         status="passed",
         detail=f"Sent a test event to `{record.domain}` successfully.",
+    )
+
+
+@dataclass(frozen=True)
+class _ProbeOutcome:
+    """Result of one recording probe. Exactly one field is set: `status_code` when the request
+    reached an HTTP responder, `transport_error` (an exception class name) when it never completed
+    because the connection was refused/reset, TLS failed, or it timed out."""
+
+    status_code: Optional[int]
+    transport_error: Optional[str]
+
+
+def _recording_probe_body(padding_bytes: int) -> str:
+    # A valid `$snapshot` payload for the /s/ recording endpoint. capture accepts an unknown api_key
+    # and returns 2xx (team resolution happens later in ingestion), so a working proxy forwards this
+    # to a success response and truncation flips it to a 4xx parse error. The padding rides inside
+    # snapshot data to size the body without changing its shape. The api_key is a placeholder, so
+    # ingestion drops the event downstream and no synthetic recording lands in any project.
+    return json.dumps(
+        {
+            "event": "$snapshot",
+            "api_key": "test",
+            "distinct_id": "posthog-proxy-diagnostics",
+            "properties": {
+                "$session_id": "posthog-proxy-diagnostics",
+                "$window_id": "posthog-proxy-diagnostics",
+                "$snapshot_data": [{"type": 6, "data": {"payload": "x" * padding_bytes}}],
+            },
+        }
+    )
+
+
+def _probe_recording(record: ProxyRecord, body: str) -> _ProbeOutcome:
+    # allow_redirects=False is the same SSRF boundary as the other probes: an org admin controlling
+    # the domain could otherwise redirect us to an internal target.
+    try:
+        response = requests.post(
+            f"https://{record.domain}/s/",
+            headers={"Content-Type": "application/json"},
+            data=body,
+            timeout=CHECK_TIMEOUT_S,
+            allow_redirects=False,
+        )
+    except requests.exceptions.RequestException as e:
+        return _ProbeOutcome(status_code=None, transport_error=e.__class__.__name__)
+    return _ProbeOutcome(status_code=response.status_code, transport_error=None)
+
+
+def _check_large_recording(record: ProxyRecord) -> CheckResult:
+    """Probe `/s/` with a small body and a realistically sized one, and flag the case where the
+    small upload reaches PostHog but the large one is dropped or truncated.
+
+    This catches the silent replay data loss customers hit on managed reverse proxies: a proxy or
+    CDN body-size limit drops large recording uploads while still answering the browser with HTTP
+    200, so a trivial probe reports the proxy healthy and the loss stays invisible. Sizing the probe
+    above a typical limit makes the divergence between small and large observable.
+    """
+    size_kb = LARGE_RECORDING_PROBE_BYTES // 1024
+
+    baseline = _probe_recording(record, _recording_probe_body(0))
+    if baseline.transport_error is not None:
+        # Without a small upload reaching us we can't attribute a large-upload failure to size, and
+        # the live_event check already reports an unserving proxy, so keep this non-blocking.
+        return CheckResult(
+            id="large_recording",
+            name="Large recording upload",
+            status="warned",
+            detail=(
+                f"Couldn't send a baseline recording upload to `{record.domain}` "
+                f"({baseline.transport_error}), so large uploads couldn't be tested."
+            ),
+        )
+
+    large = _probe_recording(record, _recording_probe_body(LARGE_RECORDING_PROBE_BYTES))
+
+    remediation = Remediation(
+        type="config",
+        summary=(
+            f"Raise the request body-size limit, and any read or buffer timeout, on the reverse "
+            f"proxy or CDN in front of `{record.domain}` to at least a few MB."
+        ),
+    )
+
+    if large.transport_error is not None:
+        return CheckResult(
+            id="large_recording",
+            name="Large recording upload",
+            status="failed",
+            detail=_msg_large_recording_dropped(record.domain, size_kb, large.transport_error),
+            remediation=remediation,
+        )
+
+    # A completed request always carries a status; narrow it for the type checker.
+    assert large.status_code is not None
+
+    if large.status_code == 413:
+        return CheckResult(
+            id="large_recording",
+            name="Large recording upload",
+            status="failed",
+            detail=_msg_large_recording_rejected(record.domain, size_kb),
+            remediation=remediation,
+        )
+
+    baseline_ok = baseline.status_code is not None and baseline.status_code < 400
+    if baseline_ok and 400 <= large.status_code < 500:
+        return CheckResult(
+            id="large_recording",
+            name="Large recording upload",
+            status="failed",
+            detail=_msg_large_recording_truncated(record.domain, size_kb, large.status_code),
+            remediation=remediation,
+        )
+
+    if large.status_code >= 500:
+        return CheckResult(
+            id="large_recording",
+            name="Large recording upload",
+            status="warned",
+            detail=(
+                f"A {size_kb} KB recording upload to `{record.domain}` returned HTTP {large.status_code}. "
+                "This is usually temporary; run the diagnostic again in a few minutes."
+            ),
+        )
+
+    return CheckResult(
+        id="large_recording",
+        name="Large recording upload",
+        status="passed",
+        detail=f"A {size_kb} KB recording upload reached PostHog the same as a small one.",
     )
 
 
