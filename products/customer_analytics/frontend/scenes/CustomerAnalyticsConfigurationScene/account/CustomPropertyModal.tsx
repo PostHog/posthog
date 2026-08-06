@@ -67,6 +67,7 @@ function PersonSourceEditor(): JSX.Element {
         columnMappingWarnings,
         selectedTableColumns,
         selectedTableColumnsLoading,
+        hasSyncedWarehouseTables,
     } = useValues(customPropertyDefinitionsLogic)
     const { setCustomPropertyFormValue, loadSelectedTableColumns, loadWarehouseTables } =
         useActions(customPropertyDefinitionsLogic)
@@ -75,7 +76,10 @@ function PersonSourceEditor(): JSX.Element {
     const isGroup = customPropertyForm.targetType === 'group'
     const entityLabel = isGroup ? 'group' : 'person'
     const hasExistingSource = !!editingDefinition?.source
-    const noTables = !warehouseTablesLoading && warehouseTables.length === 0
+    // Deliberately not derived from `warehouseTables` — the picker's search narrows that list, and a
+    // search with no matches would otherwise collapse the whole editor into the empty-state banner,
+    // taking the search box with it. The picker shows its own "no options matching" instead.
+    const noTables = hasSyncedWarehouseTables === false
     const mappings = customPropertyForm.columnMappings
     const setMappings = (next: typeof mappings): void => setCustomPropertyFormValue('columnMappings', next)
     const columnByName = new Map(selectedTableColumns.map((column) => [column.name, column]))
@@ -188,7 +192,7 @@ function PersonSourceEditor(): JSX.Element {
                         Map each warehouse column to the {entityLabel} property name it should set.
                     </span>
                     {mappings.map((mapping, index) => (
-                        <div key={index} className="flex flex-col gap-1 border rounded p-2">
+                        <div key={index} className="flex flex-col gap-1">
                             <div className="flex items-center gap-2">
                                 <div className="flex-1">
                                     <LemonInputSelect
@@ -206,7 +210,9 @@ function PersonSourceEditor(): JSX.Element {
                                                               column,
                                                               // Seed the property name and description from the
                                                               // column when they're still empty, so a mapping is
-                                                              // one click when the warehouse names are good.
+                                                              // one click when the warehouse names are good. The
+                                                              // description has no input here — it rides along
+                                                              // from the warehouse column's own description.
                                                               property: m.property.trim() ? m.property : column,
                                                               description: m.description.trim()
                                                                   ? m.description
@@ -242,15 +248,6 @@ function PersonSourceEditor(): JSX.Element {
                                     onClick={() => setMappings(mappings.filter((_, i) => i !== index))}
                                 />
                             </div>
-                            <LemonInput
-                                value={mapping.description}
-                                onChange={(description) =>
-                                    setMappings(mappings.map((m, i) => (i === index ? { ...m, description } : m)))
-                                }
-                                placeholder="Description (optional)"
-                                size="small"
-                                fullWidth
-                            />
                             {columnMappingWarnings[index] && (
                                 <span className="text-warning text-xs">{columnMappingWarnings[index]}</span>
                             )}
@@ -383,8 +380,6 @@ export function CustomPropertyModal(): JSX.Element {
     const profileTargetAvailable = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES] || isProfileTarget
     const hasExistingSource = !!editingDefinition?.source
     const noViews = !savedQueriesLoading && materializedViews.length === 0
-    const isCanonical = !!editingDefinition?.is_canonical
-    const canonicalReason = 'PostHog sets this property automatically, so its name and type are fixed.'
 
     // While a workflow references the property it stays workflow-sourced no matter what is picked
     // here, so the other options are locked until it's removed from the workflow(s).
@@ -448,8 +443,8 @@ export function CustomPropertyModal(): JSX.Element {
                 enableFormOnSubmit
                 className="flex flex-col gap-4"
             >
-                <LemonField name="name" label="Name" help={isCanonical ? canonicalReason : undefined}>
-                    <LemonInput placeholder="e.g. ARR" autoFocus={!isCanonical} disabled={isCanonical} />
+                <LemonField name="name" label="Name">
+                    <LemonInput placeholder="e.g. ARR" autoFocus />
                 </LemonField>
                 <LemonField name="description" label="Description">
                     <LemonTextArea placeholder="Optional description" minRows={2} />
@@ -479,12 +474,8 @@ export function CustomPropertyModal(): JSX.Element {
                     person property is a raw $set value, so these are account-only. */}
                 {targetType === 'account' && (
                     <>
-                        <LemonField name="displayType" label="Type" help={isCanonical ? canonicalReason : undefined}>
-                            <LemonSelect
-                                options={DISPLAY_TYPE_OPTIONS}
-                                fullWidth
-                                disabledReason={isCanonical ? canonicalReason : undefined}
-                            />
+                        <LemonField name="displayType" label="Type">
+                            <LemonSelect options={DISPLAY_TYPE_OPTIONS} fullWidth />
                         </LemonField>
                         {showBigNumberSwitch && (
                             <LemonField name="isBigNumber">

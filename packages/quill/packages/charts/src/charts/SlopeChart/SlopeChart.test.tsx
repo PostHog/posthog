@@ -115,6 +115,21 @@ describe('SlopeChart', () => {
             )
             expect(chart.slopeValueLabels().every((l) => l.text.endsWith('%'))).toBe(true)
         })
+
+        it('keeps the computed label gutter when a margins override side is undefined', () => {
+            // A conditionally built override (`{ top: reserveOrUndefined }`) must not wipe the
+            // start-label gutter SlopeChart computed — a plain spread would, clipping the labels.
+            const startLabelLeft = (config?: Parameters<typeof SlopeChart>[0]['config']): string => {
+                const { container } = renderHogChart(
+                    <SlopeChart series={SERIES} labels={LABELS} config={config} theme={THEME} />
+                )
+                const label = container.querySelector<HTMLElement>(
+                    '[data-attr="hog-chart-slope-value-label"][data-slope-side="start"]'
+                )
+                return label!.style.left
+            }
+            expect(startLabelLeft({ margins: { top: 20, left: undefined } })).toBe(startLabelLeft())
+        })
     })
 
     describe('series labels', () => {

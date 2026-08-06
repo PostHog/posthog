@@ -6,6 +6,7 @@ import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
@@ -13,6 +14,7 @@ import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardL
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
@@ -95,6 +97,7 @@ function DashboardScene({
         layoutEditMode,
         dashboardFailedToLoad,
         accessDeniedToDashboard,
+        error404,
     } = useValues(dashboardLogic)
     const { layoutZoom } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
@@ -118,8 +121,19 @@ function DashboardScene({
         return () => abortAnyRunningQuery()
     })
 
-    if (!dashboard && !itemsLoading && !dashboardFailedToLoad) {
-        return <NotFound object="dashboard" />
+    // `error404` only becomes true once a load has settled as a 404, so pending loads fall through to the empty/loading state
+    if (error404 && !dashboard && !dashboardFailedToLoad) {
+        return (
+            <NotFound
+                object="dashboard"
+                caption={
+                    <>
+                        It may have been deleted, or the link is out of date.{' '}
+                        <Link to={urls.dashboards()}>Go to your dashboards</Link>.
+                    </>
+                }
+            />
+        )
     }
 
     if (accessDeniedToDashboard) {
@@ -136,9 +150,9 @@ function DashboardScene({
             <DashboardPublicAccessBanner dashboard={dashboard} placement={placement} />
 
             {dashboardFailedToLoad ? (
-                <InsightErrorState title="There was an error loading this dashboard" />
+                <InsightErrorState title="There was an error loading this dashboard" supportOnly />
             ) : !tiles || tiles.length === 0 ? (
-                <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />
+                <EmptyDashboardComponent loading={itemsLoading || !dashboard} canEdit={canEditDashboard} />
             ) : (
                 <div
                     className={cn({
