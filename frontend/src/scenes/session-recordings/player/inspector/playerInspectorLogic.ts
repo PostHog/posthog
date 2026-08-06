@@ -347,6 +347,23 @@ function timeRelativeToStart(
     return { timestamp, timeInRecording }
 }
 
+// The events that match a filter are joined to a recording by session id alone, with a day of
+// slack around the recording window, so a match can sit outside the playable range. This is true
+// when every match does: the recording has no video of the filtered moment.
+export function allMatchingEventsOutsideWindow(
+    matchingEvents: MatchedRecordingEvent[] | null,
+    start: Dayjs | null,
+    end: Dayjs | null
+): boolean {
+    if (!matchingEvents?.length || !start || !end) {
+        return false
+    }
+    return !matchingEvents.some((event) => {
+        const timestamp = dayjs(event.timestamp)
+        return !timestamp.isBefore(start) && !timestamp.isAfter(end)
+    })
+}
+
 function niceify(tag: string): string {
     return tag.replace(/\$/g, '').replace(/_/g, ' ')
 }
@@ -459,6 +476,7 @@ export interface playerInspectorLogicValues {
     items: InspectorListItem[]
     matchingEvents: MatchedRecordingEvent[] | null
     matchingEventsLoading: boolean
+    matchingEventsOutsideRecordingWindow: boolean
     metricEventItems: InspectorListItemMetricEvent[]
     notebookCommentItems: InspectorListItemNotebookComment[]
     playbackIndicatorIndex: number
@@ -626,6 +644,11 @@ export interface playerInspectorLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         allowMatchingEventsFilter: (miniFilters: SharedListMiniFilter[]) => boolean
+        matchingEventsOutsideRecordingWindow: (
+            matchingEvents: MatchedRecordingEvent[] | null,
+            start: Dayjs | null,
+            end: Dayjs | null
+        ) => boolean
         windowNumberForID: (windowIds: number[]) => (windowId: number | undefined) => number | '?' | undefined
         collapseInspectorItems: (featureFlags: FeatureFlagsSet) => boolean
         processedSnapshotData: (
@@ -986,6 +1009,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     props.matchingEventsMatchType?.matchType !== 'none'
                 )
             },
+        ],
+        matchingEventsOutsideRecordingWindow: [
+            (s) => [s.matchingEvents, s.start, s.end],
+            (matchingEvents: MatchedRecordingEvent[] | null, start: Dayjs | null, end: Dayjs | null): boolean =>
+                allMatchingEventsOutsideWindow(matchingEvents, start, end),
         ],
 
         windowNumberForID: [
