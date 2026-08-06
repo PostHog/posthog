@@ -349,12 +349,13 @@ export const ChangeRequestsRejectCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const commentsCreateBodyScopeMax = 79
+
 export const commentsCreateBodyIsTaskDefault = false
 export const commentsCreateBodyItemIdMax = 72
 
-export const commentsCreateBodyScopeMax = 79
-
 export const CommentsCreateBody = /* @__PURE__ */ zod.object({
+    scope: zod.string().max(commentsCreateBodyScopeMax).optional(),
     item_context: zod
         .unknown()
         .optional()
@@ -371,16 +372,16 @@ export const CommentsCreateBody = /* @__PURE__ */ zod.object({
     content: zod.string().nullish(),
     rich_content: zod.unknown().optional(),
     item_id: zod.string().max(commentsCreateBodyItemIdMax).nullish(),
-    scope: zod.string().max(commentsCreateBodyScopeMax),
     source_comment: zod.uuid().nullish(),
 })
+
+export const commentsUpdateBodyScopeMax = 79
 
 export const commentsUpdateBodyIsTaskDefault = false
 export const commentsUpdateBodyItemIdMax = 72
 
-export const commentsUpdateBodyScopeMax = 79
-
 export const CommentsUpdateBody = /* @__PURE__ */ zod.object({
+    scope: zod.string().max(commentsUpdateBodyScopeMax).optional(),
     item_context: zod
         .unknown()
         .optional()
@@ -397,16 +398,16 @@ export const CommentsUpdateBody = /* @__PURE__ */ zod.object({
     content: zod.string().nullish(),
     rich_content: zod.unknown().optional(),
     item_id: zod.string().max(commentsUpdateBodyItemIdMax).nullish(),
-    scope: zod.string().max(commentsUpdateBodyScopeMax),
     source_comment: zod.uuid().nullish(),
 })
+
+export const commentsPartialUpdateBodyScopeMax = 79
 
 export const commentsPartialUpdateBodyIsTaskDefault = false
 export const commentsPartialUpdateBodyItemIdMax = 72
 
-export const commentsPartialUpdateBodyScopeMax = 79
-
 export const CommentsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    scope: zod.string().max(commentsPartialUpdateBodyScopeMax).optional(),
     item_context: zod
         .unknown()
         .optional()
@@ -423,7 +424,6 @@ export const CommentsPartialUpdateBody = /* @__PURE__ */ zod.object({
     content: zod.string().nullish(),
     rich_content: zod.unknown().optional(),
     item_id: zod.string().max(commentsPartialUpdateBodyItemIdMax).nullish(),
-    scope: zod.string().max(commentsPartialUpdateBodyScopeMax).optional(),
     source_comment: zod.uuid().nullish(),
 })
 

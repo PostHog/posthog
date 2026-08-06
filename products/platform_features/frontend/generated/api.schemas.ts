@@ -770,6 +770,8 @@ export interface CommentSlackThreadRefApi {
 export interface CommentApi {
     readonly id: string
     readonly created_by: UserBasicApi | null
+    /** @maxLength 79 */
+    scope?: string
     /** Metadata for the comment target, anchor, thread state, and owning task. */
     item_context?: unknown
     /** @nullable */
@@ -792,8 +794,6 @@ export interface CommentApi {
      * @nullable
      */
     item_id?: string | null
-    /** @maxLength 79 */
-    scope: string
     /**
      * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
      * @nullable
@@ -814,6 +814,8 @@ export interface PaginatedCommentListApi {
 export interface PatchedCommentApi {
     readonly id?: string
     readonly created_by?: UserBasicApi | null
+    /** @maxLength 79 */
+    scope?: string
     /** Metadata for the comment target, anchor, thread state, and owning task. */
     item_context?: unknown
     /** @nullable */
@@ -836,8 +838,6 @@ export interface PatchedCommentApi {
      * @nullable
      */
     item_id?: string | null
-    /** @maxLength 79 */
-    scope?: string
     /**
      * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
      * @nullable

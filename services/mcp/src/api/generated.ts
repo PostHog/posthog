@@ -15334,6 +15334,8 @@ export namespace Schemas {
     export interface Comment {
       readonly id: string;
       readonly created_by: UserBasic | null;
+      /** @maxLength 79 */
+      scope?: string;
       /** Metadata for the comment target, anchor, thread state, and owning task. */
       item_context?: unknown;
       /** @nullable */
@@ -15356,8 +15358,6 @@ export namespace Schemas {
          * @nullable
          */
       item_id?: string | null;
-      /** @maxLength 79 */
-      scope: string;
       /**
          * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
          * @nullable
@@ -51592,6 +51592,8 @@ export namespace Schemas {
     export interface PatchedComment {
       readonly id?: string;
       readonly created_by?: UserBasic | null;
+      /** @maxLength 79 */
+      scope?: string;
       /** Metadata for the comment target, anchor, thread state, and owning task. */
       item_context?: unknown;
       /** @nullable */
@@ -51614,8 +51616,6 @@ export namespace Schemas {
          * @nullable
          */
       item_id?: string | null;
-      /** @maxLength 79 */
-      scope?: string;
       /**
          * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
          * @nullable
