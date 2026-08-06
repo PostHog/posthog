@@ -1895,6 +1895,17 @@ class TestMySQLSourceNonRetryableErrors:
             "OperationalError: (1054, \"Unknown column 'favoritor_id' in 'where clause'\")",
             # Other clause variants share the same 1054 code and "Unknown column" prefix.
             "OperationalError: (1054, \"Unknown column 'deleted_at' in 'order clause'\")",
+            # Vitess/PlanetScale's vtgate re-wraps the same 1054 error with its own gRPC preamble,
+            # so "Unknown column" sits well after `(1054, ` and behind a single quote rather than
+            # pymysql's own double quote — this shape doesn't share a contiguous `(1054, "` prefix
+            # with the raw pymysql form above.
+            str(
+                pymysql.err.OperationalError(
+                    1054,
+                    "unknown: target: ks.-.primary: vttablet: rpc error: code = NotFound desc = "
+                    "Unknown column 'team_id' in 'field list' (errno 1054) (sqlstate 42S22)",
+                )
+            ),
         ],
     )
     def test_unknown_column_is_non_retryable(self, source, error_msg):
