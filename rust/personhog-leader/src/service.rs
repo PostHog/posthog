@@ -644,19 +644,26 @@ impl PersonHogLeader for PersonHogLeaderService {
         let identified_now = person.is_identified || req.is_identified == Some(true);
         let identity_changed = identified_now != person.is_identified;
 
-        // last_seen_at is request-borne and rides along best-effort, so
-        // an out-of-range value is discarded rather than failing the
-        // update — the acked ⇒ writeable invariant must not hinge on a
-        // field that never earns a record by itself.
+        // last_seen_at is request-borne and best-effort: an out-of-range
+        // value is discarded rather than failing the update, so the
+        // acked ⇒ writeable invariant never hinges on it.
         let requested_last_seen = req
             .last_seen_at
             .filter(|t| (0..=MAX_EPOCH_MS_YEAR_9999).contains(t));
         if requested_last_seen != req.last_seen_at {
             counter!("personhog_leader_last_seen_discarded_total").increment(1);
         }
+        // Max-merge: the stored value only ever advances, and an advance
+        // is a change in its own right — ingestion's direct write path
+        // persists a last-seen-only advance, so this path must too.
+        // Record volume stays bounded because callers send coarsened
+        // timestamps (ingestion truncates to the hour), not raw event
+        // times.
+        let merged_last_seen = person.last_seen_at.max(requested_last_seen);
+        let last_seen_changed = merged_last_seen != person.last_seen_at;
 
         // Fast path: no diffs detected, skip the clone in apply_property_updates
-        if !updates.has_changes && !identity_changed {
+        if !updates.has_changes && !identity_changed && !last_seen_changed {
             counter!("personhog_leader_updates_total", "outcome" => "no_change").increment(1);
             return Ok(Response::new(UpdatePersonPropertiesResponse {
                 person: Some(cached_person_to_proto(&person)),
@@ -669,7 +676,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         let (new_properties, actually_updated) =
             apply_property_updates(&updates, &person.properties);
 
-        if !actually_updated && !identity_changed {
+        if !actually_updated && !identity_changed && !last_seen_changed {
             counter!("personhog_leader_updates_total", "outcome" => "no_change").increment(1);
             return Ok(Response::new(UpdatePersonPropertiesResponse {
                 person: Some(cached_person_to_proto(&person)),
@@ -792,10 +799,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             created_at: person.created_at,
             version: base_version + 1,
             is_identified: identified_now,
-            // Max-merge: the value only ever advances, and it rides along
-            // on a record the update otherwise earned — a last-seen-only
-            // advance takes the no-change fast path above.
-            last_seen_at: person.last_seen_at.max(requested_last_seen),
+            last_seen_at: merged_last_seen,
             approx_bytes,
         };
 

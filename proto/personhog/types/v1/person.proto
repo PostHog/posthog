@@ -157,11 +157,12 @@ message UpdatePersonPropertiesRequest {
   // false→true transition counts as a change and produces a changelog
   // record on its own.
   optional bool is_identified = 7;
-  // Epoch milliseconds (matching Person.last_seen_at), max-merged: the stored
-  // value only ever advances. Deliberately not a change by itself — it
-  // rides along when the update otherwise produces a record, mirroring
-  // ingestion's behavior where a last-seen-only event does not write the
-  // person.
+  // Epoch milliseconds (matching Person.last_seen_at), max-merged: the
+  // stored value only ever advances, and an advance is a change that
+  // produces a changelog record on its own — matching ingestion's direct
+  // write path, which persists a last-seen-only advance. Callers must
+  // send coarsened timestamps (ingestion truncates to the hour); a
+  // caller sending raw event times would produce a record per event.
   optional int64 last_seen_at = 8;
 }
 

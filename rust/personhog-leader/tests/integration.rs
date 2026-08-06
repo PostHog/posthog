@@ -2888,20 +2888,19 @@ async fn scalar_fields_merge_rather_than_assign() {
         request
     };
 
-    // A last-seen-only advance is not a change: nothing to record, no
-    // version spent.
+    // A last-seen-only advance is a change of its own: ingestion's
+    // direct write path persists it, so this path must too.
     let result = service
         .update_person_properties(update(serde_json::Value::Null, None, Some(1_000)))
         .await
         .expect("last-seen-only must be accepted")
         .into_inner();
-    assert!(
-        !result.updated,
-        "a last-seen-only advance must not produce a record"
-    );
-    assert_eq!(result.person.unwrap().version, 1);
+    assert!(result.updated, "a last-seen-only advance earns a record");
+    let person = result.person.unwrap();
+    assert_eq!(person.version, 2);
+    assert_eq!(person.last_seen_at, Some(1_000));
 
-    // Identification alone is a change, and the last-seen rides along.
+    // Identification is a change, and the newer last-seen merges in.
     let result = service
         .update_person_properties(update(serde_json::Value::Null, Some(true), Some(5_000)))
         .await
@@ -2909,7 +2908,7 @@ async fn scalar_fields_merge_rather_than_assign() {
         .into_inner();
     assert!(result.updated, "the false→true transition earns a record");
     let person = result.person.unwrap();
-    assert_eq!(person.version, 2);
+    assert_eq!(person.version, 3);
     assert!(person.is_identified);
     assert_eq!(person.last_seen_at, Some(5_000));
 
@@ -2935,6 +2934,18 @@ async fn scalar_fields_merge_rather_than_assign() {
         "an already-identified person has nothing to change"
     );
 
+    // A non-advancing last-seen is not a change: only forward movement
+    // of the stored value earns a record.
+    let result = service
+        .update_person_properties(update(serde_json::Value::Null, None, Some(3_000)))
+        .await
+        .expect("a stale last-seen is a no-op, not an error")
+        .into_inner();
+    assert!(
+        !result.updated,
+        "a last-seen at or below the stored value must not produce a record"
+    );
+
     // Max-merge: an older last-seen cannot lower the stored one, and a
     // property change carries the newest value forward.
     let result = service
@@ -2948,7 +2959,7 @@ async fn scalar_fields_merge_rather_than_assign() {
         .into_inner();
     assert!(result.updated);
     let person = result.person.unwrap();
-    assert_eq!(person.version, 3);
+    assert_eq!(person.version, 4);
     assert_eq!(
         person.last_seen_at,
         Some(5_000),
@@ -2968,7 +2979,7 @@ async fn scalar_fields_merge_rather_than_assign() {
         .into_inner();
     assert!(result.updated);
     let person = result.person.unwrap();
-    assert_eq!(person.version, 4);
+    assert_eq!(person.version, 5);
     assert_eq!(
         person.last_seen_at,
         Some(5_000),
