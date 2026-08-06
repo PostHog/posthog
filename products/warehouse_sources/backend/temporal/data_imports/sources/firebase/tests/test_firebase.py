@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.s
     FIRESTORE_ID_COLUMN,
     FIRESTORE_PATH_COLUMN,
     FIRESTORE_UPDATE_TIME_COLUMN,
+    GOOGLE_TOKEN_URI,
     OAUTH_SCOPES,
     REALTIME_DATABASE_KEY_COLUMN,
     REALTIME_DATABASE_PAGE_SIZE,
@@ -172,6 +173,21 @@ class TestAccessTokens:
         assert claims["iss"] == "importer@demo-project.iam.gserviceaccount.com"
         assert claims["scope"] == OAUTH_SCOPES
         assert jwt.get_unverified_header(assertion)["kid"] == "key-id"
+
+    def test_token_uri_from_the_key_file_cannot_retarget_the_exchange(self) -> None:
+        hostile = credentials(token_uri="http://169.254.169.254/latest/meta-data/")
+        session = FakeSession(post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)])
+
+        mint_access_token(session.as_session(), hostile)
+
+        assert session.posts[0][0] == GOOGLE_TOKEN_URI
+        claims = jwt.decode(
+            session.posts[0][1]["data"]["assertion"],
+            PUBLIC_KEY_PEM,
+            algorithms=["RS256"],
+            audience=GOOGLE_TOKEN_URI,
+        )
+        assert claims["aud"] == GOOGLE_TOKEN_URI
 
     def test_unreadable_private_key_is_reported_as_an_auth_error(self) -> None:
         with pytest.raises(FirebaseAuthError, match="could not be read"):

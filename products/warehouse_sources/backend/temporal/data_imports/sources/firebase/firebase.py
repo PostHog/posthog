@@ -66,6 +66,7 @@ class FirebaseCredentials:
     client_email: str
     private_key: str
     private_key_id: Optional[str] = None
+    # Kept as it was read from the key file, but never used as a request target — see `token_endpoint`.
     token_uri: Optional[str] = None
     database_id: str = "(default)"
     realtime_database_url: Optional[str] = None
@@ -73,9 +74,11 @@ class FirebaseCredentials:
 
     @property
     def token_endpoint(self) -> str:
-        # Service-account key files carry their own token URI; Google has never changed it, but
-        # honoring the file avoids hardcoding an assumption about someone else's credential.
-        return self.token_uri or GOOGLE_TOKEN_URI
+        # Pinned to Google rather than read from the uploaded file. `token_uri` is user-supplied
+        # input, and honoring it would let anyone who can configure a source aim the worker — and
+        # the signed assertion — at an arbitrary host, including an internal one. Google-generated
+        # service account keys always carry exactly this endpoint, so nothing legitimate is lost.
+        return GOOGLE_TOKEN_URI
 
     @property
     def secret_values(self) -> tuple[str, ...]:
@@ -399,13 +402,12 @@ def iter_realtime_database(
         if children is None:
             # A scalar node has no children to page through; it is the single row.
             if payload is not None:
-                yield [
-                    {
-                        REALTIME_DATABASE_VALUE_COLUMN: _as_column(payload),
-                        REALTIME_DATABASE_KEY_COLUMN: path.rsplit("/", 1)[-1],
-                        REALTIME_DATABASE_PATH_COLUMN: path,
-                    }
-                ]
+                scalar_row: dict[str, Any] = {
+                    REALTIME_DATABASE_VALUE_COLUMN: _as_column(payload),
+                    REALTIME_DATABASE_KEY_COLUMN: path.rsplit("/", 1)[-1],
+                    REALTIME_DATABASE_PATH_COLUMN: path,
+                }
+                yield [scalar_row]
             break
 
         # `startAt` is inclusive, so each page after the first repeats the cursor row.
@@ -427,7 +429,10 @@ def _realtime_database_children(payload: Any) -> Optional[list[tuple[str, Any]]]
     A node whose keys are consecutive integers comes back as a JSON array, so the index is the key.
     """
     if isinstance(payload, dict):
-        return sorted(payload.items())
+        # JSON object keys are always strings, but say so explicitly so the row's key column
+        # keeps one type regardless of what the decoder handed back.
+        children: list[tuple[str, Any]] = [(str(key), value) for key, value in payload.items()]
+        return sorted(children)
     if isinstance(payload, list):
         return [(str(index), value) for index, value in enumerate(payload) if value is not None]
     return None
@@ -492,7 +497,7 @@ def _resolve_realtime_database_path(credentials: FirebaseCredentials, table_name
 
 def get_tables(credentials: FirebaseCredentials) -> list[str]:
     """List every table this source can sync: Auth users, Firestore collections, configured paths."""
-    tables = [AUTH_USERS_TABLE]
+    tables: list[str] = [AUTH_USERS_TABLE]
 
     tokens = AccessTokenProvider(_auth_session(credentials), credentials)
     api_session = _api_session(credentials)
