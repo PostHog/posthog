@@ -11,10 +11,7 @@ export function BasePreview({
         <div className="flex justify-between items-center">
             <span className="font-medium">{name}</span>
             {description && (
-                <span
-                    className="max-w-2/3 line-clamp-1 text-right text-xs text-muted-foreground"
-                    title={descriptionTitle}
-                >
+                <span className="text-secondary text-xs line-clamp-1 max-w-2/3 text-right" title={descriptionTitle}>
                     {description}
                 </span>
             )}
@@ -117,7 +114,7 @@ export function StandardizedPreview({
     const primary = <span className="truncate block">{truncatedPrimaryText}</span>
 
     const secondary = (
-        <span className={secondaryMuted ? 'block truncate text-subtle-foreground' : 'block truncate'}>
+        <span className={secondaryMuted ? 'text-tertiary truncate block' : 'truncate block'}>
             {truncatedSecondaryText}
         </span>
     )
@@ -133,7 +130,7 @@ export function StandardizedPreview({
                 </div>
                 {truncatedSecondaryText ? (
                     <>
-                        <span aria-hidden className="mx-1 shrink-0 text-[10px] leading-none text-subtle-foreground">
+                        <span aria-hidden className="text-tertiary text-[10px] leading-none shrink-0 mx-1">
                             •
                         </span>
                         <div

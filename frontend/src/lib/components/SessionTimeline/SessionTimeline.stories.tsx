@@ -39,7 +39,7 @@ function mockRenderer(category: ItemCategory): ItemRenderer<MockItem> {
         render: ({ item }) => (
             <div className="flex justify-between items-center gap-2">
                 <span className="font-medium text-xs truncate">{item.payload.label}</span>
-                <span className="shrink-0 text-xs text-muted-foreground">{item.payload.typeLabel}</span>
+                <span className="text-secondary text-xs shrink-0">{item.payload.typeLabel}</span>
             </div>
         ),
     }

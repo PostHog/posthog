@@ -36,7 +36,7 @@ export const consoleLogRenderer: ItemRenderer<ConsoleLogItem> = {
 
         return (
             <div className="space-y-1">
-                <div className="text-xs text-subtle-foreground">Level: {levelLabel}</div>
+                <div className="text-xs text-tertiary">Level: {levelLabel}</div>
                 <pre className="text-xs whitespace-pre-wrap break-words mb-0">{item.payload.message}</pre>
             </div>
         )

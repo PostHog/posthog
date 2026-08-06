@@ -120,8 +120,8 @@ export const SessionTimeline = forwardRef<SessionTimelineHandle, SessionTimeline
     }, [activeCategories.length, items.length])
 
     return (
-        <div className={cn('flex h-full w-full min-w-0 overflow-hidden', className)}>
-            <div className="flex shrink-0 flex-col items-center justify-between border-r border-border p-1">
+        <div className={cn('flex h-full', className)}>
+            <div className="flex flex-col justify-between items-center p-1 border-r border-gray-3 shrink-0">
                 <CategoryToggleGroup>
                     {allCategories.map((cat) => (
                         <ItemCategoryToggle
@@ -149,7 +149,7 @@ export const SessionTimeline = forwardRef<SessionTimelineHandle, SessionTimeline
             <div
                 ref={setContainerRef}
                 data-attr="session-timeline-scroll-container"
-                className="SessionTimeline__scroll-container relative h-full min-w-0 flex-1 overflow-y-auto"
+                className="SessionTimeline__scroll-container h-full w-full overflow-y-auto relative"
                 style={{ scrollbarGutter: 'stable both-edges' }}
             >
                 <div className="pr-3">
@@ -184,8 +184,8 @@ const itemContainer = cva({
     base: 'w-full',
     variants: {
         selected: {
-            true: 'border-1 border-[var(--primary)] bg-fill-selected',
-            false: 'border-b border-border',
+            true: 'bg-[var(--gray-1)] border-1 border-accent',
+            false: 'border-b border-[var(--gray-2)]',
         },
     },
 })
@@ -209,7 +209,7 @@ function LoadingRow(): JSX.Element {
     return (
         <div className={cn(itemContainer({ selected: false }), 'flex items-center gap-2 px-2 h-[2rem]')}>
             <Spinner />
-            <span className="text-xs text-muted-foreground">Loading...</span>
+            <span className="text-secondary text-xs">Loading...</span>
         </div>
     )
 }
@@ -218,8 +218,8 @@ function EmptyTimelineState({ title, description }: { title: string; description
     return (
         <div className="h-full min-h-[160px] w-full flex items-center justify-center px-4">
             <div className="text-center">
-                <div className="text-sm text-muted-foreground">{title}</div>
-                {description ? <div className="mt-1 text-xs text-subtle-foreground">{description}</div> : null}
+                <div className="text-sm text-secondary">{title}</div>
+                {description ? <div className="text-xs text-tertiary mt-1">{description}</div> : null}
             </div>
         </div>
     )
@@ -239,8 +239,8 @@ function TimelineTimestampCell({
             type="button"
             disabled={!onTimeClick}
             className={cn(
-                'border-r-1 flex h-full w-[96px] shrink-0 items-center gap-1.5 border-border px-2 text-xs text-subtle-foreground',
-                onTimeClick ? 'cursor-pointer hover:bg-fill-hover hover:text-[var(--foreground)]' : 'cursor-default'
+                'border-r-1 shrink-0 w-[96px] h-full flex items-center gap-1.5 px-2 text-xs text-tertiary',
+                onTimeClick ? 'cursor-pointer hover:bg-fill-button-tertiary-hover hover:text-primary' : 'cursor-default'
             )}
             onClick={() => onTimeClick?.(item.timestamp)}
             aria-label={`Open recording at ${item.timestamp.format('HH:mm:ss')}`}
@@ -259,11 +259,11 @@ function TimelineRowMenu({ menuItems }: { menuItems: TimelineMenuItem[] }): JSX.
     }
 
     return (
-        <div className="border-l-1 h-full w-7 shrink-0 border-border">
+        <div className="border-l-1 shrink-0 w-7 h-full">
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                     <ButtonPrimitive
-                        className="flex h-full w-7 items-center justify-center rounded-none text-subtle-foreground outline-none hover:bg-fill-hover hover:text-[var(--foreground)]"
+                        className="h-full w-7 rounded-none outline-none text-tertiary hover:text-primary hover:bg-fill-button-tertiary-hover flex items-center justify-center"
                         aria-label="More actions"
                         data-attr="session-timeline-row-more"
                     >
@@ -323,7 +323,7 @@ const SessionTimelineItemContainer = forwardRef<HTMLDivElement, SessionTimelineI
                     <TimelineTimestampCell item={item} onTimeClick={onTimeClick} SourceIcon={renderer.sourceIcon} />
                     <div
                         className={cn(
-                            'flex h-full min-w-0 flex-1 items-center gap-2 pl-2 transition-colors hover:bg-fill-hover',
+                            'flex items-center gap-2 flex-1 min-w-0 h-full pl-2 transition-colors hover:bg-fill-button-tertiary-hover',
                             canExpand && 'cursor-pointer'
                         )}
                         onClick={toggleExpanded}
@@ -339,7 +339,7 @@ const SessionTimelineItemContainer = forwardRef<HTMLDivElement, SessionTimelineI
                             <renderer.render item={item} sessionId={sessionId} />
                         </div>
                         {canExpand ? (
-                            <span className="flex shrink-0 items-center justify-center pr-2 text-subtle-foreground">
+                            <span className="shrink-0 pr-2 text-tertiary flex items-center justify-center">
                                 {expanded ? <IconCollapse /> : <IconExpand />}
                             </span>
                         ) : null}
@@ -348,13 +348,13 @@ const SessionTimelineItemContainer = forwardRef<HTMLDivElement, SessionTimelineI
                 </div>
 
                 {expanded ? (
-                    <div className="w-full border-t border-border bg-fill-expanded">
+                    <div className="w-full border-t border-border bg-surface-secondary">
                         {renderer.renderExpanded ? (
                             <div className="text-xs p-2">
                                 <renderer.renderExpanded item={item} sessionId={sessionId} />
                             </div>
                         ) : (
-                            <div className="p-2 text-xs text-muted-foreground">No details available</div>
+                            <div className="text-xs p-2 text-secondary">No details available</div>
                         )}
                     </div>
                 ) : null}
@@ -369,7 +369,7 @@ function CategoryToggleGroup({ children }: { children: React.ReactNode }): JSX.E
             className={cn(
                 'flex flex-col gap-0.5',
                 '[&>button]:rounded [&>button]:border-0 [&>button]:px-2 [&>button]:py-1.5',
-                '[&>button:hover]:bg-fill-hover'
+                '[&>button:hover]:bg-fill-button-tertiary-hover'
             )}
         >
             {children}
@@ -381,8 +381,8 @@ const itemCategoryToggle = cva({
     base: 'shrink-0 transition-colors',
     variants: {
         active: {
-            true: 'text-[var(--primary)]',
-            false: 'text-muted-foreground opacity-50',
+            true: 'text-accent',
+            false: 'text-muted opacity-50',
         },
     },
 })

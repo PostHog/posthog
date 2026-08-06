@@ -2,11 +2,12 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
 import { IconLogomark } from '@posthog/icons'
+import { LemonCard } from '@posthog/lemon-ui'
 
 import { ErrorPropertiesLogicProps, errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { TZLabel } from 'lib/components/TZLabel'
-import { Tabs, TabsList, TabsTrigger } from 'lib/ui/quill'
+import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 
 import { releasePreviewLogic } from '../ExceptionAttributesPreview/ReleasesPreview/releasePreviewLogic'
 import { exceptionCardLogic } from './exceptionCardLogic'
@@ -76,41 +77,37 @@ function ExceptionCardContent({
     const { setCurrentTab } = useActions(exceptionCardLogic)
 
     return (
-        <div data-quill className="relative flex h-full w-full flex-col bg-[var(--card)]">
-            <Tabs value={currentTab} onValueChange={setCurrentTab} className="min-h-0 flex-1 gap-0">
-                <div className="flex h-9 w-full shrink-0 items-center justify-between border-b border-border px-2">
-                    <TabsList variant="line" className="flex h-full w-full items-center justify-between p-0">
+        <LemonCard hoverEffect={false} className="p-0 relative w-full h-full border-0 rounded-none flex flex-col">
+            <TabsPrimitive value={currentTab} onValueChange={setCurrentTab} className="flex flex-col flex-1 min-h-0">
+                <div className="flex justify-between h-[2rem] items-center w-full px-2 border-b shrink-0">
+                    <TabsPrimitiveList className="flex justify-between w-full h-full items-center">
                         <div className="w-full h-full">
                             <div className="flex items-center gap-1 text-lg h-full">
                                 <IconLogomark />
                                 <span className="text-sm">Exception</span>
                             </div>
                         </div>
-                        <div className="flex h-full w-full items-center justify-center gap-2">
-                            <TabsTrigger className="h-auto flex-none px-2 whitespace-nowrap" value="stack_trace">
+                        <div className="flex gap-2 w-full justify-center h-full">
+                            <TabsPrimitiveTrigger className="px-2 whitespace-nowrap" value="stack_trace">
                                 Stack Trace
-                            </TabsTrigger>
-                            <TabsTrigger className="h-auto flex-none px-2 whitespace-nowrap" value="properties">
+                            </TabsPrimitiveTrigger>
+                            <TabsPrimitiveTrigger className="px-2 whitespace-nowrap" value="properties">
                                 Properties
-                            </TabsTrigger>
-                            <TabsTrigger className="h-auto flex-none px-2 whitespace-nowrap" value="session">
+                            </TabsPrimitiveTrigger>
+                            <TabsPrimitiveTrigger className="px-2 whitespace-nowrap" value="session">
                                 Session
-                            </TabsTrigger>
+                            </TabsPrimitiveTrigger>
                         </div>
                         <div className="w-full flex gap-2 justify-end items-center">
-                            {!hideEventMeta && timestamp && (
-                                <span className="contents">
-                                    <TZLabel className="text-xs text-muted-foreground" time={timestamp} />
-                                </span>
-                            )}
+                            {!hideEventMeta && timestamp && <TZLabel className="text-muted text-xs" time={timestamp} />}
                             {!hideEventMeta && label}
                         </div>
-                    </TabsList>
+                    </TabsPrimitiveList>
                 </div>
                 <StackTraceTab value="stack_trace" renderActions={renderStackTraceActions} className="flex-1 min-h-0" />
                 <PropertiesTab value="properties" className="flex-1 min-h-0" />
                 <SessionTab value="session" timestamp={timestamp} className="flex-1 min-h-0" />
-            </Tabs>
-        </div>
+            </TabsPrimitive>
+        </LemonCard>
     )
 }
