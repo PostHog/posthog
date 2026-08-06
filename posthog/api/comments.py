@@ -232,6 +232,7 @@ class CommentSerializer(serializers.ModelSerializer):
         return mentions
 
     created_by = UserBasicSerializer(read_only=True, allow_null=True)
+    scope = serializers.CharField(required=False, max_length=79)
     item_context = serializers.JSONField(
         required=False,
         allow_null=True,
@@ -314,6 +315,8 @@ class CommentSerializer(serializers.ModelSerializer):
         source_comment = (
             data["source_comment"] if "source_comment" in data else getattr(instance, "source_comment", None)
         )
+        if not instance and source_comment is None and "scope" not in data:
+            raise exceptions.ValidationError({"scope": "This field is required."})
         scope = data["scope"] if "scope" in data else getattr(instance, "scope", None)
         item_id = data["item_id"] if "item_id" in data else getattr(instance, "item_id", None)
         if source_comment is not None:
