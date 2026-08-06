@@ -51,3 +51,58 @@ describe('generateZodFromSchemaRef — array constraints', () => {
         expect(out).not.toMatch(/\.max\(/)
     })
 })
+
+describe('generateZodFromSchemaRef — union primitive strictness', () => {
+    // Coercing branches inside a union are greedy (z.coerce.boolean() accepts any
+    // input, z.coerce.number() turns null into 0), which made later array/null
+    // branches unreachable: a `["host.com"]` property-filter value parsed as `true`
+    // and a feature-flag variant string parsed as `true`. Union members must be strict.
+    it.each([
+        {
+            label: 'anyOf of primitives',
+            schema: {
+                anyOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }],
+            },
+            expected: 'z.union([z.string(), z.number(), z.boolean()])',
+        },
+        {
+            label: 'anyOf with array and null branches',
+            schema: {
+                anyOf: [
+                    { anyOf: [{ type: 'string' }, { type: 'number' }] },
+                    { type: 'array', items: { type: 'string' } },
+                    { type: 'null' },
+                ],
+            },
+            expected: 'z.union([z.union([z.string(), z.number()]), z.array(z.string()), z.null()])',
+        },
+        {
+            label: 'multi-type array',
+            schema: { type: ['string', 'boolean'] },
+            expected: 'z.union([z.string(), z.boolean()])',
+        },
+    ])('emits strict primitives for $label', ({ schema, expected }) => {
+        const root = { definitions: { Subject: { type: 'object', properties: { value: schema } } } }
+
+        const out = generateZodFromSchemaRef(root, 'Subject')
+
+        expect(out).toContain(expected)
+        expect(out).not.toContain('z.coerce')
+    })
+
+    it('keeps coercion on lone primitive fields', () => {
+        const root = {
+            definitions: {
+                Subject: {
+                    type: 'object',
+                    properties: { count: { type: 'number' }, flag: { type: 'boolean' } },
+                },
+            },
+        }
+
+        const out = generateZodFromSchemaRef(root, 'Subject')
+
+        expect(out).toContain('z.coerce.number()')
+        expect(out).toContain('z.coerce.boolean()')
+    })
+})

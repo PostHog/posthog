@@ -576,11 +576,216 @@ class TestComments(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
+    def _scoped_key_headers(self, scopes: list[str]) -> dict[str, str]:
+        from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+        from posthog.models.utils import generate_random_token_personal
+
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="scoped", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
+        return {"authorization": f"Bearer {value}"}
+
+    @parameterized.expand(
+        [
+            ("comment_read_ticket_discussions", ["comment:read"], "Ticket", status.HTTP_403_FORBIDDEN),
+            ("comment_read_ticket_messages", ["comment:read"], "conversations_ticket", status.HTTP_403_FORBIDDEN),
+            ("ticket_read_ticket_discussions", ["ticket:read"], "Ticket", status.HTTP_200_OK),
+            ("comment_read_other_scopes", ["comment:read"], "Notebook", status.HTTP_200_OK),
+        ]
+    )
+    def test_ticket_scoped_comments_require_ticket_api_scope(
+        self, _name: str, scopes: list[str], comment_scope: str, expected_status: int
+    ) -> None:
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/comments?scope={comment_scope}",
+            headers=self._scoped_key_headers(scopes),
+        )
+        assert response.status_code == expected_status
+
+    @parameterized.expand([("exact", "Ticket"), ("whitespace_padded", " Ticket ")])
+    def test_creating_ticket_scoped_comment_requires_ticket_write_scope(self, _name: str, scope: str) -> None:
+        # DRF trims the scope before storing it, so a padded value must not read as non-ticket here.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {"content": "internal note", "scope": scope, "item_id": "some-ticket-id"},
+            headers=self._scoped_key_headers(["comment:write"]),
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_ticket_scoped_comments_excluded_from_default_list(self) -> None:
+        Comment.objects.create(team=self.team, scope="Ticket", item_id="t1", content="discussion", created_by=self.user)
+        Comment.objects.create(
+            team=self.team, scope="conversations_ticket", item_id="t1", content="message", created_by=self.user
+        )
+        self._create_comment({"scope": "Notebook", "content": "normal"})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/comments")
+        assert response.status_code == status.HTTP_200_OK
+        assert [c["scope"] for c in response.json()["results"]] == ["Notebook"]
+
+    def test_ticket_scoped_comment_detail_actions_work_for_session_users(self) -> None:
+        # Detail actions carry no scope param; the default-list exclusion must not 404 them.
+        comment = Comment.objects.create(
+            team=self.team, scope="Ticket", item_id="t1", content="discussion", created_by=self.user
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/comments/{comment.id}")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["scope"] == "Ticket"
+
+    def test_ticket_scoped_comment_detail_requires_ticket_api_scope(self) -> None:
+        comment = Comment.objects.create(
+            team=self.team, scope="Ticket", item_id="t1", content="discussion", created_by=self.user
+        )
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/comments/{comment.id}",
+            headers=self._scoped_key_headers(["comment:read"]),
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_query_scope_cannot_override_ticket_body_scope_on_create(self) -> None:
+        # ?scope= filters lists; the created object's scope comes from the body — the body decides.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments?scope=Notebook",
+            {"content": "internal note", "scope": "Ticket", "item_id": "some-ticket-id"},
+            headers=self._scoped_key_headers(["comment:write"]),
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_body_scope_cannot_override_stored_ticket_scope_on_detail(self) -> None:
+        comment = Comment.objects.create(
+            team=self.team, scope="Ticket", item_id="t1", content="discussion", created_by=self.user
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{comment.id}",
+            {"scope": "Notebook", "content": "rewritten"},
+            headers=self._scoped_key_headers(["comment:write"]),
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_ticket_scope_key_cannot_write_non_ticket_comment_via_body_scope(self) -> None:
+        comment = Comment.objects.create(
+            team=self.team, scope="Notebook", item_id="n1", content="note", created_by=self.user
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{comment.id}",
+            {"scope": "Ticket", "content": "rewritten"},
+            headers=self._scoped_key_headers(["ticket:write"]),
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_comment_key_cannot_attach_reply_to_ticket_thread(self) -> None:
+        # The parent's stored scope gates a reply's create — a non-ticket body scope must not
+        # smuggle a reply into a ticket discussion (it would render in the ticket's /thread).
+        parent = Comment.objects.create(
+            team=self.team, scope="Ticket", item_id="t1", content="root", created_by=self.user
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {"content": "sneaky", "scope": "Notebook", "item_id": "n1", "source_comment": str(parent.id)},
+            headers=self._scoped_key_headers(["comment:write"]),
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert Comment.objects.filter(source_comment=parent).count() == 0
+
+    def test_reply_scope_must_match_parent_scope(self) -> None:
+        # Even with both API scopes granted, a cross-scope reply row must never exist: a Ticket
+        # reply under a non-ticket parent would leak through the parent's /thread to comment:read.
+        parent = Comment.objects.create(
+            team=self.team, scope="Notebook", item_id="n1", content="root", created_by=self.user
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {"content": "cross-scope", "scope": "Ticket", "item_id": "t1", "source_comment": str(parent.id)},
+            headers=self._scoped_key_headers(["ticket:write", "comment:write"]),
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert Comment.objects.filter(source_comment=parent).count() == 0
+
+    def test_reply_cannot_reference_another_teams_comment(self) -> None:
+        other_team = self.organization.teams.create(name="other")
+        parent = Comment.objects.create(
+            team=other_team, scope="Notebook", item_id="n1", content="root", created_by=self.user
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {"content": "cross-team", "scope": "Notebook", "item_id": "n1", "source_comment": str(parent.id)},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert Comment.objects.filter(source_comment=parent).count() == 0
+
+    def test_get_body_cannot_mask_ticket_query_scope(self) -> None:
+        # A JSON body on a GET selects nothing — the query scope drives the queryset and must
+        # drive the requirement.
+        response = self.client.generic(
+            "GET",
+            f"/api/projects/{self.team.id}/comments?scope=Ticket",
+            data='{"scope": "Notebook"}',
+            content_type="application/json",
+            headers=self._scoped_key_headers(["comment:read"]),
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_thread_query_scope_requires_ticket_access(self) -> None:
+        # The stored parent scope must not mask a ticket query scope that still filters the replies.
+        parent = Comment.objects.create(
+            team=self.team, scope="Notebook", item_id="n1", content="root", created_by=self.user
+        )
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/comments/{parent.id}/thread?scope=Ticket",
+            headers=self._scoped_key_headers(["comment:read"]),
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_ticket_comment_content_masked_in_activity_log(self) -> None:
+        # Activity logs are readable with activity_log:read only — ticket bodies must not leak there.
+        Comment.objects.create(
+            team=self.team, scope="Ticket", item_id="t1", content="internal discussion", created_by=self.user
+        )
+        entry = ActivityLog.objects.filter(team_id=self.team.id, scope="Ticket", activity="commented").first()
+        assert entry is not None
+        assert entry.detail is not None
+        assert entry.detail["changes"][0]["after"] == "masked"
+        assert "internal discussion" not in str(entry.detail)
+
+    def test_ticket_reply_content_masked_in_activity_log(self) -> None:
+        # Replies are logged under the parent thread's "Comment" activity scope, not the ticket
+        # scope — masking must key off the comment's own scope or reply bodies leak.
+        parent = Comment.objects.create(
+            team=self.team, scope="Ticket", item_id="t1", content="internal discussion", created_by=self.user
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="Ticket",
+            item_id="t1",
+            content="secret reply",
+            created_by=self.user,
+            source_comment=parent,
+        )
+        entry = ActivityLog.objects.filter(
+            team_id=self.team.id, scope="Comment", item_id=str(parent.id), activity="commented"
+        ).first()
+        assert entry is not None
+        assert entry.detail is not None
+        assert entry.detail["changes"][0]["after"] == "masked"
+        assert "secret reply" not in str(entry.detail)
+
+    def test_non_ticket_comment_content_not_masked_in_activity_log(self) -> None:
+        Comment.objects.create(
+            team=self.team, scope="Notebook", item_id="n1", content="plain note", created_by=self.user
+        )
+        entry = ActivityLog.objects.filter(team_id=self.team.id, scope="Notebook", activity="commented").first()
+        assert entry is not None
+        assert entry.detail is not None
+        assert entry.detail["changes"][0]["after"] == "plain note"
+
+
+TICKET_SCOPE_CASES = [("conversations_ticket",), ("Ticket",)]
+
 
 class TestCommentsTicketAccessControl(APIBaseTest):
-    """conversations_ticket comments are ticket messages read/written through this generic
-    endpoint by the Support UI (not TicketViewSet) — object-level ticket RBAC must be
-    enforced here too, or a denied member can read/write a ticket's messages directly."""
+    """Ticket-carrying comments — customer messages (conversations_ticket) and internal ticket
+    discussions (Ticket) — are read/written through this generic endpoint by the Support UI (not
+    TicketViewSet), so object-level ticket RBAC must be enforced here too, or a denied member can
+    read/write a ticket's contents directly."""
 
     def setUp(self) -> None:
         super().setUp()
@@ -602,26 +807,36 @@ class TestCommentsTicketAccessControl(APIBaseTest):
             team=self.team,
             access_level="none",
         )
-        Comment.objects.create(
-            team=self.team,
-            scope="conversations_ticket",
-            item_id=str(self.ticket.id),
-            content="a private message",
-        )
+        for scope in ("conversations_ticket", "Ticket"):
+            Comment.objects.create(
+                team=self.team,
+                scope=scope,
+                item_id=str(self.ticket.id),
+                content="a private message",
+            )
 
-    def test_denied_member_cannot_list_ticket_messages(self) -> None:
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/comments?scope=conversations_ticket&item_id={self.ticket.id}"
-        )
+    @parameterized.expand(TICKET_SCOPE_CASES)
+    def test_denied_member_cannot_list_ticket_messages(self, scope: str) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/comments?scope={scope}&item_id={self.ticket.id}")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"] == []
 
-    def test_denied_member_cannot_create_ticket_message(self) -> None:
+    @parameterized.expand(TICKET_SCOPE_CASES)
+    def test_denied_member_cannot_retrieve_ticket_message_by_id(self, scope: str) -> None:
+        # Detail actions carry no scope param, so the queryset-level ticket filter never runs.
+        message = Comment.objects.get(scope=scope, item_id=str(self.ticket.id))
+
+        response = self.client.get(f"/api/projects/{self.team.id}/comments/{message.id}")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @parameterized.expand(TICKET_SCOPE_CASES)
+    def test_denied_member_cannot_create_ticket_message(self, scope: str) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/comments",
             {
                 "content": "sneaking in a reply",
-                "scope": "conversations_ticket",
+                "scope": scope,
                 "item_id": str(self.ticket.id),
                 "item_context": {"author_type": "support", "is_private": False},
             },
@@ -629,59 +844,61 @@ class TestCommentsTicketAccessControl(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert not Comment.objects.filter(item_id=str(self.ticket.id), content="sneaking in a reply").exists()
 
-    def test_viewer_can_list_but_not_create_ticket_message(self) -> None:
+    @parameterized.expand(TICKET_SCOPE_CASES)
+    def test_viewer_can_list_but_not_create_ticket_message(self, scope: str) -> None:
         AccessControl.objects.filter(resource_id=str(self.ticket.id)).update(access_level="viewer")
 
-        list_response = self.client.get(
-            f"/api/projects/{self.team.id}/comments?scope=conversations_ticket&item_id={self.ticket.id}"
-        )
+        list_response = self.client.get(f"/api/projects/{self.team.id}/comments?scope={scope}&item_id={self.ticket.id}")
         assert len(list_response.json()["results"]) == 1
 
         create_response = self.client.post(
             f"/api/projects/{self.team.id}/comments",
             {
                 "content": "viewer trying to reply",
-                "scope": "conversations_ticket",
+                "scope": scope,
                 "item_id": str(self.ticket.id),
                 "item_context": {"author_type": "support", "is_private": False},
             },
         )
         assert create_response.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_editor_can_list_and_create_ticket_message(self) -> None:
+    @parameterized.expand(TICKET_SCOPE_CASES)
+    def test_editor_can_list_and_create_ticket_message(self, scope: str) -> None:
         AccessControl.objects.filter(resource_id=str(self.ticket.id)).update(access_level="editor")
 
         create_response = self.client.post(
             f"/api/projects/{self.team.id}/comments",
             {
                 "content": "editor reply",
-                "scope": "conversations_ticket",
+                "scope": scope,
                 "item_id": str(self.ticket.id),
                 "item_context": {"author_type": "support", "is_private": False},
             },
         )
         assert create_response.status_code == status.HTTP_201_CREATED
 
-    def test_creator_downgraded_to_viewer_cannot_edit_own_ticket_message(self) -> None:
+    @parameterized.expand(TICKET_SCOPE_CASES)
+    def test_creator_downgraded_to_viewer_cannot_edit_own_ticket_message(self, scope: str) -> None:
         AccessControl.objects.filter(resource_id=str(self.ticket.id)).update(access_level="editor")
         own_message = Comment.objects.create(
             team=self.team,
             created_by=self.member,
-            scope="conversations_ticket",
+            scope=scope,
             item_id=str(self.ticket.id),
             content="my reply",
         )
         AccessControl.objects.filter(resource_id=str(self.ticket.id)).update(access_level="viewer")
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/comments/{own_message.id}?scope=conversations_ticket",
+            f"/api/projects/{self.team.id}/comments/{own_message.id}?scope={scope}",
             {"content": "edited after being downgraded"},
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         own_message.refresh_from_db()
         assert own_message.content == "my reply"
 
-    def test_cannot_rescope_existing_comment_into_denied_ticket(self) -> None:
+    @parameterized.expand(TICKET_SCOPE_CASES)
+    def test_cannot_rescope_existing_comment_into_denied_ticket(self, scope: str) -> None:
         own_comment = Comment.objects.create(
             team=self.team,
             created_by=self.member,
@@ -692,7 +909,7 @@ class TestCommentsTicketAccessControl(APIBaseTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/comments/{own_comment.id}",
-            {"scope": "conversations_ticket", "item_id": str(self.ticket.id)},
+            {"scope": scope, "item_id": str(self.ticket.id)},
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         own_comment.refresh_from_db()
@@ -708,15 +925,19 @@ class TestCommentsTicketAccessControl(APIBaseTest):
             access_level="none",
         )
 
-    def test_member_denied_ticket_resource_cannot_list_messages_across_tickets(self) -> None:
+    @parameterized.expand(TICKET_SCOPE_CASES)
+    def test_member_denied_ticket_resource_cannot_list_messages_across_tickets(self, scope: str) -> None:
         self._deny_ticket_resource()
 
-        response = self.client.get(f"/api/projects/{self.team.id}/comments?scope=conversations_ticket")
+        response = self.client.get(f"/api/projects/{self.team.id}/comments?scope={scope}")
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"] == []
 
-    def test_member_denied_ticket_resource_still_lists_messages_of_specifically_granted_ticket(self) -> None:
+    @parameterized.expand(TICKET_SCOPE_CASES)
+    def test_member_denied_ticket_resource_still_lists_messages_of_specifically_granted_ticket(
+        self, scope: str
+    ) -> None:
         self._deny_ticket_resource()
         AccessControl.objects.create(
             resource="ticket",
@@ -726,27 +947,60 @@ class TestCommentsTicketAccessControl(APIBaseTest):
             access_level="viewer",
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/comments?scope=conversations_ticket")
+        response = self.client.get(f"/api/projects/{self.team.id}/comments?scope={scope}")
 
         assert [result["content"] for result in response.json()["results"]] == ["a private message"]
 
-    def test_viewer_cannot_complete_ticket_task(self) -> None:
+    @parameterized.expand(TICKET_SCOPE_CASES)
+    def test_viewer_cannot_complete_ticket_task(self, scope: str) -> None:
         AccessControl.objects.filter(resource_id=str(self.ticket.id)).update(access_level="viewer")
         task = Comment.objects.create(
             team=self.team,
             created_by=self.member,
-            scope="conversations_ticket",
+            scope=scope,
             item_id=str(self.ticket.id),
             content="a ticket task",
             is_task=True,
         )
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/comments/{task.id}/complete?scope=conversations_ticket",
+            f"/api/projects/{self.team.id}/comments/{task.id}/complete?scope={scope}",
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         task.refresh_from_db()
         assert task.completed_at is None
+
+    @parameterized.expand(TICKET_SCOPE_CASES)
+    def test_cannot_reply_into_a_denied_ticket_using_an_editable_ticket_item_id(self, scope: str) -> None:
+        # /thread selects by source_comment_id, so a reply naming a ticket the member can edit
+        # would still render in the denied ticket's thread if item_id weren't pinned to the parent.
+        editable_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="editable-session",
+            distinct_id="editable-user",
+            status=Status.OPEN,
+        )
+        AccessControl.objects.create(
+            resource="ticket",
+            resource_id=str(editable_ticket.id),
+            organization_member=self.member.organization_memberships.get(organization=self.organization),
+            team=self.team,
+            access_level="editor",
+        )
+        parent = Comment.objects.get(scope=scope, item_id=str(self.ticket.id))
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "injected into a denied ticket",
+                "scope": scope,
+                "item_id": str(editable_ticket.id),
+                "source_comment": str(parent.id),
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not Comment.objects.filter(source_comment=parent).exists()
 
 
 class TestDiscussionMentionInternalEvents(APIBaseTest, QueryMatchingTest):

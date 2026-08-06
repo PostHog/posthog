@@ -44,6 +44,7 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     run_interval_minutes: 1440,
     run_cron_schedule: null,
     output_destinations: {},
+    structured_output_schema: null,
     last_run_at: null,
     consecutive_failure_count: 0,
     status_changed_at: null,
@@ -126,6 +127,35 @@ describe('scoutFleetLogic', () => {
         )
         expect(logic.values.scoutConfigs?.[0]).toEqual(finalConfig)
         expect(logic.values.updatingScoutIds).toEqual([])
+    })
+
+    it('filters scouts by any selected tag and stops applying tags that are no longer in use', () => {
+        const revenueScout = { ...BASE_CONFIG, tags: ['revenue'] }
+        const onCallScout = {
+            ...BASE_CONFIG,
+            id: 'config-2',
+            skill_name: 'signals-scout-on-call',
+            tags: ['on-call'],
+        }
+        const untaggedScout = {
+            ...BASE_CONFIG,
+            id: 'config-3',
+            skill_name: 'signals-scout-product',
+            tags: [],
+        }
+        logic.actions.loadScoutConfigsSuccess([revenueScout, onCallScout, untaggedScout])
+
+        logic.actions.setScoutTagFilter(['revenue', 'on-call'])
+
+        expect(logic.values.activeScoutTags).toEqual(['revenue', 'on-call'])
+        expect(logic.values.visibleConfigs.map((config) => config.id)).toEqual(['config-1', 'config-2'])
+
+        logic.actions.patchScoutConfigLocally(revenueScout.id, { tags: [] })
+        logic.actions.patchScoutConfigLocally(onCallScout.id, { tags: [] })
+
+        expect(logic.values.selectedScoutTags).toEqual(['revenue', 'on-call'])
+        expect(logic.values.activeScoutTags).toEqual([])
+        expect(logic.values.visibleConfigs).toHaveLength(3)
     })
 
     it('keeps configs unresolved until the current team is available', async () => {

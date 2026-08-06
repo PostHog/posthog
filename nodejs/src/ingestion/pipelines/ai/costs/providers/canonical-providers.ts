@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-04 20:30:24 UTC
+// Generated at: 2026-08-05 20:29:07 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -14,7 +14,6 @@ export type CanonicalProvider =
     | 'amazon-bedrock-claude-on-aws'
     | 'amazon-bedrock-eu-west-1'
     | 'amazon-bedrock-global'
-    | 'amazon-bedrock-us'
     | 'amazon-bedrock-us-east-1'
     | 'amazon-bedrock-us-east-2'
     | 'ambient-fp4'
@@ -167,7 +166,7 @@ export type CanonicalProvider =
     | 'tencent-fp8'
     | 'together'
     | 'together-fp8'
-    | 'upstage'
+    | 'upstage-fp4'
     | 'venice'
     | 'venice-bf16'
     | 'venice-fp16'

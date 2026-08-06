@@ -14,7 +14,9 @@ from unittest import mock
 from unittest.mock import AsyncMock
 
 from django.conf import settings
+from django.core.management import call_command
 from django.test import override_settings
+from django.utils import timezone
 
 import s3fs
 import orjson
@@ -70,6 +72,7 @@ from products.warehouse_sources.backend.facade.models import (
     get_latest_run_if_exists,
 )
 from products.warehouse_sources.backend.models.external_table_definitions import external_tables
+from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
 from products.warehouse_sources.backend.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
@@ -2224,6 +2227,356 @@ async def test_in_place_repartition_to_finer_datetime_format(team, postgres_conf
     # No rows lost or duplicated by the rewrite + the subsequent merge.
     count_after = await sync_to_async(execute_hogql_query)("SELECT count() FROM postgres_test_repartition", team)
     assert count_after.results[0][0] == 5
+
+
+_COARSEN_FLAGS_ON = (
+    "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table"
+    ".is_auto_repartition_enabled",
+    "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
+    ".is_auto_coarsen_enabled",
+)
+
+
+async def _seed_dated_rows(postgres_connection, postgres_config, table: str, timestamps: list[str]) -> None:
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.{table} (id uuid PRIMARY KEY, created_at timestamp)".format(
+            schema=postgres_config["schema"], table=table
+        )
+    )
+    for ts in timestamps:
+        await postgres_connection.execute(
+            "INSERT INTO {schema}.{table} (id, created_at) VALUES ('{id}', '{ts}T12:00:00.000Z')".format(
+                schema=postgres_config["schema"], table=table, id=uuid.uuid4(), ts=ts
+            )
+        )
+    await postgres_connection.commit()
+
+
+async def _partition_keys_on_s3(minio_client, team, source_id, table: str) -> set[str]:
+    job = await sync_to_async(
+        lambda: ExternalDataJob.objects.filter(team_id=team.pk, pipeline_id=source_id).order_by("-created_at").first()
+    )()
+    assert job is not None
+    folder_path = await sync_to_async(job.folder_path)()
+    listing = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/{table}/")
+    keys = set()
+    for obj in listing.get("Contents", []):
+        for part in obj["Key"].split("/"):
+            if part.startswith(f"{PARTITION_KEY}="):
+                keys.add(part.split("=", 1)[1])
+    return keys
+
+
+async def _row_ids(team, table: str) -> list[str]:
+    # Explicit LIMIT: HogQL defaults to 100 rows, which would silently truncate the identity
+    # comparison and let a row-losing rewrite pass on any table bigger than that.
+    result = await sync_to_async(execute_hogql_query)(f"SELECT id FROM {table} ORDER BY id LIMIT 10000", team)
+    return [str(row[0]) for row in result.results]
+
+
+@sync_to_async
+def _record_suspected_ooms(team, schema, count: int) -> None:
+    # Whole call inside the sync context: resolving the team-scoped manager touches the DB, so it
+    # cannot be evaluated while building the sync_to_async argument.
+    for _ in range(count):
+        ExternalDataSchemaOOMEvent.objects.for_team(team.pk).create(
+            team_id=team.pk, schema_id=schema.id, run_id=str(uuid.uuid4())
+        )
+
+
+@sync_to_async
+def _backdate_last_repartition(schema, days: int) -> None:
+    # A staged rewrite stamps last_repartition_at, and a freshly rewritten layout is protected by the
+    # coarsening age gate. Backdating mirrors the real backlog, whose damage is weeks old.
+    schema.refresh_from_db(fields=["sync_type_config"])
+    schema.sync_type_config["last_repartition_at"] = (timezone.now() - timedelta(days=days)).isoformat()
+    schema.save(update_fields=["sync_type_config"])
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_in_place_coarsening_merges_weekly_partitions_into_months(
+    team, postgres_config, postgres_connection, minio_client
+):
+    # The reverse direction, end to end on real data. A year of weekly partitions is over-fragmented,
+    # so the controller merges it up to months in place. Week into month is the transition that cannot
+    # be sized exactly (ISO weeks straddle month boundaries), so this is the one that most needs to be
+    # proven against real Delta files rather than a simulation.
+    # One row every 7 days for a year: 52 distinct ISO weeks over 12 months. A month holds only about
+    # 4.3 weeks, so a full year is what clears the 4x minimum reduction with any margin.
+    timestamps = [(datetime(2025, 1, 1) + timedelta(days=7 * week)).strftime("%Y-%m-%d") for week in range(52)]
+    await _seed_dated_rows(postgres_connection, postgres_config, "test_coarsen_week", timestamps)
+
+    _workflow_id, inputs = await _run(
+        team=team,
+        schema_name="test_coarsen_week",
+        table_name="postgres_test_coarsen_week",
+        source_type="Postgres",
+        job_inputs=_postgres_job_inputs(postgres_config),
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "created_at", "incremental_field_type": "timestamp"},
+        ignore_assertions=True,
+    )
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partition_format == "week"
+    keys_before = await _partition_keys_on_s3(minio_client, team, inputs.external_data_source_id, "test_coarsen_week")
+    assert len(keys_before) >= 16, keys_before
+    ids_before = await _row_ids(team, "postgres_test_coarsen_week")
+    assert len(ids_before) == len(timestamps)
+
+    # Coarsening evaluates on the next sync and, finding a layout that fits, rewrites in the same run.
+    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True), mock.patch(_COARSEN_FLAGS_ON[1], return_value=True):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
+        await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partition_format == "month", "the table should have been merged up to monthly partitions"
+    assert schema.repartition_pending is None, "the rewrite should have consumed its own pending target"
+
+    keys_after = await _partition_keys_on_s3(minio_client, team, inputs.external_data_source_id, "test_coarsen_week")
+    assert keys_after == {f"2025-{month:02d}" for month in range(1, 13)}, keys_after
+    assert not any(key.startswith("2025-w") for key in keys_after), keys_after
+
+    # The rewrite moves every row between partitions, so identity is what has to survive, not just count.
+    assert await _row_ids(team, "postgres_test_coarsen_week") == ids_before
+
+    # And it must settle: a table just coarsened must not be split straight back on the next sync.
+    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True), mock.patch(_COARSEN_FLAGS_ON[1], return_value=True):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
+        await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partition_format == "month", "the layout should have settled rather than oscillating"
+    assert schema.repartition_pending is None
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_oom_history_does_not_split_a_table_with_tiny_partitions(
+    team, postgres_config, postgres_connection, minio_client
+):
+    # The bug this whole change exists for. Repeated OOM occurrences on a table whose partitions are
+    # kilobytes used to drive the scheme finer and finer; the split floor must leave it alone, because
+    # partition size cannot be what is exhausting memory here.
+    timestamps = [f"2025-{month:02d}-{day:02d}" for month in range(1, 13) for day in (1, 15)]
+    await _seed_dated_rows(postgres_connection, postgres_config, "test_oom_floor", timestamps)
+
+    _workflow_id, inputs = await _run(
+        team=team,
+        schema_name="test_oom_floor",
+        table_name="postgres_test_oom_floor",
+        source_type="Postgres",
+        job_inputs=_postgres_job_inputs(postgres_config),
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "created_at", "incremental_field_type": "timestamp"},
+        ignore_assertions=True,
+    )
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partition_format == "week"
+
+    await _record_suspected_ooms(team, schema, 3)  # enough to trip the OOM trigger on its own
+
+    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
+        await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partition_format == "week", "OOM history must not split a table whose partitions are already tiny"
+    assert schema.repartition_pending is None, "no finer rewrite should have been queued"
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_operator_nomination_coarsens_a_table_the_automatic_path_refuses(
+    team, postgres_config, postgres_connection, minio_client
+):
+    # The backlog path. This table has OOM history, so the automatic gate would never touch it, which
+    # is exactly the state the already-over-split tables in production are in. Nominating it through
+    # the management command has to get past that gate and still land a layout that fits.
+    timestamps = [(datetime(2025, 1, 1) + timedelta(days=7 * week)).strftime("%Y-%m-%d") for week in range(52)]
+    await _seed_dated_rows(postgres_connection, postgres_config, "test_nominated", timestamps)
+
+    _workflow_id, inputs = await _run(
+        team=team,
+        schema_name="test_nominated",
+        table_name="postgres_test_nominated",
+        source_type="Postgres",
+        job_inputs=_postgres_job_inputs(postgres_config),
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "created_at", "incremental_field_type": "timestamp"},
+        ignore_assertions=True,
+    )
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    ids_before = await _row_ids(team, "postgres_test_nominated")
+    await _record_suspected_ooms(team, schema, 3)
+
+    await sync_to_async(call_command)(
+        "stage_warehouse_coarsening", "--execute", f"--schema-id={schema.id}", "--requested-by=e2e"
+    )
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.coarsen_requested is not None
+
+    # No feature flag patched here: the nomination is what gets this table measured at all.
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partition_format == "month", "the nominated table should have been coarsened"
+    assert schema.coarsen_requested is None, "the nomination should be consumed once evaluated"
+    assert await _row_ids(team, "postgres_test_nominated") == ids_before
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_in_place_coarsening_merges_hourly_partitions_up(
+    team, postgres_config, postgres_connection, minio_client
+):
+    # The production damage shape: most over-split tables were driven to the hour tier by the finer
+    # path, exactly as staged here. Coarsening must jump straight to the coarsest tier that fits (month
+    # for this data) rather than crawling back one tier per daily cooldown cycle.
+    timestamps = [(datetime(2025, 1, 1) + timedelta(days=7 * week)).strftime("%Y-%m-%d") for week in range(52)]
+    await _seed_dated_rows(postgres_connection, postgres_config, "test_coarsen_hour", timestamps)
+
+    _workflow_id, inputs = await _run(
+        team=team,
+        schema_name="test_coarsen_hour",
+        table_name="postgres_test_coarsen_hour",
+        source_type="Postgres",
+        job_inputs=_postgres_job_inputs(postgres_config),
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "created_at", "incremental_field_type": "timestamp"},
+        ignore_assertions=True,
+    )
+
+    # Stage the damage the finer path used to do: rewrite the table down to hourly partitions.
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    await sync_to_async(schema.set_repartition_pending)(
+        {
+            "partition_mode": "datetime",
+            "partition_format": "hour",
+            "partition_keys": ["created_at"],
+            "partition_count": None,
+            "partition_size": None,
+            "trigger_reason": "test",
+            "attempts": 0,
+        }
+    )
+    # The rollout flag gates the queued rewrite too (a pending repartition is released, not run, when
+    # it's off), so force it on for the staging run that produces the over-split layout.
+    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partition_format == "hour"
+    keys_hourly = await _partition_keys_on_s3(minio_client, team, inputs.external_data_source_id, "test_coarsen_hour")
+    assert len(keys_hourly) == len(timestamps) and all("T" in key for key in keys_hourly), keys_hourly
+    ids_before = await _row_ids(team, "postgres_test_coarsen_hour")
+
+    await _backdate_last_repartition(schema, days=8)
+    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True), mock.patch(_COARSEN_FLAGS_ON[1], return_value=True):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
+        await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partition_format == "month", "hourly partitions should merge straight up to monthly"
+    keys_after = await _partition_keys_on_s3(minio_client, team, inputs.external_data_source_id, "test_coarsen_hour")
+    assert keys_after == {f"2025-{month:02d}" for month in range(1, 13)}, keys_after
+    assert await _row_ids(team, "postgres_test_coarsen_hour") == ids_before
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mode,staged_target,expected_after",
+    [
+        # md5 buckets merge only into a divisor of the current count; for a tiny table the coarsest
+        # divisor that fits is a single bucket.
+        (
+            "md5",
+            {"partition_mode": "md5", "partition_count": 16, "partition_keys": ["id"]},
+            {"partition_mode": "md5", "partition_count": 1},
+        ),
+        # Numerical buckets are id // size, so coarsening multiplies the size; 320 dense ids at size 10
+        # give 32 buckets that merge into one bucket of size 320.
+        (
+            "numerical",
+            {"partition_mode": "numerical", "partition_size": 10, "partition_keys": ["id"]},
+            {"partition_mode": "numerical", "partition_size": 320},
+        ),
+    ],
+)
+async def test_in_place_coarsening_for_hashed_and_numerical_modes(
+    team, postgres_config, postgres_connection, minio_client, mode, staged_target, expected_after
+):
+    # The non-datetime modes use entirely different bucket arithmetic (modulo merge vs size multiply),
+    # so datetime passing e2e proves nothing about them. Same shape as the datetime tests: stage the
+    # over-split layout, coarsen, verify layout and row identity on real Delta files.
+    table = f"test_coarsen_{mode}"
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.{table} (id integer PRIMARY KEY)".format(
+            schema=postgres_config["schema"], table=table
+        )
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.{table} (id) SELECT generate_series(1, 320)".format(
+            schema=postgres_config["schema"], table=table
+        )
+    )
+    await postgres_connection.commit()
+
+    _workflow_id, inputs = await _run(
+        team=team,
+        schema_name=table,
+        table_name=f"postgres_{table}",
+        source_type="Postgres",
+        job_inputs=_postgres_job_inputs(postgres_config),
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+        ignore_assertions=True,
+    )
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    await sync_to_async(schema.set_repartition_pending)(
+        {
+            **staged_target,
+            "partition_count": staged_target.get("partition_count"),
+            "partition_size": staged_target.get("partition_size"),
+            "trigger_reason": "test",
+            "attempts": 0,
+        }
+    )
+    # Same as the datetime test: the rollout flag must be on for the staging rewrite to run at all.
+    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partition_mode == mode
+    keys_fragmented = await _partition_keys_on_s3(minio_client, team, inputs.external_data_source_id, table)
+    assert len(keys_fragmented) >= 16, keys_fragmented
+    ids_before = await _row_ids(team, f"postgres_{table}")
+    assert len(ids_before) == 320
+
+    await _backdate_last_repartition(schema, days=8)
+    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True), mock.patch(_COARSEN_FLAGS_ON[1], return_value=True):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
+        await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    for field, value in expected_after.items():
+        assert getattr(schema, field) == value, (field, getattr(schema, field))
+    keys_after = await _partition_keys_on_s3(minio_client, team, inputs.external_data_source_id, table)
+    assert len(keys_after) * 4 <= len(keys_fragmented), (keys_fragmented, keys_after)
+    assert await _row_ids(team, f"postgres_{table}") == ids_before
 
 
 @pytest.mark.django_db(transaction=True)
