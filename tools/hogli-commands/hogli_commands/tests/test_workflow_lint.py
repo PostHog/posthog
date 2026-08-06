@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from click.testing import CliRunner
 from hogli_commands.workflow_lint.check import CheckResult, WorkflowCheck
 from hogli_commands.workflow_lint.checks import CHECKS, _build_lookup, get_check
 from hogli_commands.workflow_lint.checks.cache_writes import (
@@ -27,8 +28,10 @@ from hogli_commands.workflow_lint.checks.checkout_full_depth import CheckoutFull
 from hogli_commands.workflow_lint.checks.dorny_negation import DornyNegationCheck
 from hogli_commands.workflow_lint.checks.job_timeouts import JobTimeoutsCheck
 from hogli_commands.workflow_lint.checks.pr_concurrency import PrConcurrencyCheck
+from hogli_commands.workflow_lint.checks.pr_event_fanout import PrEventFanoutCheck
 from hogli_commands.workflow_lint.checks.required_gates import RequiredGateCheck
 from hogli_commands.workflow_lint.checks.semgrep_services_coverage import SemgrepServicesCoverageCheck
+from hogli_commands.workflow_lint.cli import cmd_lint_workflows
 from hogli_commands.workflow_lint.model import PR_TRIGGERS, Workflow, WorkflowParseError, read_workflows
 
 
@@ -486,6 +489,97 @@ class TestPrConcurrencyCheck:
             """,
         )
         assert (PrConcurrencyCheck().run(_read_all(tmp_path)).issues == []) is exempted
+
+
+# ---------------------------------------------------------------------------
+# PrEventFanoutCheck
+# ---------------------------------------------------------------------------
+
+
+class TestPrEventFanoutCheck:
+    @pytest.mark.parametrize(
+        "workflow,budget,expected",
+        [
+            (
+                """
+                name: Agent
+                on:
+                  pull_request:
+                    types: [closed]
+                  pull_request_target:
+                    types: [opened, reopened, ready_for_review, edited]
+                jobs: {}
+                """,
+                {"closed": 1},
+                [
+                    "unscoped `edited` PR dispatch fanout is 1; budget is 0",
+                    "unscoped `opened` PR dispatch fanout is 1; budget is 0",
+                    "unscoped `ready_for_review` PR dispatch fanout is 1; budget is 0",
+                    "unscoped `reopened` PR dispatch fanout is 1; budget is 0",
+                ],
+            ),
+            (
+                """
+                name: New workflow
+                on: [pull_request]
+                jobs: {}
+                """,
+                {},
+                [
+                    "unscoped `opened` PR dispatch fanout is 1; budget is 0",
+                    "unscoped `reopened` PR dispatch fanout is 1; budget is 0",
+                    "unscoped `synchronize` PR dispatch fanout is 1; budget is 0",
+                ],
+            ),
+            (
+                """
+                name: Focused
+                on:
+                  pull_request:
+                    paths: [products/example/**]
+                jobs: {}
+                """,
+                {},
+                [],
+            ),
+            # paths-ignore usually excludes a narrow slice, so it still fires on nearly every PR.
+            (
+                """
+                name: Nearly everything
+                on:
+                  pull_request:
+                    paths-ignore: [docs/**]
+                jobs: {}
+                """,
+                {},
+                [
+                    "unscoped `opened` PR dispatch fanout is 1; budget is 0",
+                    "unscoped `reopened` PR dispatch fanout is 1; budget is 0",
+                    "unscoped `synchronize` PR dispatch fanout is 1; budget is 0",
+                ],
+            ),
+            # Label-driven workflows are the intended use, and labels cannot burst.
+            (
+                """
+                name: Opt in by label
+                on:
+                  pull_request:
+                    types: [labeled, unlabeled]
+                jobs: {}
+                """,
+                {},
+                [],
+            ),
+        ],
+    )
+    def test_counts_unscoped_pr_dispatches(
+        self, tmp_path: Path, workflow: str, budget: dict[str, int], expected: list[str]
+    ) -> None:
+        _write(tmp_path, "workflow.yml", workflow)
+
+        result = PrEventFanoutCheck(budget=budget).run(_read_all(tmp_path))
+
+        assert [issue.message for issue in result.issues] == expected
 
 
 # ---------------------------------------------------------------------------
@@ -1028,6 +1122,34 @@ class TestRegistry:
         for check in CHECKS:
             result = check.run(wfs)
             assert isinstance(result, CheckResult)
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+class TestCli:
+    def test_fanout_over_budget_fails_run(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "assigned.yml",
+            """
+            name: Assigned
+            on:
+              pull_request:
+                types: [assigned]
+            jobs: {}
+            """,
+        )
+
+        result = CliRunner().invoke(
+            cmd_lint_workflows,
+            ["--check", "WF008", "--workflows-dir", str(tmp_path)],
+        )
+
+        assert result.exit_code == 1
+        assert "1 issue(s) across 1 check(s)" in result.output
 
 
 # The shape these fixtures guard against: a `changes` detector cleared with a bare

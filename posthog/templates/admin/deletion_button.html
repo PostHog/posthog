@@ -1,19 +1,29 @@
 {% comment %}
-Danger-zone action button for admin change pages. The submit button posts the surrounding
-admin form to action_url via formaction — a nested <form> here would be dropped by the
-browser, so it rides the change form instead (formnovalidate skips its field validation).
+Danger-zone action button for admin change pages. Clicking the button opens a <dialog>
+confirmation modal instead of submitting directly. The modal's submit button posts the
+surrounding admin form to action_url via formaction, not a <form> of its own, because a nested
+<form> here would be dropped by the browser (formnovalidate skips its field validation).
 Include from a readonly display method with action_url / button_label / confirm_message /
 notice in context.
 {% endcomment %}
-<button type="submit"
-        formaction="{{ action_url }}"
-        formmethod="post"
-        formnovalidate
+<button type="button"
         class="button"
         style="background: #ba2121; color: #fff;"
-        onclick="return confirm('{{ confirm_message|escapejs }}');">
+        onclick="this.nextElementSibling.showModal()">
     {{ button_label }}
 </button>
-<p class="help" style="margin-top: 8px; max-width: 40em; color: #ba2121;">
-    {{ notice }}
-</p>
+<dialog style="max-width: 32em; padding: 16px; border: 1px solid #ba2121; border-radius: 4px;">
+    <p>{{ confirm_message }}</p>
+    <p class="help" style="color: #ba2121;">{{ notice }}</p>
+    <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px;">
+        <button type="button" onclick="this.closest('dialog').close()">Cancel</button>
+        <button type="submit"
+                formaction="{{ action_url }}"
+                formmethod="post"
+                formnovalidate
+                class="button"
+                style="background: #ba2121; color: #fff;">
+            Confirm deletion
+        </button>
+    </div>
+</dialog>

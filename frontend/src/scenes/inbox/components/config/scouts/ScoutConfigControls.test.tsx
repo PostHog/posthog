@@ -25,6 +25,7 @@ const config: SignalScoutConfigApi = {
     status_changed_at: null,
     auto_pause_exempt: false,
     network_access: 'trusted',
+    model: null,
     tags: [],
     created_at: '2026-07-21T12:00:00Z',
 }

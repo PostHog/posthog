@@ -193,6 +193,16 @@ export interface TaskRunSessionLogsResult {
   complete: boolean;
 }
 
+export interface TaskListOptions {
+  repository?: string;
+  createdBy?: number;
+  originProduct?: string;
+  internal?: boolean;
+  channel?: string;
+  /** Caller-side cap for surfaces that only show the newest few. */
+  limit?: number;
+}
+
 export interface TaskSessionStorageAccess {
   id: string;
   download_url: string | null;
@@ -410,26 +420,6 @@ export interface ScoutConfig {
   run_interval_minutes: number;
   last_run_at: string | null;
   created_at: string;
-}
-
-/** A team's enforced scout run caps and current usage, as dispatch applies them. */
-export interface ScoutLimits {
-  max_runs_per_tick: number;
-  /** Null when the daily budget is uncapped. */
-  max_runs_per_day: number | null;
-  runs_today: number;
-  /** Null when the daily budget is uncapped. */
-  runs_remaining_today: number | null;
-}
-
-/**
- * Team-scoped scout metadata from the `signals-scout` flag: enrollment, an optional
- * announcement banner, and the enforced run limits. `banner_message` is null when unset.
- */
-export interface ScoutMetadata {
-  enrolled: boolean;
-  banner_message: string | null;
-  limits: ScoutLimits;
 }
 
 export interface ScoutRun {
@@ -1875,10 +1865,6 @@ export class PostHogAPIClient {
     return Array.isArray(data) ? data : (data.results ?? []);
   }
 
-  async getScoutMetadata(projectId: number): Promise<ScoutMetadata> {
-    return this.scoutGet<ScoutMetadata>(projectId, "metadata/current/");
-  }
-
   async updateScoutConfig(
     projectId: number,
     configId: string,
@@ -2162,16 +2148,20 @@ export class PostHogAPIClient {
     }
   }
 
-  async getTasks(options?: {
-    repository?: string;
-    createdBy?: number;
-    originProduct?: string;
-    internal?: boolean;
-    channel?: string;
-  }): Promise<Task[]> {
+  async getTasks(options?: TaskListOptions): Promise<Task[]> {
+    return (await this.getTasksPage(options)).tasks;
+  }
+
+  /**
+   * The same list with the total behind it, for surfaces that ask for a short
+   * page and still have to say how much they are not showing.
+   */
+  async getTasksPage(
+    options?: TaskListOptions,
+  ): Promise<{ tasks: Task[]; count: number }> {
     const teamId = await this.getTeamId();
     const params: Record<string, string | number | boolean> = {
-      limit: 500,
+      limit: options?.limit ?? 500,
     };
 
     if (options?.repository) {
@@ -2199,9 +2189,10 @@ export class PostHogAPIClient {
       query: params,
     });
 
-    return (data.results ?? []).map((task) =>
+    const tasks = (data.results ?? []).map((task) =>
       normalizeTaskResponse(task, { teamId }),
     );
+    return { tasks, count: data.count ?? tasks.length };
   }
 
   async getTaskSummaries(ids: string[]) {

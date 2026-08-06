@@ -85,10 +85,6 @@ if settings.ADMIN_PORTAL_ENABLED:
         except NotRegistered:
             pass
 
-    from posthog.admin.admins.backfill_precalculated_events_admin import backfill_precalculated_events_view
-    from posthog.admin.admins.backfill_precalculated_person_properties_admin import (
-        backfill_precalculated_person_properties_view,
-    )
     from posthog.admin.admins.code_based_verification_bypass_admin import (
         CodeBasedVerificationBypassViewSet,
         CodeBasedVerificationGlobalDisableViewSet,
@@ -106,7 +102,6 @@ if settings.ADMIN_PORTAL_ENABLED:
         notebook_markdown_migration_view,
     )
     from posthog.admin.admins.radar_bypass_admin import RadarBypassViewSet, radar_bypass_view
-    from posthog.admin.admins.realtime_cohort_calculation_admin import analyze_realtime_cohort_calculation_view
     from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
     from posthog.admin.admins.tophog_admin import tophog_dashboard_view, tophog_restrictions_view
 
@@ -119,11 +114,6 @@ if settings.ADMIN_PORTAL_ENABLED:
         path("admin/redisvalues", redis_values_view, name="redis_values"),
         path("admin/redis/edit-ttl", redis_edit_ttl_view, name="redis_edit_ttl"),
         path("admin/apikeysearch", api_key_search_view, name="api_key_search"),
-        path(
-            "admin/realtime-cohorts-calculation/",
-            admin.site.admin_view(analyze_realtime_cohort_calculation_view),
-            name="realtime-cohorts-calculation",
-        ),
         path(
             "admin/radar-bypass/",
             admin.site.admin_view(radar_bypass_view),
@@ -163,16 +153,6 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/resave-cohorts/",
             admin.site.admin_view(resave_cohorts_view),
             name="resave-cohorts",
-        ),
-        path(
-            "admin/backfill-precalculated-events/",
-            admin.site.admin_view(backfill_precalculated_events_view),
-            name="backfill-precalculated-events",
-        ),
-        path(
-            "admin/backfill-precalculated-person-properties/",
-            admin.site.admin_view(backfill_precalculated_person_properties_view),
-            name="backfill-precalculated-person-properties",
         ),
         path(
             "admin/distinct-id-usage/",
