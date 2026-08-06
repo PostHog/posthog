@@ -298,6 +298,9 @@ describe('sourceSettingsLogic sync refetch', () => {
         jest.spyOn(api.externalDataSources, 'get').mockResolvedValue(makeSource())
         logic = sourceSettingsLogic({ id: 'source-1' })
         logic.mount()
+        // Suppress the REFRESH_INTERVAL poll `loadSourceSuccess` schedules, so the test leaves no
+        // live timer behind (jest force-exits the worker otherwise). Fires before the async success.
+        logic.actions.pausePolling()
     })
 
     afterEach(() => {
