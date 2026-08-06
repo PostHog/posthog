@@ -1,6 +1,7 @@
 import { assertCanvasCapability } from "@posthog/core/canvas/canvasCapabilities";
 import {
   type CanvasNavIntent,
+  type CanvasTheme,
   canvasToHostMessageSchema,
 } from "@posthog/core/canvas/freeformSchemas";
 import type { CanvasCapabilities } from "@posthog/shared";
@@ -12,9 +13,18 @@ import { createCanvasHostMessageRouter } from "./canvasHostMessageRouter";
 
 const log = logger.scope("built-canvas");
 
-function buildArtifactHostDocument(artifactUrl: string): string {
+function buildArtifactHostDocument(
+  artifactUrl: string,
+  theme: CanvasTheme,
+): string {
   const artifactOrigin = new URL(artifactUrl).origin;
-  const serializedArtifactUrl = JSON.stringify(artifactUrl).replaceAll(
+  // The theme rides the fragment so the artifact runtime (a synchronous head
+  // script) applies `.dark` before first paint — the bridge port only connects
+  // at the load event, far too late to prevent a light flash. Fragments don't
+  // reach the server, so signed artifact URLs stay valid.
+  const themedUrl = new URL(artifactUrl);
+  themedUrl.hash = `theme=${theme}`;
+  const serializedArtifactUrl = JSON.stringify(themedUrl.href).replaceAll(
     "<",
     "\\u003c",
   );
@@ -96,9 +106,14 @@ export function BuiltCanvas({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   // Mirrors the host's light/dark theme, like FreeformCanvas — sent over the
   // artifact bridge port right after connect and again on every change.
-  const theme = useThemeStore((s) => (s.isDarkMode ? "dark" : "light"));
+  const theme = useThemeStore(
+    (s): CanvasTheme => (s.isDarkMode ? "dark" : "light"),
+  );
   const artifactPortRef = useRef<MessagePort | null>(null);
-  const hostDocument = buildArtifactHostDocument(artifactUrl);
+  // The srcDoc bakes in the mount-time theme only — folding the live theme in
+  // would reload the artifact on every toggle. Live changes go over the port.
+  const initialTheme = useRef(theme).current;
+  const hostDocument = buildArtifactHostDocument(artifactUrl, initialTheme);
   const latest = useRef({
     capabilities,
     onDataRequest,
@@ -213,6 +228,10 @@ export function BuiltCanvas({
       sandbox="allow-scripts"
       srcDoc={hostDocument}
       referrerPolicy="no-referrer"
+      // Like FreeformCanvas: without a matching color-scheme the UA paints the
+      // embedded documents' base canvas opaque white, flashing over a dark app
+      // before the artifact's stylesheets and theme land.
+      style={{ colorScheme: theme }}
       className="h-full w-full border-0 bg-background"
     />
   );

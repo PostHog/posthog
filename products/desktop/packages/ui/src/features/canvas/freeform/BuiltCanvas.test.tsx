@@ -29,7 +29,7 @@ describe("BuiltCanvas", () => {
     const hostDocument = screen.getByTitle("Canvas").getAttribute("srcdoc");
     expect(hostDocument).toContain("frame-src https://usercontent.example");
     expect(hostDocument).toContain(
-      'artifactFrame.src = "https://usercontent.example/build/index.html"',
+      'artifactFrame.src = "https://usercontent.example/build/index.html#theme=light"',
     );
     expect(hostDocument).not.toContain("frame-src *");
     expect(screen.getByTitle("Canvas")).toHaveAttribute(
@@ -144,6 +144,8 @@ describe("BuiltCanvas", () => {
     );
     const iframe = screen.getByTitle("Canvas") as HTMLIFrameElement;
     if (!iframe.contentWindow) throw new Error("Canvas iframe has no window");
+    expect(iframe.getAttribute("srcdoc")).toContain("#theme=dark");
+    expect(iframe.style.colorScheme).toBe("dark");
     const postMessage = vi
       .spyOn(iframe.contentWindow, "postMessage")
       .mockImplementation(() => undefined);
