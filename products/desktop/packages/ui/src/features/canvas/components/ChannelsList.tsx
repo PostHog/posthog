@@ -10,6 +10,7 @@ import {
   LinkIcon,
   PencilSimpleIcon,
   PlusIcon,
+  PushPinIcon,
   StarIcon,
   TrashIcon,
 } from "@phosphor-icons/react";
@@ -67,6 +68,7 @@ import {
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelTaskStatus } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
 import { useCreateAndOpenDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import { usePinnedSpaceTasks } from "@posthog/ui/features/canvas/hooks/usePinnedSpaceTasks";
 import {
   NO_TASKS,
   type SpaceTasks,
@@ -206,7 +208,10 @@ function SpaceRowSurface({
  */
 type SpaceTreeNode =
   | { kind: "space"; value: string; spaceId: string | undefined }
-  | { kind: "task"; value: string; spaceId: string; parentValue: string };
+  | { kind: "task"; value: string; spaceId: string; parentValue: string }
+  // A pinned session at the top of the list. It hangs off no space row, so ← has
+  // nothing to collapse and nowhere to move the highlight to.
+  | { kind: "pin"; value: string; spaceId: string };
 
 /** How long the pointer has to rest on a space before its sessions are warmed. */
 const SESSION_PREFETCH_DELAY_MS = 250;
@@ -361,10 +366,19 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
   item,
   spaceId,
   asOption,
+  optionValue = item.key,
+  indent = "pl-10",
 }: {
   item: ChannelItemModel;
   spaceId: string;
   asOption: boolean;
+  /**
+   * What the keyboard calls this row. Defaults to the item's key, and the Pinned
+   * section overrides it: a pinned session is also a row under its own space, and
+   * two options sharing a value would map one highlight index onto both.
+   */
+  optionValue?: string;
+  indent?: string;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const openTask = useOpenSpaceTask();
@@ -376,7 +390,7 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
   // A boolean rather than the value itself, so a keypress re-renders only the
   // two rows whose answer changed.
   const isHighlighted = useSpaceTreeStore(
-    (s) => s.highlightedValue === item.key,
+    (s) => s.highlightedValue === optionValue,
   );
 
   // The tree only lists sessions, so this is always the task menu. Rename is
@@ -397,12 +411,12 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
   const row = (
     <SpaceRowSurface
       asOption={asOption}
-      optionValue={item.key}
+      optionValue={optionValue}
       data-selected={isActive || undefined}
       onClick={() => openTask(spaceId, item.id)}
       // A step in from its space's name, so the depth reads off that column
       // without a guide line to draw it.
-      className="pl-6"
+      className={indent}
     >
       {/* The dot belongs to the title, not to the row: its own tighter gap
           keeps them one mark rather than two columns. */}
@@ -419,7 +433,7 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
       </span>
       {status && (
         <span className="ml-auto flex shrink-0 items-center gap-1">
-          <TaskBadgeStack status={status} pinned={item.pinned} />
+          <TaskBadgeStack status={status} />
         </span>
       )}
     </SpaceRowSurface>
@@ -480,7 +494,7 @@ function ViewAllRow({
       asOption={asOption}
       optionValue={viewAllValue(spaceId)}
       onClick={onOpenSpace}
-      className={cn("pl-6.5 text-[13px]", ROW_LABEL_TONE)}
+      className={cn("pl-10.5 text-[13px]", ROW_LABEL_TONE)}
     >
       {/* An empty slot the width of a session's status dot, so the label starts
           in the same column as the titles above it. */}
@@ -1314,8 +1328,16 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
 // Collapse state is keyed per section in the shared sidebar store, so it
 // persists across navigation and restarts. Prefixed to stay clear of the Code
 // sidebar's folder sections, which key the same set by folder path.
+const PINNED_SECTION_ID = "channels:pinned";
 const STARRED_SECTION_ID = "channels:starred";
 const CHANNELS_SECTION_ID = "channels:all";
+
+/**
+ * What the keyboard calls a pinned row, kept clear of the same session's row
+ * under its own space — the list shows both, and an Autocomplete option's value
+ * is what a highlight index resolves to.
+ */
+const pinnedValue = (taskKey: string) => `pinned:${taskKey}`;
 
 // A collapsible sidebar group ("Starred" / "Channels"). Base UI directly rather
 // than quill's Collapsible: quill styles its trigger as a button (which fought
@@ -1459,6 +1481,9 @@ export function ChannelsList() {
     [allChannels, expandedSpaceIds, treeOn],
   );
   const tasksBySpace = useRecentSpaceTasks(openSpaceIds);
+  // Pins lead the list, across every space. They stay in their space's own
+  // subtree as well: a pin is where a session is kept, not where it lives.
+  const pinnedTasks = usePinnedSpaceTasks();
   // Pin / archive / command centre for every session row, built once here
   // rather than once per row.
   const spaceTaskActions = useSpaceTaskActions();
@@ -1513,6 +1538,15 @@ export function ChannelsList() {
         ),
       ]
     : [
+        ...(collapsedSections.has(PINNED_SECTION_ID)
+          ? []
+          : pinnedTasks.map(
+              ({ item, spaceId }): SpaceTreeNode => ({
+                kind: "pin",
+                value: pinnedValue(item.key),
+                spaceId,
+              }),
+            )),
         // "me" leads the starred section rather than floating above it: it is
         // the space you always keep, so it belongs with the ones you chose to
         // keep. Folding the section away takes it with them.
@@ -1589,6 +1623,9 @@ export function ChannelsList() {
     }
 
     if (!atStart) return;
+    // A pinned row is not inside the space it belongs to, so ← is not a request
+    // to close that space — it would fold away a section the row isn't in.
+    if (node.kind === "pin") return;
     if (node.kind === "task") {
       event.preventDefault();
       // Move first, while the children are still rendered — the highlight is an
@@ -1627,6 +1664,31 @@ export function ChannelsList() {
     </>
   ) : (
     <>
+      {/* Only when there is something in it: an empty Pinned heading is a
+          feature nobody asked for taking the top of the list. */}
+      {pinnedTasks.length > 0 && (
+        <ChannelGroup
+          sectionId={PINNED_SECTION_ID}
+          label="Pinned"
+          flat={channelsLayout}
+          keepMounted={!channelsLayout}
+          icon={<PushPinIcon size={14} />}
+        >
+          {pinnedTasks.map(({ item, spaceId }) => (
+            <SpaceTaskRow
+              key={item.key}
+              item={item}
+              spaceId={spaceId}
+              asOption={channelsLayout}
+              optionValue={pinnedValue(item.key)}
+              // Level with a space's name rather than a step in from it: these
+              // hang off the section, not off a space row above them.
+              indent="pl-4"
+            />
+          ))}
+        </ChannelGroup>
+      )}
+
       {/* Always rendered: "me" lives here, so the section is never empty. */}
       <ChannelGroup
         sectionId={STARRED_SECTION_ID}

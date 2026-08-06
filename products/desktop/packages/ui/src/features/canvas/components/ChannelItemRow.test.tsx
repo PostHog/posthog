@@ -80,7 +80,7 @@ describe("ChannelItemRow", () => {
     [
       // The run says in_progress, but nothing is streaming: a local run never
       // gets a terminal status written, and the cloud one holds in_progress past
-      // the agent. Live, but not moving — the still dot, not the spinner.
+      // the agent. Live, but not moving — the still dot, not the pulsing one.
       "a run claiming progress with nothing in flight",
       { taskRunStatus: "in_progress" as const },
       "Pending — no work in flight",
@@ -169,13 +169,24 @@ describe("ChannelItemRow", () => {
   });
 
   it("shows a task's badges instead of its timestamp", () => {
+    mocks.status = { workspaceMode: "worktree", prState: "merged" };
+
+    renderRow(item());
+
+    expect(screen.getByRole("img", { name: "Local" })).not.toBeNull();
+    expect(screen.getByRole("img", { name: "Merged" })).not.toBeNull();
+    expect(screen.queryByText(formatRelativeTimeShort(item().ts))).toBeNull();
+  });
+
+  it("leaves a cloud task's stack to what it produced", () => {
     mocks.status = { workspaceMode: "cloud", prState: "merged" };
 
     renderRow(item());
 
-    expect(screen.getByRole("img", { name: "Cloud" })).not.toBeNull();
+    // The cloud is where work runs by default, so it goes unmarked; only a
+    // workspace on this machine earns a glyph.
+    expect(screen.queryByRole("img", { name: "Local" })).toBeNull();
     expect(screen.getByRole("img", { name: "Merged" })).not.toBeNull();
-    expect(screen.queryByText(formatRelativeTimeShort(item().ts))).toBeNull();
   });
 
   it("renders a canvas like a quiet task with its glyph in the badge stack", () => {
@@ -194,19 +205,15 @@ describe("ChannelItemRow", () => {
     expect(screen.queryByText(formatRelativeTimeShort(item().ts))).toBeNull();
   });
 
-  it("marks a pinned row with the pin badge, alongside its status badges", () => {
-    mocks.status = { workspaceMode: "cloud" };
+  // Which section a pinned row lands in is the list's decision, not the row's.
+  // All the row owes is that a pin changes nothing about how it draws.
+  it("draws a pinned row exactly like any other", () => {
+    mocks.status = { workspaceMode: "local" };
 
     renderRow(item({ pinned: true }));
 
-    expect(screen.getByRole("img", { name: "Pinned" })).not.toBeNull();
-    expect(screen.getByRole("img", { name: "Cloud" })).not.toBeNull();
-  });
-
-  it("leaves an unpinned row without one", () => {
-    renderRow(item());
-
-    expect(screen.queryByRole("img", { name: "Pinned" })).toBeNull();
+    expect(screen.getByRole("img", { name: "All caught up" })).not.toBeNull();
+    expect(screen.getByRole("img", { name: "Local" })).not.toBeNull();
   });
 
   it("makes tasks draggable into the Command Center", () => {

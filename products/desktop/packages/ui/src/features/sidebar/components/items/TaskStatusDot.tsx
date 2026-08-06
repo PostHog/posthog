@@ -1,4 +1,3 @@
-import { PushPin } from "@phosphor-icons/react";
 import {
   Avatar,
   AvatarFallback,
@@ -16,14 +15,12 @@ import {
   TONE_ICON_VAR,
   taskBadges,
 } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
-import { DotRingSpinner } from "@posthog/ui/primitives/DotRingSpinner";
 import type { ReactElement, ReactNode } from "react";
 
+// One width for every state, working included: a dot that grew while it ran
+// would start its row's label further right than its neighbours', and the icon
+// column has to hold one width or the list stops looking like a list.
 const DOT_SIZE = 8;
-// Exactly the plain dot's box. Anything larger and a working row's label starts
-// further right than its neighbours' — the icon column has to hold one width or
-// the list stops looking like a list.
-const SPINNER_SIZE = DOT_SIZE;
 // Enough to still find the dot if you look for it, not enough to count as one of
 // the list's live rows.
 const FAINT_OPACITY = 0.4;
@@ -59,27 +56,15 @@ function RowTooltip({
 
 /**
  * A task's state as a single dot: blue wants a decision, the brand yellow is
- * working or unread, grey is quiet. The trigger renders as a span because rows are
- * `<button>`s — a nested button would be invalid HTML.
+ * working or unread, grey is quiet. The trigger renders as a span because rows
+ * are `<button>`s — a nested button would be invalid HTML.
+ *
+ * The pin is not here. A mark on the dot has to compete with the state the dot
+ * is already reporting, and the two say unrelated things — a section of its own
+ * carries it instead.
  */
 export function TaskStatusDot({ dot }: { dot: TaskDot }) {
   const color = DOT_TONE_VAR[dot.tone];
-  if (dot.spinner) {
-    return (
-      <RowTooltip label={dot.label} side="right">
-        <span
-          aria-label={dot.label}
-          role="img"
-          className="flex shrink-0 items-center justify-center"
-          // The spinner draws its dots in `currentColor`, so the tone is set
-          // here rather than passed down.
-          style={{ color: TONE_ICON_VAR[dot.tone], width: SPINNER_SIZE }}
-        >
-          <DotRingSpinner size={SPINNER_SIZE} />
-        </span>
-      </RowTooltip>
-    );
-  }
   return (
     <RowTooltip label={dot.label} side="right">
       <span
@@ -106,45 +91,17 @@ export function TaskStatusDot({ dot }: { dot: TaskDot }) {
 }
 
 /**
- * The pin: this row was put here on purpose. Lives with the badges because it
- * belongs in their stack — pinned rows sit in the one list with everything else,
- * so the badge is what says a row is pinned.
+ * A task's identity as stacked avatars: source, local, and PR/branch — what came
+ * out of the row, in the order it was acquired. The pin isn't here: it says
+ * something about where the row sits rather than what it produced, and it rings
+ * the dot instead.
  *
- * Amber rather than the vocabulary's `--primary` yellow: primary means "there is
- * something here for you", and a pin is a shelf, not a claim on your attention.
+ * Often empty. A cloud task that opened no PR has nothing to say here, and the
+ * stack simply takes no room.
  */
-export function PinnedBadge() {
-  return (
-    <RowTooltip label="Pinned" side="top">
-      <Avatar
-        size="xs"
-        aria-label="Pinned"
-        role="img"
-        className="cursor-default"
-      >
-        <AvatarFallback className="bg-transparent">
-          <PushPin size={9} className="text-primary" />
-        </AvatarFallback>
-      </Avatar>
-    </RowTooltip>
-  );
-}
-
-/**
- * A task's identity as stacked avatars: the pin, then source, cloud, and
- * PR/branch. The pin goes first, which in a reversed stack puts it leftmost and
- * underneath — it says how the row got here, not what came out of it.
- */
-export function TaskBadgeStack({
-  status,
-  pinned,
-}: {
-  status: TaskStatusInput;
-  pinned?: boolean;
-}) {
+export function TaskBadgeStack({ status }: { status: TaskStatusInput }) {
   return (
     <AvatarGroup stacked reverse size="xs" className="shrink-0">
-      {pinned ? <PinnedBadge /> : null}
       {taskBadges(status).map(({ key, Icon, label, tone }) => (
         <RowTooltip key={key} label={label} side="top">
           {/* The tooltip names the badge on hover; `aria-label` is what names it

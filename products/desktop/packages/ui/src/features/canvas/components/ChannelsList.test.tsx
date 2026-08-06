@@ -16,6 +16,12 @@ const mocks = vi.hoisted(() => ({
     channel: string;
     updated_at: string;
   }[],
+  pinned: [] as {
+    id: string;
+    title: string;
+    channel: string;
+    updated_at: string;
+  }[],
   totals: {} as Record<string, number>,
   channelsLayout: true,
   navigate: vi.fn(),
@@ -70,6 +76,25 @@ vi.mock("@posthog/ui/features/canvas/hooks/useRecentSpaceTasks", () => ({
         ];
       }),
     ),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/usePinnedSpaceTasks", () => ({
+  usePinnedSpaceTasks: () =>
+    mocks.pinned.map((task) => ({
+      spaceId: task.channel,
+      item: {
+        key: `task:${task.id}`,
+        kind: "task",
+        id: task.id,
+        title: task.title,
+        ts: Date.parse(task.updated_at),
+        pinned: true,
+        rawStatus: null,
+        authorUser: null,
+        authorName: null,
+        authorUuid: null,
+        task: null,
+      },
+    })),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelTaskStatus", () => ({
   useChannelTaskStatus: () => null,
@@ -155,6 +180,7 @@ describe("ChannelsList", () => {
       highlightedValue: undefined,
     });
     mocks.totals = {};
+    mocks.pinned = [];
     useCurrentChannelStore.setState({ currentChannelId: null });
     mocks.tasks = [
       {
@@ -455,6 +481,51 @@ describe("ChannelsList", () => {
       await user.click(screen.getByLabelText("Expand design"));
 
       expect(screen.getByText("No sessions yet")).toBeTruthy();
+    });
+  });
+
+  describe("pinned sessions", () => {
+    const PIN = {
+      id: "task-new",
+      title: "Ship the tree",
+      channel: ENG.id,
+      updated_at: "2026-08-02T00:00:00Z",
+    };
+
+    it("has no section of its own until something is pinned", () => {
+      renderList();
+
+      expect(screen.queryByText("Pinned")).toBeNull();
+    });
+
+    // The same session is both a pin and a row under its space. Autocomplete
+    // maps a highlight index onto an option value, so the two rows have to be
+    // told apart or one keypress lands on both.
+    it("keeps a pinned session in its space's tree as well", async () => {
+      const user = userEvent.setup();
+      mocks.pinned = [PIN];
+      renderList();
+
+      await user.click(screen.getByLabelText("Expand engineering"));
+
+      expect(screen.getAllByText(PIN.title)).toHaveLength(2);
+    });
+
+    it("walks the pinned rows before the spaces", async () => {
+      const user = userEvent.setup();
+      mocks.pinned = [PIN];
+      renderList();
+
+      // The pinned row leads the list, so the first row the keyboard rests on
+      // is the pin rather than #me.
+      await user.click(screen.getByLabelText("Search spaces"));
+      await user.keyboard("{Enter}");
+
+      expect(mocks.navigate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          params: { channelId: ENG.id, taskId: PIN.id },
+        }),
+      );
     });
   });
 

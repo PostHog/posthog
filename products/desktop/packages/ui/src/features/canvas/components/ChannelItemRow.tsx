@@ -26,7 +26,6 @@ import { useChannelTaskStatus } from "@posthog/ui/features/canvas/hooks/useChann
 import { useIsCanvasPendingDelete } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
 import { InlineEditInput } from "@posthog/ui/features/sidebar/components/items/TaskItem";
 import {
-  PinnedBadge,
   TaskBadgeStack,
   TaskStatusDot,
   TaskStatusTooltips,
@@ -103,19 +102,12 @@ function RowBadge({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /**
- * A canvas's trailing stack: the pin, then its template glyph. Same stack as a
- * task's badges — a pinned canvas reads the way a pinned task does.
+ * A canvas's trailing stack: its template glyph. Same stack as a task's badges —
+ * and like a task, a pinned canvas says so with the ring on its dot.
  */
-function CanvasBadgeStack({
-  item,
-  pinned,
-}: {
-  item: ChannelItemModel;
-  pinned?: boolean;
-}) {
+function CanvasBadgeStack({ item }: { item: ChannelItemModel }) {
   return (
     <AvatarGroup stacked reverse size="xs" className="shrink-0">
-      {pinned ? <PinnedBadge /> : null}
       <RowBadge label="Canvas">
         {/* Violet is the canvas colour everywhere else it appears — the
             artifacts list, the thread panel, the pinned menu — so the badge says
@@ -231,25 +223,16 @@ export function ChannelItemRow({
         endContent={
           <span className={TRAILING_CLASS}>
             {/* Badges take the timestamp's slot on a task row: the row's
-                      identity (pin, source, cloud, PR) is what you scan a task
-                      list for, and the relative age is still in the preview
-                      card. The pin joins whichever stack the row has, rather
-                      than standing beside it as a badge of its own. */}
+                      identity (source, local, PR) is what you scan a task list
+                      for, and the relative age is still in the preview card. */}
             {status ? (
-              <TaskBadgeStack status={status} pinned={item.pinned} />
+              <TaskBadgeStack status={status} />
             ) : item.kind === "canvas" ? (
-              <CanvasBadgeStack item={item} pinned={item.pinned} />
+              <CanvasBadgeStack item={item} />
             ) : (
-              <>
-                {item.pinned && (
-                  <AvatarGroup stacked reverse size="xs" className="shrink-0">
-                    <PinnedBadge />
-                  </AvatarGroup>
-                )}
-                <span className={TIMESTAMP_CLASS}>
-                  {formatRelativeTimeShort(item.ts)}
-                </span>
-              </>
+              <span className={TIMESTAMP_CLASS}>
+                {formatRelativeTimeShort(item.ts)}
+              </span>
             )}
           </span>
         }

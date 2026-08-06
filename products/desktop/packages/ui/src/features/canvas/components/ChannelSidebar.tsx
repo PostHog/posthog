@@ -89,7 +89,12 @@ function RecentSectionHeader({
   filtersActive: boolean;
 }) {
   return (
-    <>
+    // The header sticks, not the label inside it: a sticky element only travels
+    // within its own containing block, so a label stuck inside a one-row flex
+    // parent scrolls away with that row and never appears to stick at all. The
+    // search box comes along, because a header that leaves half of itself
+    // behind is worse than one that doesn't stick.
+    <div className="sticky top-0 z-10 bg-chrome">
       <div className="flex items-center gap-0.5">
         <div className="min-w-0 flex-1">
           <MenuLabel>Sessions</MenuLabel>
@@ -180,7 +185,7 @@ function RecentSectionHeader({
           />
         </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -295,19 +300,23 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
     return task ? `task:${task[1]}` : null;
   }, [pathname]);
 
-  // One list, pins included — a pin is a mark on a session, not a different kind
-  // of thing, and the row's own badge says so. They lead it because
-  // `buildChannelItems` already sorts them there, and filtering keeps that order.
-  const recentItems = useMemo(
-    () =>
-      filterChannelItems(items, {
-        query,
-        createdBy,
-        status: statusFilter,
-        me,
-      }).slice(0, RECENTS_CAP),
-    [items, query, createdBy, statusFilter, me],
-  );
+  // Pins get their own section, and leave the list below: a session you kept is
+  // one you come back to by name, and repeating it a few rows down under
+  // "Sessions" costs a row and says nothing new. The search and the filters
+  // still reach both — narrowing the pane and leaving a section of it unnarrowed
+  // would be the surprising half.
+  const [pinnedItems, recentItems] = useMemo(() => {
+    const matching = filterChannelItems(items, {
+      query,
+      createdBy,
+      status: statusFilter,
+      me,
+    });
+    return [
+      matching.filter((item) => item.pinned),
+      matching.filter((item) => !item.pinned).slice(0, RECENTS_CAP),
+    ];
+  }, [items, query, createdBy, statusFilter, me]);
 
   const narrowed = filtersActive || searchOpen;
   const listState = listStateOf({
@@ -465,6 +474,17 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
             </Empty>
           )}
 
+          {showRecent && pinnedItems.length > 0 && (
+            <>
+              {/* Deliberately not sticky: it scrolls off under the Sessions
+                  header, which is the one that has to stay. */}
+              <MenuLabel>Pinned</MenuLabel>
+              <div className="mb-2 flex flex-col gap-px">
+                {pinnedItems.map(taskRow)}
+              </div>
+            </>
+          )}
+
           {showRecent && (
             <>
               <RecentSectionHeader
@@ -482,11 +502,14 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
                 onStatusChange={setStatusFilter}
                 filtersActive={filtersActive}
               />
-              {recentItems.length > 0 ? (
+              {recentItems.length > 0 && (
                 <div className="flex flex-col gap-px">
                   {recentItems.map(taskRow)}
                 </div>
-              ) : (
+              )}
+              {/* Only when the query found nothing at all. A pin it did match is
+                  a match, however far up the pane it is drawn. */}
+              {recentItems.length === 0 && pinnedItems.length === 0 && (
                 <Empty className="border-0 py-6">
                   <EmptyHeader>
                     <EmptyMedia variant="icon">

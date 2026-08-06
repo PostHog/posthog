@@ -230,31 +230,56 @@ describe("ChannelSidebar recents list", () => {
     expect(screen.queryByText("Today")).toBeNull();
   });
 
-  // Where a pin sorts is `buildChannelItems`' job, and its own tests cover it;
-  // what this list decides is that a pin gets no section of its own.
-  it("lists pins as rows in the one session list", () => {
-    mocks.items = [
-      item({
-        key: "task:pinned",
-        id: "pinned",
-        title: "Kept at hand",
-        pinned: true,
-        ts: new Date(2026, 6, 20, 9).getTime(),
-      }),
-      item({
-        key: "task:newer",
-        id: "newer",
-        title: "Filed this morning",
-        ts: new Date(2026, 6, 30, 9).getTime(),
-      }),
-    ];
+  describe("pins", () => {
+    const PINNED = item({
+      key: "task:pinned",
+      id: "pinned",
+      title: "Kept at hand",
+      pinned: true,
+      ts: new Date(2026, 6, 20, 9).getTime(),
+    });
+    const NEWER = item({
+      key: "task:newer",
+      id: "newer",
+      title: "Filed this morning",
+      ts: new Date(2026, 6, 30, 9).getTime(),
+    });
 
-    renderSidebar();
+    // Once a pin has a section, leaving it in the list below shows the same
+    // session twice in one pane.
+    it("lifts them into their own section, out of the list below", () => {
+      mocks.items = [PINNED, NEWER];
 
-    expect(screen.queryByText("Pinned")).toBeNull();
-    const titles = screen
-      .getAllByText(/Kept at hand|Filed this morning/)
-      .map((el) => el.textContent);
-    expect(titles).toEqual(["Kept at hand", "Filed this morning"]);
+      renderSidebar();
+
+      expect(screen.getByText("Pinned")).toBeTruthy();
+      expect(screen.getAllByText("Kept at hand")).toHaveLength(1);
+      const titles = screen
+        .getAllByText(/Kept at hand|Filed this morning/)
+        .map((el) => el.textContent);
+      expect(titles).toEqual(["Kept at hand", "Filed this morning"]);
+    });
+
+    it("has no section when nothing is pinned", () => {
+      mocks.items = [NEWER];
+
+      renderSidebar();
+
+      expect(screen.queryByText("Pinned")).toBeNull();
+    });
+
+    // A query that only a pin answers is still a query with an answer.
+    it("keeps the search narrowing both sections", async () => {
+      const user = userEvent.setup();
+      mocks.items = [PINNED, NEWER];
+
+      renderSidebar();
+      await user.click(screen.getByLabelText("Search"));
+      await user.type(screen.getByLabelText("Search sessions"), "Kept");
+
+      expect(screen.getByText("Kept at hand")).toBeTruthy();
+      expect(screen.queryByText("Filed this morning")).toBeNull();
+      expect(screen.queryByText("No matches")).toBeNull();
+    });
   });
 });
