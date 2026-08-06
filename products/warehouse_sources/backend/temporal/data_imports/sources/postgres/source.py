@@ -1,8 +1,6 @@
 import logging
 from typing import TYPE_CHECKING, Optional, cast
 
-from django.db import OperationalError as DjangoOperationalError
-
 import structlog
 from psycopg import OperationalError
 from psycopg.errors import SqlclientUnableToEstablishSqlconnection
@@ -1173,20 +1171,16 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
             CDCHandledExternally,
             ForeignServerUnreachableError,
-            PostHogDatabaseConnectionError,
         )
 
         ssh_tunnel = self.make_ssh_tunnel_func(config, inputs.team_id)
 
-        # This reads sync metadata from PostHog's own database, not the customer's Postgres. A
-        # transient failure reaching our database here (e.g. a DNS blip resolving our host) raises
-        # the same "Name or service not known" wording a customer host misconfig would, which
-        # `get_non_retryable_errors` would misclassify as non-retryable and permanently stop a
-        # healthy sync. Re-raise as a retryable error whose message doesn't collide with those.
-        try:
-            schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
-        except DjangoOperationalError as e:
-            raise PostHogDatabaseConnectionError("Failed to load sync metadata from PostHog's database") from e
+        # This reads sync metadata from PostHog's own database, not the customer's Postgres — a
+        # transient failure reaching it (e.g. a DNS blip resolving our host) is a plain Django
+        # `OperationalError`, which `_handle_import_error` already classifies as a self-recovering
+        # app-DB blip and keeps out of error tracking. Let it propagate as-is: wrapping it would only
+        # hide that type from the classifier and turn a benign retry into reported error-tracking noise.
+        schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
         schema_metadata = schema.schema_metadata or {}
         source_schema = (
             schema_metadata.get("source_schema") if isinstance(schema_metadata.get("source_schema"), str) else None

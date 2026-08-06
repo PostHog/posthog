@@ -36,7 +36,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
     ForeignServerUnreachableError,
-    PostHogDatabaseConnectionError,
     XminUnsupportedError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables import (
@@ -275,14 +274,17 @@ class TestPostgresImplementationWiring:
 
 
 class TestPostgresSourceMetadataConnectionErrors:
-    def test_posthog_database_connection_failure_stays_retryable(self):
+    def test_posthog_database_connection_failure_propagates_unwrapped(self):
         # `source_for_pipeline` first reads sync metadata from PostHog's own database. A transient
-        # connection failure there (e.g. a DNS blip resolving our host) surfaces the same
-        # "Name or service not known" wording a customer host misconfig would, so it must be
-        # re-raised as PostHogDatabaseConnectionError to avoid being misclassified as non-retryable.
+        # connection failure there (e.g. a DNS blip resolving our host) must propagate as the same
+        # Django `OperationalError` it was raised as. `_handle_import_error` already classifies that
+        # type, regardless of message, as a self-recovering app-DB blip and keeps it out of error
+        # tracking — wrapping it in a source-specific exception type would hide it from that check
+        # and report it as a new bug on every occurrence instead.
         source = PostgresSource()
         config = MagicMock()
         inputs = MagicMock()
+        original_error = DjangoOperationalError("[Errno -2] Name or service not known")
 
         with (
             patch.object(PostgresSource, "make_ssh_tunnel_func", return_value=None),
@@ -290,16 +292,11 @@ class TestPostgresSourceMetadataConnectionErrors:
                 "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema"
             ) as mock_schema_model,
         ):
-            mock_schema_model.objects.select_related.return_value.get.side_effect = DjangoOperationalError(
-                "[Errno -2] Name or service not known"
-            )
-            with pytest.raises(PostHogDatabaseConnectionError) as exc_info:
+            mock_schema_model.objects.select_related.return_value.get.side_effect = original_error
+            with pytest.raises(DjangoOperationalError) as exc_info:
                 source.source_for_pipeline(config, inputs)
 
-        non_retryable = source.get_non_retryable_errors()
-        error_msg = str(exc_info.value)
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert not is_non_retryable, f"A PostHog-side DB connection failure must stay retryable: {error_msg}"
+        assert exc_info.value is original_error
 
 
 class TestPostgresSourceForeignServerConnectionError:
