@@ -1308,6 +1308,135 @@ async fn refolding_changes_no_content_and_only_bumps_the_version() {
 }
 
 #[tokio::test]
+async fn event_set_overrides_and_set_once_respects_snapshot_contributed_keys() {
+    let mut harness = start_fence_harness(
+        CachedPerson {
+            properties: serde_json::json!({"target_only": "t"}),
+            version: 2,
+            ..test_cached_person()
+        },
+        None,
+    )
+    .await;
+
+    let folded = harness
+        .client
+        .fold_person_document(with_partition(
+            fold_request(
+                harness.team_id,
+                harness.person_id,
+                &Uuid::now_v7(),
+                vec![snapshot(
+                    serde_json::json!({"from_snapshot": "snap", "contested": "snap"}),
+                    5,
+                    1_650_000_000,
+                )],
+                serde_json::json!({"contested": "set-wins"}),
+                serde_json::json!({"from_snapshot": "ignored", "fresh": "once"}),
+            ),
+            harness.partition,
+        ))
+        .await
+        .expect("fold succeeds")
+        .into_inner()
+        .person
+        .unwrap();
+
+    assert_eq!(
+        person_properties(&folded),
+        serde_json::json!({
+            "target_only": "t",
+            "from_snapshot": "snap",   // event_set_once cannot override snapshot-contributed key
+            "contested": "set-wins",   // event_set overrides snapshot-contributed key
+            "fresh": "once",           // event_set_once fills truly absent key
+        })
+    );
+}
+
+#[tokio::test]
+async fn fold_with_empty_target_properties_fills_from_snapshots_and_event() {
+    let mut harness = start_fence_harness(
+        CachedPerson {
+            properties: serde_json::json!({}),
+            created_at: 1_700_000_000,
+            version: 10,
+            ..test_cached_person()
+        },
+        None,
+    )
+    .await;
+
+    let folded = harness
+        .client
+        .fold_person_document(with_partition(
+            fold_request(
+                harness.team_id,
+                harness.person_id,
+                &Uuid::now_v7(),
+                vec![snapshot(serde_json::json!({"a": "snap"}), 3, 1_650_000_000)],
+                serde_json::json!({"b": "set"}),
+                serde_json::json!({"a": "ignored", "c": "once"}),
+            ),
+            harness.partition,
+        ))
+        .await
+        .expect("fold succeeds")
+        .into_inner()
+        .person
+        .unwrap();
+
+    assert_eq!(
+        person_properties(&folded),
+        serde_json::json!({"a": "snap", "b": "set", "c": "once"})
+    );
+    assert_eq!(
+        folded.version, 11,
+        "target version 10 > sealed 3, so max(10, 3) + 1"
+    );
+}
+
+#[tokio::test]
+async fn created_at_ignores_non_positive_snapshot_timestamps_and_target_can_be_earliest() {
+    let mut harness = start_fence_harness(
+        CachedPerson {
+            properties: serde_json::json!({}),
+            created_at: 1_500_000_000,
+            version: 1,
+            ..test_cached_person()
+        },
+        None,
+    )
+    .await;
+
+    let folded = harness
+        .client
+        .fold_person_document(with_partition(
+            fold_request(
+                harness.team_id,
+                harness.person_id,
+                &Uuid::now_v7(),
+                vec![
+                    snapshot(serde_json::json!({}), 2, 0),
+                    snapshot(serde_json::json!({}), 3, 1_600_000_000),
+                ],
+                serde_json::json!({}),
+                serde_json::json!({}),
+            ),
+            harness.partition,
+        ))
+        .await
+        .expect("fold succeeds")
+        .into_inner()
+        .person
+        .unwrap();
+
+    assert_eq!(
+        folded.created_at, 1_500_000_000,
+        "target is earliest; snapshot with created_at=0 is filtered out"
+    );
+}
+
+#[tokio::test]
 async fn a_fold_through_a_foreign_fence_is_rejected_until_released() {
     let mut harness = start_fence_harness(test_cached_person(), None).await;
     let delete_op = Uuid::now_v7();
