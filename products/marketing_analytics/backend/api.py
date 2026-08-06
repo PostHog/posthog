@@ -806,14 +806,9 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         return Response({"goal": removed, "conversion_goals": goals})
 
     def _require_project_admin(self) -> None:
-        # Conversion goals live on the team config, which `validate_team_attrs` puts behind
-        # TEAM_CONFIG_ADMIN_FIELDS_SET on the settings PATCH path: an effective membership level of
-        # ADMIN or above. These endpoints have to clear the same bar, or they become a way around it.
-        #
-        # The RBAC check alone does not: `check_access_level_for_object` resolves to a permissive
-        # level for organizations without the ACCESS_CONTROL feature, so a plain member passed it and
-        # could edit goals the settings UI refuses them. Where access controls *are* available, an
-        # explicitly granted project admin is legitimate even without org admin, so either satisfies.
+        # The settings PATCH path puts these fields behind ADMIN, so these endpoints have to clear
+        # the same bar or they route around it. RBAC alone doesn't: `check_access_level_for_object`
+        # is permissive without the ACCESS_CONTROL feature. Either check satisfies.
         if self.user_access_control.access_controls_supported:
             if self.user_access_control.check_access_level_for_object(self.team, "admin"):
                 return
@@ -834,21 +829,17 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise serializers.ValidationError({"goal": _readable_pydantic_errors(e, goal.get("kind"))})
 
         name = goal.get("conversion_goal_name")
-        # Compared normalized: two goals whose names differ only in case or surrounding whitespace
-        # collide later as SQL column aliases, which is the failure `validate_conversion_goals`
-        # documents. Storage keeps the name as sent.
+        # Normalized, because names differing only in case collide as SQL column aliases.
+        # Storage keeps the name as sent.
         normalized = _normalized_goal_name(name)
         for index, other in enumerate(existing):
             if index != ignore_index and _normalized_goal_name(other.get("conversion_goal_name")) == normalized:
                 raise serializers.ValidationError({"goal": f"A conversion goal named '{name}' already exists."})
 
         stored = validated.model_dump(exclude_none=True, mode="json")
-        # `name` is optional on the schema models but required by `validate_conversion_goals`, which
-        # guards the legacy full-config PATCH the settings UI still sends on every save. A goal stored
-        # without it makes those saves fail, and the UI never exposes `name`, so there is no way to
-        # repair it from the product. Nothing reads `name` as a display name — the query runner reads
-        # `conversion_goal_name` — so mirror it rather than defaulting it, or a rename through
-        # `conversion_goal_name` would leave a stale `name` behind.
+        # `name` is optional on the schema but required by the legacy full-config PATCH the settings
+        # UI still sends, and the UI never exposes it, so a goal stored without one can't be repaired
+        # from the product. Mirrored rather than defaulted, or a rename leaves a stale `name`.
         stored["name"] = stored["conversion_goal_name"]
         return stored
 
@@ -860,16 +851,14 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 {"goal": "The stored conversion goal is malformed and cannot be updated."}
             )
 
-        # Changing shape can't be a merge: the models are `extra="forbid"`, so keys belonging to the
-        # old kind survive and pydantic rejects a field the client never sent. Replace instead, and
-        # let validation ask for whatever the new shape requires.
+        # The models are `extra="forbid"`, so a merge leaves old-kind keys behind and pydantic
+        # rejects a field the client never sent.
         if patch.get("kind") not in (None, stored.get("kind")):
             return {**patch, "conversion_goal_id": conversion_goal_id}
 
         merged = {**stored, **patch, "conversion_goal_id": conversion_goal_id}
-        # `schema_map` is the one nested object here, and no key on it is required, so a top-level
-        # merge silently drops the keys the patch omits. The query runner then falls back to a default
-        # column name and skips the goal with a log warning — a successful write that stops reporting.
+        # No key on `schema_map` is required, so a top-level merge drops what the patch omits and the
+        # query runner then skips the goal with a warning — a successful write that stops reporting.
         if isinstance(patch.get("schema_map"), dict) and isinstance(stored.get("schema_map"), dict):
             merged["schema_map"] = {**stored["schema_map"], **patch["schema_map"]}
         return merged
@@ -881,15 +870,11 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         raise NotFound(f"No conversion goal with id '{conversion_goal_id}'.")
 
     def _store_goals(self, config: TeamMarketingAnalyticsConfig, goals: list[dict], *, previous: list[dict]) -> None:
-        # Writes the column directly rather than going through the `conversion_goals` setter. Every goal here has
-        # already been validated against the schema models, and `_validated_goal` also fills the `name` the setter's
-        # older validator requires, so the two agree — a goal written here still round-trips through the legacy
-        # full-config PATCH the settings UI sends. Going through the setter would re-run that validator on every
-        # sibling goal, failing this write for a pre-existing row it never touched.
+        # Direct, not through the `conversion_goals` setter: it would re-run the older validator on
+        # every sibling goal and fail this write for a pre-existing row it never touched.
         config._conversion_goals = goals
         config.save()
-        # Same activity-log trail the settings path produces for its own config edits. Without it a goal
-        # changed here — increasingly by an agent over MCP — leaves no record of who changed what.
+        # Same trail the settings path produces, so an MCP-driven edit still records who did what.
         capture_team_config_diff(
             self.team,
             "marketing_analytics_config",
