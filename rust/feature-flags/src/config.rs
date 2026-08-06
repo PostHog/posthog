@@ -876,6 +876,12 @@ pub struct Config {
     #[envconfig(from = "TEAM_NEGATIVE_CACHE_TTL_SECONDS", default = "30")]
     pub team_negative_cache_ttl_seconds: u64,
 
+    // Write an S3 hit back into Redis so the next reader for that key is served by Redis
+    // instead of paying another S3 read. Applies to the team metadata and remote config
+    // hypercaches, which have no in-process cache in front of them. 0 disables.
+    #[envconfig(from = "HYPERCACHE_READ_REPAIR_TTL_SECONDS", default = "600")]
+    pub hypercache_read_repair_ttl_seconds: u64,
+
     // TTL for the Redis-backed per-token auth cache (positive hits).
     // Starts at 5 minutes as a conservative default; increase once invalidation
     // signals are proven reliable in production.
@@ -1146,6 +1152,7 @@ impl Config {
             thread_pool_cores: 0,
             team_negative_cache_capacity: 10_000,
             team_negative_cache_ttl_seconds: 30,
+            hypercache_read_repair_ttl_seconds: 600,
             skip_pg_team_fallback: FlexBool(false),
             service_mode: ServiceMode::All,
             auth_token_cache_ttl_seconds: 300,
