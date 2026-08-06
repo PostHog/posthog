@@ -142,6 +142,12 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             "Hubspot search malformed JSON response (retryable)",
             "Hubspot v4 associations error (retryable): status=",
             "Hubspot v4 associations malformed JSON response (retryable)",
+            # auth.hubspot_refresh_access_token also retries in-process (5 attempts, Retry-After
+            # aware) before re-raising HubspotRetryableError with HubSpot's own 429 body verbatim
+            # (no code-added prefix, unlike the fetch-loop errors above). Match HubSpot's stable,
+            # documented rate-limit wording so this self-recovering condition doesn't get tracked
+            # as noise once Temporal's activity retry picks it back up.
+            "You have reached your rate limit.",
         }
 
     # TODO: clean up hubspot job inputs to not have two auth config options

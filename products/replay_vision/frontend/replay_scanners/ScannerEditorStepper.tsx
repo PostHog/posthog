@@ -28,7 +28,7 @@ export function ScannerEditorStepper({
     const currentOrder = SCANNER_EDITOR_STEP_ORDER[currentStep]
 
     return (
-        <nav className="flex items-center justify-center" aria-label="Scanner editor progress">
+        <nav className="flex flex-wrap items-center justify-center gap-y-1" aria-label="Scanner editor progress">
             {steps.map((stepKey, index) => {
                 const step = { key: stepKey, label: STEP_LABELS[stepKey] }
                 const stepOrder = SCANNER_EDITOR_STEP_ORDER[step.key]

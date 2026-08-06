@@ -763,20 +763,31 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
             _run_row(2, "slow-ci", "c2", "success", current - timedelta(hours=1), 120),
             _run_row(3, "slow-ci", "b1", "success", baseline, 10),
             _run_row(4, "slow-ci", "b2", "success", baseline - timedelta(hours=1), 10),
+            # long-ci: 1000s → 1350s (+35% / +350s) clears both gates well short of a doubling → regression.
+            _run_row(13, "long-ci", "c7", "success", current, 1350),
+            _run_row(14, "long-ci", "c8", "success", current - timedelta(hours=1), 1350),
+            _run_row(15, "long-ci", "b7", "success", baseline, 1000),
+            _run_row(16, "long-ci", "b8", "success", baseline - timedelta(hours=1), 1000),
             # steady-ci: 100s → 104s (+4% / +4s) fails the absolute-jump guard → no signal.
             _run_row(5, "steady-ci", "c3", "success", current, 104),
             _run_row(6, "steady-ci", "c4", "success", current - timedelta(hours=1), 104),
             _run_row(7, "steady-ci", "b3", "success", baseline, 100),
             _run_row(8, "steady-ci", "b4", "success", baseline - timedelta(hours=1), 100),
+            # mild-ci: 950s → 1100s (+16% / +150s) clears the absolute floor but fails the relative gate → no signal.
+            _run_row(17, "mild-ci", "c9", "success", current, 1100),
+            _run_row(18, "mild-ci", "c10", "success", current - timedelta(hours=1), 1100),
+            _run_row(19, "mild-ci", "b9", "success", baseline, 950),
+            _run_row(20, "mild-ci", "b10", "success", baseline - timedelta(hours=1), 950),
             _run_row(9, "thin-ci", "c5", "success", current, 120),
             _run_row(10, "thin-ci", "c6", "failure", current - timedelta(hours=1), 120),
             _run_row(11, "thin-ci", "b5", "success", baseline, 10),
             _run_row(12, "thin-ci", "b6", "failure", baseline - timedelta(hours=1), 10),
         ]
         findings = detect_ci_duration_regressions(self._curated_over_runs(rows), min_runs=2)
-        assert {f.extra["workflow_name"] for f in findings} == {"slow-ci"}
-        assert findings[0].source_type == SOURCE_TYPE_DURATION_REGRESSION
-        _assert_emittable(findings[0])
+        assert {f.extra["workflow_name"] for f in findings} == {"slow-ci", "long-ci"}
+        for finding in findings:
+            assert finding.source_type == SOURCE_TYPE_DURATION_REGRESSION
+            _assert_emittable(finding)
 
     def test_duration_regression_ignores_no_op_dominated_windows(self) -> None:
         # A window of mostly sub-10s no-op gate successes plus one real run passes a

@@ -25,6 +25,7 @@ const config: SignalScoutConfigApi = {
     status_changed_at: null,
     auto_pause_exempt: false,
     network_access: 'trusted',
+    tags: [],
     created_at: '2026-07-21T12:00:00Z',
 }
 
@@ -66,6 +67,20 @@ describe('ScoutConfigForm', () => {
 
         expect(container.querySelector('input[type="time"]')).toBeNull()
         expect(getByText('Custom (0 9 * * 1-5)')).toBeTruthy()
+        unmount()
+    })
+
+    it('adds normalized tags as a full replacement set', () => {
+        const onUpdate = jest.fn()
+        const { getByLabelText, unmount } = render(
+            <ScoutConfigForm config={{ ...config, tags: ['on-call'] }} onUpdate={onUpdate} />
+        )
+        const input = getByLabelText(`${config.skill_name} tags`)
+
+        fireEvent.change(input, { target: { value: 'Revenue' } })
+        fireEvent.keyDown(input, { key: 'Enter' })
+
+        expect(onUpdate).toHaveBeenCalledWith('config-1', { tags: ['on-call', 'revenue'] })
         unmount()
     })
 })

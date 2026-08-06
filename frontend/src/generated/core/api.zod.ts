@@ -454,6 +454,9 @@ export const ExportsCreateBody = /* @__PURE__ */ zod
             ])
             .describe(
                 '\* `image\/png` - image\/png\n\* `application\/pdf` - application\/pdf\n\* `text\/csv` - text\/csv\n\* `application\/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application\/vnd.openxmlformats-officedocument.spreadsheetml.sheet\n\* `video\/webm` - video\/webm\n\* `video\/mp4` - video\/mp4\n\* `image\/gif` - image\/gif\n\* `application\/json` - application\/json'
+            )
+            .describe(
+                'File format to generate. Dataset JSONL exports use the dataset export endpoint.\n\n\* `image\/png` - image\/png\n\* `application\/pdf` - application\/pdf\n\* `text\/csv` - text\/csv\n\* `application\/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application\/vnd.openxmlformats-officedocument.spreadsheetml.sheet\n\* `video\/webm` - video\/webm\n\* `video\/mp4` - video\/mp4\n\* `image\/gif` - image\/gif\n\* `application\/json` - application\/json'
             ),
         export_context: zod.unknown().optional(),
     })
