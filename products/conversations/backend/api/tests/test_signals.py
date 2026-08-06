@@ -166,7 +166,7 @@ class TestTicketMessageSignals(BaseTest):
         ]
     )
     def test_first_response_at_stamps_first_team_reply_after_the_opening_message(
-        self, _name, authors, expected_index, mock_on_commit
+        self, _mock_on_commit, _name, authors, expected_index
     ):
         messages = [
             self._create_team_message(f"m{i}") if author == "team" else self._create_customer_message(f"m{i}")
