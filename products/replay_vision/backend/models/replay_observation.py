@@ -28,6 +28,7 @@ class ObservationTrigger(models.TextChoices):
     SCHEDULE = "schedule", "Schedule"
     ON_DEMAND = "on_demand", "On demand"
     RETRY = "retry", "Retry"
+    BACKFILL = "backfill", "Backfill"
 
 
 class ReplayObservation(UUIDModel):
@@ -76,10 +77,20 @@ class ReplayObservation(UUIDModel):
         help_text="PostHog Task minted from this observation's finding. Repeat create_task calls return this id instead of creating a duplicate.",
     )
 
+    backfill = models.ForeignKey(
+        "replay_vision.ReplayScannerBackfill",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="observations",
+        # Indexed via the partial rlo_backfill_idx instead of a full-column default index.
+        db_index=False,
+        help_text="Backfill run that dispatched this observation; null for live, on-demand, and retry triggers.",
+    )
     triggered_by = models.CharField(
         max_length=16,
         choices=ObservationTrigger.choices,
-        help_text="What started this observation: a per-scanner schedule fire, an explicit /observe/ call, or a retry of a failed or ineligible observation.",
+        help_text="What started this observation: a per-scanner schedule fire, an explicit /observe/ call, a retry of a failed or ineligible observation, or a historical backfill.",
     )
     triggered_by_user = models.ForeignKey(
         "posthog.User",
@@ -122,6 +133,12 @@ class ReplayObservation(UUIDModel):
                 fields=["team", "scanner"],
                 name="rlo_team_in_flight_idx",
                 condition=models.Q(status__in=("pending", "running")),
+            ),
+            # Serves the per-backfill observation filter and progress counts; partial since live rows never match.
+            models.Index(
+                fields=["backfill"],
+                name="rlo_backfill_idx",
+                condition=models.Q(backfill__isnull=False),
             ),
         ]
 
