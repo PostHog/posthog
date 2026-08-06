@@ -16,6 +16,7 @@ interface UseWarmTaskOptions {
   workspaceMode: WorkspaceMode;
   selectedRepository?: string | null;
   githubIntegrationId?: number;
+  allowNoRepo?: boolean;
   branch?: string | null;
   editorIsEmpty: boolean;
   runtimeAdapter?: string | null;
@@ -29,6 +30,7 @@ export function useWarmTask({
   workspaceMode,
   selectedRepository,
   githubIntegrationId,
+  allowNoRepo = false,
   branch,
   editorIsEmpty,
   runtimeAdapter,
@@ -51,17 +53,22 @@ export function useWarmTask({
   const normalizedReasoningEffort = reasoningEffort ?? null;
   const normalizedSandboxEnvironmentId = sandboxEnvironmentId ?? null;
   const normalizedCustomImageId = customImageId ?? null;
+  // Repo-less channel tasks deliberately discard any persisted/stale picker
+  // selection on submit, so warming and lease matching must do the same.
+  const warmRepository = allowNoRepo ? null : (selectedRepository ?? null);
+  const warmGithubIntegrationId = allowNoRepo
+    ? null
+    : (githubIntegrationId ?? null);
   const eligible =
     enabled &&
     isCloud &&
     !!client &&
-    !!selectedRepository &&
-    githubIntegrationId !== undefined &&
+    (allowNoRepo || (!!warmRepository && warmGithubIntegrationId !== null)) &&
     !editorIsEmpty;
   const key =
-    selectedRepository && githubIntegrationId !== undefined
-      ? `${githubIntegrationId}:${buildWarmTaskLeaseKey({
-          repository: selectedRepository,
+    allowNoRepo || (warmRepository && warmGithubIntegrationId !== null)
+      ? `${warmGithubIntegrationId ?? ""}:${buildWarmTaskLeaseKey({
+          repository: warmRepository,
           branch: normalizedBranch,
           runtimeAdapter: normalizedRuntimeAdapter,
           model: normalizedModel,
@@ -80,7 +87,7 @@ export function useWarmTask({
       }
     };
 
-    if (!eligible || !key || !selectedRepository || !client) {
+    if (!eligible || !key || !client) {
       clearDebounce();
       return;
     }
@@ -88,8 +95,8 @@ export function useWarmTask({
       return;
     }
 
-    const repository = selectedRepository;
-    const githubIntegration = githubIntegrationId as number;
+    const repository = warmRepository;
+    const githubIntegration = warmGithubIntegrationId;
     const warmBranch = normalizedBranch;
     const warmRuntimeAdapter = normalizedRuntimeAdapter;
     const warmModel = normalizedModel;
@@ -141,8 +148,8 @@ export function useWarmTask({
     eligible,
     key,
     client,
-    selectedRepository,
-    githubIntegrationId,
+    warmRepository,
+    warmGithubIntegrationId,
     normalizedBranch,
     normalizedRuntimeAdapter,
     normalizedModel,
