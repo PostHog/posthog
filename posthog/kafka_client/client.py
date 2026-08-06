@@ -44,6 +44,7 @@ KAFKA_PRODUCER_MESSAGES_COUNTER = Counter(
 )
 
 _DELIVERY_FAILURE_LOG_INTERVAL_SECONDS = 60.0
+_MAX_LOGGED_KEY_LENGTH = 200
 _delivery_failure_last_logged: dict[tuple[str, str], float] = {}
 
 
@@ -66,7 +67,7 @@ def _log_delivery_failure(topic: str, error_name: str, msg: Optional[Message]) -
     _delivery_failure_last_logged[(topic, error_name)] = now
 
     raw_key = msg.key() if msg is not None else None
-    key = raw_key.decode("utf-8", errors="replace") if raw_key is not None else None
+    key = raw_key.decode("utf-8", errors="replace")[:_MAX_LOGGED_KEY_LENGTH] if raw_key is not None else None
 
     logger.warning(
         "kafka_producer_delivery_failed",
@@ -308,7 +309,7 @@ class _KafkaProducer:
 
     def _on_delivery(
         self, topic: str, result: ProduceResult, err: Optional[KafkaError], msg: Message, log_key_on_failure: bool
-    ):
+    ) -> None:
         """Delivery callback for confluent-kafka."""
         result.set_result(err, msg)
         if err is not None:
