@@ -291,7 +291,7 @@ describe('sourceSettingsLogic sync refetch', () => {
             status: ExternalDataSchemaStatus.Completed,
             job_inputs: {},
             schemas: [makeSchema({ id: 'schema-1', status: ExternalDataSchemaStatus.Completed })],
-        }) as ExternalDataSource
+        }) as unknown as ExternalDataSource
 
     beforeEach(() => {
         initKeaTests()
