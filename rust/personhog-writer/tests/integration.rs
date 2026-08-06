@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use common::{
     cleanup_team, create_local_kafka_producer, create_mock_kafka, create_test_pool, make_person,
-    KAFKA_BOOTSTRAP, TARGET_TABLE, TOPIC,
+    unique_team_id, KAFKA_BOOTSTRAP, TARGET_TABLE, TOPIC,
 };
 use personhog_proto::personhog::types::v1::Person;
 use personhog_writer::buffer::PersonBuffer;
@@ -29,8 +29,7 @@ use tokio::sync::mpsc;
 #[tokio::test]
 async fn writer_upserts_person_to_pg() {
     let pool = create_test_pool().await;
-    let team_id: i32 = 99_001;
-    cleanup_team(&pool, team_id).await;
+    let team_id: i32 = unique_team_id();
 
     let writer = PersonWriteStore::new(
         PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
@@ -62,8 +61,7 @@ async fn writer_upserts_person_to_pg() {
 #[tokio::test]
 async fn writer_projects_death_documents_as_tombstones() {
     let pool = create_test_pool().await;
-    let team_id: i32 = 99_010;
-    cleanup_team(&pool, team_id).await;
+    let team_id: i32 = unique_team_id();
 
     let writer = PersonWriteStore::new(
         PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
@@ -124,8 +122,7 @@ async fn writer_projects_death_documents_as_tombstones() {
 #[tokio::test]
 async fn writer_version_guard_skips_stale_updates() {
     let pool = create_test_pool().await;
-    let team_id: i32 = 99_002;
-    cleanup_team(&pool, team_id).await;
+    let team_id: i32 = unique_team_id();
 
     let writer = PersonWriteStore::new(
         PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
@@ -164,8 +161,7 @@ async fn writer_version_guard_skips_stale_updates() {
 #[tokio::test]
 async fn writer_upsert_batch_multiple_persons() {
     let pool = create_test_pool().await;
-    let team_id: i32 = 99_003;
-    cleanup_team(&pool, team_id).await;
+    let team_id: i32 = unique_team_id();
 
     let writer = PersonWriteStore::new(
         PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
@@ -195,8 +191,7 @@ async fn writer_upsert_batch_multiple_persons() {
 #[tokio::test]
 async fn writer_surfaces_invalid_uuids_as_violations_never_silent_skips() {
     let pool = create_test_pool().await;
-    let team_id: i32 = 99_004;
-    cleanup_team(&pool, team_id).await;
+    let team_id: i32 = unique_team_id();
 
     let writer = PersonWriteStore::new(
         PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
@@ -252,8 +247,7 @@ async fn writer_surfaces_invalid_uuids_as_violations_never_silent_skips() {
 async fn consumer_flushes_on_buffer_size_threshold() {
     let (mock_cluster, _producer) = create_mock_kafka().await;
     let pool = create_test_pool().await;
-    let team_id: i32 = 99_010;
-    cleanup_team(&pool, team_id).await;
+    let team_id: i32 = unique_team_id();
 
     let (flush_tx, flush_rx) = mpsc::channel::<FlushBatch>(2);
 
@@ -348,8 +342,7 @@ async fn consumer_flushes_on_buffer_size_threshold() {
 async fn consumer_flushes_on_timer() {
     let (mock_cluster, _producer) = create_mock_kafka().await;
     let pool = create_test_pool().await;
-    let team_id: i32 = 99_011;
-    cleanup_team(&pool, team_id).await;
+    let team_id: i32 = unique_team_id();
 
     let (flush_tx, flush_rx) = mpsc::channel::<FlushBatch>(2);
 
@@ -443,8 +436,7 @@ async fn consumer_flushes_on_timer() {
 async fn consumer_deduplicates_multiple_updates_for_same_person() {
     let (mock_cluster, _producer) = create_mock_kafka().await;
     let pool = create_test_pool().await;
-    let team_id: i32 = 99_012;
-    cleanup_team(&pool, team_id).await;
+    let team_id: i32 = unique_team_id();
 
     let (flush_tx, flush_rx) = mpsc::channel::<FlushBatch>(2);
 
@@ -548,8 +540,7 @@ async fn consumer_deduplicates_multiple_updates_for_same_person() {
 #[tokio::test]
 async fn writer_processes_batch_from_channel() {
     let pool = create_test_pool().await;
-    let team_id: i32 = 99_020;
-    cleanup_team(&pool, team_id).await;
+    let team_id: i32 = unique_team_id();
 
     let (flush_tx, flush_rx) = mpsc::channel::<FlushBatch>(2);
 
@@ -899,8 +890,7 @@ async fn unapplyable_batch_halts_the_writer_before_any_later_batch() {
 #[tokio::test]
 async fn properties_size_violation_errors_and_writes_nothing() {
     let pool = create_test_pool().await;
-    let team_id: i32 = 99_050;
-    cleanup_team(&pool, team_id).await;
+    let team_id: i32 = unique_team_id();
 
     let store = PersonWriteStore::new(
         PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
@@ -946,8 +936,7 @@ async fn properties_size_violation_errors_and_writes_nothing() {
 #[tokio::test]
 async fn e2e_produce_to_kafka_and_verify_pg_write() {
     let pool = create_test_pool().await;
-    let team_id: i32 = 99_030;
-    cleanup_team(&pool, team_id).await;
+    let team_id: i32 = unique_team_id();
 
     // Produce a Person proto to local Kafka
     let producer = create_local_kafka_producer().await;

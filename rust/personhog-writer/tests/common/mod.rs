@@ -97,6 +97,26 @@ pub fn make_person(team_id: i64, person_id: i64, version: i64) -> Person {
     }
 }
 
+/// A team id no other test shares — not within this run (a counter) and
+/// not with leftover rows from a failed earlier run (seconds-since-epoch
+/// salt). Rows in the shared table are keyed by team, so a unique team
+/// makes concurrent tests collision-free: one test's cleanup can never
+/// delete another's rows. Stays inside the team_id column's range.
+#[allow(dead_code)]
+pub fn unique_team_id() -> i32 {
+    use std::sync::atomic::{AtomicI32, Ordering};
+    static NEXT: AtomicI32 = AtomicI32::new(0);
+    static BASE: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+    let base = *BASE.get_or_init(|| {
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock before epoch")
+            .as_secs() as i64;
+        ((secs % 1_000_000) * 1_000) as i32
+    });
+    base + NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
 /// Clean up test data from the personhog_person_tmp table for a given team.
 pub async fn cleanup_team(pool: &PgPool, team_id: i32) {
     sqlx::query("DELETE FROM personhog_person_tmp WHERE team_id = $1")
