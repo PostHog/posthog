@@ -14,6 +14,7 @@ import type { ContentBlock } from "@agentclientprotocol/sdk";
 import type { Adapter } from "@posthog/shared";
 import { zipSync } from "fflate";
 import jwt from "jsonwebtoken";
+import { HttpResponse, http } from "msw";
 import { type SetupServerApi, setupServer } from "msw/node";
 import {
   afterAll,
@@ -545,6 +546,66 @@ describe("AgentServer HTTP Mode", () => {
         bootMs: expect.any(Number),
         sessionInitMs: expect.any(Number),
       });
+    }, 30000);
+
+    it("enables repository tools for a repository-less cloud session", async () => {
+      await mkdir("/tmp/workspace", { recursive: true });
+      mswServer.use(
+        http.get(
+          "http://localhost:8000/api/projects/:projectId/tasks/:taskId/",
+          () =>
+            HttpResponse.json({
+              id: "test-task-id",
+              title: "Test task",
+              description: null,
+              origin_product: "user_created",
+              repository: null,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            }),
+        ),
+      );
+
+      const testServer = createServer({
+        repositoryPath: undefined,
+      }) as unknown as {
+        start(): Promise<void>;
+        session: { sessionMeta: { channelMode?: boolean } } | null;
+      };
+      await testServer.start();
+
+      expect(testServer.session?.sessionMeta.channelMode).toBe(true);
+    }, 30000);
+
+    // A task pinned to a repository gets its checkout provisioned; handing it
+    // clone tools would be wrong even though it has no repositoryPath.
+    it("keeps repository tools disabled when the task carries a repository", async () => {
+      await mkdir("/tmp/workspace", { recursive: true });
+      mswServer.use(
+        http.get(
+          "http://localhost:8000/api/projects/:projectId/tasks/:taskId/",
+          () =>
+            HttpResponse.json({
+              id: "test-task-id",
+              title: "Test task",
+              description: null,
+              origin_product: "user_created",
+              repository: "PostHog/posthog",
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            }),
+        ),
+      );
+
+      const testServer = createServer({
+        repositoryPath: undefined,
+      }) as unknown as {
+        start(): Promise<void>;
+        session: { sessionMeta: { channelMode?: boolean } } | null;
+      };
+      await testServer.start();
+
+      expect(testServer.session?.sessionMeta.channelMode).toBeUndefined();
     }, 30000);
 
     it("links native agent state before initializing the session", async () => {
@@ -3950,6 +4011,30 @@ describe("AgentServer HTTP Mode", () => {
   });
 
   describe("buildCloudSystemPrompt", () => {
+    it("describes every repository in a shared multi-repository workspace", () => {
+      const s = createServer({
+        repositoryPath: undefined,
+      }) as unknown as TestableServer & { taskRepositories: string[] };
+      s.taskRepositories = ["PostHog/posthog", "PostHog/posthog-js"];
+
+      const prompt = s.buildCloudSystemPrompt();
+
+      expect(prompt).toContain(
+        "PostHog/posthog: /tmp/workspace/repos/posthog/posthog",
+      );
+      expect(prompt).toContain(
+        "PostHog/posthog-js: /tmp/workspace/repos/posthog/posthog-js",
+      );
+      expect(prompt).toContain(
+        "Apply the repository workflow below separately in every repository you change",
+      );
+      expect(prompt).toContain("stop with local changes ready for review");
+      expect(prompt).toContain(
+        "If the user explicitly asks you to open a pull request",
+      );
+      expect(prompt).not.toContain("No Repository Mode");
+    });
+
     it("returns review-first prompt for existing PRs on non-Slack runs", () => {
       const s = createServer();
       const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt(
@@ -4003,8 +4088,11 @@ describe("AgentServer HTTP Mode", () => {
         config: { repositoryPath: undefined },
         shouldContain: [
           "Cloud Task Execution — No Repository Mode",
-          "Clone the repository into /tmp/workspace/repos/<owner>/<repo>",
-          "gh repo clone <owner>/<repo> /tmp/workspace/repos/<owner>/<repo>",
+          "call `list_repos`",
+          "Call `clone_repo`",
+          "It creates a shallow clone",
+          "git fetch --deepen=50 origin <branch>",
+          "git fetch --deepen=200 origin <branch>",
           "If the user explicitly asks you to open or update a pull request",
           "open a draft pull request",
           "unless the user explicitly asks",
@@ -4014,17 +4102,22 @@ describe("AgentServer HTTP Mode", () => {
           "Generated-By: PostHog Code",
           "Task-Id: test-task-id",
         ],
-        shouldNotContain: [],
+        shouldNotContain: ["gh repo clone"],
       },
       {
         label: "createPr false",
         config: { repositoryPath: undefined, createPr: false },
         shouldContain: [
           "Cloud Task Execution — No Repository Mode",
-          "You may clone a repository and make local edits in that clone",
+          "Call `clone_repo`",
+          "You may make local edits in a repository cloned with `clone_repo`",
           "Do NOT create branches, commits, push changes, or open pull requests in this run",
         ],
-        shouldNotContain: ["open a draft pull request", "gh pr create --draft"],
+        shouldNotContain: [
+          "open a draft pull request",
+          "gh pr create --draft",
+          "gh repo clone",
+        ],
       },
     ])(
       "returns no-repository prompt for $label",
@@ -4331,6 +4424,10 @@ describe("AgentServer HTTP Mode", () => {
           expect(prompt).toContain("# Identity");
           expect(prompt).toContain("PostHog Slack app");
           expect(prompt).toContain("Do NOT refer to yourself as Claude");
+          expect(prompt).toContain("# PostHog products first");
+          expect(prompt).toContain(
+            "Never send the user to a third-party product for something PostHog does",
+          );
           delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
         },
       );
@@ -4406,6 +4503,7 @@ describe("AgentServer HTTP Mode", () => {
         ).buildCloudSystemPrompt();
         expect(prompt).not.toContain("# Identity");
         expect(prompt).not.toContain("PostHog Slack app");
+        expect(prompt).not.toContain("# PostHog products first");
         delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
       });
     });

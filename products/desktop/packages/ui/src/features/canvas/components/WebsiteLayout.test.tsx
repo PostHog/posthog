@@ -53,16 +53,6 @@ vi.mock("@posthog/ui/features/canvas/stores/dashboardEditStore", () => ({
     sel({ setEditing: vi.fn() }),
   useIsDashboardEditing: () => false,
 }));
-vi.mock("@posthog/ui/features/canvas/stores/freeformChatStore", () => ({
-  useFreeformChatStore: (sel: (s: unknown) => unknown) =>
-    sel({ revert: vi.fn(), goToLatest: vi.fn() }),
-  useFreeformThread: () => ({
-    code: "",
-    versions: [],
-    currentVersionId: null,
-    isSaving: false,
-  }),
-}));
 vi.mock("@posthog/ui/features/canvas/components/NewCanvasMenu", () => ({
   NewCanvasMenu: () => null,
 }));

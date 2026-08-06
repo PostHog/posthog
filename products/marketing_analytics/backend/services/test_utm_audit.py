@@ -14,16 +14,36 @@ from products.marketing_analytics.backend.services.types import (
 )
 from products.marketing_analytics.backend.services.utm_audit import (
     _build_all_utm_events,
-    _build_known_sources,
     _cross_reference,
-    _load_team_mappings,
+    _make_headline,
     run_utm_audit,
 )
+from products.marketing_analytics.backend.services.utm_matching import build_known_sources, load_team_mappings
 
 NO_MAPPINGS = TeamMappings(source_to_integration={}, campaign_aliases={}, field_preferences={})
 # known_sources set populated from every integration's default utm_source values.
-# Built lazily inside tests via _build_known_sources() so we don't hardcode every value.
-DEFAULT_KNOWN_SOURCES: set[str] = _build_known_sources(NO_MAPPINGS)
+# Built lazily inside tests via build_known_sources() so we don't hardcode every value.
+DEFAULT_KNOWN_SOURCES: set[str] = build_known_sources(NO_MAPPINGS)
+
+
+class TestMakeHeadline:
+    @parameterized.expand(
+        [
+            (UtmIssueKind.NOT_LINKED, "No pageview events found for 'brand_us'"),
+            (UtmIssueKind.NAME_COLLISION, "Campaign name also used on meta"),
+            (UtmIssueKind.NO_TAGGED_EVENTS, "No events tagged with utm_source='google'"),
+            (UtmIssueKind.UNKNOWN_SOURCE, "No events tagged with utm_source='google'"),
+        ]
+    )
+    def test_renders_headline_per_kind(self, kind, expected):
+        assert _make_headline(kind, "google", "brand_us", ["meta"]) == expected
+
+    def test_falls_back_for_an_unmapped_kind(self):
+        # A newly added UtmIssueKind must not be able to break the audit response
+        # over a cosmetic headline string.
+        headline = _make_headline("some_future_kind", "google", "brand_us", [])  # type: ignore[arg-type]
+
+        assert headline == "UTM tagging issue on 'brand_us'"
 
 
 class TestCrossReference:
@@ -96,7 +116,7 @@ class TestCrossReference:
             field_preferences={},
         )
 
-        results = _cross_reference(campaigns, utm_events, mappings, _build_known_sources(mappings))
+        results = _cross_reference(campaigns, utm_events, mappings, build_known_sources(mappings))
 
         google = next(r for r in results if r.source_name == "google")
         meta = next(r for r in results if r.source_name == "meta")
@@ -153,7 +173,7 @@ class TestCrossReference:
             field_preferences={},
         )
 
-        results = _cross_reference(campaigns, utm_events, mappings, _build_known_sources(mappings))
+        results = _cross_reference(campaigns, utm_events, mappings, build_known_sources(mappings))
 
         assert len(results) == 1
         assert results[0].has_utm_events is True
@@ -169,7 +189,7 @@ class TestCrossReference:
             field_preferences={},
         )
 
-        results = _cross_reference(campaigns, utm_events, mappings, _build_known_sources(mappings))
+        results = _cross_reference(campaigns, utm_events, mappings, build_known_sources(mappings))
 
         assert len(results) == 1
         assert results[0].has_utm_events is True
@@ -185,7 +205,7 @@ class TestCrossReference:
             field_preferences={},
         )
 
-        results = _cross_reference(campaigns, utm_events, mappings, _build_known_sources(mappings))
+        results = _cross_reference(campaigns, utm_events, mappings, build_known_sources(mappings))
 
         assert len(results) == 1
         assert results[0].has_utm_events is True
@@ -222,7 +242,7 @@ class TestCrossReferenceIssueKinds:
         # Mapping google→bing would break Google attribution, so ADD_SOURCE_MAPPING must not be suggested.
         campaigns = [Campaign("Shared Campaign", "1", "bing", 100.0, 50, 1000)]
         utm_events = {("shared campaign", "google"): 29}
-        known_sources = _build_known_sources(NO_MAPPINGS)
+        known_sources = build_known_sources(NO_MAPPINGS)
 
         results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, known_sources)
 
@@ -239,7 +259,7 @@ class TestCrossReferenceIssueKinds:
         # utm_source='partner_xyz' is not a default of any integration. Safe to offer ADD_SOURCE_MAPPING.
         campaigns = [Campaign("Brand Campaign", "1", "bing", 100.0, 50, 1000)]
         utm_events = {("brand campaign", "partner_xyz"): 40}
-        known_sources = _build_known_sources(NO_MAPPINGS)
+        known_sources = build_known_sources(NO_MAPPINGS)
         assert "partner_xyz" not in known_sources
 
         results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, known_sources)
@@ -301,7 +321,7 @@ class TestCrossReferenceIssueKinds:
             Campaign("Survey", "2", "google", 200.0, 100, 2000),
         ]
         utm_events = {("survey", "google"): 29}
-        known_sources = _build_known_sources(NO_MAPPINGS)
+        known_sources = build_known_sources(NO_MAPPINGS)
 
         results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, known_sources)
         google = next(r for r in results if r.source_name == "google")
@@ -330,7 +350,7 @@ class TestCrossReferenceIssueKinds:
             ("survey", "google"): 29,  # Matches google's row
             ("survey", "weird_source"): 5,  # Unknown alt for bing
         }
-        known_sources = _build_known_sources(NO_MAPPINGS)
+        known_sources = build_known_sources(NO_MAPPINGS)
 
         results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, known_sources)
         bing = next(r for r in results if r.source_name == "bing")
@@ -345,7 +365,7 @@ class TestCrossReferenceIssueKinds:
             ("brand", "unknown_partner"): 30,
             ("brand", "yet_another"): 15,
         }
-        known_sources = _build_known_sources(NO_MAPPINGS)
+        known_sources = build_known_sources(NO_MAPPINGS)
 
         results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, known_sources)
         issue = results[0].issues[0]
@@ -363,7 +383,7 @@ class TestCrossReferenceIssueKinds:
             campaign_aliases={},
             field_preferences={},
         )
-        known_sources = _build_known_sources(mappings)
+        known_sources = build_known_sources(mappings)
         assert "weird_source" in known_sources
 
         results = _cross_reference(campaigns, utm_events, mappings, known_sources)
@@ -386,7 +406,7 @@ class TestBuildKnownSources:
         ],
     )
     def test_membership_for_default_known_sources(self, source, expected_present):
-        result = _build_known_sources(NO_MAPPINGS)
+        result = build_known_sources(NO_MAPPINGS)
 
         assert (source in result) is expected_present
 
@@ -397,7 +417,7 @@ class TestBuildKnownSources:
             field_preferences={},
         )
 
-        result = _build_known_sources(mappings)
+        result = build_known_sources(mappings)
 
         assert "partner_blog" in result
         assert "internal_source" in result
@@ -422,7 +442,7 @@ class TestCrossReferenceFieldPreferences:
             field_preferences={"google": match_field},
         )
 
-        results = _cross_reference(campaigns, utm_events, mappings, _build_known_sources(mappings))
+        results = _cross_reference(campaigns, utm_events, mappings, build_known_sources(mappings))
 
         assert len(results) == 1
         if should_match:
@@ -448,7 +468,7 @@ class TestCrossReferenceFieldPreferences:
             field_preferences={"google": "campaign_id", "meta": "campaign_name"},
         )
 
-        results = _cross_reference(campaigns, utm_events, mappings, _build_known_sources(mappings))
+        results = _cross_reference(campaigns, utm_events, mappings, build_known_sources(mappings))
 
         assert len(results) == 2
         google = next(r for r in results if r.source_name == "google")
@@ -469,7 +489,7 @@ class TestCrossReferenceFieldPreferences:
             field_preferences={"google": "campaign_id"},
         )
 
-        results = _cross_reference(campaigns, utm_events, mappings, _build_known_sources(mappings))
+        results = _cross_reference(campaigns, utm_events, mappings, build_known_sources(mappings))
 
         assert len(results) == 1
         assert results[0].has_utm_events is True
@@ -589,7 +609,7 @@ class TestLoadTeamMappings(BaseTest):
         team = MagicMock()
         team.marketing_analytics_config = None
 
-        result = _load_team_mappings(team)
+        result = load_team_mappings(team)
 
         assert result.source_to_integration == {}
         assert result.campaign_aliases == {}
@@ -601,7 +621,7 @@ class TestLoadTeamMappings(BaseTest):
         self.team.marketing_analytics_config.campaign_field_preferences = {}
         self.team.marketing_analytics_config.save()
 
-        result = _load_team_mappings(self.team)
+        result = load_team_mappings(self.team)
 
         assert result.source_to_integration == {}
         assert result.campaign_aliases == {}
@@ -613,7 +633,7 @@ class TestLoadTeamMappings(BaseTest):
         }
         self.team.marketing_analytics_config.save()
 
-        result = _load_team_mappings(self.team)
+        result = load_team_mappings(self.team)
 
         assert result.source_to_integration["partner_blog"] == "google"
         assert result.source_to_integration["affiliate_site"] == "google"
@@ -624,7 +644,7 @@ class TestLoadTeamMappings(BaseTest):
         }
         self.team.marketing_analytics_config.save()
 
-        result = _load_team_mappings(self.team)
+        result = load_team_mappings(self.team)
 
         assert "uppercase_source" in result.source_to_integration
         assert "mixedcase" in result.source_to_integration
@@ -637,7 +657,7 @@ class TestLoadTeamMappings(BaseTest):
         }
         self.team.marketing_analytics_config.save()
 
-        result = _load_team_mappings(self.team)
+        result = load_team_mappings(self.team)
 
         assert "partner_q1" in result.campaign_aliases["brand_campaign"]
         assert "brand_q1" in result.campaign_aliases["brand_campaign"]
@@ -649,7 +669,7 @@ class TestLoadTeamMappings(BaseTest):
         }
         self.team.marketing_analytics_config.save()
 
-        result = _load_team_mappings(self.team)
+        result = load_team_mappings(self.team)
 
         assert "google_alias" in result.campaign_aliases["brand_campaign"]
         assert "meta_alias" in result.campaign_aliases["brand_campaign"]
@@ -658,7 +678,7 @@ class TestLoadTeamMappings(BaseTest):
         self.team.marketing_analytics_config.campaign_name_mappings = {"GoogleAds": {"Brand Campaign": ["SomeAlias"]}}
         self.team.marketing_analytics_config.save()
 
-        result = _load_team_mappings(self.team)
+        result = load_team_mappings(self.team)
 
         assert "brand campaign" in result.campaign_aliases
         assert "somealias" in result.campaign_aliases["brand campaign"]
@@ -669,7 +689,7 @@ class TestLoadTeamMappings(BaseTest):
         }
         self.team.marketing_analytics_config.save()
 
-        result = _load_team_mappings(self.team)
+        result = load_team_mappings(self.team)
 
         assert result.field_preferences.get("google") == "campaign_id"
 
@@ -680,7 +700,7 @@ class TestLoadTeamMappings(BaseTest):
         }
         self.team.marketing_analytics_config.save()
 
-        result = _load_team_mappings(self.team)
+        result = load_team_mappings(self.team)
 
         assert result.field_preferences.get("google") == "campaign_id"
         assert result.field_preferences.get("meta") == "campaign_name"
@@ -694,7 +714,7 @@ class TestLoadTeamMappings(BaseTest):
         team = MagicMock()
         team.marketing_analytics_config = config
 
-        result = _load_team_mappings(team)
+        result = load_team_mappings(team)
 
         assert result.field_preferences == {}
 
@@ -721,7 +741,7 @@ class TestLoadTeamMappings(BaseTest):
         team = MagicMock()
         team.marketing_analytics_config = config
 
-        result = _load_team_mappings(team)
+        result = load_team_mappings(team)
 
         assert result.source_to_integration.get("custom_source") == expected_primary_source
 
@@ -745,8 +765,8 @@ class TestRunUtmAudit(BaseTest):
             impressions=impressions,
         )
 
-    @patch("products.marketing_analytics.backend.services.utm_audit._get_utm_events")
-    @patch("products.marketing_analytics.backend.services.utm_audit._get_campaigns_with_spend")
+    @patch("products.marketing_analytics.backend.services.utm_audit.get_utm_campaign_catalogue")
+    @patch("products.marketing_analytics.backend.services.utm_audit.get_campaigns_with_spend")
     def test_returns_utm_audit_response_dataclass(self, mock_campaigns, mock_utm):
         mock_campaigns.return_value = []
         mock_utm.return_value = {}
@@ -755,8 +775,8 @@ class TestRunUtmAudit(BaseTest):
 
         assert isinstance(result, UtmAuditResponse)
 
-    @patch("products.marketing_analytics.backend.services.utm_audit._get_utm_events")
-    @patch("products.marketing_analytics.backend.services.utm_audit._get_campaigns_with_spend")
+    @patch("products.marketing_analytics.backend.services.utm_audit.get_utm_campaign_catalogue")
+    @patch("products.marketing_analytics.backend.services.utm_audit.get_campaigns_with_spend")
     def test_returns_zeroed_summary_when_no_campaigns(self, mock_campaigns, mock_utm):
         mock_campaigns.return_value = []
         mock_utm.return_value = {}
@@ -770,8 +790,8 @@ class TestRunUtmAudit(BaseTest):
         assert result.results == []
         assert result.all_utm_events == []
 
-    @patch("products.marketing_analytics.backend.services.utm_audit._get_utm_events")
-    @patch("products.marketing_analytics.backend.services.utm_audit._get_campaigns_with_spend")
+    @patch("products.marketing_analytics.backend.services.utm_audit.get_utm_campaign_catalogue")
+    @patch("products.marketing_analytics.backend.services.utm_audit.get_campaigns_with_spend")
     def test_counts_campaigns_with_and_without_issues(self, mock_campaigns, mock_utm):
         mock_campaigns.return_value = [
             self._make_campaign("good_campaign", "1", "google", spend=100.0),
@@ -785,8 +805,8 @@ class TestRunUtmAudit(BaseTest):
         assert result.campaigns_with_issues == 1
         assert result.campaigns_without_issues == 1
 
-    @patch("products.marketing_analytics.backend.services.utm_audit._get_utm_events")
-    @patch("products.marketing_analytics.backend.services.utm_audit._get_campaigns_with_spend")
+    @patch("products.marketing_analytics.backend.services.utm_audit.get_utm_campaign_catalogue")
+    @patch("products.marketing_analytics.backend.services.utm_audit.get_campaigns_with_spend")
     def test_sums_spend_at_risk_for_campaigns_with_issues(self, mock_campaigns, mock_utm):
         mock_campaigns.return_value = [
             self._make_campaign("no_tracking", "1", "google", spend=300.0),
@@ -799,8 +819,8 @@ class TestRunUtmAudit(BaseTest):
 
         assert result.total_spend_at_risk == pytest.approx(450.0)
 
-    @patch("products.marketing_analytics.backend.services.utm_audit._get_utm_events")
-    @patch("products.marketing_analytics.backend.services.utm_audit._get_campaigns_with_spend")
+    @patch("products.marketing_analytics.backend.services.utm_audit.get_utm_campaign_catalogue")
+    @patch("products.marketing_analytics.backend.services.utm_audit.get_campaigns_with_spend")
     def test_results_sorted_by_issue_count_then_spend_descending(self, mock_campaigns, mock_utm):
         mock_campaigns.return_value = [
             self._make_campaign("low_spend_bad", "1", "google", spend=50.0),
@@ -816,8 +836,8 @@ class TestRunUtmAudit(BaseTest):
         assert result.results[1].campaign_name == "low_spend_bad"
         assert result.results[2].campaign_name == "good"
 
-    @patch("products.marketing_analytics.backend.services.utm_audit._get_utm_events")
-    @patch("products.marketing_analytics.backend.services.utm_audit._get_campaigns_with_spend")
+    @patch("products.marketing_analytics.backend.services.utm_audit.get_utm_campaign_catalogue")
+    @patch("products.marketing_analytics.backend.services.utm_audit.get_campaigns_with_spend")
     def test_includes_all_utm_events_in_response(self, mock_campaigns, mock_utm):
         mock_campaigns.return_value = [self._make_campaign()]
         mock_utm.return_value = {
@@ -829,8 +849,8 @@ class TestRunUtmAudit(BaseTest):
 
         assert len(result.all_utm_events) == 2
 
-    @patch("products.marketing_analytics.backend.services.utm_audit._get_utm_events")
-    @patch("products.marketing_analytics.backend.services.utm_audit._get_campaigns_with_spend")
+    @patch("products.marketing_analytics.backend.services.utm_audit.get_utm_campaign_catalogue")
+    @patch("products.marketing_analytics.backend.services.utm_audit.get_campaigns_with_spend")
     def test_uses_team_mappings_when_resolving_sources(self, mock_campaigns, mock_utm):
         self.team.marketing_analytics_config.custom_source_mappings = {
             "GoogleAds": ["custom_blog"],
@@ -845,8 +865,8 @@ class TestRunUtmAudit(BaseTest):
         assert result.campaigns_with_issues == 0
         assert result.results[0].has_utm_events is True
 
-    @patch("products.marketing_analytics.backend.services.utm_audit._get_utm_events")
-    @patch("products.marketing_analytics.backend.services.utm_audit._get_campaigns_with_spend")
+    @patch("products.marketing_analytics.backend.services.utm_audit.get_utm_campaign_catalogue")
+    @patch("products.marketing_analytics.backend.services.utm_audit.get_campaigns_with_spend")
     def test_passes_date_params_to_data_fetchers(self, mock_campaigns, mock_utm):
         mock_campaigns.return_value = []
         mock_utm.return_value = {}
@@ -863,8 +883,8 @@ class TestRunUtmAudit(BaseTest):
         assert utm_date_range.date_from_str is not None
         assert utm_date_range.date_to_str is not None
 
-    @patch("products.marketing_analytics.backend.services.utm_audit._get_utm_events")
-    @patch("products.marketing_analytics.backend.services.utm_audit._get_campaigns_with_spend")
+    @patch("products.marketing_analytics.backend.services.utm_audit.get_utm_campaign_catalogue")
+    @patch("products.marketing_analytics.backend.services.utm_audit.get_campaigns_with_spend")
     def test_zero_spend_at_risk_when_all_campaigns_tracked(self, mock_campaigns, mock_utm):
         mock_campaigns.return_value = [
             self._make_campaign("campaign_a", "1", "google", spend=200.0),
@@ -880,8 +900,8 @@ class TestRunUtmAudit(BaseTest):
         assert result.total_spend_at_risk == 0.0
         assert result.campaigns_with_issues == 0
 
-    @patch("products.marketing_analytics.backend.services.utm_audit._get_utm_events")
-    @patch("products.marketing_analytics.backend.services.utm_audit._get_campaigns_with_spend")
+    @patch("products.marketing_analytics.backend.services.utm_audit.get_utm_campaign_catalogue")
+    @patch("products.marketing_analytics.backend.services.utm_audit.get_campaigns_with_spend")
     def test_e2e_name_collision_scenario_produces_correct_kind_and_actions(self, mock_campaigns, mock_utm):
         # End-to-end smoke test: same campaign name on Bing and Google, events only tagged as google.
         # Verifies the full run_utm_audit pipeline (known_sources building, _cross_reference,

@@ -29,7 +29,12 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     _is_retriable_ch_error,
     get_eval_report_tools,
 )
-from posthog.temporal.ai_observability.eval_reports.targets import GENERATION_TARGET
+from posthog.temporal.ai_observability.eval_reports.targets import (
+    GENERATION_TARGET,
+    SESSION_ID_ALLOWLIST_KEY,
+    TRACE_ID_ALLOWLIST_KEY,
+    get_target_descriptor,
+)
 from posthog.temporal.ai_observability.llm_endpoint import build_langchain_chat_client
 
 logger = structlog.get_logger(__name__)
@@ -105,10 +110,11 @@ def _fallback_content(
     went wrong at the agent level so the user isn't left staring at an empty UI.
     """
     if metrics.total_runs == 0:
+        unit_label = get_target_descriptor(evaluation_target).unit_label
         ingestion_hint = (
-            "trace evaluation results are being ingested"
-            if evaluation_target == "trace"
-            else "`$ai_generation` events are being ingested"
+            "`$ai_generation` events are being ingested"
+            if evaluation_target == GENERATION_TARGET
+            else f"{unit_label} evaluation results are being ingested"
         )
         summary = (
             f"No evaluation runs recorded for **{evaluation_name}** in this period. "
@@ -175,7 +181,7 @@ def _append_references_section(content: EvalReportContent) -> None:
     """
     if not content.citations:
         return
-    refs_lines = [f"{i}. `{c.generation_id or c.trace_id}` — {c.reason}" for i, c in enumerate(content.citations, 1)]
+    refs_lines = [f"{i}. `{c.cited_id()}` — {c.reason}" for i, c in enumerate(content.citations, 1)]
     content.sections.append(ReportSection(title="References", content="\n".join(refs_lines)))
 
 
@@ -292,7 +298,8 @@ def run_eval_report_agent(
         "previous_period_start": previous_period_start,
         "report_prompt_guidance": report_prompt_guidance,
         "report": EvalReportContent(evaluation_target=evaluation_target, metrics=metrics),
-        "trace_id_allowlist": [],
+        TRACE_ID_ALLOWLIST_KEY: [],
+        SESSION_ID_ALLOWLIST_KEY: [],
     }
 
     # Skip in gateway mode: the Go gateway captures $ai_generation itself, so the

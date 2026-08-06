@@ -15,7 +15,6 @@ import { isContentlessTask } from "@posthog/shared/domain-types";
 import { DeepLinkApprovalModal } from "@posthog/ui/features/agent-applications/components/DeepLinkApprovalModal";
 import { useApprovalDeepLink } from "@posthog/ui/features/agent-applications/hooks/useApprovalDeepLink";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
-import { UsageBillingAnnouncementModal } from "@posthog/ui/features/billing/UsageBillingAnnouncementModal";
 import { UsageButton } from "@posthog/ui/features/billing/UsageButton";
 import { UsageLimitModal } from "@posthog/ui/features/billing/UsageLimitModal";
 import { BlankTabView } from "@posthog/ui/features/browser-tabs/BlankTabView";
@@ -33,6 +32,7 @@ import {
 import { useCanvasDeepLink } from "@posthog/ui/features/canvas/hooks/useCanvasDeepLink";
 import { useChannelDeepLink } from "@posthog/ui/features/canvas/hooks/useChannelDeepLink";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { usePostHogWebFeedbackStore } from "@posthog/ui/features/canvas/stores/posthogWebFeedbackStore";
 import { CommandMenu } from "@posthog/ui/features/command/CommandMenu";
 import { CommandSearchBar } from "@posthog/ui/features/command/CommandSearchBar";
 import { GlobalFilePicker } from "@posthog/ui/features/command/GlobalFilePicker";
@@ -156,18 +156,33 @@ function RootLayout() {
     currentProjectId ? `/project/${currentProjectId}` : "/",
   );
 
+  const posthogWebFeedbackSeen = usePostHogWebFeedbackStore((s) => s.hasSeen);
+  const posthogWebFeedbackHydrated = usePostHogWebFeedbackStore(
+    (s) => s.hasHydrated,
+  );
+  const markPostHogWebFeedbackSeen = usePostHogWebFeedbackStore(
+    (s) => s.markSeen,
+  );
+
   // "PostHog Web" opens the feedback modal first and performs its navigation
   // only once the modal is submitted or skipped.
   const handleFeedbackFinished = () => {
     const finishedMode = feedbackMode;
     setFeedbackMode(null);
     if (finishedMode === "posthog-web" && posthogWebUrl) {
+      markPostHogWebFeedbackSeen();
       void openUrlInBrowser(posthogWebUrl);
     }
   };
 
   const handleOpenPostHogWeb = () => {
     track(ANALYTICS_EVENTS.POSTHOG_WEB_OPENED);
+    // Only skip the intercept once the persisted flag has hydrated, so a stale
+    // pre-hydration default can't wrongly re-show it.
+    if (posthogWebFeedbackHydrated && posthogWebFeedbackSeen && posthogWebUrl) {
+      void openUrlInBrowser(posthogWebUrl);
+      return;
+    }
     setFeedbackMode("posthog-web");
   };
   const {
@@ -330,7 +345,6 @@ function RootLayout() {
             was stopping Cmd+W from closing the window. */}
         <TabShortcutFallback enabled />
         {billingEnabled && <UsageLimitModal />}
-        <UsageBillingAnnouncementModal />
         <UpdateAvailableModal />
         <WhatsNewModal />
         <RemoteBranchCheckoutDialog />
@@ -514,7 +528,6 @@ function RootLayout() {
         />
         <TourOverlay />
         {billingEnabled && <UsageLimitModal />}
-        <UsageBillingAnnouncementModal />
         <UpdateAvailableModal />
         <WhatsNewModal />
         <RemoteBranchCheckoutDialog />
