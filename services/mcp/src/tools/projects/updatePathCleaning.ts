@@ -206,30 +206,31 @@ function compileForPreview(regex: string): RegExp | null {
 }
 
 /**
- * Translate a re2/ClickHouse `replaceRegexpAll` replacement string into a JS `String.replace`
- * replacement string, so the preview substitutes capture groups the same way the real query does.
- * re2 uses `\1`–`\9` for groups (`\0` for the whole match); JS uses `$1`–`$9` and `$&`. A literal
- * `$` is escaped to `$$` so JS doesn't read it as its own back-reference.
+ * Expand an alias against one regex match, so the preview substitutes capture groups the same way
+ * the real query does. The alias is re2 replacement syntax: `\0` is the whole match, `\1` to `\9`
+ * are capture groups, `\\` is a literal backslash, and everything else is literal.
+ *
+ * Expanding against the match here, rather than translating to a `$1`-style replacement string,
+ * keeps three re2 rules JavaScript would otherwise break: `$` stays literal, `\10` is group 1
+ * followed by `0` rather than group 10, and an unfilled group substitutes as empty.
  */
-function aliasToJsReplacement(alias: string): string {
+export function expandAlias(alias: string, groups: (string | undefined)[]): string {
     let out = ''
     for (let i = 0; i < alias.length; i++) {
         const char = alias[i]
-        if (char === '$') {
-            out += '$$'
-        } else if (char === '\\') {
-            const next = alias[i + 1]
-            if (next === '\\') {
-                out += '\\'
-                i++
-            } else if (next !== undefined && next >= '0' && next <= '9') {
-                out += next === '0' ? '$&' : `$${next}`
-                i++
-            } else {
-                out += '\\'
-            }
-        } else {
+        if (char !== '\\') {
             out += char
+            continue
+        }
+        const next = alias[i + 1]
+        if (next === '\\') {
+            out += '\\'
+            i++
+        } else if (next !== undefined && next >= '0' && next <= '9') {
+            out += groups[Number(next)] ?? ''
+            i++
+        } else {
+            out += '\\'
         }
     }
     return out
@@ -243,7 +244,14 @@ function applyChain(path: string, rules: PathCleaningRule[]): string {
         if (re === null) {
             continue
         }
-        out = out.replace(re, aliasToJsReplacement(rule.alias))
+        out = out.replace(re, (match: string, ...rest: unknown[]): string => {
+            // Replacer arguments run (match, p1…pN, offset, whole string, named groups?). A group
+            // the pattern didn't fill arrives as undefined, so the first number is the offset and
+            // marks where the capture values stop.
+            const offsetIndex = rest.findIndex((arg) => typeof arg === 'number')
+            const captures = (offsetIndex === -1 ? [] : rest.slice(0, offsetIndex)) as (string | undefined)[]
+            return expandAlias(rule.alias, [match, ...captures])
+        })
     }
     return out
 }

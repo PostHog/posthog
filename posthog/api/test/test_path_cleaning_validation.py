@@ -12,6 +12,7 @@ class TestPathCleaningFilterValidation(SimpleTestCase):
             ("uncompilable_regex", [{"regex": "/users/((", "alias": "/users/x"}]),
             ("backreference_out_of_range", [{"regex": "/users/(\\d+)", "alias": "/users/\\2"}]),
             ("backreference_with_no_group", [{"regex": "/users/\\d+", "alias": "/users/\\1"}]),
+            ("value_that_is_not_a_list", "not-a-list"),
         ]
     )
     def test_rejects_invalid_rules(self, _name, filters):
@@ -26,6 +27,13 @@ class TestPathCleaningFilterValidation(SimpleTestCase):
             ("escaped_backslash_is_literal", [{"regex": "/users/\\d+", "alias": "/users/\\\\1"}]),
             ("static_placeholder_alias", [{"regex": "/users/\\d+", "alias": "/users/<id>"}]),
             ("empty_list", []),
+            # re2 reads only ASCII digits as a back-reference, so these are literal text. Matching on
+            # str.isdigit() instead crashes on the superscript and misreads the Arabic-Indic digit.
+            ("superscript_digit_is_literal", [{"regex": "/users/\\d+", "alias": "/users/\\²"}]),
+            ("arabic_indic_digit_is_literal", [{"regex": "/users/\\d+", "alias": "/users/\\٣"}]),
+            ("rule_that_is_not_a_dict", ["not-a-rule"]),
+            ("rule_without_a_regex", [{"alias": "/users/<id>"}]),
+            ("rule_without_an_alias", [{"regex": "/users/\\d+"}]),
         ]
     )
     def test_accepts_valid_rules(self, _name, filters):

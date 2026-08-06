@@ -795,7 +795,9 @@ def _alias_backreferences(alias: str) -> list[int]:
             if nxt == "\\":
                 i += 2
                 continue
-            if nxt.isdigit():
+            # ASCII digits only. `str.isdigit()` also accepts characters like `²` and `٣`, which re2
+            # substitutes as literal text, and `int()` rejects `²` outright.
+            if "0" <= nxt <= "9":
                 refs.append(int(nxt))
                 i += 2
                 continue
@@ -827,9 +829,7 @@ def validate_path_cleaning_filters(value: object) -> object:
 
         if not alias or not isinstance(alias, str):
             continue
-        group_count = getattr(compiled, "groups", None)
-        if not isinstance(group_count, int):
-            continue
+        group_count = compiled.groups
         for ref in _alias_backreferences(alias):
             if ref > group_count:
                 raise exceptions.ValidationError(
