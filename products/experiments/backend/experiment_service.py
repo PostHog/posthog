@@ -636,12 +636,14 @@ class ExperimentService:
                     f"{type(filter_test_accounts).__name__}: {cls._safe_repr(filter_test_accounts)}."
                 )
 
-        if "exposure_config" in exposure_criteria:
+        # Explicit null is how API clients clear a config (the generated types are
+        # nullable), so only validate shape when a value is present.
+        if exposure_criteria.get("exposure_config") is not None:
             cls._validate_exposure_config_shape(
                 exposure_criteria["exposure_config"], "exposure_criteria.exposure_config"
             )
 
-        if "activation_config" in exposure_criteria:
+        if exposure_criteria.get("activation_config") is not None:
             cls._validate_exposure_config_shape(
                 exposure_criteria["activation_config"], "exposure_criteria.activation_config"
             )

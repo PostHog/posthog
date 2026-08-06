@@ -850,6 +850,17 @@ class TestExperimentService(APIBaseTest):
                 {"activation_config": {"event": "purchase", "properties": []}},
             ),
             (
+                "explicit_null_configs",
+                {"exposure_config": None, "activation_config": None},
+            ),
+            (
+                "null_activation_with_custom_exposure",
+                {
+                    "exposure_config": {"event": "$pageview", "properties": []},
+                    "activation_config": None,
+                },
+            ),
+            (
                 "activation_with_default_exposure_config",
                 {
                     "exposure_config": {"event": "$feature_flag_called", "properties": []},
