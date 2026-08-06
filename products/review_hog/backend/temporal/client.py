@@ -1,16 +1,27 @@
-"""Triggers for the single-turn `ReviewPRWorkflow`.
+"""Triggers for the review and resolution workflows.
 
-Two entry points drive the **same** workflow:
-- `execute_review_pr_workflow` — **blocking** (`execute_workflow`), returns the `ReviewReport` id.
-  Used by the `run_review` management command so the CLI eval loop stays intact: run, see the
-  outcome, read the report (stage progress streams in the worker log via `workflow.logger`).
-- `start_review_pr_workflow` — **non-blocking** (`start_workflow`), returns the workflow id. Used by
-  the production triggers (the label endpoint and the inbox TaskRun-completion receiver), which fire
-  and forget (the review runs in the worker; the report id is created when the run's fetch activity
-  executes).
+Four entry points across two workflows. Each workflow pairs a **blocking** CLI trigger
+(`execute_*`, via `execute_workflow`) with a **non-blocking** production trigger (`start_*`, via
+`start_workflow`); the blocking form returns the `ReviewReport` id, the non-blocking form returns
+the workflow id and fires and forget (the run happens in the worker).
+
+`ReviewPRWorkflow` — the single-turn review:
+- `execute_review_pr_workflow` — used by the `run_review` management command so the CLI eval loop
+  stays intact: run, see the outcome, read the report (stage progress streams in the worker log via
+  `workflow.logger`).
+- `start_review_pr_workflow` — used by the production triggers (the label endpoint and the inbox
+  TaskRun-completion receiver); the report id is created when the run's fetch activity executes.
+
+`ResolvePRWorkflow` — triaging and settling a PR's unresolved review threads:
+- `execute_resolution_workflow` — the CLI entry (`run_resolution`), mirroring
+  `execute_review_pr_workflow`. Returns the `ReviewReport` id if any.
+- `start_resolution_workflow` — used by the production triggers (the `resolve` endpoint and the UI
+  resolve-only run). A published review chains into resolution as a child-workflow start inside
+  `ReviewPRWorkflow`, not through these entry points.
 
 The review target is either a PR (`pr_url`) or a pushed branch with no PR yet
-(`repository` + `head_branch`) — exactly one, validated in `_build_inputs`.
+(`repository` + `head_branch`) — exactly one, validated in `_build_inputs`. Resolution always
+targets a PR (`pr_url`), validated in `_build_resolution_inputs`.
 """
 
 import asyncio
