@@ -118,6 +118,22 @@ describe('Hono MCP analytics contexts', () => {
         expect(properties.mcp_session_vendor_client).toBeUndefined()
     })
 
+    it('categorizes a proxied third-party tool and names its server', async () => {
+        // A gateway tool has no catalog entry, so without the fallback it lands
+        // uncategorized and disappears from every category-sliced view.
+        await trackToolCall('linear__create_issue', 12, false, makeState())
+
+        const properties = mockCaptureToolCall.mock.calls[0]![0].properties
+        expect(properties.$mcp_tool_category).toBe('Third-party tools')
+        expect(properties.mcp_gateway_server).toBe('linear')
+    })
+
+    it('leaves a PostHog tool without a gateway server', async () => {
+        await trackToolCall('user-get', 12, false, makeState())
+
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties.mcp_gateway_server).toBeUndefined()
+    })
+
     describe('client identity live-first fallback', () => {
         // $mcp_client_name is the property this whole fix targets: `clientInfo` arrives
         // only on `initialize`, so it was empty on every tool call that followed. The
@@ -335,6 +351,11 @@ describe('Hono MCP analytics contexts', () => {
                 { query: 'SELECT count() FROM events -- information_schema' },
                 false,
             ],
+            // A proxied vendor tool's args and result are the customer's content passing
+            // through the gateway. Key-based redaction only catches credential-shaped
+            // fields, so capturing the payload would put arbitrary third-party content in
+            // analytics to serve evaluations that target PostHog's own tools.
+            ['a proxied third-party tool', 'linear__create_issue', { title: 'Customer escalation' }, false],
         ])('gates capture for %s', async (_case, toolName, input, captured) => {
             await trackToolSpan(toolName, makeState(), { durationMs: 100, isError: false, input, output: 'rows' })
 

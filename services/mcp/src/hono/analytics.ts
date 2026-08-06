@@ -11,6 +11,7 @@ import {
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
+import { gatewayServerSlug, isGatewayToolName, THIRD_PARTY_TOOL_CATEGORY } from '@/lib/gateway-tools'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
 
 import { buildMCPSessionAnalyticsProperties, getEffectiveMCPClientIdentity } from './mcp-context'
@@ -128,7 +129,10 @@ export async function trackToolCall(
         // The producer stamps the tool's category so the dashboard groups by it verbatim
         // (it never maps tool→category itself). Omitted when unknown (e.g. the `exec`
         // wrapper), which the dashboard buckets as "Uncategorized".
-        const toolCategory = getToolCategory(toolName)
+        // A proxied third-party tool has no catalog entry, so without the fallback every
+        // gateway call would land uncategorized and drop out of category-sliced views.
+        const gatewayServer = gatewayServerSlug(toolName)
+        const toolCategory = getToolCategory(toolName) ?? (gatewayServer ? THIRD_PARTY_TOOL_CATEGORY : undefined)
         // The description the agent saw when it picked this tool, clipped. Powers the
         // tool-detail Descriptions table and description-vs-intent fit in MCP
         // analytics. Callers pass servedDescription when the advertised text differs
@@ -159,6 +163,9 @@ export async function trackToolCall(
                 tool_name: toolName,
                 ...(toolCategory ? { $mcp_tool_category: toolCategory } : {}),
                 ...(toolDescription ? { $mcp_tool_description: toolDescription } : {}),
+                // Which vendor ran the tool, so "who do people actually call" is a
+                // breakdown rather than a string split over `tool_name` in HogQL.
+                ...(gatewayServer ? { mcp_gateway_server: gatewayServer } : {}),
                 ...extraProperties,
             },
         })
@@ -247,6 +254,15 @@ function isMetadataQuery(query: string): boolean {
 }
 
 function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
+    // A proxied third-party tool's args and result are the vendor's content — an issue
+    // body, a support ticket, a CRM record — passing through our gateway on its way
+    // somewhere else. Key-based redaction only catches credential-shaped fields, so
+    // capturing these would put arbitrary customer content in analytics to serve
+    // evaluations that target PostHog's own tools. `$mcp_tool_call` still records that
+    // the call happened, with its server, duration and outcome.
+    if (isGatewayToolName(toolName)) {
+        return false
+    }
     // execute-sql can't be captured wholesale: its payload is the query result,
     // which is the bulk of MCP response volume. Metadata queries are the
     // exception, because their results are small and describe what the agent

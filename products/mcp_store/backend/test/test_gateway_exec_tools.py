@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -5,6 +7,9 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.test import APIClient
+
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 
 from products.mcp_store.backend.models import (
     MCPAuditEvent,
@@ -140,6 +145,49 @@ class TestGatewayExecTools(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert not mock_call.called
 
+    def _read_scoped_token_client(self) -> APIClient:
+        """A `project:read` OAuth client, which is how the PostHog MCP authenticates.
+        Session auth takes a different branch through APIScopePermission, so it cannot
+        catch an action that derives no scope."""
+        application = OAuthApplication.objects.create(
+            name="MCP gateway exec",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_mcp_gateway_exec_read",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="project:read",
+            scoped_teams=[self.team.id],
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        return client
+
+    @parameterized.expand([("available_tools",), ("call_tool",)])
+    @patch("products.mcp_store.backend.presentation.views.call_upstream_tool", return_value=_UPSTREAM_RESULT)
+    def test_agent_surfaces_reach_both_endpoints_with_a_read_scoped_token(self, endpoint, _mock_call):
+        self._tool()
+        client = self._read_scoped_token_client()
+        base = f"/api/projects/{self.team.id}/mcp_server_installations/"
+
+        if endpoint == "available_tools":
+            response = client.get(f"{base}available_tools/")
+        else:
+            response = client.post(
+                f"{base}{self.installation.id}/call_tool/",
+                {"tool_name": "create_issue", "arguments": {}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
     def test_available_tools_lists_callable_tools_with_schema(self):
         self._tool()
 
@@ -225,7 +273,10 @@ class TestGatewayExecTools(APIBaseTest):
 
         assert [s["installation_id"] for s in servers] == [str(shared.id)]
 
-    def test_available_tools_gives_same_named_connections_distinct_slugs(self):
+    def test_available_tools_keys_colliding_slugs_to_their_installation(self):
+        # Numbering same-named connections by position would reshuffle when one goes
+        # unavailable, so a tool name an agent read from `search` could later resolve to a
+        # different connection. Keying the suffix to the installation prevents that.
         self._tool()
         second = MCPServerInstallation.objects.create(
             team=self.team,
@@ -238,6 +289,16 @@ class TestGatewayExecTools(APIBaseTest):
         )
         self._tool(installation=second)
 
-        slugs = [s["slug"] for s in self._available().json()["servers"]]
+        slugs = {s["installation_id"]: s["slug"] for s in self._available().json()["servers"]}
 
-        assert sorted(slugs) == ["linear", "linear-2"]
+        assert slugs == {
+            str(self.installation.id): f"linear-{self.installation.id.hex[:6]}",
+            str(second.id): f"linear-{second.id.hex[:6]}",
+        }
+
+        # The surviving connection keeps the slug it already had once its twin drops out.
+        second.is_enabled = False
+        second.save()
+
+        remaining = self._available().json()["servers"]
+        assert [s["slug"] for s in remaining] == [f"linear-{self.installation.id.hex[:6]}"]
