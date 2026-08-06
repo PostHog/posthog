@@ -2269,6 +2269,8 @@ export namespace Schemas {
      * * `awaiting_input` - awaiting_input
      * * `completed` - completed
      * * `mention` - mention
+     * * `thread_reply` - thread_reply
+     * * `owned_item_comment` - owned_item_comment
      * * `message` - message
      * * `created` - created
      */
@@ -2279,6 +2281,8 @@ export namespace Schemas {
       AwaitingInput: 'awaiting_input',
       Completed: 'completed',
       Mention: 'mention',
+      ThreadReply: 'thread_reply',
+      OwnedItemComment: 'owned_item_comment',
       Message: 'message',
       Created: 'created',
     } as const;
@@ -15329,7 +15333,11 @@ export namespace Schemas {
 
     export interface Comment {
       readonly id: string;
-      readonly created_by: UserBasic;
+      readonly created_by: UserBasic | null;
+      /** @maxLength 79 */
+      scope?: string;
+      /** Metadata for the comment target, anchor, thread state, and owning task. */
+      item_context?: unknown;
       /** @nullable */
       deleted?: boolean | null;
       mentions?: number[];
@@ -15350,9 +15358,6 @@ export namespace Schemas {
          * @nullable
          */
       item_id?: string | null;
-      item_context?: unknown;
-      /** @maxLength 79 */
-      scope: string;
       /**
          * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
          * @nullable
@@ -51586,7 +51591,11 @@ export namespace Schemas {
 
     export interface PatchedComment {
       readonly id?: string;
-      readonly created_by?: UserBasic;
+      readonly created_by?: UserBasic | null;
+      /** @maxLength 79 */
+      scope?: string;
+      /** Metadata for the comment target, anchor, thread state, and owning task. */
+      item_context?: unknown;
       /** @nullable */
       deleted?: boolean | null;
       mentions?: number[];
@@ -51607,9 +51616,6 @@ export namespace Schemas {
          * @nullable
          */
       item_id?: string | null;
-      item_context?: unknown;
-      /** @maxLength 79 */
-      scope?: string;
       /**
          * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
          * @nullable
@@ -72839,20 +72845,28 @@ export namespace Schemas {
       /** @nullable */
       channel_name: string | null;
       activity_at: string;
-      /** What the latest activity on this task was: an agent run waiting on the requester (awaiting_input), a completed run (completed), someone @-mentioning them (mention), a thread reply (message), or their creating the task (created).
+      /** What the latest activity on this task was: an agent run waiting on the requester (awaiting_input), a completed run (completed), someone @-mentioning them (mention), a comment-thread reply (thread_reply), a comment on their item (owned_item_comment), a task-thread reply (message), or their creating the task (created).
        *
        * * `awaiting_input` - awaiting_input
        * * `completed` - completed
        * * `mention` - mention
+       * * `thread_reply` - thread_reply
+       * * `owned_item_comment` - owned_item_comment
        * * `message` - message
        * * `created` - created */
       activity_kind: ActivityKindEnum;
-      /** Content of the thread message tied to the latest activity; empty for task-creation rows. */
+      /** Content of the thread message or resource comment tied to the latest activity. */
       snippet: string;
       /** Author of the thread message tied to the latest activity, when one applies. */
       latest_author?: TaskUserBasicInfo | null;
       /** @nullable */
       latest_message_id?: string | null;
+      /** @nullable */
+      latest_comment_id?: string | null;
+      /** @nullable */
+      latest_comment_scope?: string | null;
+      /** @nullable */
+      latest_comment_item_id?: string | null;
       /** Whether the requester has yet to see this activity. Activity they caused themselves is never unread. */
       is_unread: boolean;
     }
@@ -72860,6 +72874,11 @@ export namespace Schemas {
     export interface TaskActivityReadMarker {
       /** Task whose displayed activity should be marked read. */
       task_id: string;
+      /**
+         * Comment activity row to mark read. Omit for collapsed task activity.
+         * @nullable
+         */
+      activity_id?: string | null;
       /** Mark activity at or before this timestamp read without clearing newer activity. */
       seen_before: string;
     }
@@ -72902,6 +72921,15 @@ export namespace Schemas {
       next_before_id?: string | null;
     }
 
+    export interface TaskArtifact {
+      /** Stable artifact id used to filter task comments. */
+      id: string;
+      /** Artifact type: artifact or canvas. */
+      type: string;
+      /** Display name of the artifact. */
+      name: string;
+    }
+
     /**
      * * `active` - active
      * * `failed` - failed
@@ -72913,6 +72941,11 @@ export namespace Schemas {
       Active: 'active',
       Failed: 'failed',
     } as const;
+
+    export interface TaskArtifactsResponse {
+      /** Artifacts and canvases linked to this task. */
+      artifacts: TaskArtifact[];
+    }
 
     /**
      * Request body for creating or updating a task automation.
@@ -72953,6 +72986,136 @@ export namespace Schemas {
       template_id?: string | null;
       /** Whether the schedule is active; paused when false. */
       enabled?: boolean;
+    }
+
+    export interface TaskCommentAnchor {
+      /** Anchor kind. */
+      kind?: string;
+      /** Selected text. */
+      quote?: string;
+      /** Text immediately before the selection. */
+      prefix?: string;
+      /** Text immediately after the selection. */
+      suffix?: string;
+      /**
+         * Selection start offset.
+         * @minimum 0
+         */
+      start?: number;
+      /**
+         * Selection end offset.
+         * @minimum 1
+         */
+      end?: number;
+      /**
+         * Horizontal region position.
+         * @minimum 0
+         * @maximum 1
+         */
+      x?: number;
+      /**
+         * Vertical region position.
+         * @minimum 0
+         * @maximum 1
+         */
+      y?: number;
+      /**
+         * Region width.
+         * @minimum 0
+         * @maximum 1
+         */
+      width?: number;
+      /**
+         * Region height.
+         * @minimum 0
+         * @maximum 1
+         */
+      height?: number;
+    }
+
+    export interface TaskCommentTarget {
+      /** Stable target id. */
+      id: string;
+      /** Target type: task, artifact, or canvas. */
+      type: string;
+      /** Display name of the comment target. */
+      name: string;
+    }
+
+    export interface TaskCommentEntry {
+      /** Comment id. */
+      id: string;
+      /** Byte-bounded comment body chunk. */
+      content: string;
+      /** Whether this comment body has more content. */
+      content_truncated: boolean;
+      /**
+         * Byte offset for the next body chunk, or null when complete.
+         * @nullable
+         */
+      content_next_offset: number | null;
+      /**
+         * Comment author's display name.
+         * @nullable
+         */
+      author: string | null;
+      /** When the comment was created. */
+      created_at: string;
+      /** Normalized text or document anchor. */
+      anchor: TaskCommentAnchor | null;
+      /**
+         * Canvas version receiving the comment.
+         * @nullable
+         */
+      canvas_version_id: string | null;
+    }
+
+    export interface TaskCommentDetail {
+      /** Root comment id. */
+      id: string;
+      /** Task, artifact, or canvas receiving the comment. */
+      target: TaskCommentTarget;
+      /** Whether the comment is resolved. */
+      resolved: boolean;
+      /** Comments in this page, oldest first. */
+      comments: TaskCommentEntry[];
+      /**
+         * Opaque cursor for the next page, or null.
+         * @nullable
+         */
+      next: string | null;
+    }
+
+    export interface TaskCommentSummary {
+      /** Root comment id. */
+      id: string;
+      /** Task, artifact, or canvas receiving the comment. */
+      target: TaskCommentTarget;
+      /** Bounded excerpt of the root comment body. */
+      content: string;
+      /** Whether the root comment body has more content. */
+      content_truncated: boolean;
+      /**
+         * Text selected when the comment was created.
+         * @nullable
+         */
+      selected_text: string | null;
+      /** When the root comment was created. */
+      created_at: string;
+      /** Number of human replies. */
+      reply_count: number;
+      /** Whether the comment is resolved. */
+      resolved: boolean;
+    }
+
+    export interface TaskCommentsResponse {
+      /** Root comments, newest first. */
+      comments: TaskCommentSummary[];
+      /**
+         * Opaque cursor for the next page, or null.
+         * @nullable
+         */
+      next: string | null;
     }
 
     /**
@@ -79085,6 +79248,13 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type CanvasesBuildsRetrieveParams = {
+    /**
+     * Include the retained ready build for this historical source version.
+     */
+    version_id?: string;
+    };
+
     export type CanvasesSourceRetrieveParams = {
     /**
      * Read this historical source version instead of the head (for version browsing).
@@ -79219,6 +79389,10 @@ export namespace Schemas {
      * @minLength 1
      */
     source_comment?: string;
+    /**
+     * Owning task for task, task_artifact, and desktop_canvas comment scopes.
+     */
+    task_id?: string;
     };
 
     export type CommentsListCompleted = typeof CommentsListCompleted[keyof typeof CommentsListCompleted];
@@ -86310,6 +86484,55 @@ export namespace Schemas {
       Failed: 'failed',
       Cancelled: 'cancelled',
     } as const;
+
+    export type TasksCommentsListParams = {
+    /**
+     * Artifact id returned by the artifacts endpoint.
+     * @minLength 1
+     * @maxLength 72
+     */
+    artifact_id?: string;
+    /**
+     * Opaque cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 256
+     */
+    cursor?: string;
+    /**
+     * Whether to include resolved comment threads.
+     */
+    include_resolved?: boolean;
+    /**
+     * Maximum number of root comments to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
+
+    export type TasksCommentsRetrieveParams = {
+    /**
+     * Comment id whose truncated body should continue. Use with content_offset.
+     */
+    comment_id?: string;
+    /**
+     * Byte offset returned as content_next_offset for the selected comment.
+     * @minimum 0
+     */
+    content_offset?: number;
+    /**
+     * Opaque cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 256
+     */
+    cursor?: string;
+    /**
+     * Maximum number of comments in the thread to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
 
     export type TasksRunsListParams = {
     /**
