@@ -11,44 +11,10 @@ import largeRecordingWebVitalsEventsPropertiesJson from 'scenes/session-recordin
 import { PlayerInspector } from 'scenes/session-recordings/player/inspector/PlayerInspector'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import { mswDecorator, setFeatureFlags } from '~/mocks/browser'
 
 type Story = StoryObj<{}>
-
-function renderInspector(matchingEventsMatchType?: MatchingEventsMatchType): JSX.Element {
-    const dataLogic = sessionRecordingDataCoordinatorLogic({
-        sessionRecordingId: '12345',
-        playerKey: 'story-template',
-    })
-    const { sessionPlayerMetaData } = useValues(dataLogic)
-
-    const { loadSnapshots, loadEvents } = useActions(dataLogic)
-    loadSnapshots()
-
-    // TODO you have to call actions in a particular order
-    // and only when some other data has already been loaded
-    // 🫠
-    useEffect(() => {
-        loadEvents()
-    }, [sessionPlayerMetaData]) // oxlint-disable-line react-hooks/exhaustive-deps
-
-    return (
-        <div className="flex flex-col gap-2 min-w-96 min-h-120">
-            <BindLogic
-                logic={sessionRecordingPlayerLogic}
-                props={{
-                    sessionRecordingId: '12345',
-                    playerKey: 'story-template',
-                    matchingEventsMatchType,
-                }}
-            >
-                <PlayerInspector />
-            </BindLogic>
-        </div>
-    )
-}
 const meta: Meta = {
     title: 'Components/PlayerInspector',
     component: PlayerInspector,
@@ -127,25 +93,42 @@ const meta: Meta = {
             },
         }),
     ],
-    render: () => renderInspector(),
+    render: () => {
+        const dataLogic = sessionRecordingDataCoordinatorLogic({
+            sessionRecordingId: '12345',
+            playerKey: 'story-template',
+        })
+        const { sessionPlayerMetaData } = useValues(dataLogic)
+
+        const { loadSnapshots, loadEvents } = useActions(dataLogic)
+        loadSnapshots()
+
+        // TODO you have to call actions in a particular order
+        // and only when some other data has already been loaded
+        // 🫠
+        useEffect(() => {
+            loadEvents()
+        }, [sessionPlayerMetaData]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+        return (
+            <div className="flex flex-col gap-2 min-w-96 min-h-120">
+                <BindLogic
+                    logic={sessionRecordingPlayerLogic}
+                    props={{
+                        sessionRecordingId: '12345',
+                        playerKey: 'story-template',
+                    }}
+                >
+                    <PlayerInspector />
+                </BindLogic>
+            </div>
+        )
+    },
 }
 export default meta
 
 export const Default: Story = {
     args: {},
-}
-
-// The recording spans 09:19–09:25; this match lands minutes after it ends, so its video never
-// covers the filtered moment and the inspector surfaces the coverage warning.
-export const WithMatchingEventOutsideRecording: Story = {
-    // The inspector loads snapshots and events asynchronously, so a captured image is not
-    // deterministic; this story exists as an interactive reproduction, not a visual baseline.
-    tags: ['test-skip'],
-    render: () =>
-        renderInspector({
-            matchType: 'uuid',
-            matchedEvents: [{ uuid: 'out-of-window', timestamp: '2024-11-15T09:30:00.000000Z' }],
-        }),
 }
 
 export const WithLogsFilter: Story = {
