@@ -21,6 +21,7 @@ import {
 } from "@posthog/shared";
 import type { ExecutionMode, Task } from "@posthog/shared/domain-types";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { useTaskRepositoryDraftStore } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { navigateToTaskPending } from "@posthog/ui/router/navigationBridge";
@@ -493,6 +494,12 @@ export function useTaskCreation({
           // submitted prompt never reappears on the next new task.
           if (!contentOverride) {
             useDraftStore.getState().actions.setDraft(sessionId, null);
+          }
+          // The task-level repository/folder pick is consumed by this task;
+          // the next one starts from the space defaults again ("save to
+          // space" is the durable path).
+          if (allowNoRepo && channelId) {
+            useTaskRepositoryDraftStore.getState().clearDraft(channelId);
           }
           void trackTaskCreated(input, selectedDirectory, hostClient);
           // Repo-less channel tasks create no workspace row (the agent runs in

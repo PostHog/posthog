@@ -41,6 +41,23 @@ describe("taskRepositoryDraftStore", () => {
     );
   });
 
+  it("falls back to the space defaults once the consumed draft is cleared", () => {
+    const { setDraft, clearDraft } = useTaskRepositoryDraftStore.getState();
+    setDraft("chan-1", {
+      repositories: ["posthog/posthog-js"],
+      githubIntegration: 3,
+      folder: "",
+    });
+    clearDraft("chan-1");
+
+    const draft = useTaskRepositoryDraftStore.getState().drafts["chan-1"];
+    expect(resolveTaskRepositoryDraft(draft, ["posthog/posthog"], 7)).toEqual({
+      repositories: ["posthog/posthog"],
+      githubIntegration: 7,
+      folder: "",
+    });
+  });
+
   it("keeps an emptied draft instead of backfilling from the defaults", () => {
     const resolved = resolveTaskRepositoryDraft(
       { repositories: [], githubIntegration: null, folder: "/tmp/work" },
