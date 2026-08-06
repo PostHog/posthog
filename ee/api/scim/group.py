@@ -67,7 +67,7 @@ class PostHogSCIMGroup(SCIMGroup):
         return {
             "id": cls.resource_type,
             "name": cls.resource_type,
-            "endpoint": f"/scim/v2/{request.auth.id if request and request.auth else '{scim_slug}'}/Groups",
+            "endpoint": f"/scim/v2/{request.auth.idp_config.scim_slug if request and request.auth else '{scim_slug}'}/Groups",
             "schema": constants.SchemaURI.GROUP,
         }
 

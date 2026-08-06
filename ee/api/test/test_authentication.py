@@ -24,7 +24,7 @@ from posthog.models import OrganizationMembership, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 
-from ee.api.authentication import CustomGoogleOAuth2
+from ee.api.authentication import CustomGoogleOAuth2, MultitenantSAMLAuth
 from ee.api.test.base import APILicensedTest
 from ee.models.license import License
 
@@ -428,6 +428,29 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         )
 
     # Initiate SAML flow
+
+    def test_saml_config_can_back_multiple_verified_domains(self):
+        if not self.organization.is_feature_available(AvailableFeature.SAML):
+            self.organization.available_product_features = [
+                *(self.organization.available_product_features or []),
+                {"key": AvailableFeature.SAML, "name": AvailableFeature.SAML},
+            ]
+            self.organization.save()
+
+        config = self.organization_domain.identity_provider_config
+        assert config is not None
+        config.refresh_from_db()
+        OrganizationDomain.objects.create(
+            domain="posthog.co.uk",
+            verified_at=timezone.now(),
+            organization=self.organization,
+            identity_provider_config=config,
+        )
+
+        auth = object.__new__(MultitenantSAMLAuth)
+        idp = auth.get_idp(config.saml_relay_state)
+
+        self.assertEqual(idp.name, config.saml_relay_state)
 
     def test_can_initiate_saml_flow(self):
         response = self.client.get("/login/saml/?email=hellohello@posthog.com")

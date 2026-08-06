@@ -60,6 +60,18 @@ class TestIdentityProviderConfig(BaseTest):
         assert config.saml_relay_state == str(domain.pk)
         assert config.scim_slug == str(domain.pk)
 
+    def test_linking_config_updates_cached_identifier_values(self):
+        config = IdentityProviderConfig.objects.create(organization=self.organization)
+        stale_config = IdentityProviderConfig.objects.get(pk=config.pk)
+        domain = self._create_domain(identity_provider_config=config)
+
+        stale_config.saml_entity_id = "entity-id"
+        stale_config.save()
+        stale_config.refresh_from_db()
+
+        assert stale_config.saml_relay_state == str(domain.pk)
+        assert stale_config.scim_slug == str(domain.pk)
+
     def test_saving_legacy_idp_columns_does_not_create_or_link_config(self):
         # The domain<->config dual-write mirror has been removed: writing the legacy underscore
         # columns must no longer auto-create or link an IdentityProviderConfig.

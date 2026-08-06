@@ -34,6 +34,7 @@ from social_django.utils import load_backend, load_strategy
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
+from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 
@@ -126,31 +127,42 @@ class MultitenantSAMLAuth(SAMLAuth):
         if not issuer:
             return
 
-        # `saml_entity_id` has no uniqueness constraint, so only act on an unambiguous match —
-        # never guess which tenant an unsolicited assertion belongs to. The IdP config is the
-        # source of truth for SAML settings, so match the issuer against its `saml_entity_id`.
-        matches = list(
+        # `saml_entity_id` has no uniqueness constraint, so only act on an unambiguous config —
+        # never guess which tenant an unsolicited assertion belongs to. The config can be linked
+        # to multiple domains, so resolve it before choosing a RelayState.
+        configs = list(
             # nosemgrep: idor-lookup-without-org (pre-auth SAML routing by IdP entity id; the assertion signature is verified afterwards)
-            OrganizationDomain.objects.verified_domains().filter(identity_provider_config__saml_entity_id=issuer)
+            IdentityProviderConfig.objects.filter(
+                saml_entity_id=issuer,
+                domains__verified_at__isnull=False,
+            ).distinct()
         )
-        if len(matches) != 1:
-            if len(matches) > 1:
-                saml_logger.warning("saml_idp_initiated_ambiguous_issuer", issuer=issuer, count=len(matches))
+        if len(configs) != 1:
+            if len(configs) > 1:
+                saml_logger.warning("saml_idp_initiated_ambiguous_issuer", issuer=issuer, count=len(configs))
             return
 
-        organization_domain = matches[0]
-        if not organization_domain.has_saml or not organization_domain.idp_config.saml_relay_state:
+        idp_config = configs[0]
+        if not idp_config.has_saml or not idp_config.saml_relay_state:
+            return
+
+        organization_domain = idp_config.domains.filter(verified_at__isnull=False).first()
+        if organization_domain is None:
             return
 
         saml_logger.info(
             "saml_idp_initiated_relay_state_recovered",
             domain=organization_domain.domain,
-            organization_id=str(organization_domain.organization_id),
+            organization_id=str(idp_config.organization_id),
         )
         # Inject the config identifier so the standard flow can route the response to the tenant.
+        relay_state = idp_config.saml_relay_state
+        if not relay_state:
+            return
+
         strategy = cast(DjangoStrategy, self.strategy)
         mutable_post = strategy.request.POST.copy()
-        mutable_post["RelayState"] = organization_domain.idp_config.saml_relay_state
+        mutable_post["RelayState"] = relay_state
         # django-stubs types request.POST as immutable; reassigning it is valid at runtime.
         strategy.request.POST = mutable_post  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
@@ -188,31 +200,37 @@ class MultitenantSAMLAuth(SAMLAuth):
             saml_logger.warning("saml_idp_lookup_failed", idp_id="None")
             raise AuthFailed(self, "Authentication request is invalid. Invalid RelayState.")
 
-        try:
-            organization_domain = (
-                organization_domain_or_id
-                if isinstance(organization_domain_or_id, OrganizationDomain)
-                # nosemgrep: idor-lookup-without-org (pre-auth SAML flow, lookup by config identifier on verified domains)
-                else OrganizationDomain.objects.verified_domains().get(
-                    identity_provider_config__saml_relay_state=organization_domain_or_id
+        if isinstance(organization_domain_or_id, OrganizationDomain):
+            idp_config = organization_domain_or_id.idp_config
+        else:
+            try:
+                # nosemgrep: idor-lookup-without-org (pre-auth SAML flow, lookup by config identifier on verified configs)
+                idp_config = (
+                    IdentityProviderConfig.objects.filter(
+                        saml_relay_state=organization_domain_or_id,
+                        domains__verified_at__isnull=False,
+                    )
+                    .distinct()
+                    .get()
                 )
-            )
-        except (OrganizationDomain.DoesNotExist, OrganizationDomain.MultipleObjectsReturned, DjangoValidationError):
-            saml_logger.warning("saml_idp_lookup_failed", idp_id=str(organization_domain_or_id))
-            raise AuthFailed(self, "Authentication request is invalid. Invalid RelayState.")
+            except (
+                IdentityProviderConfig.DoesNotExist,
+                IdentityProviderConfig.MultipleObjectsReturned,
+                DjangoValidationError,
+            ):
+                saml_logger.warning("saml_idp_lookup_failed", idp_id=str(organization_domain_or_id))
+                raise AuthFailed(self, "Authentication request is invalid. Invalid RelayState.")
 
-        if not organization_domain.organization.is_feature_available(AvailableFeature.SAML):
+        if not idp_config.organization.is_feature_available(AvailableFeature.SAML):
             saml_logger.warning(
                 "saml_license_missing",
-                domain=organization_domain.domain,
-                organization_id=str(organization_domain.organization_id),
+                organization_id=str(idp_config.organization_id),
             )
             raise AuthFailed(
                 self,
                 "Your organization does not have the required license to use SAML.",
             )
 
-        idp_config = organization_domain.idp_config
         if not idp_config.saml_relay_state:
             raise AuthFailed(self, "Authentication request is invalid. Invalid RelayState.")
 
@@ -347,11 +365,8 @@ class MultitenantSAMLAuth(SAMLAuth):
 
         try:
             # nosemgrep: idor-lookup-without-org (pre-auth SAML validation, config identifier from IdP round-trip)
-            organization_domain = OrganizationDomain.objects.verified_domains().get(
-                identity_provider_config__saml_relay_state=idp_name,
-                domain__iexact=email.split("@")[-1],
-            )
-        except (OrganizationDomain.DoesNotExist, DjangoValidationError):
+            idp_config = IdentityProviderConfig.objects.get(saml_relay_state=idp_name)
+        except (IdentityProviderConfig.DoesNotExist, DjangoValidationError):
             saml_logger.warning(
                 "saml_email_domain_validation_failed",
                 reason="invalid_idp",
@@ -360,17 +375,31 @@ class MultitenantSAMLAuth(SAMLAuth):
             )
             raise AuthFailed(self, "Authentication request is invalid. Invalid IdP identifier.")
 
-        if email.split("@")[-1].lower() != organization_domain.domain.lower():
+        verified_domains = idp_config.domains.filter(verified_at__isnull=False).order_by("id")
+        organization_domain = verified_domains.filter(domain__iexact=email.split("@")[-1]).first()
+        if organization_domain is not None:
+            return
+
+        configured_domain = verified_domains.first()
+        if configured_domain is None:
             saml_logger.warning(
-                "saml_email_domain_mismatch",
-                configured_domain=organization_domain.domain,
-                organization_id=str(organization_domain.organization_id),
-                **_saml_log_context(email, organization_domain),
+                "saml_email_domain_validation_failed",
+                reason="invalid_idp",
+                idp_id=str(idp_name),
+                **_saml_log_context(email),
             )
-            raise AuthFailed(
-                self,
-                "Authentication failed. The email domain from your identity provider does not match the configured domain.",
-            )
+            raise AuthFailed(self, "Authentication request is invalid. Invalid IdP identifier.")
+
+        saml_logger.warning(
+            "saml_email_domain_mismatch",
+            configured_domain=configured_domain.domain,
+            organization_id=str(idp_config.organization_id),
+            **_saml_log_context(email, configured_domain),
+        )
+        raise AuthFailed(
+            self,
+            "Authentication failed. The email domain from your identity provider does not match the configured domain.",
+        )
 
     def get_user_id(self, details, response):
         """

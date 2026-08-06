@@ -9,6 +9,7 @@ from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.scim.auth import generate_scim_token
 from ee.api.scim.user import PostHogSCIMUser
+from ee.api.scim.utils import get_scim_base_url
 from ee.api.test.base import APILicensedTest
 from ee.models.rbac.role import Role
 
@@ -44,9 +45,18 @@ class TestSCIMAPI(APILicensedTest):
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
 
+    def test_scim_base_url_uses_linked_config_slug(self):
+        assert get_scim_base_url(self.domain).endswith(f"/scim/v2/{self.domain.id}")
+
     def test_scim_uses_config_slug(self):
         self.domain.identity_provider_config.scim_slug = "custom-scim-slug"
         self.domain.identity_provider_config.save(update_fields=["scim_slug"])
+        OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="example.co.uk",
+            verified_at="2024-01-01T00:00:00Z",
+            identity_provider_config=self.domain.identity_provider_config,
+        )
         self.client.credentials(**self.scim_headers)
 
         response = self.client.get("/scim/v2/custom-scim-slug/Users")

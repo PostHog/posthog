@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
@@ -53,7 +55,7 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
     saml_entity_id = models.CharField(max_length=512, blank=True, null=True)
     saml_acs_url = models.CharField(max_length=512, blank=True, null=True)
     saml_x509_cert = models.TextField(blank=True, null=True)
-    saml_relay_state = models.CharField(max_length=36, blank=True, null=True)
+    saml_relay_state = models.CharField(max_length=36, blank=True, null=True, unique=True)
 
     # ---- SCIM attributes ----
     scim_slug = models.CharField(max_length=36, blank=True, null=True, unique=True)
@@ -89,6 +91,16 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
 
     def __str__(self) -> str:
         return self.name or str(self.id)
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        # Domain linking initializes these fields separately, so preserve them on stale config instances.
+        if self.pk is not None and (self.saml_relay_state is None or self.scim_slug is None):
+            persisted = type(self).objects.filter(pk=self.pk).values("saml_relay_state", "scim_slug").first()
+            if persisted is not None:
+                self.saml_relay_state = self.saml_relay_state or persisted["saml_relay_state"]
+                self.scim_slug = self.scim_slug or persisted["scim_slug"]
+
+        super().save(*args, **kwargs)
 
     @property
     def has_saml(self) -> bool:

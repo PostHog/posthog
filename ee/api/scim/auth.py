@@ -9,6 +9,7 @@ from rest_framework.authentication import BaseAuthentication
 from rest_framework.request import Request
 
 from posthog.constants import AvailableFeature
+from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 
 
@@ -23,7 +24,7 @@ class SCIMAuthToken:
         self.is_authenticated = True
         self.is_active = True
         self.pk = None  # SCIM auth doesn't have a user PK
-        self.id = domain.idp_config.scim_slug
+        self.id = None
 
     def __str__(self):
         return f"SCIMAuth({self.domain.domain})"
@@ -52,27 +53,19 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
 
         try:
             # nosemgrep: idor-lookup-without-org (SCIM bearer token auth, config slug is tenant identifier)
-            domain = OrganizationDomain.objects.select_related("identity_provider_config").get(
-                identity_provider_config__scim_slug=scim_slug
-            )
-        except (OrganizationDomain.DoesNotExist, OrganizationDomain.MultipleObjectsReturned):
+            config = IdentityProviderConfig.objects.select_related("organization").get(scim_slug=scim_slug)
+        except IdentityProviderConfig.DoesNotExist:
             raise exceptions.AuthenticationFailed("Invalid organization domain")
 
-        # Read the linked IdP config directly (the source of truth) rather than through the
-        # empty-config fallback, so a domain with no config fails clearly here instead of falling
-        # through to a misleading "Invalid bearer token" on a null hash below.
-        #
-        # The domain must also be verified: SCIM can be enabled on a config independently of any
-        # domain (the config API has no verification gate), so re-check verification here to keep
-        # provisioning gated behind a verified domain.
-        config = domain.identity_provider_config
-        if not domain.is_verified or config is None or not config.has_scim:
+        # A config can back multiple domains. SCIM uses one verified domain for request scoping,
+        # while the config remains the source of truth for the slug and bearer token.
+        domain = config.domains.filter(verified_at__isnull=False).order_by("id").first()
+        if domain is None or not config.has_scim or not config.scim_bearer_token:
             raise exceptions.AuthenticationFailed("SCIM not configured for this domain")
 
-        if not domain.organization.is_feature_available(AvailableFeature.SCIM):
+        if not config.organization.is_feature_available(AvailableFeature.SCIM):
             raise exceptions.AuthenticationFailed("Your organization does not have the required license to use SCIM")
 
-        # Verify the bearer token matches the stored hashed token (sourced from the IdP config)
         if not check_password(token, config.scim_bearer_token):
             raise exceptions.AuthenticationFailed("Invalid bearer token")
 
