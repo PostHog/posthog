@@ -53,15 +53,21 @@ export function resolveDataUri(rawData: string, mimeType: string, teamId: number
 
 const BLOB_ENDPOINT_RE = /\/ai_blob\/v1\/sha256\/[0-9a-f]{64}$/
 
-const reportedRenders = new Set<string>()
+const reportedRenders = new Map<string, true>()
 const MAX_REPORTED_RENDERS = 1000
 
 function captureBlobRender(src: string, mediaKind: 'image' | 'audio', outcome: 'success' | 'error'): void {
     const key = `${outcome}:${src}`
-    if (reportedRenders.has(key) || reportedRenders.size >= MAX_REPORTED_RENDERS) {
+    if (reportedRenders.has(key)) {
         return
     }
-    reportedRenders.add(key)
+    if (reportedRenders.size >= MAX_REPORTED_RENDERS) {
+        const oldestKey = reportedRenders.keys().next().value
+        if (oldestKey !== undefined) {
+            reportedRenders.delete(oldestKey)
+        }
+    }
+    reportedRenders.set(key, true)
     const entries =
         typeof performance.getEntriesByName === 'function'
             ? performance.getEntriesByName(new URL(src, window.location.origin).toString())

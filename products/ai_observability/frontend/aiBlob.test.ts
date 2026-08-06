@@ -90,6 +90,22 @@ describe('aiBlob', () => {
             })
         })
 
+        it('keeps capturing new srcs after the dedup cache fills up', () => {
+            for (let i = 0; i < 1000; i++) {
+                const src = `/api/projects/1/ai_blob/v1/sha256/${i.toString().padStart(64, '0')}`
+                aiBlobRenderHandlers(src, 'image').onLoad!()
+            }
+            jest.mocked(posthog.capture).mockClear()
+
+            const src = `/api/projects/1/ai_blob/v1/sha256/${'d'.repeat(64)}`
+            aiBlobRenderHandlers(src, 'image').onLoad!()
+
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'llma ai blob render',
+                expect.objectContaining({ outcome: 'success', media_kind: 'image' })
+            )
+        })
+
         it('signals audio success via canplay, which media elements fire instead of load', () => {
             const src = `/api/projects/1/ai_blob/v1/sha256/${'c'.repeat(64)}`
             const handlers = aiBlobRenderHandlers(src, 'audio')
