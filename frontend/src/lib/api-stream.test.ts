@@ -1,6 +1,6 @@
 import api from 'lib/api'
 
-import { createStreamConnection } from './createStreamConnection'
+import { createStreamConnection } from './api-stream'
 
 describe('createStreamConnection', () => {
     beforeEach(() => {
