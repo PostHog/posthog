@@ -207,7 +207,7 @@ export const verifiedDomainImpactLogic = kea<verifiedDomainImpactLogicType>([
             {
                 confirmEnforceVerifiedDomains: async () => {
                     return await api.create<EnforcementRemovalResult>(
-                        `api/organizations/${values.currentOrganization?.id}/enable_verified_domains_enforcement`
+                        `api/organizations/${values.currentOrganization?.id}/remove_blocked_members_and_enforce_verified_domains`
                     )
                 },
             },

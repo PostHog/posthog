@@ -410,7 +410,7 @@ class OrganizationAIAccessRequestResponseSerializer(serializers.Serializer):
     )
 
 
-class OrganizationEnforceVerifiedDomainsResponseSerializer(serializers.Serializer):
+class OrganizationRemoveBlockedMembersResponseSerializer(serializers.Serializer):
     success = serializers.BooleanField(help_text="Whether verified-domain enforcement was turned on.")
     removed_members = serializers.IntegerField(
         help_text="How many members with an email outside the verified domains were removed from the organization. Owners are never removed."
@@ -656,14 +656,17 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         request=None,
-        responses={200: OrganizationEnforceVerifiedDomainsResponseSerializer},
+        responses={200: OrganizationRemoveBlockedMembersResponseSerializer},
     )
-    @action(detail=True, methods=["post"], url_path="enable_verified_domains_enforcement")
-    def enable_verified_domains_enforcement(self, request: Request, **kwargs) -> Response:
+    @action(detail=True, methods=["post"], url_path="remove_blocked_members_and_enforce_verified_domains")
+    def remove_blocked_members_and_enforce_verified_domains(self, request: Request, **kwargs) -> Response:
         """
-        Turn on verified-domain enforcement and remove the members whose email domain is outside
-        the organization's verified domains, in one transaction. Owners are never removed — they
-        keep gated access and can disable the setting themselves. Admin only.
+        Remove the members whose email domain is outside the organization's verified domains and turn
+        `enforce_verified_domains` on, in one transaction. Owners are never removed; they keep gated
+        access and can disable the setting themselves. Admin only.
+
+        Use this only when the caller has confirmed the removals. To turn the setting on without
+        touching memberships, PATCH `enforce_verified_domains` on the organization instead.
         """
         organization = self.organization
         self.check_object_permissions(request, organization)

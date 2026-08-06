@@ -324,8 +324,8 @@ tools:
     comments-update:
         operation: comments_update
         enabled: false
-    enable-verified-domains-enforcement-create:
-        operation: enable_verified_domains_enforcement_create
+    remove-blocked-members-and-enforce-verified-domains-create:
+        operation: remove_blocked_members_and_enforce_verified_domains_create
         enabled: false
     members-destroy:
         operation: members_destroy

@@ -14,7 +14,7 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.api.organization import OrganizationSerializer, _fetch_member_count, _org_serializer_cache_version
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, OrganizationMembership, Team
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -356,6 +356,51 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.organization.refresh_from_db()
         self.assertTrue(self.organization.enforce_verified_domains)
+
+    def test_enabling_enforcement_removes_blocked_members_but_never_the_owner(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [{"key": AvailableFeature.AUTOMATIC_PROVISIONING}]
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="posthog.com", organization=self.organization, verified_at=timezone.now()
+        )
+        admitted = User.objects.create_and_join(self.organization, "admitted@posthog.com", None)
+        blocked = User.objects.create_and_join(self.organization, "blocked@hedgebox.net", None)
+        owner = User.objects.create_and_join(
+            self.organization, "owner@hedgebox.net", None, level=OrganizationMembership.Level.OWNER
+        )
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/remove_blocked_members_and_enforce_verified_domains/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True, "removed_members": 1})
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.enforce_verified_domains)
+        self.assertCountEqual(
+            self.organization.memberships.values_list("user__email", flat=True),
+            [self.user.email, admitted.email, owner.email],
+        )
+        self.assertFalse(blocked.organization_memberships.exists())
+
+    def test_members_cannot_enable_enforcement_through_the_removal_action(self):
+        self.organization.available_product_features = [{"key": AvailableFeature.AUTOMATIC_PROVISIONING}]
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="posthog.com", organization=self.organization, verified_at=timezone.now()
+        )
+        User.objects.create_and_join(self.organization, "blocked@hedgebox.net", None)
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/remove_blocked_members_and_enforce_verified_domains/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.organization.refresh_from_db()
+        self.assertNotEqual(self.organization.enforce_verified_domains, True)
+        self.assertEqual(self.organization.memberships.count(), 2)
 
     def test_cannot_update_allow_publicly_shared_resources_without_feature(self):
         """Test that allow_publicly_shared_resources cannot be updated without ORGANIZATION_SECURITY_SETTINGS feature."""

@@ -246,7 +246,7 @@ export interface PatchedOrganizationApi {
     readonly is_pending_deletion?: boolean | null
 }
 
-export interface OrganizationEnforceVerifiedDomainsResponseApi {
+export interface OrganizationRemoveBlockedMembersResponseApi {
     /** Whether verified-domain enforcement was turned on. */
     success: boolean
     /** How many members with an email outside the verified domains were removed from the organization. Owners are never removed. */

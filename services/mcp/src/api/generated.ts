@@ -43274,13 +43274,6 @@ export namespace Schemas {
       identity_provider_config?: string | null;
     }
 
-    export interface OrganizationEnforceVerifiedDomainsResponse {
-      /** Whether verified-domain enforcement was turned on. */
-      success: boolean;
-      /** How many members with an email outside the verified domains were removed from the organization. Owners are never removed. */
-      removed_members: number;
-    }
-
     export interface OrganizationFeatureFlagRow {
       /** ID of the representative feature flag for this key */
       id: number;
@@ -43463,6 +43456,13 @@ export namespace Schemas {
       readonly last_used_at: string | null;
       /** When the key was created. */
       readonly created_at: string;
+    }
+
+    export interface OrganizationRemoveBlockedMembersResponse {
+      /** Whether verified-domain enforcement was turned on. */
+      success: boolean;
+      /** How many members with an email outside the verified domains were removed from the organization. Owners are never removed. */
+      removed_members: number;
     }
 
     /**

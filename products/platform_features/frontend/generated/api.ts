@@ -26,9 +26,9 @@ import type {
     MembersListParams,
     OrganizationAIAccessRequestResponseApi,
     OrganizationApi,
-    OrganizationEnforceVerifiedDomainsResponseApi,
     OrganizationMemberApi,
     OrganizationMemberGithubLoginApi,
+    OrganizationRemoveBlockedMembersResponseApi,
     PaginatedActivityLogListApi,
     PaginatedApprovalPolicyListApi,
     PaginatedChangeRequestListApi,
@@ -163,23 +163,29 @@ export const destroy = async (id: string, options?: RequestInit): Promise<void> 
     })
 }
 
-export const getEnableVerifiedDomainsEnforcementCreateUrl = (id: string) => {
-    return `/api/organizations/${id}/enable_verified_domains_enforcement/`
+export const getRemoveBlockedMembersAndEnforceVerifiedDomainsCreateUrl = (id: string) => {
+    return `/api/organizations/${id}/remove_blocked_members_and_enforce_verified_domains/`
 }
 
 /**
- * Turn on verified-domain enforcement and remove the members whose email domain is outside
- * the organization's verified domains, in one transaction. Owners are never removed — they
- * keep gated access and can disable the setting themselves. Admin only.
+ * Remove the members whose email domain is outside the organization's verified domains and turn
+ * `enforce_verified_domains` on, in one transaction. Owners are never removed; they keep gated
+ * access and can disable the setting themselves. Admin only.
+ *
+ * Use this only when the caller has confirmed the removals. To turn the setting on without
+ * touching memberships, PATCH `enforce_verified_domains` on the organization instead.
  */
-export const enableVerifiedDomainsEnforcementCreate = async (
+export const removeBlockedMembersAndEnforceVerifiedDomainsCreate = async (
     id: string,
     options?: RequestInit
-): Promise<OrganizationEnforceVerifiedDomainsResponseApi> => {
-    return apiMutator<OrganizationEnforceVerifiedDomainsResponseApi>(getEnableVerifiedDomainsEnforcementCreateUrl(id), {
-        ...options,
-        method: 'POST',
-    })
+): Promise<OrganizationRemoveBlockedMembersResponseApi> => {
+    return apiMutator<OrganizationRemoveBlockedMembersResponseApi>(
+        getRemoveBlockedMembersAndEnforceVerifiedDomainsCreateUrl(id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 export const getRequestAiAccessCreateUrl = (id: string) => {
