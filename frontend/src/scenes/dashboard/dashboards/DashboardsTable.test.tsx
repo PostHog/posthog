@@ -104,6 +104,7 @@ describe('DashboardsTable bulk move', () => {
 
         expect(
             mockBulkSelection.isRowSelectable({
+                access_control_version: 'v1',
                 user_access_level: AccessControlLevel.Editor,
                 effective_privilege_level: DashboardPrivilegeLevel.CanView,
             })

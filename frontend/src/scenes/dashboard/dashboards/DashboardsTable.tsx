@@ -110,10 +110,22 @@ export function DashboardsTable({
             width: '40%',
             render: function Render(
                 _,
-                { id, name, description, is_shared, user_access_level, effective_privilege_level }
+                {
+                    id,
+                    name,
+                    description,
+                    is_shared,
+                    access_control_version,
+                    user_access_level,
+                    effective_privilege_level,
+                }
             ) {
                 const isPrimary = id === currentTeam?.primary_dashboard
-                const userCanEditDashboard = canEditDashboard({ user_access_level, effective_privilege_level })
+                const userCanEditDashboard = canEditDashboard({
+                    access_control_version,
+                    user_access_level,
+                    effective_privilege_level,
+                })
                 return (
                     // Fixed-layout table sizes this cell from the container, so the name truncates within its column
                     // (full name on hover) instead of growing the cell and scrolling the whole table.

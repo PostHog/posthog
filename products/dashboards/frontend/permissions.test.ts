@@ -7,8 +7,9 @@ import { canEditDashboard } from './permissions'
 describe('dashboard permissions', () => {
     describe('canEditDashboard', () => {
         it.each([
-            ['v1', AccessControlLevel.Viewer, DashboardPrivilegeLevel.CanEdit, true],
+            ['v1', AccessControlLevel.Editor, DashboardPrivilegeLevel.CanEdit, true],
             ['v1', AccessControlLevel.Editor, DashboardPrivilegeLevel.CanView, false],
+            ['v1', AccessControlLevel.Viewer, DashboardPrivilegeLevel.CanEdit, false],
             ['v2', AccessControlLevel.Editor, DashboardPrivilegeLevel.CanView, true],
             ['v2', AccessControlLevel.Viewer, DashboardPrivilegeLevel.CanEdit, false],
         ] as const)(
@@ -29,7 +30,7 @@ describe('dashboard permissions', () => {
             expect(canEditDashboard({ user_access_level: AccessControlLevel.Viewer })).toBe(false)
         })
 
-        it('denies V1 editing when the dashboard privilege is absent', () => {
+        it('denies V1 editing when the collaborator privilege is absent', () => {
             expect(
                 canEditDashboard({
                     access_control_version: 'v1',
