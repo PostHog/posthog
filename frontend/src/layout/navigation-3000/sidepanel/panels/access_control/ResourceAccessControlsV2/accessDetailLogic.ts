@@ -4,7 +4,6 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { resourceToApiRoute } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 
 import { APIScopeObject, AccessControlLevel, InsightShortId } from '~/types'
@@ -57,51 +56,85 @@ export function parseAccessDetailOptions(options: string | null): AccessDetailSu
 }
 
 interface ObjectRuleResourceConfig {
-    /**
-     * Offered in the "Add rule" picker: the list route's `id` addresses
-     * `/{route}/{id}/access_controls` (route via resourceToApiRoute) and the modal's search
-     * renders sensible labels for the type.
-     */
-    pickable: boolean
     /** A link to open the object from a stored rule, for types addressable from it. */
     url: (rule: AccessObjectRule) => string | null
+    /**
+     * The inverse: pull the object's lookup id out of a pasted app path, so the picker can resolve
+     * a URL. Receives the pathname with any /project/<id> prefix stripped. Insights yield the
+     * short_id; the options endpoint accepts it and returns the pk rules store.
+     */
+    parseUrl?: (path: string) => string | null
 }
 
 /**
- * Everything the one-off overrides UI knows per resource type, in one place. Which resources
- * *support* object rules comes from the backend (`object_rule_resources` on the defaults
- * endpoint, derived from viewset registration) — the picker offers the intersection. Types
- * missing here still render by name, just unlinked.
+ * Frontend-only presentation extras per resource type: how a rule links to its object, and how a
+ * pasted URL resolves back to one. Which resources exist at all — in the picker and the rules
+ * list — comes entirely from the backend (`object_rule_resources` on the defaults endpoint,
+ * derived from viewset registration), so a type missing here is fully usable, just without
+ * links or URL paste.
  */
 export const OBJECT_RULE_RESOURCE_CONFIG: Partial<Record<APIScopeObject, ObjectRuleResourceConfig>> = {
-    dashboard: { pickable: true, url: (rule) => urls.dashboard(rule.resource_id) },
-    insight: {
-        pickable: true,
-        url: (rule) => (rule.short_id ? urls.insightView(rule.short_id as InsightShortId) : null),
+    dashboard: {
+        url: (rule) => urls.dashboard(rule.resource_id),
+        parseUrl: (path) => /^\/dashboard\/(\d+)(?:[/?#]|$)/.exec(path)?.[1] ?? null,
     },
-    feature_flag: { pickable: true, url: (rule) => urls.featureFlag(rule.resource_id) },
-    experiment: { pickable: true, url: (rule) => urls.experiment(rule.resource_id) },
-    survey: { pickable: true, url: (rule) => urls.survey(rule.resource_id) },
+    insight: {
+        url: (rule) => (rule.short_id ? urls.insightView(rule.short_id as InsightShortId) : null),
+        parseUrl: (path) => /^\/insights\/([A-Za-z0-9]+)(?:[/?#]|$)/.exec(path)?.[1] ?? null,
+    },
+    feature_flag: {
+        url: (rule) => urls.featureFlag(rule.resource_id),
+        parseUrl: (path) => /^\/feature_flags\/(\d+)(?:[/?#]|$)/.exec(path)?.[1] ?? null,
+    },
+    experiment: {
+        url: (rule) => urls.experiment(rule.resource_id),
+        parseUrl: (path) => /^\/experiments\/(\d+)(?:[/?#]|$)/.exec(path)?.[1] ?? null,
+    },
+    survey: {
+        url: (rule) => urls.survey(rule.resource_id),
+        parseUrl: (path) => /^\/surveys\/([0-9a-f-]{36})(?:[/?#]|$)/.exec(path)?.[1] ?? null,
+    },
+    // The warehouse pair opens through SQL editor deep links whose object reference lives in
+    // query params, so there is nothing to parse back out of a pathname
     warehouse_table: {
-        pickable: true,
-        // Tables have no page of their own, so open them the way the warehouse UI does — querying them
         url: (rule) => urls.sqlEditor({ query: `SELECT * FROM ${rule.name} LIMIT 100` }),
     },
-    warehouse_view: { pickable: true, url: (rule) => urls.sqlEditor({ view_id: rule.resource_id }) },
-    // Linkable, but the picker doesn't offer them: their list labels come out wrong or the type is niche
-    action: { pickable: false, url: (rule) => urls.action(rule.resource_id) },
-    external_data_source: { pickable: false, url: (rule) => urls.dataWarehouseSource(`managed-${rule.resource_id}`) },
+    warehouse_view: { url: (rule) => urls.sqlEditor({ view_id: rule.resource_id }) },
+    action: {
+        url: (rule) => urls.action(rule.resource_id),
+        parseUrl: (path) => /^\/data-management\/actions\/(\d+)(?:[/?#]|$)/.exec(path)?.[1] ?? null,
+    },
+    external_data_source: {
+        url: (rule) => urls.dataWarehouseSource(`managed-${rule.resource_id}`),
+        parseUrl: (path) => /^\/data-management\/sources\/managed-([0-9a-f-]{36})(?:[/?#]|$)/.exec(path)?.[1] ?? null,
+    },
 }
-
-export const PICKABLE_OBJECT_RULE_RESOURCES: APIScopeObject[] = (
-    Object.entries(OBJECT_RULE_RESOURCE_CONFIG) as [APIScopeObject, ObjectRuleResourceConfig][]
-)
-    .filter(([, config]) => config.pickable)
-    .map(([resource]) => resource)
 
 /** A link to open the object, null for types we can't address (e.g. notebooks need a short_id). */
 export function objectRuleUrl(rule: AccessObjectRule): string | null {
     return OBJECT_RULE_RESOURCE_CONFIG[rule.resource]?.url(rule) ?? null
+}
+
+/** Matches a pasted app URL to a resource and lookup id, or null when it isn't one of ours. */
+export function parseObjectRuleUrl(input: string): { resource: APIScopeObject; id: string } | null {
+    const trimmed = input.trim()
+    if (!trimmed.startsWith('http') && !trimmed.startsWith('/')) {
+        return null
+    }
+    let pathname: string
+    try {
+        pathname = trimmed.startsWith('http') ? new URL(trimmed).pathname : trimmed.split(/[?#]/)[0]
+    } catch {
+        return null
+    }
+    const path = pathname.replace(/^\/project\/\d+/, '')
+    for (const [resource, config] of Object.entries(OBJECT_RULE_RESOURCE_CONFIG)) {
+        const id = config.parseUrl?.(path)
+        if (id) {
+            return { resource: resource as APIScopeObject, id }
+        }
+    }
+    return null
 }
 
 function subjectRulesEndpoint(props: AccessDetailLogicProps, kind: 'objects' | 'properties'): string {
@@ -359,13 +392,12 @@ export const accessDetailLogic = kea<accessDetailLogicType>([
         setObjectRule: async ({ resource, resourceId, level }) => {
             // A null level clears the subject's rule on the object
             try {
-                await api.put(
-                    `api/projects/${props.projectId}/${resourceToApiRoute(resource)}/${resourceId}/access_controls`,
-                    {
-                        ...subjectBody(props),
-                        access_level: level,
-                    }
-                )
+                await api.put(`api/projects/${props.projectId}/access_control_object_rules`, {
+                    resource,
+                    resource_id: resourceId,
+                    ...subjectBody(props),
+                    access_level: level,
+                })
                 lemonToast.success(level === null ? 'Rule removed' : 'Access rule saved')
                 actions.loadObjects()
             } catch (e) {

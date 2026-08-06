@@ -43,12 +43,7 @@ import type { AccessControlResponseType, AccessControlUpdateType, RoleType } fro
 import { accessControlLogic } from '../accessControlLogic'
 import { isResourceRolledOut, resourcesAccessControlLogic } from '../resourcesAccessControlLogic'
 import { roleAccessControlLogic } from '../roleAccessControlLogic'
-import {
-    AccessDetailSubject,
-    AccessDetailSubjectScope,
-    PICKABLE_OBJECT_RULE_RESOURCES,
-    parseAccessDetailOptions,
-} from './accessDetailLogic'
+import { AccessDetailSubject, AccessDetailSubjectScope, parseAccessDetailOptions } from './accessDetailLogic'
 import {
     AccessControlFilters,
     AccessControlMemberEntry,
@@ -535,7 +530,7 @@ export interface accessControlsLogicMeta {
                 label: string
             }[],
             panelEntry: AccessControlSettingsEntry | null,
-            showAllTools: any
+            showAllTools: boolean
         ) => {
             canCollapse: boolean
             collapsedCount: number
@@ -1119,16 +1114,10 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 selectedTab === SidePanelTab.AccessDetail ? parseAccessDetailOptions(selectedTabOptions) : null,
         ],
 
-        /** Picker options for object rules: what the backend supports and the UI can present. */
+        /** Picker options for object rules, served by the backend so nothing is hardcoded here. */
         objectRuleResourceOptions: [
             (s) => [s.defaults],
-            (defaults: AccessControlDefaultsResponse | null): APIScopeObject[] => {
-                const supported = defaults?.object_rule_resources
-                // Until the defaults load, the registry's pickable set stands in; the backend list only shrinks it
-                return supported
-                    ? PICKABLE_OBJECT_RULE_RESOURCES.filter((resource) => supported.includes(resource))
-                    : PICKABLE_OBJECT_RULE_RESOURCES
-            },
+            (defaults: AccessControlDefaultsResponse | null): APIScopeObject[] => defaults?.object_rule_resources ?? [],
         ],
 
         /**

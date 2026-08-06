@@ -1,12 +1,13 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
-import { resourceToApiRoute } from 'lib/utils/accessControlUtils'
 
 import { APIScopeObject, AccessControlLevel } from '~/types'
 
-import { AccessObjectRule, accessDetailLogic } from './accessDetailLogic'
+import { AccessObjectRule, accessDetailLogic, parseObjectRuleUrl } from './accessDetailLogic'
 import type { ScopeType } from './types'
 
 export interface ObjectOption {
@@ -276,20 +277,130 @@ export interface addObjectOverrideModalLogicActions {
         errorObject?: any
     }
     loadObjectOptionsSuccess: (
-        objectOptions: {
-            id: string
-            name: any
-        }[],
+        objectOptions: ObjectOption[],
         payload?: any
     ) => {
-        objectOptions: {
-            id: string
-            name: any
-        }[]
+        objectOptions: ObjectOption[]
         payload?: any
     }
     openModal: () => {
         value: true
+    }
+    resolveObjectUrl: (
+        resource: APIScopeObject,
+        lookupId: string
+    ) => {
+        lookupId: string
+        resource:
+            | 'access_control'
+            | 'account'
+            | 'action'
+            | 'activity_log'
+            | 'ai_observability_clusters'
+            | 'alert'
+            | 'annotation'
+            | 'approvals'
+            | 'batch_export'
+            | 'batch_import'
+            | 'batch_import_support'
+            | 'business_knowledge'
+            | 'clickhouse_test_cluster_perf'
+            | 'cohort'
+            | 'comment'
+            | 'conversation'
+            | 'customer_analytics'
+            | 'customer_journey'
+            | 'customer_profile_config'
+            | 'dashboard'
+            | 'dashboard_template'
+            | 'data_catalog'
+            | 'data_catalog_approval'
+            | 'dataset'
+            | 'early_access_feature'
+            | 'element'
+            | 'endpoint'
+            | 'engineering_analytics'
+            | 'error_tracking'
+            | 'evaluation'
+            | 'event_definition'
+            | 'event_filter'
+            | 'experiment'
+            | 'experiment_holdout'
+            | 'experiment_saved_metric'
+            | 'export'
+            | 'external_data_schema'
+            | 'external_data_source'
+            | 'feature_flag'
+            | 'field_note'
+            | 'file_system'
+            | 'file_system_shortcut'
+            | 'group'
+            | 'health_issue'
+            | 'heatmap'
+            | 'hog_flow'
+            | 'hog_function'
+            | 'ingestion_warning'
+            | 'insight'
+            | 'insight_variable'
+            | 'integration'
+            | 'internal_run'
+            | 'legal_document'
+            | 'link'
+            | 'live_debugger'
+            | 'llm_analytics'
+            | 'llm_gateway'
+            | 'llm_playground'
+            | 'llm_prompt'
+            | 'llm_provider_key'
+            | 'llm_skill'
+            | 'logs'
+            | 'loop'
+            | 'marketing_analytics'
+            | 'mcp_analytics'
+            | 'mcp_builtin_agent'
+            | 'metrics'
+            | 'notebook'
+            | 'organization'
+            | 'organization_integration'
+            | 'organization_member'
+            | 'person'
+            | 'plugin'
+            | 'product_enablement'
+            | 'product_tour'
+            | 'project'
+            | 'property_definition'
+            | 'query'
+            | 'query_performance'
+            | 'replay_scanner'
+            | 'revenue_analytics'
+            | 'review_hog'
+            | 'session_recording'
+            | 'session_recording_playlist'
+            | 'sharing_configuration'
+            | 'signal_scout'
+            | 'signal_scout_internal'
+            | 'signal_scout_report'
+            | 'stamphog'
+            | 'streamlit_app'
+            | 'subscription'
+            | 'survey'
+            | 'tagger'
+            | 'task'
+            | 'ticket'
+            | 'toolbar'
+            | 'tracing'
+            | 'uploaded_media'
+            | 'usage_metric'
+            | 'user'
+            | 'user_interview'
+            | 'vision_action'
+            | 'visual_review'
+            | 'warehouse_objects'
+            | 'warehouse_table'
+            | 'warehouse_view'
+            | 'web_analytics'
+            | 'webhook'
+            | 'wizard_session'
     }
     setLevel: (level: AccessControlLevel) => {
         level: AccessControlLevel
@@ -425,7 +536,7 @@ export interface addObjectOverrideModalLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         existingRule: (
-            objects: any,
+            objects: AccessObjectRule[],
             resource:
                 | 'access_control'
                 | 'account'
@@ -566,6 +677,7 @@ export const addObjectOverrideModalLogic = kea<addObjectOverrideModalLogicType>(
         setSearch: (search: string) => ({ search }),
         setObjectId: (objectId: string | null) => ({ objectId }),
         setSelectedObject: (option: ObjectOption | null) => ({ option }),
+        resolveObjectUrl: (resource: APIScopeObject, lookupId: string) => ({ resource, lookupId }),
         setLevel: (level: AccessControlLevel) => ({ level }),
         submitRule: true,
     }),
@@ -574,7 +686,11 @@ export const addObjectOverrideModalLogic = kea<addObjectOverrideModalLogicType>(
         isOpen: [false, { openModal: () => true, closeModal: () => false }],
         resource: [
             'dashboard' as APIScopeObject,
-            { setResource: (_, { resource }) => resource, closeModal: () => 'dashboard' as APIScopeObject },
+            {
+                setResource: (_, { resource }) => resource,
+                resolveObjectUrl: (_, { resource }) => resource,
+                closeModal: () => 'dashboard' as APIScopeObject,
+            },
         ],
         search: ['', { setSearch: (_, { search }) => search, setResource: () => '', closeModal: () => '' }],
         objectId: [
@@ -598,15 +714,13 @@ export const addObjectOverrideModalLogic = kea<addObjectOverrideModalLogicType>(
             {
                 loadObjectOptions: async (_, breakpoint) => {
                     await breakpoint(300)
-                    const response = await api.get<{ results: Record<string, any>[] }>(
-                        `api/projects/${props.projectId}/${resourceToApiRoute(values.resource)}/?limit=20&search=${encodeURIComponent(
+                    // One backend endpoint serves every resource type with correct display names
+                    const response = await api.get<{ results: ObjectOption[] }>(
+                        `api/projects/${props.projectId}/access_control_object_options?resource=${values.resource}&search=${encodeURIComponent(
                             values.search
                         )}`
                     )
-                    return response.results.map((item) => ({
-                        id: String(item.id),
-                        name: item.name || item.title || item.derived_name || item.key || String(item.id),
-                    }))
+                    return response.results
                 },
             },
         ],
@@ -631,10 +745,37 @@ export const addObjectOverrideModalLogic = kea<addObjectOverrideModalLogicType>(
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ props, actions, values }) => ({
         openModal: () => actions.loadObjectOptions(null),
         setResource: () => actions.loadObjectOptions(null),
-        setSearch: () => actions.loadObjectOptions(null),
+        setSearch: ({ search }) => {
+            // A pasted URL selects the exact object instead of searching by name
+            const parsed = parseObjectRuleUrl(search)
+            if (parsed) {
+                actions.resolveObjectUrl(parsed.resource, parsed.id)
+                return
+            }
+            actions.loadObjectOptions(null)
+        },
+        resolveObjectUrl: async ({ resource, lookupId }) => {
+            try {
+                const response = await api.get<{ results: ObjectOption[] }>(
+                    `api/projects/${props.projectId}/access_control_object_options?resource=${resource}&id=${encodeURIComponent(
+                        lookupId
+                    )}`
+                )
+                const option = response.results[0]
+                if (!option) {
+                    lemonToast.error("Couldn't find that object in this project")
+                    return
+                }
+                actions.setObjectId(option.id)
+                actions.setSelectedObject(option)
+                actions.setSearch('')
+            } catch {
+                lemonToast.error("Couldn't find that object in this project")
+            }
+        },
         setObjectId: ({ objectId }) => {
             actions.setSelectedObject(objectId ? (values.objectOptions.find((o) => o.id === objectId) ?? null) : null)
         },

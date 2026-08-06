@@ -13,10 +13,9 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { resourceTypeToString } from 'lib/utils/accessControlUtils'
 import { toSentenceCase } from 'lib/utils/strings'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel } from '~/types'
 
 import { AccessLevelSelect } from '../AccessLevelSelect'
 import { accessControlsLogic } from './accessControlsLogic'
@@ -198,7 +197,7 @@ function AddObjectRuleModal({
                         onChange={setResource}
                         options={objectRuleResourceOptions.map((r) => ({
                             value: r,
-                            label: toSentenceCase(resourceTypeToString(r as AccessControlResourceType)),
+                            label: toSentenceCase(r.replace(/_/g, ' ')),
                         }))}
                         fullWidth
                     />
@@ -212,7 +211,7 @@ function AddObjectRuleModal({
                         onInputChange={setSearch}
                         loading={objectOptionsLoading}
                         options={displayObjectOptions.map((o) => ({ key: o.id, label: o.name }))}
-                        placeholder="Search by name…"
+                        placeholder="Search by name or paste URL"
                     />
                 </div>
                 <div>
