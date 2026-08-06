@@ -93,6 +93,7 @@ the row lists both.
 | aviator                          | HTTP                        | requests                                                        | ✅                          |
 | awin                             | HTTP                        | requests                                                        | ✅                          |
 | aws_cost_explorer                | HTTP                        | requests                                                        | ✅                          |
+| aws_ses                          | HTTP                        | requests                                                        | ✅                          |
 | azure_devops                     | HTTP                        | requests                                                        | ✅                          |
 | babelforce                       | HTTP                        | requests                                                        | ✅                          |
 | bamboohr                         | HTTP                        | requests                                                        | ✅                          |
@@ -802,7 +803,6 @@ doesn't conflict with concurrent PRs.
 - aws_sagemaker
 - aws_savings_plans
 - aws_security_hub
-- aws_ses
 - aws_step_functions
 - aws_support
 - aws_systems_manager
