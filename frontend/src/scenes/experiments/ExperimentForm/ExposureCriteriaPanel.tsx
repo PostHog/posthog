@@ -17,6 +17,7 @@ import {
     EXPERIMENT_EXPOSURE_EVENT,
     EXPOSURE_DEFAULT_EVENT,
     exposureEventLabel,
+    getActivationConfig,
     resolvedExposureEvent,
 } from '../exposureContract'
 import { commonActionFilterProps } from '../Metrics/Selectors'
@@ -115,8 +116,10 @@ function ExposureCriteriaFields({
     defaultExposureEvent: string
     showActivationOption: boolean
 }): JSX.Element {
-    const isCustom = !!experiment.exposure_criteria?.exposure_config
-    const isActivation = !isCustom && !!experiment.exposure_criteria?.activation_config
+    // getActivationConfig, not a raw field check: a stored default-sentinel exposure_config
+    // still composes with activation, and the editor must classify it the way the backend does
+    const isActivation = !!getActivationConfig(experiment.exposure_criteria)
+    const isCustom = !isActivation && !!experiment.exposure_criteria?.exposure_config
 
     return (
         <div className="space-y-4">
@@ -148,6 +151,10 @@ function ExposureCriteriaFields({
                         }
                         selected={isActivation}
                         onClick={() => {
+                            // Re-clicking the selected card must not reset a configured event
+                            if (isActivation) {
+                                return
+                            }
                             onChange({ exposure_config: undefined, activation_config: DEFAULT_ACTIVATION_CONFIG })
                         }}
                     />
@@ -162,6 +169,10 @@ function ExposureCriteriaFields({
                     }
                     selected={isCustom}
                     onClick={() => {
+                        // Re-clicking the selected card must not reset a configured event
+                        if (isCustom) {
+                            return
+                        }
                         onChange({
                             exposure_config: DEFAULT_EXPOSURE_CONFIG,
                             activation_config: undefined,
@@ -228,8 +239,10 @@ function ExposureCriteriaFields({
 }
 
 export function ExposureCriteriaPanel({ experiment, onChange, compact }: ExposureCriteriaPanelProps): JSX.Element {
-    const isCustom = !!experiment.exposure_criteria?.exposure_config
-    const isActivation = !isCustom && !!experiment.exposure_criteria?.activation_config
+    // getActivationConfig, not a raw field check: a stored default-sentinel exposure_config
+    // still composes with activation, and the editor must classify it the way the backend does
+    const isActivation = !!getActivationConfig(experiment.exposure_criteria)
+    const isCustom = !isActivation && !!experiment.exposure_criteria?.exposure_config
     const activationEventEnabled = useFeatureFlag('EXPERIMENT_ACTIVATION_EVENT')
     // Keep an existing activation config editable even if the team is no longer flagged in
     const showActivationOption = activationEventEnabled || isActivation
@@ -255,6 +268,10 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                             dropdownPlacement="bottom-end"
                             value={isCustom ? 'custom' : isActivation ? 'activation' : 'default'}
                             onChange={(value) => {
+                                // Re-selecting the current mode must not reset a configured event
+                                if ((value === 'custom' && isCustom) || (value === 'activation' && isActivation)) {
+                                    return
+                                }
                                 if (value === 'custom') {
                                     onChange({
                                         exposure_config: DEFAULT_EXPOSURE_CONFIG,

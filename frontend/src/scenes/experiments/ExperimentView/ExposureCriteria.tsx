@@ -15,7 +15,7 @@ import { FilterType } from '~/types'
 
 import { SelectableCard } from '../components/SelectableCard'
 import { experimentLogic } from '../experimentLogic'
-import { EXPOSURE_DEFAULT_EVENT } from '../exposureContract'
+import { EXPOSURE_DEFAULT_EVENT, getActivationConfig } from '../exposureContract'
 import { commonActionFilterProps } from '../Metrics/Selectors'
 import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
@@ -33,8 +33,10 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
 
     const activationEventEnabled = useFeatureFlag('EXPERIMENT_ACTIVATION_EVENT')
-    const isCustom = !!exposureCriteria?.exposure_config
-    const isActivation = !isCustom && !!exposureCriteria?.activation_config
+    // getActivationConfig, not a raw field check: a stored default-sentinel exposure_config
+    // still composes with activation, and the editor must classify it the way the backend does
+    const isActivation = !!getActivationConfig(exposureCriteria)
+    const isCustom = !isActivation && !!exposureCriteria?.exposure_config
     // Keep an existing activation config editable even if the team is no longer flagged in
     const showActivationCard = activationEventEnabled || isActivation
 
@@ -103,6 +105,10 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         }
                         selected={isActivation}
                         onClick={() => {
+                            // Re-clicking the selected card must not reset a configured event
+                            if (isActivation) {
+                                return
+                            }
                             setExposureCriteria({
                                 ...exposureCriteria,
                                 exposure_config: undefined,
@@ -126,6 +132,10 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                     }
                     selected={isCustom}
                     onClick={() => {
+                        // Re-clicking the selected card must not reset a configured event
+                        if (isCustom) {
+                            return
+                        }
                         setExposureCriteria({
                             ...exposureCriteria,
                             exposure_config: {
@@ -138,7 +148,7 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                     }}
                 />
             </div>
-            {exposureCriteria?.exposure_config && (
+            {isCustom && exposureCriteria?.exposure_config && (
                 <div className="mb-4">
                     <ActionFilter
                         bordered
