@@ -400,6 +400,11 @@ impl DeltaLiteTable {
                     // times before giving up -- after which the caller falls back to the MERGE.
                     // Re-opening each attempt also gives every try a fresh snapshot, so a
                     // retried batch never plans against stale state.
+                    //
+                    // Only data conflicts are retried. A concurrent schema/protocol change
+                    // surfaces as Error::Unsupported (see core `errors.rs`), not Conflict, and so
+                    // breaks straight out to the MERGE fallback -- re-planning a blind rewrite
+                    // against changed metadata could null-pad a newly-added column.
                     const CONFLICT_RETRIES: usize = 5;
                     let mut attempt = 0usize;
                     loop {
