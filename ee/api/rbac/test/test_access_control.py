@@ -2,6 +2,8 @@ import json
 
 from unittest.mock import MagicMock, patch
 
+from django.apps import apps
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -2260,13 +2262,25 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
         ]
         assert rows == []
 
-    def test_object_search_and_rules_hide_objects_the_member_cannot_see(self):
-        # Someone else's dashboard: creators keep access to their own objects
+    # product_tour guards the resources model_to_resource cannot map by model name (ProductTour
+    # lowercases to "producttour"): the endpoints must pass the resource explicitly or the
+    # access-level filter silently no-ops
+    @parameterized.expand(
+        [
+            ("dashboard", "dashboard"),
+            ("product_tour", "producttour"),
+        ]
+    )
+    def test_object_search_and_rules_hide_objects_the_member_cannot_see(self, resource, model_name):
+        # Someone else's object: creators keep access to their own
         owner = User.objects.create_and_join(self.organization, "owner@posthog.com", None)
-        hidden = Dashboard.objects.create(team=self.team, name="Confidential board", created_by=owner)
+        model = apps.get_model(
+            app_label="dashboards" if resource == "dashboard" else "product_tours", model_name=model_name
+        )
+        hidden = model.objects.create(team=self.team, name="Confidential thing", created_by=owner)
         AccessControl.objects.create(
             team=self.team,
-            resource="dashboard",
+            resource=resource,
             resource_id=str(hidden.id),
             access_level="none",
             organization_member=self.organization_membership,
@@ -2274,17 +2288,17 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
         self._org_membership(OrganizationMembership.Level.MEMBER)
 
         res = self.client.get(
-            "/api/projects/@current/access_control_object_search?resource=dashboard&search=Confidential"
+            f"/api/projects/@current/access_control_object_search?resource={resource}&search=Confidential"
         )
         assert res.status_code == status.HTTP_200_OK, res.json()
         assert res.json()["results"] == []
 
-        res = self.client.get(f"/api/projects/@current/access_control_object_search?resource=dashboard&id={hidden.id}")
+        res = self.client.get(f"/api/projects/@current/access_control_object_search?resource={resource}&id={hidden.id}")
         assert res.json()["results"] == []
 
         res = self.client.put(
             "/api/projects/@current/access_control_object_rules",
-            {"resource": "dashboard", "resource_id": str(hidden.id), "access_level": "editor"},
+            {"resource": resource, "resource_id": str(hidden.id), "access_level": "editor"},
         )
         assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
 

@@ -1161,12 +1161,17 @@ class UserAccessControl:
     # Filtering querysets
     # ------------------------------------------------------------
 
-    def filter_queryset_by_access_level(self, queryset: QuerySet, include_all_if_admin: bool = False) -> QuerySet:
+    def filter_queryset_by_access_level(
+        self, queryset: QuerySet, include_all_if_admin: bool = False, resource: Optional[APIScopeObject] = None
+    ) -> QuerySet:
         # Filter queryset based on access controls, handling cases where user has "none" resource access
         # but may have specific object access
 
         model = cast(Model, queryset.model)
-        resource = model_to_resource(model)
+        # Callers that already know the resource must pass it: model_to_resource cannot map every
+        # model name (LLMPrompt lowercases to "llmprompt"), and an unmapped model returns the
+        # queryset unfiltered
+        resource = resource or model_to_resource(model)
 
         if not resource:
             return queryset

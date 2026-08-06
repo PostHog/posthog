@@ -703,7 +703,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         qs = display.model._default_manager.filter(team_id=team.id)
         # Objects the requester cannot see are not theirs to find or configure. Org admins see
         # everything, matching how they can already configure access anywhere
-        qs = user_access_control.filter_queryset_by_access_level(qs, include_all_if_admin=True)
+        qs = user_access_control.filter_queryset_by_access_level(
+            qs, include_all_if_admin=True, resource=cast(APIScopeObject, resource)
+        )
         # Objects mid-deletion or never saved are not sensible rule targets
         if _model_has_field(display.model, "deleted"):
             qs = qs.filter(deleted=False)
@@ -753,7 +755,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         if not resource_id:
             raise exceptions.ValidationError("resource_id is required")
         visible = user_access_control.filter_queryset_by_access_level(
-            display.model._default_manager.filter(team_id=team.id), include_all_if_admin=True
+            display.model._default_manager.filter(team_id=team.id),
+            include_all_if_admin=True,
+            resource=cast(APIScopeObject, resource),
         )
         # An object the requester cannot see is not theirs to configure; 404 rather than 403 so the
         # endpoint doesn't confirm it exists
