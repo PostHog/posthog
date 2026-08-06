@@ -39,7 +39,7 @@ export interface VariantProps {
     selectedSDK: SDK | null
     header?: React.ReactNode
     wizardOverrides?: WizardOverrides
-    /** Step heading; the deduped posthog-js step deliberately stays a generic "Install". */
+    /** Step heading, e.g. "Install AI observability"; a lone install step stays a generic "Install". */
     installTitle: string
     installSubtitle?: string
 }

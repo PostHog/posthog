@@ -67,20 +67,22 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     const productName = currentStepProductKey
         ? availableOnboardingProducts[currentStepProductKey as keyof typeof availableOnboardingProducts]?.name
         : undefined
-    // The shared posthog-js step gets a generic "Install" title — naming it after
-    // the dedup-survivor product would mislead users installing several at once.
     const isSdkInstallStep = currentFlowStep?.dedupKey === INSTALL_DEDUP_KEYS.POSTHOG_JS
-    const installTitle = isSdkInstallStep ? 'Install' : productName ? `Install ${productName}` : 'Install your SDK'
-    // With several install steps in one flow, a bare second "Install" reads as a duplicate.
+    // With several install steps in one flow, a bare "Install" reads as a duplicate, so the shared
+    // posthog-js step is titled after its dedup survivor; the subtitle names the full covered set.
     const installStepCount = flow.filter((step) => step.stepKey === OnboardingStepKey.INSTALL).length
+    const installTitle =
+        isSdkInstallStep && installStepCount <= 1
+            ? 'Install'
+            : productName
+              ? `Install ${productName}`
+              : 'Install your SDK'
     // The dedup record is what this step actually covers; other products keep their own install step.
     const coveredNames = (currentFlowStep?.additionalProductKeys ?? [currentStepProductKey])
         .map((key) => availableOnboardingProducts[key as keyof typeof availableOnboardingProducts]?.name)
         .filter((name): name is string => !!name)
     const installSubtitle =
-        isSdkInstallStep && installStepCount > 1 && coveredNames.length > 0
-            ? `One install covers ${humanList(coveredNames)}.`
-            : undefined
+        isSdkInstallStep && coveredNames.length > 1 ? `One install covers ${humanList(coveredNames)}.` : undefined
 
     const installationCompleteFromTeam = useInstallationComplete(teamPropertyToVerify)
     const installationComplete = hideInstallationCheck || installationCompleteFromTeam
