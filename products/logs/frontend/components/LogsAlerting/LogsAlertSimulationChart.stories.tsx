@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { ReactNode } from 'react'
 
 import { dayjs } from 'lib/dayjs'
 
@@ -54,16 +55,36 @@ function buildResult(counts: number[]): LogsAlertSimulateResponseApi {
 const meta: Meta<typeof LogsAlertSimulationChart> = {
     title: 'Products/Logs/LogsAlertSimulationChart',
     component: LogsAlertSimulationChart,
-    tags: ['autodocs'],
+    parameters: {
+        layout: 'centered',
+        testOptions: { snapshotBrowsers: ['chromium'] },
+    },
 }
 export default meta
 
 type Story = StoryObj<typeof LogsAlertSimulationChart>
 
-export const WithBreaches: Story = {
-    args: { result: buildResult(COUNTS) },
+/** The chart sizes itself from its parent, so the story has to supply a width — the snapshot
+ *  runner collapses an unsized root to zero. */
+function Stage({ children }: { children: ReactNode }): JSX.Element {
+    // eslint-disable-next-line react/forbid-dom-props
+    return <div style={{ width: 760 }}>{children}</div>
 }
 
+/** A quiet stretch, a spike that fires the alert, then a return to normal. */
+export const WithBreaches: Story = {
+    render: () => (
+        <Stage>
+            <LogsAlertSimulationChart result={buildResult(COUNTS)} />
+        </Stage>
+    ),
+}
+
+/** Nothing crosses the threshold, so the y-axis stretches to keep the threshold line on screen. */
 export const NeverBreaches: Story = {
-    args: { result: buildResult(COUNTS.map((count) => Math.round(count / 4))) },
+    render: () => (
+        <Stage>
+            <LogsAlertSimulationChart result={buildResult(COUNTS.map((count) => Math.round(count / 4)))} />
+        </Stage>
+    ),
 }
