@@ -30,10 +30,10 @@ export const AwsS3SetupModal = (props: AwsS3SetupModalLogicProps): JSX.Element =
             isOpen={props.isOpen}
             title="Configure AWS S3 connection"
             description="Connect PostHog to your S3 buckets. Connections can be reused across exports."
-            onClose={props.onComplete}
+            onClose={props.onClose}
             footer={
                 <>
-                    <LemonButton type="secondary" onClick={() => props.onComplete()}>
+                    <LemonButton type="secondary" onClick={props.onClose}>
                         Cancel
                     </LemonButton>
                     <LemonButton type="primary" loading={isAwsS3IntegrationSubmitting} onClick={submitAwsS3Integration}>

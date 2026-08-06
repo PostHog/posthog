@@ -1,4 +1,7 @@
 import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
+
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { useMocks } from '~/mocks/jest'
 import type { SourceConfig } from '~/queries/schema/schema-general'
@@ -110,6 +113,28 @@ describe('sourceConnectSceneLogic', () => {
         router.actions.push('/data-warehouse/connect')
         expect(sourceConnectSceneLogic.values.kind).toBeNull()
         expect(sourceConnectSceneLogic.values.sourceConfig).toBeNull()
+    })
+
+    it('surfaces a toast and stores no credential when the backend rejects the credentials', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team_id/external_data_sources/store_credentials/': () => [
+                    400,
+                    { message: 'These credentials are invalid.' },
+                ],
+            },
+        })
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as any)
+
+        router.actions.push('/data-warehouse/connect?kind=Postgres')
+        sourceConnectSceneLogic.actions.setCredentialsFormValue('payload', { host: 'localhost' })
+
+        await expectLogic(sourceConnectSceneLogic, () => {
+            sourceConnectSceneLogic.actions.submitCredentialsForm()
+        }).toDispatchActions(['submitCredentialsFormSuccess'])
+
+        expect(errorToast).toHaveBeenCalledWith('These credentials are invalid.')
+        expect(sourceConnectSceneLogic.values.storedCredential).toBeNull()
     })
 
     it('starts with no stored credential and records one after setStoredCredential', () => {

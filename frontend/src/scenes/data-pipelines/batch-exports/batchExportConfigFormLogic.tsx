@@ -7,6 +7,7 @@ import { beforeUnload, router } from 'kea-router'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -1061,6 +1062,14 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
 
             // Reset so that form doesn't think there are unsaved changes.
             actions.resetConfiguration(getConfigurationFromBatchExportConfig(batchExportConfig))
+        },
+        submitConfigurationFailure: () => {
+            // A required field like the connection picker can sit off-screen, so a failed submit
+            // otherwise looks like the button did nothing. Scroll to the first error; if there's no
+            // visible field error (e.g. the save request itself failed) fall back to a toast.
+            scrollToFormError({
+                fallbackErrorMessage: "Couldn't save this batch export. Please try again.",
+            })
         },
         loadBatchExportConfigSuccess: ({ batchExportConfig }) => {
             if (!batchExportConfig) {

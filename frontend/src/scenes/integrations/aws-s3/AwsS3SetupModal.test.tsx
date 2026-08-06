@@ -30,7 +30,7 @@ describe('AwsS3SetupModal', () => {
     it('opens on the role tab with the trust policy requirements, including the external ID', async () => {
         render(
             <Provider>
-                <AwsS3SetupModal isOpen onComplete={jest.fn()} />
+                <AwsS3SetupModal isOpen onComplete={jest.fn()} onClose={jest.fn()} />
             </Provider>
         )
 
@@ -52,7 +52,7 @@ describe('AwsS3SetupModal', () => {
         setRegion(region)
         render(
             <Provider>
-                <AwsS3SetupModal isOpen onComplete={jest.fn()} />
+                <AwsS3SetupModal isOpen onComplete={jest.fn()} onClose={jest.fn()} />
             </Provider>
         )
 
@@ -62,7 +62,7 @@ describe('AwsS3SetupModal', () => {
     it('shows credential fields and the long-lived credentials warning on the access keys tab', async () => {
         render(
             <Provider>
-                <AwsS3SetupModal isOpen onComplete={jest.fn()} />
+                <AwsS3SetupModal isOpen onComplete={jest.fn()} onClose={jest.fn()} />
             </Provider>
         )
 
@@ -72,5 +72,20 @@ describe('AwsS3SetupModal', () => {
         expect(screen.getByText('AWS Secret Access Key')).toBeInTheDocument()
         expect(screen.getByText(/long-lived credentials/)).toBeInTheDocument()
         expect(screen.queryByText('IAM role ARN')).not.toBeInTheDocument()
+    })
+
+    it('treats a cancel as a dismissal, not a completed connection', async () => {
+        const onComplete = jest.fn()
+        const onClose = jest.fn()
+        render(
+            <Provider>
+                <AwsS3SetupModal isOpen onComplete={onComplete} onClose={onClose} />
+            </Provider>
+        )
+
+        await userEvent.click(screen.getByText('Cancel'))
+
+        expect(onClose).toHaveBeenCalledTimes(1)
+        expect(onComplete).not.toHaveBeenCalled()
     })
 })

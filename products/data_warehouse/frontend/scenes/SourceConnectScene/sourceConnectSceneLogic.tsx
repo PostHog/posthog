@@ -16,7 +16,7 @@ import { externalDataSourcesStoreCredentialsCreate } from 'products/warehouse_so
 import type { SourceCredentialApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { availableSourcesLogic } from '../NewSourceScene/availableSourcesLogic'
-import { getErrorsForFields } from '../NewSourceScene/sourceWizardLogic'
+import { getErrorsForFields, resolveConnectErrorMessage } from '../NewSourceScene/sourceWizardLogic'
 
 // Carries the field whose file failed to read/parse so the submit handler can name it in the toast.
 class FileUploadParseError extends Error {
@@ -225,11 +225,16 @@ export const sourceConnectSceneLogic = kea<sourceConnectSceneLogicType>([
                     )
                     return
                 }
-                const credential = await externalDataSourcesStoreCredentialsCreate(
-                    String(ApiConfig.getCurrentTeamId()),
-                    { source_type: values.sourceConfig.name, payload }
-                )
-                actions.setStoredCredential(credential)
+                try {
+                    const credential = await externalDataSourcesStoreCredentialsCreate(
+                        String(ApiConfig.getCurrentTeamId()),
+                        { source_type: values.sourceConfig.name, payload }
+                    )
+                    actions.setStoredCredential(credential)
+                } catch (e: any) {
+                    posthog.captureException(e)
+                    lemonToast.error(resolveConnectErrorMessage(e))
+                }
             },
         },
     })),
