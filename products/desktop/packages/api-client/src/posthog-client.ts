@@ -193,6 +193,16 @@ export interface TaskRunSessionLogsResult {
   complete: boolean;
 }
 
+export interface TaskListOptions {
+  repository?: string;
+  createdBy?: number;
+  originProduct?: string;
+  internal?: boolean;
+  channel?: string;
+  /** Caller-side cap for surfaces that only show the newest few. */
+  limit?: number;
+}
+
 export interface TaskSessionStorageAccess {
   id: string;
   download_url: string | null;
@@ -2162,16 +2172,20 @@ export class PostHogAPIClient {
     }
   }
 
-  async getTasks(options?: {
-    repository?: string;
-    createdBy?: number;
-    originProduct?: string;
-    internal?: boolean;
-    channel?: string;
-  }): Promise<Task[]> {
+  async getTasks(options?: TaskListOptions): Promise<Task[]> {
+    return (await this.getTasksPage(options)).tasks;
+  }
+
+  /**
+   * The same list with the total behind it, for surfaces that ask for a short
+   * page and still have to say how much they are not showing.
+   */
+  async getTasksPage(
+    options?: TaskListOptions,
+  ): Promise<{ tasks: Task[]; count: number }> {
     const teamId = await this.getTeamId();
     const params: Record<string, string | number | boolean> = {
-      limit: 500,
+      limit: options?.limit ?? 500,
     };
 
     if (options?.repository) {
@@ -2199,9 +2213,10 @@ export class PostHogAPIClient {
       query: params,
     });
 
-    return (data.results ?? []).map((task) =>
+    const tasks = (data.results ?? []).map((task) =>
       normalizeTaskResponse(task, { teamId }),
     );
+    return { tasks, count: data.count ?? tasks.length };
   }
 
   async getTaskSummaries(ids: string[]) {
