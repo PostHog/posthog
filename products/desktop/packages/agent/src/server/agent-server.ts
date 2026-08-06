@@ -3557,9 +3557,17 @@ export class AgentServer {
     // staged CI can gate on draft state and labels the instant the PR opens.
     const openAsDraft = this.config.prDraft !== false;
     const prLabels = (this.config.prLabels ?? []).filter(Boolean);
+    // The command is handed to the agent as a literal instruction to run, so each interpolated
+    // value must be shell-safe. Single-quote it (escaping any embedded single quote) so bash does
+    // no expansion — JSON.stringify only does JSON escaping, which leaves `$(...)`, backticks, and
+    // `$var` live inside a double-quoted argument. Labels come from team config (autostart_pr_labels).
+    const shellQuote = (value: string): string =>
+      `'${value.replaceAll("'", "'\\''")}'`;
     const prCreateCommand = `gh pr create${openAsDraft ? " --draft" : ""}${
-      this.config.baseBranch ? ` --base ${this.config.baseBranch}` : ""
-    }${prLabels.map((label) => ` --label ${JSON.stringify(label)}`).join("")}`;
+      this.config.baseBranch
+        ? ` --base ${shellQuote(this.config.baseBranch)}`
+        : ""
+    }${prLabels.map((label) => ` --label ${shellQuote(label)}`).join("")}`;
     const draftDirective = openAsDraft
       ? "Always create the PR as a draft."
       : "Open the PR ready for review — do NOT pass --draft.";

@@ -108,6 +108,12 @@ export const relayMcpServerNamesSchema = z
   .array(z.string().min(1).max(64))
   .max(20);
 
+/**
+ * Labels to apply when the run opens a PR. Passed as a JSON array (not a
+ * comma-joined string) so a label containing a comma survives the transport.
+ */
+export const prLabelsSchema = z.array(z.string().min(1).max(100)).max(50);
+
 /** Desktop → sandbox reply to an `mcp_request` event. */
 export const mcpResponseParamsSchema = z
   .object({

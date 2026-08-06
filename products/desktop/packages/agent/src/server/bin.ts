@@ -11,6 +11,7 @@ import {
   claudeCodeConfigSchema,
   mcpServersSchema,
   posthogExecPermissionRegexSchema,
+  prLabelsSchema,
   relayMcpServerNamesSchema,
 } from "./schemas";
 import type { AgentServerConfig } from "./types";
@@ -166,8 +167,8 @@ program
     "Whether a PR this run opens should be a draft (defaults to true)",
   )
   .option(
-    "--prLabels <labels>",
-    "Comma-separated labels to apply when this run opens a PR",
+    "--prLabels <json>",
+    "Labels to apply when this run opens a PR, as a JSON array of strings",
   )
   .option(
     "--claudeCodeConfig <json>",
@@ -238,12 +239,11 @@ program
       options.prDraft === undefined
         ? undefined
         : parseBooleanOption(options.prDraft, "--prDraft");
-    const prLabels = options.prLabels
-      ? options.prLabels
-          .split(",")
-          .map((label: string) => label.trim())
-          .filter(Boolean)
-      : undefined;
+    const prLabels = parseJsonOption(
+      options.prLabels,
+      prLabelsSchema,
+      "--prLabels",
+    );
 
     if (
       env.POSTHOG_CODE_RUNTIME_ADAPTER &&

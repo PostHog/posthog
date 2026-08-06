@@ -825,7 +825,8 @@ class DockerSandbox(SandboxBase):
         # that reject unknown flags are unaffected. start_agent_server clears these to the defaults
         # when the installed binary predates the flags.
         pr_draft_flag = "" if pr_draft else " --prDraft false"
-        pr_labels_flag = f" --prLabels {shlex.quote(','.join(pr_labels))}" if pr_labels else ""
+        # JSON array (not comma-joined) so a label containing a comma survives the transport.
+        pr_labels_flag = f" --prLabels {shlex.quote(json.dumps(pr_labels))}" if pr_labels else ""
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
         repo_ready_flag = f" --repoReadyFile {shlex.quote(repo_ready_file)}" if repo_ready_file else ""

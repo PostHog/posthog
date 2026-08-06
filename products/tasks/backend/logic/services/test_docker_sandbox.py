@@ -668,8 +668,16 @@ class TestDockerSandboxUnit:
             (True, None, True, [], ["--prDraft", "--prLabels"]),
             # Opt out of draft -> explicit flag.
             (False, None, True, ["--prDraft false"], ["--prLabels"]),
-            # Labels -> one comma-joined --prLabels arg.
-            (True, ["bot-review", "self-driving"], True, ["--prLabels bot-review,self-driving"], ["--prDraft"]),
+            # Labels ride a JSON array, so each label is preserved verbatim.
+            (
+                True,
+                ["bot-review", "self-driving"],
+                True,
+                ["--prLabels", '["bot-review", "self-driving"]'],
+                ["--prDraft"],
+            ),
+            # A label containing a comma stays one element (the JSON transport does not split on comma).
+            (True, ["needs, triage"], True, ['["needs, triage"]'], ["--prDraft"]),
             # Binary predates the flags: fall back to the draft default with no labels.
             (False, ["bot-review"], False, [], ["--prDraft", "--prLabels"]),
         ],
