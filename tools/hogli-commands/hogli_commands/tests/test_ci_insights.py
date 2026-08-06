@@ -165,7 +165,7 @@ def runner() -> CliRunner:
 
 @pytest.fixture(autouse=True)
 def repo_checkout() -> Iterator[None]:
-    """Pretend we're standing in a PostHog/posthog checkout on a feature branch."""
+    # Stand in a PostHog/posthog checkout on a feature branch.
     with patch.object(
         ci_insights,
         "_git",
@@ -174,10 +174,10 @@ def repo_checkout() -> Iterator[None]:
         yield
 
 
+# A signed-in caller. How a token is obtained is posthog_auth's contract, tested there; this suite
+# is about what ci:insights does once it has one.
 @pytest.fixture(autouse=True)
 def token(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Stand in for a signed-in caller. How a token is obtained is posthog_auth's contract,
-    tested there; this suite is about what ci:insights does once it has one."""
     for var in posthog_auth.KEY_ENV_VARS:
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("POSTHOG_PERSONAL_API_KEY", _TOKEN)
@@ -189,8 +189,8 @@ def _invoke(runner: CliRunner, argv: list[str], recorder: _Recorder) -> Any:
 
 
 # `hogli ci:insights --help` is exercised for every manifest `click:` entry by
-# tools/hogli/tests/test_cli.py, so it has to work with nothing configured — which is why
-# credentials are resolved inside each command body, not the group callback.
+# tools/hogli/tests/test_cli.py, so it has to work with nothing configured, which is why credentials
+# are resolved inside each command body rather than the group callback.
 @pytest.mark.parametrize("argv", [["--help"], ["search", "--help"], ["view", "--help"]])
 def test_help_works_without_a_configured_key(
     runner: CliRunner, monkeypatch: pytest.MonkeyPatch, argv: list[str]
@@ -202,11 +202,11 @@ def test_help_works_without_a_configured_key(
     assert "personal API key" not in result.output
 
 
+# The debugging-ci-failures skill branches to `gh` on exit 78, so the code is contract, including
+# when the failure comes from the shared auth module rather than from this one.
 def test_an_unauthenticated_caller_exits_not_configured_with_the_hint_on_stderr(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The debugging-ci-failures skill branches to `gh` on exit 78, so the code is contract —
-    including when the failure comes from the shared auth module rather than from this one."""
     for var in posthog_auth.KEY_ENV_VARS:
         monkeypatch.delenv(var, raising=False)
     with patch.object(posthog_auth, "load", return_value=None):
@@ -217,8 +217,8 @@ def test_an_unauthenticated_caller_exits_not_configured_with_the_hint_on_stderr(
     assert result.stdout == ""
 
 
+# A page of "unavailable" sections exiting 0 would read as "CI is fine".
 def test_digest_fails_when_no_section_came_back(runner: CliRunner) -> None:
-    """A page of 'unavailable' sections exiting 0 would read as 'CI is fine'."""
     result = _invoke(runner, ["--format", "text"], _Recorder(status=503, payload={"detail": "down"}))
     assert result.exit_code == 1
     assert "unavailable" not in result.output
@@ -240,7 +240,7 @@ def test_request_shape_and_no_key_in_output(runner: CliRunner) -> None:
 @pytest.mark.parametrize(
     "status, detail, expected_exit, expected_text",
     [
-        (401, "Invalid token", ci_insights._EXIT_NOT_CONFIGURED, "rejected the credential"),
+        (401, "Invalid token", 78, "rejected the credential"),
         (403, "API key missing required scope 'engineering_analytics:read'", 78, "engineering_analytics:read"),
         (403, "This action requires feature flag 'engineering-analytics'", 78, "flag-gated"),
         (400, "Connect a GitHub data warehouse source to use engineering analytics.", 1, "warehouse access"),
@@ -258,6 +258,7 @@ def test_http_failures_become_actionable_messages(
     assert "Traceback" not in result.output
 
 
+# Reading an unsynced or unrelated source would report another repo's CI as yours.
 @pytest.mark.parametrize(
     "repo, expected",
     [
@@ -267,7 +268,6 @@ def test_http_failures_become_actionable_messages(
     ],
 )
 def test_source_binding_prefers_the_synced_entry(runner: CliRunner, repo: str, expected: str) -> None:
-    """Reading an unsynced or unrelated source would report another repo's CI as yours."""
     recorder = _Recorder()
     result = _invoke(runner, ["--repo", repo, "--format", "text"], recorder)
     assert result.exit_code == 0
@@ -293,17 +293,17 @@ def test_digest_reports_every_row_state_and_discloses_the_cap(runner: CliRunner)
         assert state in result.output
 
 
+# A partial outage is when this read is worth most, so it must not be all-or-nothing.
 def test_digest_degrades_one_section_without_losing_the_rest(runner: CliRunner) -> None:
-    """A partial outage is exactly when this read is worth most, so it must not be all-or-nothing."""
     result = _invoke(runner, ["--format", "text"], _Recorder(fail="master_failures"))
     assert result.exit_code == 0
     assert "unavailable" in result.output
     assert "4 distinct failures" in result.output
 
 
+# A zero-filled section is a complete, well-formed claim that nothing is broken. JSON is the default
+# for every non-tty caller, and the skills tell agents to report from the digest.
 def test_digest_json_reports_a_failed_section_as_null_not_as_zero(runner: CliRunner) -> None:
-    """A zero-filled section is a complete, well-formed claim that nothing is broken. JSON is the
-    default for every non-tty caller, and the skills tell agents to report from the digest."""
     result = _invoke(runner, ["--json"], _Recorder(fail="broken_tests"))
     assert result.exit_code == 0
     payload = json.loads(result.output)
@@ -311,6 +311,8 @@ def test_digest_json_reports_a_failed_section_as_null_not_as_zero(runner: CliRun
     assert "broken_tests" in payload["unavailable"]
 
 
+# Keyed by the internal section name, `broken` and `branch` name nothing in the payload, so a
+# consumer cannot join the failure to the section, and `branch` collides with the branch name.
 @pytest.mark.parametrize(
     "failed, key",
     [
@@ -320,17 +322,15 @@ def test_digest_json_reports_a_failed_section_as_null_not_as_zero(runner: CliRun
     ],
 )
 def test_digest_json_keys_unavailable_by_the_section_it_describes(runner: CliRunner, failed: str, key: str) -> None:
-    """Keyed by the internal section name, `broken` and `branch` name nothing in the payload, so a
-    consumer cannot join the failure to the section, and `branch` collides with the branch name."""
     result = _invoke(runner, ["--json"], _Recorder(fail=failed))
     payload = json.loads(result.output)
     assert list(payload["unavailable"]) == [key]
     assert key in payload
 
 
+# `--limit` is accepted on every subcommand, so text and --json must agree on how many matches
+# exist: capping text silently while --json returns everything hides matches from one of them.
 def test_search_honors_limit_and_discloses_what_it_dropped(runner: CliRunner) -> None:
-    """`--limit` is accepted on every subcommand but only the digest read it, so text silently
-    capped at 10 while --json returned everything: the two disagreed on how many matches exist."""
     rows = [_row(f"posthog/test_{index}.py::test_it") for index in range(25)]
     broken = {**_BROKEN, "rows": rows}
     text = _invoke(
@@ -347,16 +347,16 @@ def test_search_honors_limit_and_discloses_what_it_dropped(runner: CliRunner) ->
     assert len(json.loads(every.output)["broken_tests"]) == 25
 
 
+# The backend caps the flaky window at 30 days and 400s past it, which would discard the healthy
+# broken-tests half of the search too.
 def test_search_rejects_a_window_the_backend_will_not_serve(runner: CliRunner) -> None:
-    """The backend caps the flaky window at 30 days and 400s past it, which discarded the healthy
-    broken-tests half of the search too."""
     result = _invoke(runner, ["search", "x", "--days", "45"], _Recorder())
     assert result.exit_code == 2
     assert "30" in result.output
 
 
+# Independent reads: raising the first error would throw away results that came back fine.
 def test_search_keeps_one_section_when_the_other_fails(runner: CliRunner) -> None:
-    """Independent reads. Raising the first error threw away results that came back fine."""
     result = _invoke(runner, ["search", "test_event", "--format", "text"], _Recorder(fail="flaky_tests"))
     assert result.exit_code == 0
     # The ref, not the test id: the id is truncated to the terminal width when rendered.
@@ -364,9 +364,9 @@ def test_search_keeps_one_section_when_the_other_fails(runner: CliRunner) -> Non
     assert "flaky_tests unavailable" in result.output
 
 
+# The endpoint writes `latest_run_id or 0`, so 0 means no run id was recorded. Treating it as absent
+# blames log retention, which has nothing to do with the real cause.
 def test_view_logs_explains_a_missing_run_id_rather_than_blaming_retention(runner: CliRunner) -> None:
-    """The endpoint writes `latest_run_id or 0`, so 0 means no run id was recorded. Treating it as
-    absent printed a reason about log retention that has nothing to do with the real cause."""
     broken = {**_BROKEN, "rows": [_row("posthog/test_norun.py::test_it", latest_run_id=0)]}
     recorder = _Recorder(overrides={"broken_tests": broken})
     result = _invoke(runner, ["view", "test_norun", "--logs", "--format", "text"], recorder)
@@ -375,8 +375,8 @@ def test_view_logs_explains_a_missing_run_id_rather_than_blaming_retention(runne
     assert "run_failure_logs" not in recorder.actions()
 
 
+# Auto-JSON plus an endpoint passthrough would dump the full payload into transcripts.
 def test_digest_json_carries_only_the_shown_rows_and_no_sparklines(runner: CliRunner) -> None:
-    """Auto-JSON plus an endpoint passthrough would dump the full payload into transcripts."""
     result = _invoke(runner, ["--json", "--limit", "1"], _Recorder())
     assert result.exit_code == 0
     payload = json.loads(result.output)
@@ -387,6 +387,7 @@ def test_digest_json_carries_only_the_shown_rows_and_no_sparklines(runner: CliRu
     assert payload["broken_tests"]["rows"][0]["ref"] == ci_insights._ref(_ROWS[0]["fingerprint"])
 
 
+# CliRunner's stdout is not a tty, so "auto" must resolve to JSON there.
 @pytest.mark.parametrize(
     "argv, expect_json",
     [
@@ -404,15 +405,14 @@ def test_digest_json_carries_only_the_shown_rows_and_no_sparklines(runner: CliRu
     ],
 )
 def test_format_resolution(runner: CliRunner, argv: list[str], expect_json: bool) -> None:
-    """CliRunner's stdout is not a tty, so 'auto' must resolve to JSON there."""
     result = _invoke(runner, argv, _Recorder())
     assert result.exit_code == 0
     assert result.output.lstrip().startswith("{") is expect_json
 
 
+# Dropping a group-level --repo/--host would silently answer about a different repo.
 @pytest.mark.parametrize("argv", [["--repo", "PostHog/posthog.com", "view", "test_capture"], ["view", "test_capture"]])
 def test_subcommands_inherit_group_level_options(runner: CliRunner, argv: list[str]) -> None:
-    """Dropping a group-level --repo/--host would silently answer about a different repo."""
     recorder = _Recorder()
     result = _invoke(runner, [*argv, "--format", "text"], recorder)
     assert result.exit_code == 0
@@ -427,17 +427,9 @@ def test_ref_is_stable_and_short() -> None:
     assert ref != ci_insights._ref(_ROWS[1]["fingerprint"])
 
 
-@pytest.mark.parametrize(
-    "ref_of",
-    [
-        "full_ref",
-        "prefix",
-        "fingerprint",
-        "test_id_substring",
-    ],
-)
+# A ref printed by the digest has to be usable by view, so the two must not drift.
+@pytest.mark.parametrize("ref_of", ["full_ref", "prefix", "fingerprint", "test_id_substring"])
 def test_view_resolves_every_accepted_ref_form(runner: CliRunner, ref_of: str) -> None:
-    """A ref printed by the digest has to be usable by view — the two must not drift."""
     row = _ROWS[0]
     ref = {
         "full_ref": ci_insights._ref(row["fingerprint"]),
@@ -471,8 +463,8 @@ def test_view_logs_reads_the_rows_latest_run(runner: CliRunner) -> None:
     assert "FAILED x::y" in result.output
 
 
+# Merging failure lines with the test-health queue would invent a verdict neither made.
 def test_search_keeps_the_two_grains_in_separate_sections(runner: CliRunner) -> None:
-    """Merging failure lines with the test-health queue would invent a verdict neither made."""
     recorder = _Recorder()
     result = _invoke(runner, ["search", "test_capture", "--format", "text"], recorder)
     assert result.exit_code == 0

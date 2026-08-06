@@ -23,9 +23,7 @@ Always start with the `hogli ci:insights` digest. It aggregates across runs and
 branches — which `gh` cannot do cheaply — and tells you whether a failure is
 yours, trunk-borne, or a known flake. `gh` is authoritative for one run's
 current state. Use the digest to decide _what_ is broken and _whose_ it is; use
-`gh` to read _exactly_ what failed in a given run. The data arrives by webhook
-and can lag by minutes, so during a live incident confirm a specific run
-against `gh`.
+`gh` to read _exactly_ what failed in a given run.
 
 This skill triages and classifies. Once a failure is confirmed flaky, hand off
 to the `fixing-flaky-tests` skill, which owns local reproduction, root-cause
@@ -82,7 +80,7 @@ Read each row's `state` as the verdict:
 | `breaking_master`      | failing on the default branch and that job's latest run is still red  |
 | `blocking_merge_queue` | failing only on merge-queue gate branches, so it is holding landings  |
 | `novel_burst`          | new within a day, already spreading across branches, not on trunk yet |
-| `potentially_resolved` | hit trunk but that job is green again — weak evidence a fix landed    |
+| `potentially_resolved` | hit trunk but that job's latest run is green again                    |
 | `flaky`                | sporadic across two or more branches over more than a day             |
 | `pr_only`              | confined to one branch — one PR's own problem                         |
 
@@ -95,7 +93,8 @@ Caveats to carry into whatever you report:
   only in the digest's grouped master-failures section, never as a row with a ref.
 - Every count is absolute, never a rate. Passing runs are not in this data, so
   there is no denominator and no failure rate to quote.
-- A run's conclusion can lag until GitHub's `workflow_run` webhook settles it.
+- A run's conclusion can lag until GitHub's `workflow_run` webhook settles it, so
+  during a live incident confirm a specific run against `gh`.
 
 If nobody has signed in on this machine, `hogli ci:insights` exits `78`. Treat
 exit `78` as "no CI insights available" and fall back to the `gh`-based

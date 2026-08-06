@@ -4,21 +4,18 @@
     hogli ci:insights search "<error>"      # match a failure by test name or error text
     hogli ci:insights view <ref> [--logs]   # one failure, with its failing log lines
 
-An ordinary REST client over the named ``engineering_analytics`` endpoints — the same ones
-the in-app UI and the MCP tools read, so there is no second copy of the domain rules here.
-This module only picks endpoints, summarizes, and renders.
-
-Auth is `posthog_auth`, which asks only for ``engineering_analytics:read`` — no key to mint
-(`hogli auth:posthog:login`), and nothing here knows how a token is obtained.
+A REST client over the named ``engineering_analytics`` endpoints, the same ones the in-app UI
+and the MCP tools read, so the domain rules are not copied here. This module only picks
+endpoints, summarizes, and renders.
 
 Missing or rejected credentials exit ``78`` (sysexits ``EX_CONFIG``) so the
 debugging-ci-failures skill can branch to its read-only ``gh`` fallback on the exit code
 rather than on message text. Diagnostics go to stderr, keeping stdout parseable.
 
-When stdout is not a terminal the output is JSON, so piped/agent callers get structure
-without a flag; ``--json`` forces it in a tty. That JSON is this command's own summarized
-shape, never an endpoint passthrough — ``broken_tests`` alone returns 200 rows whose bytes
-are mostly hourly sparklines, which is not something to dump into a transcript.
+Output is JSON when stdout is not a terminal, so piped and agent callers get structure without
+passing a flag, and ``--json`` forces it in a tty. That JSON is this command's own summarized
+shape rather than an endpoint passthrough, because ``broken_tests`` alone returns 200 rows whose
+bytes are mostly hourly sparklines.
 """
 
 from __future__ import annotations
@@ -30,8 +27,8 @@ import shutil
 import hashlib
 import subprocess
 from collections.abc import Callable
-from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any, NoReturn
 
@@ -42,8 +39,8 @@ from click.core import ParameterSource
 from hogli_commands import posthog_auth
 
 _DEFAULT_HOST = "https://us.posthog.com"
-# The project holding the synced PostHog/posthog GitHub source. A project id, not a secret
-# — committed for the same reason hogli.yaml commits the telemetry write key.
+# The project holding the synced PostHog/posthog GitHub source. A project id is not a secret, so
+# it is committed for the same reason hogli.yaml commits the telemetry write key.
 _DEFAULT_PROJECT_ID = "2"
 
 # The one scope these endpoints require. Narrow on purpose: a token minted for this carries
@@ -53,7 +50,7 @@ _SCOPES = ("engineering_analytics:read",)
 _EXIT_NOT_CONFIGURED = posthog_auth.EXIT_NOT_CONFIGURED
 
 _DIGEST_ROWS = 8
-_SEARCH_ROWS = 10
+_MAX_LISTED_CANDIDATES = 10
 _SEARCH_DEFAULT_DAYS = 7
 # Mirrors MAX_FLAKY_WINDOW_DAYS in products/engineering_analytics/backend/logic/suite_health.py.
 _MAX_FLAKY_DAYS = 30
@@ -61,9 +58,9 @@ _FLAKY_SCAN_LIMIT = 200
 # Below this, a ref prefix matches too much to be a useful handle.
 _MIN_REF_PREFIX = 4
 
-# BrokenTestState, most urgent first. The endpoint already returns rows in this order, so
-# this drives the count summary only — never a client-side re-sort of the rows, which would
-# put the classifier's judgement in a second place.
+# BrokenTestState, most urgent first. The endpoint already returns rows in this order, so this
+# drives the count summary only, never a client-side re-sort of the rows, which would put the
+# classifier's judgement in a second place.
 _STATE_MEANINGS: dict[str, str] = {
     "breaking_master": "failing on the default branch, and that job's latest run is still red",
     "blocking_merge_queue": "failing only on merge-queue gate branches — holding up landings on a commit the PR's own CI passed",
@@ -75,8 +72,6 @@ _STATE_MEANINGS: dict[str, str] = {
 
 _SPARK_LEVELS = " ▁▂▃▄▅▆▇█"
 
-# Digest section keys are also the JSON payload's keys, so the reader-facing headings live
-# here rather than being derived from them.
 _SECTION_LABELS = {
     "master": "default branch",
     "broken": "broken tests",
@@ -84,17 +79,17 @@ _SECTION_LABELS = {
     "branch": "your branch",
 }
 
-# _gather's section names are internal; these are the keys the JSON payload uses for the same
-# sections, so `unavailable` can name what a consumer actually reads.
-# The same mapping for `search`, whose sections differ from the digest's.
-_SEARCH_SECTION_KEYS = {"broken": "broken_tests", "flaky": "flaky_tests"}
-
+# The JSON payload key each internal section name lands under, so `_unavailable` can name what a
+# consumer actually reads.
 _SECTION_KEYS = {
     "master": "master",
     "broken": "broken_tests",
     "master_failures": "master_failures",
     "branch": "branch_pull_requests",
 }
+
+# `search` reads a different pair of sections than the digest.
+_SEARCH_SECTION_KEYS = {"broken": "broken_tests", "flaky": "flaky_tests"}
 
 _CAVEATS = (
     "Fingerprints are pytest-only, so jest/playwright/cargo breakage shows up under master failures, not above.\n"
@@ -113,13 +108,12 @@ class _ApiError(Exception):
 
 
 def _fail(error: _ApiError) -> NoReturn:
-    """Report a failed read on stderr and exit with its code."""
     click.secho(error.message, fg="red", err=True)
     raise SystemExit(error.exit_code)
 
 
 def _request(url: str, *, token: str, params: dict[str, Any], timeout: float) -> requests.Response:
-    """One authenticated GET. The single HTTP seam, so tests can replace it wholesale."""
+    """One authenticated GET, and the only HTTP call in the module, so tests replace it wholesale."""
     return requests.get(
         url,
         headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
@@ -189,14 +183,7 @@ class _Api:
 
     def bound(self, *, source_id: str, repo: str) -> _Api:
         """A copy that scopes every later read to one source and repository."""
-        return _Api(
-            host=self.host,
-            project_id=self.project_id,
-            token=self.token,
-            timeout=self.timeout,
-            source_id=source_id,
-            repo=repo,
-        )
+        return replace(self, source_id=source_id, repo=repo)
 
     def get(self, action: str, **params: Any) -> Any:
         url = f"{self.host}/api/projects/{self.project_id}/engineering_analytics/{action}/"
@@ -257,9 +244,9 @@ def _resolve_source(api: _Api, repo: str | None) -> _Api:
 def _ref(fingerprint: str) -> str:
     """An 8-hex handle for a failure fingerprint, usable as an argv token.
 
-    The fingerprint itself is ``test_id | error_signature`` — spaces and a pipe. Content
-    addressing keeps the handle stable across invocations with no cached state, and makes
-    it change exactly when the fingerprint does (the recipe is pytest-only v1 and evolves).
+    The fingerprint is ``test_id | error_signature``, so it carries spaces and a pipe. Hashing its
+    content keeps the handle stable across invocations with no cached state, and changes it exactly
+    when the fingerprint does (the fingerprint recipe is pytest-only v1 and evolves).
     """
     return hashlib.blake2s(fingerprint.encode(), digest_size=4).hexdigest()
 
@@ -277,15 +264,17 @@ def _resolve_ref(rows: list[dict[str, Any]], ref: str) -> dict[str, Any]:
         return candidates[0]
     if not candidates:
         raise _ApiError(f"No current failure matches {ref!r}. Refs come from `hogli ci:insights` or `search`.")
-    listed = "\n".join(f"  {_ref(row['fingerprint'])}  {row.get('test_id')}" for row in candidates[:_SEARCH_ROWS])
+    listed = "\n".join(
+        f"  {_ref(row['fingerprint'])}  {row.get('test_id')}" for row in candidates[:_MAX_LISTED_CANDIDATES]
+    )
     raise _ApiError(f"{ref!r} matches {len(candidates)} failures:\n{listed}")
 
 
 def _spark(counts: list[int]) -> str:
     """A one-cell-per-hour histogram, scaled to its own peak.
 
-    An hour with no failures is blank, not the shortest bar — a row of shortest bars would
-    read as "it failed a little, constantly".
+    An hour with no failures is blank rather than the shortest bar, because a row of shortest bars
+    reads as "it failed a little, constantly".
     """
     peak = max(counts, default=0)
     top = len(_SPARK_LEVELS) - 1
@@ -319,9 +308,14 @@ def _term_width() -> int:
 
 
 def _summarize_row(row: dict[str, Any]) -> dict[str, Any]:
-    """A row as this command reports it: with its ref, without the hourly sparkline that
+    """A row as this command reports it: with its ref, and without the hourly sparkline that
     dominates the endpoint's bytes."""
     return {"ref": _ref(row["fingerprint"]), **{key: value for key, value in row.items() if key != "trend_24h"}}
+
+
+def _capped(rows: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    """`--limit 0` asks for every row."""
+    return rows if limit == 0 else rows[:limit]
 
 
 def _render_rows(rows: list[dict[str, Any]]) -> None:
@@ -354,7 +348,7 @@ def _render_broken(broken: dict[str, Any], *, limit: int) -> None:
     for state, count in _state_counts(rows).items():
         if count:
             click.echo(f"{'':<20}{state:<22}{count:>4}")
-    shown = rows if limit == 0 else rows[:limit]
+    shown = _capped(rows, limit)
     if shown:
         click.echo("")
         _render_rows(shown)
@@ -392,10 +386,16 @@ def _state_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
     return {state: sum(1 for row in rows if row.get("state") == state) for state in _STATE_MEANINGS}
 
 
-def _settle(futures: dict[str, Future[Any]]) -> dict[str, tuple[Any, _ApiError | None]]:
-    """Collect each section's result or its error, so one failed read does not take the rest
-    of the digest with it — a read is worth most during the partial outage that broke it."""
-    settled: dict[str, tuple[Any, _ApiError | None]] = {}
+_Sections = dict[str, tuple[Any, _ApiError | None]]
+
+
+def _read(calls: dict[str, Callable[[], Any]]) -> _Sections:
+    """Read every section concurrently, so the whole read costs the slowest call, and keep each
+    section's error beside its slot instead of raising: one failed read must not take the rest with
+    it, because a read is worth most during the partial outage that broke it."""
+    with ThreadPoolExecutor(max_workers=len(calls)) as pool:
+        futures = {name: pool.submit(call) for name, call in calls.items()}
+    settled: _Sections = {}
     for name, future in futures.items():
         try:
             settled[name] = (future.result(), None)
@@ -404,8 +404,14 @@ def _settle(futures: dict[str, Future[Any]]) -> dict[str, tuple[Any, _ApiError |
     return settled
 
 
-def _gather(api: _Api, branch: str | None) -> dict[str, tuple[Any, _ApiError | None]]:
-    """Every digest section, read concurrently so the digest costs the slowest call."""
+def _unavailable(sections: _Sections, keys: dict[str, str]) -> dict[str, str]:
+    """The sections that failed, keyed by the payload key each lands under so a consumer can join
+    the failure to the section it is missing. Keyed by the internal names instead, `broken` and
+    `branch` would name nothing in the payload, and `branch` would collide with the branch name."""
+    return {keys[name]: error.message for name, (_, error) in sections.items() if error is not None}
+
+
+def _gather(api: _Api, branch: str | None) -> _Sections:
     calls: dict[str, Callable[[], Any]] = {
         "master": lambda: api.get("current_branch_health"),
         "broken": lambda: api.get("broken_tests"),
@@ -413,16 +419,15 @@ def _gather(api: _Api, branch: str | None) -> dict[str, tuple[Any, _ApiError | N
     }
     if branch:
         calls["branch"] = lambda: api.get("resolve_branch", branch=branch)
-    with ThreadPoolExecutor(max_workers=len(calls)) as pool:
-        settled = _settle({name: pool.submit(call) for name, call in calls.items()})
-    errors = [error for _, error in settled.values() if error is not None]
-    # A credential or flag problem is global, not one section's bad luck — surface it whole.
+    sections = _read(calls)
+    errors = [error for _, error in sections.values() if error is not None]
+    # A credential or flag problem is global rather than one section's bad luck, so surface it whole.
     fatal = next((error for error in errors if error.exit_code == _EXIT_NOT_CONFIGURED), None)
-    # Degradation is for a partial outage. When nothing came back there is no digest to
-    # render, and exiting 0 over a page of "unavailable" would read as "CI is fine".
-    if fatal or len(errors) == len(settled):
+    # Degradation is for a partial outage. When nothing came back there is no digest to render, and
+    # exiting 0 over a page of "unavailable" would read as "CI is fine".
+    if fatal or len(errors) == len(sections):
         raise fatal or errors[0]
-    return settled
+    return sections
 
 
 def _emit_json(payload: Any) -> NoReturn:
@@ -446,8 +451,8 @@ class _Options:
         try:
             token = posthog_auth.token(scopes=_SCOPES, host=host)
         except posthog_auth.AuthError as exc:
-            # Re-raised as this module's error so every failure reaches the one `_fail` path,
-            # keeping the exit code and the stderr-only rule in one place.
+            # Re-raised as this module's error so every failure exits through `_fail`, keeping the
+            # exit code and the stderr-only rule in one place.
             raise _ApiError(exc.message, exit_code=exc.exit_code) from exc
         return _Api(host=host, project_id=self.project, token=token, timeout=self.timeout)
 
@@ -458,19 +463,19 @@ class _Options:
 
 
 def _options(ctx: click.Context, kwargs: dict[str, Any]) -> _Options:
-    """The shared options, resolved across both places they can be given.
+    """The shared options, merged across both places click can put them.
 
-    They are declared on the group *and* on every subcommand, so click parses
-    ``ci:insights --json view x`` into the group and ``ci:insights view x --json`` into the
-    subcommand. Taking either set alone silently drops the other half, which answers about the
-    wrong repo or host, so merge them: subcommand-explicit beats group-explicit beats default.
+    They are declared on the group and on every subcommand, so ``ci:insights --json view x`` parses
+    into the group while ``ci:insights view x --json`` parses into the subcommand. Reading either
+    set alone drops the other half and answers about the wrong repo or host, so precedence runs
+    subcommand-explicit, then group-explicit, then default.
     """
     given = {
         name: value for name, value in kwargs.items() if ctx.get_parameter_source(name) is not ParameterSource.DEFAULT
     }
-    # `--json` is documented as shorthand for `--format json`, so collapse it into that one
-    # field before merging. Kept separate, the two could disagree across the group/subcommand
-    # boundary and `--json view x --format text` would silently print JSON.
+    # `--json` is documented as shorthand for `--format json`, so collapse it into that one field
+    # before merging. Kept separate, the two could disagree across the group/subcommand boundary and
+    # `--json view x --format text` would silently print JSON.
     if given.pop("as_json", False):
         given["output_format"] = "json"
     inherited = ctx.parent.obj if ctx.parent is not None and isinstance(ctx.parent.obj, dict) else {}
@@ -481,8 +486,8 @@ def _options(ctx: click.Context, kwargs: dict[str, Any]) -> _Options:
 
 
 def _common_options(func: Callable[..., None]) -> Callable[..., None]:
-    """Stack the shared options onto every command, so they can be passed either before or
-    after the subcommand (``ci:insights view <ref> --json``, as the old surface allowed)."""
+    """Stack the shared options onto a command, so they parse either before or after the
+    subcommand. `_options` merges the two sides."""
     options = [
         click.option("--repo", help="'owner/name' to read; defaults to the origin remote."),
         click.option(
@@ -512,9 +517,9 @@ def _common_options(func: Callable[..., None]) -> Callable[..., None]:
     return func
 
 
-# Each entry point resolves credentials in its own body rather than the group callback, so
-# `--help` (which short-circuits before the body) works with nothing configured. SystemExit
-# is used throughout — the telemetry wrapper records its code, unlike click's ctx.exit().
+# Each entry point resolves credentials in its own body rather than the group callback, so `--help`
+# (which short-circuits before the body) works with nothing configured. Every exit raises SystemExit
+# because the telemetry wrapper records its code, which click's ctx.exit() does not reach.
 @click.group(
     name="ci:insights",
     invoke_without_command=True,
@@ -538,19 +543,14 @@ def _digest(options: _Options) -> NoReturn:
 
     broken = sections["broken"][0] or {}
     rows = broken.get("rows") or []
-    shown = rows if options.limit == 0 else rows[: options.limit]
+    shown = _capped(rows, options.limit)
     if options.json():
         _emit_json(
             {
                 "repo": api.repo,
                 "source_id": api.source_id,
                 "branch": branch,
-                # Keyed by the payload key of the section that failed, so a consumer can join the
-                # two. Keyed by _gather's internal name, `broken` and `branch` name nothing in this
-                # payload, and `branch` collides with the branch name above.
-                "unavailable": {
-                    _SECTION_KEYS[name]: error.message for name, (_, error) in sections.items() if error is not None
-                },
+                "unavailable": _unavailable(sections, _SECTION_KEYS),
                 "master": sections["master"][0],
                 # None, never a zero-filled section: a failed read rendered as `total: 0` is a
                 # complete, well-formed claim that nothing is broken, and JSON is the default for
@@ -610,18 +610,15 @@ def search(ctx: click.Context, query: str, days: int, **kwargs: Any) -> NoReturn
     needle = query.lower()
     try:
         api = _resolve_source(options.api(), options.repo)
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            sections = _settle(
-                {
-                    "broken": pool.submit(lambda: api.get("broken_tests")),
-                    "flaky": pool.submit(
-                        lambda: api.get("flaky_tests", date_from=f"-{days}d", limit=_FLAKY_SCAN_LIMIT)
-                    ),
-                }
-            )
+        sections = _read(
+            {
+                "broken": lambda: api.get("broken_tests"),
+                "flaky": lambda: api.get("flaky_tests", date_from=f"-{days}d", limit=_FLAKY_SCAN_LIMIT),
+            }
+        )
         errors = [error for _, error in sections.values() if error is not None]
-        # One section failing must not discard the other: they are independent reads, and the
-        # digest already degrades this way. Both failing means there is nothing to show.
+        # One section failing must not discard the other: they are independent reads, and the digest
+        # already degrades this way. Both failing means there is nothing to show.
         if len(errors) == len(sections):
             raise errors[0]
     except _ApiError as exc:
@@ -637,25 +634,20 @@ def search(ctx: click.Context, query: str, days: int, **kwargs: Any) -> NoReturn
         for item in (sections["flaky"][0] or {}).get("items") or []
         if any(needle in str(item.get(field, "")).lower() for field in ("nodeid", "selector"))
     ]
-    limit = len(broken) + len(flaky) if options.limit == 0 else options.limit
-    shown_broken, shown_flaky = broken[:limit], flaky[:limit]
+    shown_broken, shown_flaky = _capped(broken, options.limit), _capped(flaky, options.limit)
     if options.json():
         _emit_json(
             {
                 "query": query,
-                "unavailable": {
-                    _SEARCH_SECTION_KEYS[name]: error.message
-                    for name, (_, error) in sections.items()
-                    if error is not None
-                },
+                "unavailable": _unavailable(sections, _SEARCH_SECTION_KEYS),
                 "broken_tests": [_summarize_row(row) for row in shown_broken],
                 "flaky_tests": shown_flaky,
                 "truncated": len(shown_broken) < len(broken) or len(shown_flaky) < len(flaky),
             }
         )
 
-    # Two sections, never one merged ranking: these are different grains (failure lines from
-    # Logs vs CI runs from Traces) over different windows, and fusing them would invent a
+    # Two sections, never one merged ranking: these are different grains (failure lines from Logs
+    # versus CI runs from Traces) over different windows, so fusing them would invent a
     # flaky-versus-broken verdict neither endpoint made.
     click.secho("broken tests        live failures, last 2 days", bold=True)
     if broken:
@@ -682,8 +674,8 @@ def search(ctx: click.Context, query: str, days: int, **kwargs: Any) -> NoReturn
 
 
 def _note_truncation(shown: int, total: int) -> None:
-    """Say what was dropped. Text silently capping while --json returned everything made the two
-    output shapes disagree on how many matches exist."""
+    """Say what was dropped. Text capping silently while ``--json`` returns everything leaves the two
+    output shapes disagreeing on how many matches exist."""
     if shown < total:
         click.echo(f"{'':<20}Showing {shown} of {total} — raise --limit, or 0 for every row.")
 
