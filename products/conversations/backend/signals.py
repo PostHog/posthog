@@ -2,8 +2,8 @@ from email.utils import make_msgid
 from typing import Any, cast
 
 from django.db import transaction
-from django.db.models import DateTimeField, F, Q, Value
-from django.db.models.functions import Coalesce, Greatest
+from django.db.models import Case, DateTimeField, F, Q, Value, When
+from django.db.models.functions import Greatest, Least
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
@@ -160,11 +160,18 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
 
         if is_team_message:
             update_fields["unread_customer_count"] = F("unread_customer_count") + 1
-            # First customer-visible team/AI reply; Coalesce keeps the earliest stamp under
-            # concurrent replies.
-            update_fields["first_response_at"] = Coalesce(
-                F("first_response_at"), Value(created_at, output_field=DateTimeField())
+            # A reply only counts as the first response if something preceded it: tickets we
+            # compose outbound open with our own message, and counting that would report a time
+            # to first response of ~0. message_count is evaluated against the pre-UPDATE row, so
+            # >0 means this isn't the opening message.
+            candidate = Case(
+                When(message_count__gt=0, then=Value(created_at)),
+                output_field=DateTimeField(),
             )
+            # These updates run on commit, so replies can land out of created_at order. Postgres
+            # LEAST ignores NULLs, which gives us "keep the earliest of the two" and "keep
+            # whichever side isn't null" in one expression.
+            update_fields["first_response_at"] = Least(F("first_response_at"), candidate)
 
         Ticket.objects.filter(id=item_id, team_id=team_id).update(**update_fields)
 

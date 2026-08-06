@@ -156,18 +156,26 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.message_count == 0  # Not -1
         assert self.ticket.unread_customer_count == 0  # Not -1
 
-    def test_first_response_at_stamped_once_by_first_team_reply(self, mock_on_commit):
-        self._create_customer_message("customer first")
-        self.ticket.refresh_from_db()
-        assert self.ticket.first_response_at is None
+    @parameterized.expand(
+        [
+            # (name, message authors in order, index of the message expected in first_response_at)
+            ("customer_opens", ["customer", "team", "team"], 1),
+            ("team_opens", ["team", "team"], 1),
+            ("team_opens_then_customer_replies", ["team", "customer", "team"], 2),
+            ("no_team_reply", ["customer", "customer"], None),
+        ]
+    )
+    def test_first_response_at_stamps_first_team_reply_after_the_opening_message(
+        self, _name, authors, expected_index, mock_on_commit
+    ):
+        messages = [
+            self._create_team_message(f"m{i}") if author == "team" else self._create_customer_message(f"m{i}")
+            for i, author in enumerate(authors)
+        ]
 
-        first_reply = self._create_team_message("first reply")
         self.ticket.refresh_from_db()
-        assert self.ticket.first_response_at == first_reply.created_at
-
-        self._create_team_message("second reply")
-        self.ticket.refresh_from_db()
-        assert self.ticket.first_response_at == first_reply.created_at
+        expected = None if expected_index is None else messages[expected_index].created_at
+        assert self.ticket.first_response_at == expected
 
     def test_non_conversations_comment_ignored(self, mock_on_commit):
         # Comment for a different scope (e.g., recordings)

@@ -2,6 +2,7 @@ import json
 from datetime import timedelta
 from decimal import Decimal
 
+from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
@@ -2945,7 +2946,7 @@ class TestTicketNoteAPI(APIBaseTest):
 
 
 class TestTicketResolvedAtStamping(BaseTest):
-    def test_resolved_at_follows_status_across_update_fields_saves(self):
+    def test_resolved_at_tracks_the_latest_resolve_across_update_fields_saves(self):
         ticket = Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id="session-resolved-at",
@@ -2954,15 +2955,49 @@ class TestTicketResolvedAtStamping(BaseTest):
         )
         assert ticket.resolved_at is None
 
-        # update_fields-limited save is what the API/tasks transition paths use
-        ticket.status = Status.RESOLVED
-        ticket.save(update_fields=["status", "updated_at"])
-        # re-fetch instead of refresh_from_db so mypy drops its is-None narrowing of resolved_at
-        ticket = Ticket.objects.get(pk=ticket.pk)
-        assert ticket.status == Status.RESOLVED
-        assert ticket.resolved_at is not None
+        # every transition path saves with update_fields, which drops anything save() sets
+        # unless it widens the list
+        with freeze_time("2026-07-01T10:00:00Z"):
+            first_resolve = timezone.now()
+            ticket.status = Status.RESOLVED
+            ticket.save(update_fields=["status", "updated_at"])
+        assert Ticket.objects.get(pk=ticket.pk).resolved_at == first_resolve
 
         ticket.status = Status.OPEN
         ticket.save(update_fields=["status", "updated_at"])
-        ticket = Ticket.objects.get(pk=ticket.pk)
-        assert ticket.resolved_at is None
+        assert Ticket.objects.get(pk=ticket.pk).resolved_at is None
+
+        with freeze_time("2026-07-03T10:00:00Z"):
+            second_resolve = timezone.now()
+            ticket.status = Status.RESOLVED
+            ticket.save(update_fields=["status", "updated_at"])
+        assert Ticket.objects.get(pk=ticket.pk).resolved_at == second_resolve
+
+    def test_resolved_at_not_back_dated_on_rows_that_reached_resolved_without_save(self):
+        # The Zendesk import writes already-resolved tickets with bulk_create, which bypasses
+        # save(), so they land resolved with no stamp. A later unrelated save must not date those
+        # to today and pass a years-old ticket off as resolved just now.
+        (imported,) = Ticket.objects.bulk_create(
+            [
+                Ticket(
+                    team=self.team,
+                    ticket_number=1,
+                    widget_session_id="session-imported",
+                    distinct_id="user-123",
+                    channel_source="widget",
+                    status=Status.RESOLVED,
+                )
+            ]
+        )
+
+        loaded = Ticket.objects.get(pk=imported.pk)
+        loaded.priority = Priority.HIGH
+        loaded.save(update_fields=["priority", "updated_at"])
+        assert Ticket.objects.get(pk=imported.pk).resolved_at is None
+
+        # a real transition still stamps, so an unstamped row isn't stuck that way forever
+        loaded.status = Status.OPEN
+        loaded.save(update_fields=["status", "updated_at"])
+        loaded.status = Status.RESOLVED
+        loaded.save(update_fields=["status", "updated_at"])
+        assert Ticket.objects.get(pk=imported.pk).resolved_at is not None

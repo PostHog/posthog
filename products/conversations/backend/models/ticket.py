@@ -45,6 +45,11 @@ class Ticket(UUIDTModel):
     # Dynamic attribute set by TicketViewSet._attach_persons_to_tickets for serialization
     person: "Person | None"
 
+    # Snapshot of status as last loaded / saved, used by save() to tell a real transition
+    # into or out of `resolved` from a save that just happens to touch a resolved ticket.
+    # Set in __init__/from_db/refresh_from_db; not a model field.
+    _status_at_load: str | None
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     ticket_number = models.PositiveIntegerField()
     channel_source = models.CharField(max_length=20, choices=Channel, default=Channel.WIDGET)
@@ -111,8 +116,11 @@ class Ticket(UUIDTModel):
     sla_due_at = models.DateTimeField(null=True, blank=True)
 
     # Lifecycle timestamps, denormalized for support metrics (TTFR, resolution time).
-    # first_response_at: first customer-visible team/AI reply, stamped once by the message signal.
-    # resolved_at: kept consistent with status by save() — set on resolve, cleared on reopen.
+    # first_response_at: first customer-visible team/AI reply that isn't the message which opened
+    #   the ticket, stamped once by the message signal.
+    # resolved_at: latest time the ticket entered `resolved`, kept in step with status by save().
+    #   Cleared on reopen and re-stamped on the next resolve, so it reflects current state rather
+    #   than acting as a resolution log.
     first_response_at = models.DateTimeField(null=True, blank=True)
     resolved_at = models.DateTimeField(null=True, blank=True)
 
@@ -214,18 +222,54 @@ class Ticket(UUIDTModel):
             ),
         ]
 
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._status_at_load = None
+
+    @classmethod
+    def from_db(cls, db, field_names, values):
+        instance = super().from_db(db, field_names, values)
+        # A deferred load leaves the snapshot unset rather than triggering a refetch of status;
+        # save() then leaves resolved_at alone instead of guessing at a transition.
+        if "status" in field_names:
+            instance._status_at_load = instance.status
+        return instance
+
+    def refresh_from_db(self, *args, **kwargs) -> None:
+        # Refreshing replaces in-memory state with DB state, so the transition baseline has to
+        # follow, or the next save() would compare against a stale status.
+        super().refresh_from_db(*args, **kwargs)
+        self._status_at_load = self.status
+
     def save(self, *args, **kwargs) -> None:
-        # Status transitions happen in many places (agent API, external/workflow API, channel
-        # sync tasks), all via save() — keep resolved_at consistent with status here so no
-        # write site can forget to stamp it.
-        if self.status == Status.RESOLVED:
-            if self.resolved_at is None:
-                self.resolved_at = timezone.now()
-                _extend_update_fields(kwargs, "resolved_at")
-        elif self.resolved_at is not None:
-            self.resolved_at = None
-            _extend_update_fields(kwargs, "resolved_at")
+        self._sync_resolved_at(kwargs)
         super().save(*args, **kwargs)
+        self._status_at_load = self.status
+
+    def _sync_resolved_at(self, save_kwargs: dict) -> None:
+        """Keep resolved_at in step with status, stamping only on a real transition.
+
+        Status is written from many places (agent UI, external/workflow API, GitHub issue sync,
+        snooze wake task) and all of them go through save(), so this is the one spot that can't
+        be forgotten. Reacting to a transition rather than to status merely being `resolved`
+        matters for rows that were never stamped: the Zendesk import writes already-resolved
+        tickets with bulk_create, which bypasses save(), and a state-based check would back-date
+        those to whenever an unrelated save happened to touch them next.
+        """
+        if self._state.adding:
+            # UUIDTModel assigns pk in __init__, so _state.adding is the only new-row signal.
+            was_resolved = False
+        elif self._status_at_load is None:
+            return  # status wasn't loaded, so there's no baseline to compare against
+        else:
+            was_resolved = self._status_at_load == Status.RESOLVED
+
+        is_resolved = self.status == Status.RESOLVED
+        if is_resolved == was_resolved:
+            return
+
+        self.resolved_at = timezone.now() if is_resolved else None
+        _extend_update_fields(save_kwargs, "resolved_at")
 
     def __str__(self):
         return f"Ticket {self.id} - {self.widget_session_id[:8]}..."
