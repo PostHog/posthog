@@ -354,6 +354,8 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     real GitHub approval) on those same inbox PRs. It is a cross-product preference kept here so both
     toggles live on one row, and it only takes effect for teams with a synced, enabled
     StamphogRepoConfig covering the PR's repository.
+    `resolve_comments` is the resolution stage's opt-out (default on — reviewing includes resolving):
+    when on, every published review of the user's PRs chains into the resolution stage.
     """
 
     class UrgencyThreshold(models.TextChoices):
@@ -369,6 +371,7 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     review_inbox_prs = models.BooleanField(default=False, db_default=False)
     stamphog_review_inbox_prs = models.BooleanField(default=False, db_default=False)
     review_labeled_prs = models.BooleanField(default=True, db_default=True)
+    resolve_comments = models.BooleanField(default=True, db_default=True)
     urgency_threshold = models.CharField(
         max_length=20,
         choices=UrgencyThreshold.choices,

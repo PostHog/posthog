@@ -54,7 +54,7 @@ def _build_inputs(
     pr_url: str | None,
     repository: str | None,
     head_branch: str | None,
-    resolve_comments: bool = False,
+    resolve_comments: bool | None = None,
 ) -> tuple[ReviewPRWorkflowInputs, str]:
     """Validate the review target, the team, and build the workflow inputs + deterministic id.
 
@@ -105,7 +105,7 @@ def execute_review_pr_workflow(
     signal_report_id: str | None = None,
     repository: str | None = None,
     head_branch: str | None = None,
-    resolve_comments: bool = False,
+    resolve_comments: bool | None = None,
 ) -> str:
     """Start `ReviewPRWorkflow`, block until it completes, and return the `ReviewReport` id.
 
@@ -157,7 +157,7 @@ def start_review_pr_workflow(
     signal_report_id: str | None = None,
     repository: str | None = None,
     head_branch: str | None = None,
-    resolve_comments: bool = False,
+    resolve_comments: bool | None = None,
 ) -> str:
     """Start `ReviewPRWorkflow` without blocking and return the workflow id.
 

@@ -35,14 +35,6 @@ class ReviewHogTriggerRequestSerializer(serializers.Serializer):
         default=True,
         help_text="Whether to post the review back to the PR. Defaults true (the label trigger publishes).",
     )
-    resolve = serializers.BooleanField(
-        required=False,
-        default=False,
-        help_text=(
-            "Whether to chain the resolution stage after the review: triage the PR's unresolved review "
-            "threads and implement the worth-and-safe fixes directly on the PR branch. Defaults false."
-        ),
-    )
 
 
 class ReviewHogResolveRequestSerializer(serializers.Serializer):
@@ -179,9 +171,10 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
         summary="Trigger a ReviewHog PR review",
         description=(
             "Start a single-turn ReviewHog review for a pull request and (by default) publish it back to "
-            "the PR. Authenticated with the REVIEWHOG_TRIGGER_TOKEN shared secret in the Authorization "
-            "header. Non-blocking: returns the Temporal workflow id immediately while the review runs in "
-            "the worker."
+            "the PR. A published review chains into the resolution stage when the PR author's "
+            "resolve_comments setting is on (the default). Authenticated with the REVIEWHOG_TRIGGER_TOKEN "
+            "shared secret in the Authorization header. Non-blocking: returns the Temporal workflow id "
+            "immediately while the review runs in the worker."
         ),
     )
     @action(detail=False, methods=["POST"], url_path="trigger")
@@ -195,7 +188,6 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
         repo: str = serializer.validated_data["repo"]
         pr_number: int = serializer.validated_data["pr_number"]
         publish: bool = serializer.validated_data["publish"]
-        resolve: bool = serializer.validated_data["resolve"]
 
         gates = self._run_gates(repo)
         if isinstance(gates, Response):
@@ -203,7 +195,9 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
         team_id, user_id = gates
 
         # Forks are rejected server-side in the workflow's fetch activity (and by the Action gate); the
-        # endpoint stays free of GitHub I/O and returns immediately.
+        # endpoint stays free of GitHub I/O and returns immediately. Reviewing includes resolving:
+        # whether the run chains the resolution stage is the PR author's `resolve_comments` setting
+        # (default on), not a caller flag.
         pr_url = f"https://github.com/{repo}/pull/{pr_number}"
         workflow_id = start_review_pr_workflow(
             pr_url=pr_url,
@@ -211,7 +205,6 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
             user_id=user_id,
             publish=publish,
             trigger_source=TRIGGER_LABEL,
-            resolve_comments=resolve,
         )
         logger.info(f"ReviewHog trigger started workflow {workflow_id} for {repo}#{pr_number} (publish={publish})")
         return Response(

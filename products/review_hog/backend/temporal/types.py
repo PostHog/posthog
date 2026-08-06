@@ -54,10 +54,15 @@ class ReviewPRWorkflowInputs:
     signal_report_id: str | None = None
     # Branch target (PR-less review): the pushed head branch to review when no PR URL is known.
     head_branch: str | None = None
-    # Chain the resolution stage after this turn (fire-and-forget `resolve-pr` dispatch once the
-    # turn finishes, when the target has a PR). Off by default; defaults False so in-flight payloads
-    # serialized before the field existed replay deterministically (the dispatch never fires for them).
-    resolve_comments: bool = False
+    # Per-run override for chaining the resolution stage after this turn (fire-and-forget
+    # `resolve-pr` dispatch once the turn finishes, when the target has a PR). None — the default,
+    # and what every trigger passes except the UI's explicit "review without resolving" — means the
+    # acting user's `resolve_comments` setting decides (snapshotted by `resolve_acting_user`, and
+    # only on publishing runs — an unpublished eval/CLI review must not write to the PR). Replay-safe
+    # both ways: pre-field payloads decode to None and their recorded snapshot lacks the setting
+    # (False), while payloads serialized under the old `bool = False` default decode to an explicit
+    # False — in both cases the dispatch never fires for old histories, exactly as they ran.
+    resolve_comments: bool | None = None
 
     @property
     def repository(self) -> str:
