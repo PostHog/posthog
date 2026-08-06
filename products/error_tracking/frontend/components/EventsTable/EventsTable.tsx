@@ -42,14 +42,22 @@ export interface EventsTableProps {
     query: EventsQuery
     queryKey: string
     selectedEvent: ErrorEventType | null
+    loading?: boolean
     onEventSelect: (event: ErrorEventType | null) => void
 }
 
-export function EventsTable({ query, queryKey, onEventSelect, selectedEvent }: EventsTableProps): JSX.Element {
+export function EventsTable({
+    query,
+    queryKey,
+    onEventSelect,
+    selectedEvent,
+    loading = false,
+}: EventsTableProps): JSX.Element {
     const dataSource = eventsSourceLogic({ queryKey, query })
     const { items, itemsLoading, canLoadNextData } = useValues(dataSource)
     const { loadNextData } = useActions(dataSource)
     const { summary } = useValues(errorTrackingIssueSceneLogic)
+    const isLoading = loading || itemsLoading
 
     function isEventSelected(record: ErrorEventType): boolean {
         return selectedEvent ? selectedEvent.uuid === record.uuid : false
@@ -144,7 +152,7 @@ export function EventsTable({ query, queryKey, onEventSelect, selectedEvent }: E
                     </TableBody>
                 ) : (
                     <TableEmpty className="py-6 text-muted-foreground">
-                        {itemsLoading ? 'Loading exceptions...' : 'No exceptions found.'}
+                        {isLoading ? 'Loading exceptions...' : 'No exceptions found.'}
                     </TableEmpty>
                 )}
                 {items.length > 0 && (
@@ -152,7 +160,7 @@ export function EventsTable({ query, queryKey, onEventSelect, selectedEvent }: E
                         <TableRow>
                             <TableCell colSpan={2} className="bg-transparent! p-1">
                                 <div className="flex h-7 items-center justify-center gap-1 text-xs text-muted-foreground">
-                                    {itemsLoading ? (
+                                    {isLoading ? (
                                         <>
                                             <Spinner className="size-3" />
                                             Loading...

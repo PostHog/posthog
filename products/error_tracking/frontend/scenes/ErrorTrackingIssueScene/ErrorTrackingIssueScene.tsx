@@ -369,13 +369,14 @@ const ExceptionsTab = (): JSX.Element => {
     const eventsDataSource = eventsSourceLogic({ query: eventsQuery, queryKey: eventsQueryKey })
     const { itemsLoading, canLoadNextData } = useValues(eventsDataSource)
     const { loadData, loadNextData } = useActions(eventsDataSource)
+    const eventsLoading = issueFingerprintsLoading || itemsLoading
 
     return (
         <div className="flex flex-col h-full min-h-0">
             <Metadata
                 className="flex flex-col flex-1 min-h-0"
                 onScrollNearEnd={() => {
-                    if (canLoadNextData && !itemsLoading) {
+                    if (canLoadNextData && !eventsLoading) {
                         loadNextData()
                     }
                 }}
@@ -390,7 +391,7 @@ const ExceptionsTab = (): JSX.Element => {
                                             <Button
                                                 variant="outline"
                                                 size="icon"
-                                                loading={itemsLoading}
+                                                loading={eventsLoading}
                                                 aria-label="Reload exceptions"
                                                 onClick={() => loadData()}
                                             />
@@ -415,15 +416,14 @@ const ExceptionsTab = (): JSX.Element => {
                         </div>
                     </ErrorFilters.Root>
                 </div>
-                {issueFingerprintsLoading ? (
-                    <div className="px-2 py-3 text-sm text-muted-foreground">Loading exceptions...</div>
-                ) : issueFingerprints.length === 0 ? (
+                {!issueFingerprintsLoading && issueFingerprints.length === 0 ? (
                     <div className="px-2 py-3 text-sm text-muted-foreground">No exceptions found for this issue.</div>
                 ) : (
                     <EventsTable
                         query={eventsQuery}
                         queryKey={eventsQueryKey}
                         selectedEvent={selectedEvent}
+                        loading={eventsLoading}
                         onEventSelect={(selectedEvent) => {
                             if (selectedEvent) {
                                 selectEvent(selectedEvent)
