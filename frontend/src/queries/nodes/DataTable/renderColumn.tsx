@@ -51,6 +51,28 @@ import { extractExpressionComment, removeExpressionComment } from './utils'
 
 export const DATETIME_KEYS = ['timestamp', 'created_at', 'last_seen', 'last_seen_at', 'session_start', 'session_end']
 
+const ISO_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3,6})?(?:Z|[+-]\d{2}:\d{2})?$/
+
+// ClickHouse returns the Unix epoch (toDateTime(0)) for missing DateTime values instead of null, so a
+// blank date reaches us as a real-looking timestamp and renders as "57 years ago". The serialized offset
+// shifts with the project timezone (e.g. 1969-12-31T16:00:00-08:00 in US/Pacific), so compare parsed
+// milliseconds rather than string-matching "1970-01-01".
+export function isEpochTimestamp(value: string): boolean {
+    return ISO_TIMESTAMP_REGEX.test(value) && dayjs(value).valueOf() === 0
+}
+
+function EpochTimestamp({ value }: { value: string }): JSX.Element {
+    return (
+        <Tooltip
+            title={`No date recorded. The value is stored as the Unix epoch (${value}), which usually means it was never set.`}
+            placement="right"
+            delayMs={0}
+        >
+            <span className="cursor-default text-muted">—</span>
+        </Tooltip>
+    )
+}
+
 // Wraps the JSON viewer in a horizontally scrollable container so wide or deeply
 // nested objects stay readable inside fixed-width table cells, where the surrounding
 // table clips overflow and offers no horizontal scroll of its own (e.g. dashboard tiles).
@@ -157,6 +179,10 @@ export function renderColumn(
                 </span>
             </Tooltip>
         )
+    } else if (typeof value === 'string' && isEpochTimestamp(value)) {
+        // Guard before every date-rendering branch below (HogQL, EventsQuery, actors, DATETIME_KEYS) so a
+        // missing timestamp shows an empty state everywhere instead of a fabricated date.
+        return <EpochTimestamp value={value} />
     } else if (isHogQLQuery(query.source)) {
         if (typeof value === 'string') {
             try {
@@ -181,7 +207,7 @@ export function renderColumn(
             } catch {
                 // do nothing
             }
-            if (value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3,6})?(?:Z|[+-]\d{2}:\d{2})?$/)) {
+            if (ISO_TIMESTAMP_REGEX.test(value)) {
                 return (
                     <TZLabel
                         time={value}
