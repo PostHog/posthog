@@ -77,7 +77,7 @@ export const Metadata = ({
 
     return (
         <div className={className}>
-            <div className="flex-1 min-h-0 overflow-y-auto" onScroll={handleScroll}>
+            <div className="flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable]" onScroll={handleScroll}>
                 <div className="flex justify-between items-center h-[40px] px-4">
                     <div className="flex justify-end items-center h-full">
                         {match(hoverSelection)
