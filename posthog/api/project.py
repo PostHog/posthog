@@ -704,7 +704,6 @@ class ProjectBackwardCompatSerializer(
             "workflows_config",  # Compat with TeamSerializer
             "base_currency",  # Compat with TeamSerializer
             "capture_dead_clicks",  # Compat with TeamSerializer
-            "cookieless_server_hash_mode",  # Compat with TeamSerializer
             "human_friendly_comparison_periods",  # Compat with TeamSerializer
             "feature_flag_confirmation_enabled",  # Compat with TeamSerializer
             "feature_flag_confirmation_message",  # Compat with TeamSerializer
@@ -802,7 +801,6 @@ class ProjectBackwardCompatSerializer(
             "proactive_tasks_enabled",
             "base_currency",
             "capture_dead_clicks",
-            "cookieless_server_hash_mode",
             "human_friendly_comparison_periods",
             "feature_flag_confirmation_enabled",
             "feature_flag_confirmation_message",

@@ -241,9 +241,6 @@ const projectSettingsUpdate = (): ToolBase<typeof ProjectSettingsUpdateSchema, S
         if (params.capture_dead_clicks !== undefined) {
             body['capture_dead_clicks'] = params.capture_dead_clicks
         }
-        if (params.cookieless_server_hash_mode !== undefined) {
-            body['cookieless_server_hash_mode'] = params.cookieless_server_hash_mode
-        }
         if (params.human_friendly_comparison_periods !== undefined) {
             body['human_friendly_comparison_periods'] = params.human_friendly_comparison_periods
         }

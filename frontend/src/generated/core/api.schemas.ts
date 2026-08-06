@@ -1592,20 +1592,6 @@ export interface TeamWorkflowsConfigApi {
 }
 
 /**
- * * `0` - Disabled
- * * `1` - Stateless
- * * `2` - Stateful
- */
-export type CookielessServerHashModeEnumApi =
-    (typeof CookielessServerHashModeEnumApi)[keyof typeof CookielessServerHashModeEnumApi]
-
-export const CookielessServerHashModeEnumApi = {
-    Number0: 0,
-    Number1: 1,
-    Number2: 2,
-} as const
-
-/**
  * Mixin for serializers to add user access control fields
  */
 export interface ProjectBackwardCompatApi {
@@ -2411,7 +2397,6 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     capture_dead_clicks?: boolean | null
-    cookieless_server_hash_mode?: CookielessServerHashModeEnumApi | null
     /** @nullable */
     human_friendly_comparison_periods?: boolean | null
     /** @nullable */
@@ -3263,7 +3248,6 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     capture_dead_clicks?: boolean | null
-    cookieless_server_hash_mode?: CookielessServerHashModeEnumApi | null
     /** @nullable */
     human_friendly_comparison_periods?: boolean | null
     /** @nullable */

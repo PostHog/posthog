@@ -2609,14 +2609,6 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .boolean()
             .nullish()
             .describe('Enables capturing clicks that had no effect (rage-click detection).'),
-        cookieless_server_hash_mode: zod
-            .union([
-                zod
-                    .union([zod.literal(0), zod.literal(1), zod.literal(2)])
-                    .describe('\* `0` - Disabled\n\* `1` - Stateless\n\* `2` - Stateful'),
-                zod.null(),
-            ])
-            .optional(),
         human_friendly_comparison_periods: zod.boolean().nullish(),
         feature_flag_confirmation_enabled: zod.boolean().nullish(),
         feature_flag_confirmation_message: zod.string().nullish(),
