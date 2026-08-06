@@ -53,7 +53,7 @@ export function DismissedTab() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-3 px-6 py-4">
+    <div className="@container mx-auto flex w-full max-w-4xl flex-col gap-3 px-6 py-4">
       {reports.map((report) => (
         <ReportCard
           key={report.id}

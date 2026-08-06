@@ -67,9 +67,12 @@ export function PullRequestCard({
   return (
     <div
       className={cn(
-        // The card is its own size container: below ~32rem the actions rail
-        // stacks under the content instead of crushing the title column.
-        "@container group flex w-full @lg:flex-row flex-col @lg:items-start gap-3 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-4 py-3.5 transition duration-150 hover:border-(--gray-6) hover:bg-(--gray-2) hover:shadow-sm",
+        // Below ~32rem of list width the actions rail stacks under the content
+        // instead of crushing the title column. The @lg variants query the
+        // nearest `@container` ancestor (the tab's list wrapper): a container
+        // query cannot match the element that declares it, so the card must
+        // not carry `@container` itself.
+        "group flex w-full @lg:flex-row flex-col @lg:items-start gap-3 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-4 py-3.5 transition duration-150 hover:border-(--gray-6) hover:bg-(--gray-2) hover:shadow-sm",
         isSelected &&
           "border-(--accent-8) bg-(--accent-2) ring-(--accent-8) ring-2 ring-inset",
       )}

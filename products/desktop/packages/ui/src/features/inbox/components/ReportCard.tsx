@@ -126,9 +126,12 @@ export function ReportCard(props: ReportCardProps) {
   return (
     <div
       className={cn(
-        // The card is its own size container: below ~32rem the actions rail
-        // stacks under the content instead of crushing the title column.
-        "@container group flex w-full @lg:flex-row flex-col @lg:items-stretch gap-3 rounded-(--radius-2) border border-(--gray-6) border-dashed bg-(--color-panel-solid) px-4 py-3.5 transition duration-150 hover:border-(--gray-7) hover:bg-(--gray-2)",
+        // Below ~32rem of list width the actions rail stacks under the content
+        // instead of crushing the title column. The @lg variants query the
+        // nearest `@container` ancestor (the tab's list wrapper): a container
+        // query cannot match the element that declares it, so the card must
+        // not carry `@container` itself.
+        "group flex w-full @lg:flex-row flex-col @lg:items-stretch gap-3 rounded-(--radius-2) border border-(--gray-6) border-dashed bg-(--color-panel-solid) px-4 py-3.5 transition duration-150 hover:border-(--gray-7) hover:bg-(--gray-2)",
         isArchived ? "opacity-90" : "hover:shadow-sm",
         !isArchived &&
           isSelected &&

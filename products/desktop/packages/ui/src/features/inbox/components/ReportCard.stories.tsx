@@ -34,7 +34,10 @@ type Story = StoryObj<typeof ReportCard>;
 export const WrappingTitle: Story = {
   decorators: [
     (StoryFn) => (
-      <div style={{ maxWidth: 720, margin: "2rem auto", padding: "0 1rem" }}>
+      <div
+        className="@container"
+        style={{ maxWidth: 720, margin: "2rem auto", padding: "0 1rem" }}
+      >
         <StoryFn />
       </div>
     ),
@@ -45,7 +48,10 @@ export const WrappingTitle: Story = {
 export const Narrow: Story = {
   decorators: [
     (StoryFn) => (
-      <div style={{ maxWidth: 360, margin: "2rem auto", padding: "0 1rem" }}>
+      <div
+        className="@container"
+        style={{ maxWidth: 360, margin: "2rem auto", padding: "0 1rem" }}
+      >
         <StoryFn />
       </div>
     ),
@@ -64,7 +70,10 @@ export const Archived: Story = {
   },
   decorators: [
     (StoryFn) => (
-      <div style={{ maxWidth: 720, margin: "2rem auto", padding: "0 1rem" }}>
+      <div
+        className="@container"
+        style={{ maxWidth: 720, margin: "2rem auto", padding: "0 1rem" }}
+      >
         <StoryFn />
       </div>
     ),

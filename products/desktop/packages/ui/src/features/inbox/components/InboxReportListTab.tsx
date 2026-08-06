@@ -170,7 +170,7 @@ export function InboxReportListTab({
 
   if (isLoading && scopedReports.length === 0) {
     return (
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-4">
+      <div className="@container mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-4">
         <InboxSearchFilterBar searchPlaceholder={searchPlaceholder} />
         <CardSkeleton count={4} variant="cards" />
       </div>
@@ -179,7 +179,7 @@ export function InboxReportListTab({
 
   return (
     <>
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-4">
+      <div className="@container mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-4">
         <InboxSearchFilterBar
           searchPlaceholder={searchPlaceholder}
           onRefresh={() => void refetch()}

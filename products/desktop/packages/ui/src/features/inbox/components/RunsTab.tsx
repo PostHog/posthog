@@ -86,7 +86,7 @@ export function RunsTab() {
     queuedRuns.length > 0 || liveRuns.length > 0 || finishedRuns.length > 0;
 
   return (
-    <Flex direction="column" gap="4" className="mx-auto max-w-3xl px-6 py-4">
+    <div className="@container mx-auto flex w-full max-w-3xl flex-col gap-4 px-6 py-4">
       {!hasAnyRuns ? (
         <Empty className="mx-auto max-w-md py-16">
           <EmptyHeader>
@@ -137,7 +137,7 @@ export function RunsTab() {
           )}
         </Flex>
       )}
-    </Flex>
+    </div>
   );
 }
 

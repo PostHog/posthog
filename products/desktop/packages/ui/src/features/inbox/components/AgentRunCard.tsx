@@ -118,7 +118,7 @@ export function AgentRunCard({ report }: AgentRunCardProps) {
           params: { reportId: report.id },
         })
       }
-      className="@container group flex w-full flex-wrap @lg:flex-nowrap items-start gap-3 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-4 py-3.5 text-left transition duration-150 hover:border-(--gray-6) hover:bg-(--gray-2) hover:shadow-sm focus-visible:bg-(--gray-2) focus-visible:outline-none"
+      className="group flex w-full flex-wrap @lg:flex-nowrap items-start gap-3 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-4 py-3.5 text-left transition duration-150 hover:border-(--gray-6) hover:bg-(--gray-2) hover:shadow-sm focus-visible:bg-(--gray-2) focus-visible:outline-none"
     >
       <RunStatusOrb meta={meta} />
 
