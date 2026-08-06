@@ -424,7 +424,7 @@ jobs:
             - name: Build Rust flags service
               working-directory: rust
               env:
-                  # Debug builds compile much faster than release (~4 min vs ~9 min).
+                  # Debug builds compile much faster than release.
                   # We disable debug assertions because the codebase contains
                   # debug_assert! checks that intentionally panic on data invariant
                   # violations, which would crash the service mid-test-run.

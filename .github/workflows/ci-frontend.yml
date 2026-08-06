@@ -631,8 +631,8 @@ jobs:
         # Fork PRs keep the pre-existing OOM flake; internal PRs and master get the fix.
         runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-8' || 'ubuntu-latest' }}
         # Kea typegen invalidates on changes to any logic plus everything that depends on it.
-        # For changes to shared core (TaxonomicFilter, Insight, etc.) the dependent set is large
-        # and the cache miss costs ~5min on top of the master baseline (~10min). 15 is too tight.
+        # For changes to shared core (TaxonomicFilter, Insight, etc.) the dependent set is
+        # large, so the budget must fit a cache miss on top of the baseline build.
         timeout-minutes: 20
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

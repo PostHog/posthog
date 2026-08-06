@@ -405,8 +405,8 @@ jobs:
     # healthy does deploy block on build-frontend (the "Wait for the PR frontend"
     # step polls this run's jobs), then swap the finished dist in BEFORE posting
     # "ready" — a reviewer must never open a green link and get :master's
-    # frontend for their frontend PR. The FE build (~3m27s) hides entirely under
-    # the longer bring-up (~6m), so the pipeline is bring-up-bound, not their sum.
+    # frontend for their frontend PR. The FE build hides entirely under the
+    # longer bring-up, so the pipeline is bring-up-bound, not their sum.
     #
     # FAIL-OPEN, so infra failures leave this job green: success()/failure() are
     # meaningless here, the `outcome` step is the verdict. The fork guard is exempt —
