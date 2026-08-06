@@ -4,7 +4,7 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from products.data_modeling.backend.logic.node_frequency import set_declared_target
+from products.data_modeling.backend.logic.node_frequency import set_declared_anchor, set_declared_target
 from products.data_modeling.backend.logic.tier_run_report import (
     BLOCKED,
     CANCELLED,
@@ -168,6 +168,26 @@ class TestTierRunReport(BaseTest):
 
         assert [(tier.label, tier.seconds) for tier in tiers] == [("1hour", 3600), ("1day", 86400)]
         assert [[node.name for node in tier.nodes] for tier in tiers] == [["hourly_model"], ["daily_model"]]
+
+    def test_an_anchored_cohort_reports_its_own_schedule_and_run(self):
+        # an anchored cohort is its own Temporal schedule with a 3-segment id; grouping by bare
+        # interval or prefix-matching the 2-segment id would report every anchored node MISSING
+        # on exactly the DAGs an operator anchored for closest observation
+        anchored = self._node("anchored_model", DAILY)
+        set_declared_anchor(anchored, 1350)
+        spread = self._node("spread_model", DAILY)
+        anchored_parent = f"execute-dag-{self.dag.id}:86400:1350-2026-07-25T22:30:00Z"
+        self._job(anchored, parent_workflow_id=anchored_parent, status=DataModelingJobStatus.COMPLETED)
+        self._job(spread, parent_workflow_id=self._daily_parent(), status=DataModelingJobStatus.COMPLETED)
+
+        spread_tier, anchored_tier = build_tier_runs(self.dag)
+
+        assert anchored_tier.schedule_id == f"{self.dag.id}:86400:1350"
+        assert anchored_tier.parent_workflow_id == anchored_parent
+        assert [n.status for n in anchored_tier.nodes] == [OK]
+        assert spread_tier.schedule_id == f"{self.dag.id}:86400"
+        assert [(n.name, n.status) for n in spread_tier.nodes] == [("spread_model", OK)]
+        assert spread_tier.slug != anchored_tier.slug
 
     def test_untargeted_nodes_are_reported_outside_every_tier(self):
         table_node(self.team, self.dag, "source_table", {})
