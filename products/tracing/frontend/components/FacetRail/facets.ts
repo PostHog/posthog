@@ -34,7 +34,9 @@ export type FacetColumn = 'service_name' | 'status_code'
  * - `resourceAttribute`: a `resource_attributes` map key (e.g. k8s.namespace.name), queried with
  *   breakdownType `span_resource_attribute`. Selection is a span_resource_attribute property filter.
  */
-export type FacetSource = { type: 'column'; column: FacetColumn } | { type: 'resourceAttribute'; key: string }
+export type FacetSource =
+    | { type: 'column'; column: FacetColumn }
+    | { type: 'resourceAttribute'; key: string; aliasKeys?: string[] }
 
 /**
  * The sources whose selection lives in the filterGroup. `service_name` is deliberately excluded:
@@ -43,7 +45,7 @@ export type FacetSource = { type: 'column'; column: FacetColumn } | { type: 'res
  */
 export type FilterGroupFacetSource =
     | { type: 'column'; column: Exclude<FacetColumn, 'service_name'> }
-    | { type: 'resourceAttribute'; key: string }
+    | { type: 'resourceAttribute'; key: string; aliasKeys?: string[] }
 
 export interface FacetConfig {
     /** Stable id used for collapse state and data-attrs. */
@@ -185,15 +187,22 @@ const STATUS_FACET: FacetConfig = {
     fixedOptions: STATUS_OPTIONS,
 }
 
-// Curated OTel resource attributes worth faceting. Keys are the stable OTel semantic-convention names;
-// `deployment.environment.name` is the 1.27+ stable key (older data may use `deployment.environment`).
-function resourceAttributeFacet(key: string, slug: string, title: string, group: string): FacetConfig {
+// Curated OTel resource attributes worth faceting. `key` is the current OTel semantic-convention name;
+// `aliasKeys` are older or non-standard spellings of the same attribute that resolveFacets falls back to
+// when the tenant doesn't emit the current key.
+function resourceAttributeFacet(
+    key: string,
+    slug: string,
+    title: string,
+    group: string,
+    aliasKeys?: string[]
+): FacetConfig {
     return {
         key: slug,
         title,
         group,
         kind: 'dynamic',
-        source: { type: 'resourceAttribute', key },
+        source: { type: 'resourceAttribute', key, aliasKeys },
         searchable: true,
         searchPlaceholder: `Search ${title.toLowerCase()}…`,
         emptyLabel: `No ${title.toLowerCase()} values`,
@@ -201,11 +210,17 @@ function resourceAttributeFacet(key: string, slug: string, title: string, group:
     }
 }
 
+// The only faceted attribute semconv has ever renamed: `deployment.environment` became
+// `deployment.environment.name` in 1.27. `env` is not a semantic convention — it's what a Datadog `env:`
+// tag lands as, since the Datadog ingest path stores ddtags verbatim. The rest below need no aliases:
+// the `k8s.*.name` keys and `service.version` are stable and were never renamed, and `host.name` has
+// kept its spelling too.
 const ENVIRONMENT_FACET = resourceAttributeFacet(
     'deployment.environment.name',
     'environment',
     'Environment',
-    'Standard'
+    'Standard',
+    ['deployment.environment', 'env']
 )
 const VERSION_FACET = resourceAttributeFacet('service.version', 'version', 'Version', 'Standard')
 const NAMESPACE_FACET = resourceAttributeFacet('k8s.namespace.name', 'namespace', 'Namespace', 'Kubernetes')
@@ -215,7 +230,8 @@ const HOST_FACET = resourceAttributeFacet('host.name', 'host', 'Host', 'Infrastr
 /**
  * The rail is rendered entirely from this list — append a config to add a facet (or a new group).
  * Ordered by group (Standard → Kubernetes → Infrastructure) since facetsByGroup keeps first-appearance order.
- * Resource-attribute facets only render when the tenant actually emits the key (see facetCountsLogic).
+ * Resource-attribute facets only render when the tenant actually emits the key or one of its aliases
+ * (see resolveFacets, called from facetCountsLogic).
  */
 export const FACETS: FacetConfig[] = [
     SERVICE_FACET,
@@ -226,6 +242,29 @@ export const FACETS: FacetConfig[] = [
     DEPLOYMENT_FACET,
     HOST_FACET,
 ]
+
+/**
+ * Resolve the configured facets against the resource-attribute keys a tenant actually emits.
+ * Column facets always pass through. A resource-attribute facet is kept only if the tenant emits its
+ * current key or one of its aliases, and its source is rewritten onto whichever spelling is present so
+ * the rail queries and filters on the key that has data. The current key wins when several are present.
+ */
+export function resolveFacets(facets: FacetConfig[], presentResourceKeys: string[]): FacetConfig[] {
+    const present = new Set(presentResourceKeys)
+    const resolved: FacetConfig[] = []
+    for (const facet of facets) {
+        if (facet.source.type === 'column') {
+            resolved.push(facet)
+            continue
+        }
+        const match = [facet.source.key, ...(facet.source.aliasKeys ?? [])].find((k) => present.has(k))
+        if (match === undefined) {
+            continue
+        }
+        resolved.push(match === facet.source.key ? facet : { ...facet, source: { ...facet.source, key: match } })
+    }
+    return resolved
+}
 
 /**
  * Filter facets by a free-text query matching the field name or its group (case-insensitive
