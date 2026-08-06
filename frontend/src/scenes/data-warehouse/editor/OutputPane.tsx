@@ -79,7 +79,6 @@ import {
     copyTableToMarkdown,
 } from '../../../queries/nodes/DataTable/clipboardUtils'
 import { FixErrorButton } from './components/FixErrorButton'
-import { getConnectionEngineLabel } from './connectionSelectorLogic'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import { trimRedundantTail } from './syncWarnings'
@@ -1232,14 +1231,10 @@ const Content = ({
                     progress={progress}
                     suggestion={
                         // Only worth saying once the query is demonstrably slow.
-                        selectedDirectSource && loadingSeconds >= 60 ? (
+                        selectedDirectSource?.source_type === 'Motherduck' && loadingSeconds >= 60 ? (
                             <p className="text-xs m-0 text-center">
-                                This query runs live on your{' '}
-                                {getConnectionEngineLabel({
-                                    engine: null,
-                                    source_type: selectedDirectSource.source_type,
-                                })}{' '}
-                                database. Speed depends on its capacity and current load.
+                                This query runs live on your MotherDuck database. Speed depends on its capacity and
+                                current load.
                             </p>
                         ) : undefined
                     }
