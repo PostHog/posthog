@@ -66,6 +66,8 @@ from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
     HogQLQueryThrottle,
+    QueryProjectBurstThrottle,
+    QueryProjectSustainedThrottle,
 )
 from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.schema_migrations.upgrade import upgrade
@@ -187,7 +189,21 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         kind = query.get("kind") if isinstance(query, dict) else None
         return _QUERY_KIND_SCOPES.get(kind) if isinstance(kind, str) else None
 
+    # Actions left out of the project's query volume ceiling. Cancelling and the async auth
+    # pre-check stay available so a project that has hit the ceiling can still stop the queries it
+    # already started, and draft_sql runs no query and is already throttled per user. Anything else,
+    # including any action added later, counts.
+    ACTIONS_OUTSIDE_QUERY_VOLUME_CAP = ("destroy", "check_auth_for_async", "draft_sql")
+
     def get_throttles(self):
+        return [*self._per_credential_throttles(), *self._project_volume_throttles()]
+
+    def _project_volume_throttles(self):
+        if self.action in self.ACTIONS_OUTSIDE_QUERY_VOLUME_CAP:
+            return []
+        return [QueryProjectBurstThrottle(), QueryProjectSustainedThrottle()]
+
+    def _per_credential_throttles(self):
         if self.action == "draft_sql":
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         if self.action == "get_query_log":

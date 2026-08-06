@@ -196,7 +196,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             if team_id is not None and self.scope == HogQLQueryThrottle.scope:
                 self.load_team_rate_limit(team_id)
 
-            request_would_be_allowed = SimpleRateThrottle.allow_request(self, request, view)
+            request_would_be_allowed = self._request_would_be_allowed(request, view)
             if request_would_be_allowed:
                 return True
 
@@ -237,6 +237,11 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         except Exception as e:
             capture_exception(e)
             return True
+
+    def _request_would_be_allowed(self, request: "Request", view: "APIView") -> bool:
+        """Whether the bucket still has room. Split out of `_allow_request_internal` so a subclass
+        can swap the counting mechanism while keeping the allow-list, metrics and error handling."""
+        return SimpleRateThrottle.allow_request(self, request, view)
 
     def allow_request(self, request, view):
         # Only rate limit authenticated requests made with a personal API key
@@ -523,6 +528,52 @@ class _TeamBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
+class _FixedWindowTeamBucketRateThrottle(_TeamBucketRateThrottle):
+    """A project-wide bucket counted as a single integer per window, for ceilings in the tens of
+    thousands.
+
+    SimpleRateThrottle keeps one timestamp per request in the window and rewrites the whole list on
+    every request, so a ceiling that high would move hundreds of kilobytes through the cache per
+    request. This keeps a counter instead, so the cache traffic per request stays constant however
+    high the ceiling goes.
+
+    Two tradeoffs, both acceptable for a ceiling meant to catch runaway volume rather than to pace a
+    caller precisely: the window is fixed rather than sliding, so a caller straddling a boundary can
+    send up to twice the rate before being cut off, and the increment is not atomic on every cache
+    backend, so concurrent requests can undercount.
+    """
+
+    window_ends_at: float | None = None
+
+    def _request_would_be_allowed(self, request: "Request", view: "APIView") -> bool:
+        if self.num_requests is None or self.duration is None:
+            return True
+
+        duration = int(self.duration)
+        window_start = int(time.time() // duration * duration)
+        self.window_ends_at = window_start + duration
+        bucket = f"{self.get_cache_key(request, view)}:{window_start}"
+
+        # add() is a no-op when the key exists, so the window's first request seeds the counter with
+        # its TTL and every later one only increments.
+        if self.cache.add(bucket, 1, duration + 1):
+            return True
+        try:
+            count = self.cache.incr(bucket)
+        except ValueError:
+            # Expired between the add and the incr, so this request opens a new window.
+            self.cache.set(bucket, 1, duration + 1)
+            return True
+        return count <= self.num_requests
+
+    def wait(self) -> float | None:
+        """Seconds until the window resets. Overridden because the parent derives Retry-After from
+        the timestamp history this class doesn't keep."""
+        if self.window_ends_at is None:
+            return None
+        return max(self.window_ends_at - time.time(), 0)
+
+
 # The heatmap page pre-flight makes one outbound fetch of a caller-supplied page per uncached probe,
 # holding a web worker for as long as that page takes to answer, so its budget is about worker
 # occupancy rather than about protecting our own datastores. A legitimate caller needs one probe per
@@ -713,6 +764,29 @@ class APIQueriesBurstThrottle(PersonalApiKeyRateThrottle):
 class APIQueriesSustainedThrottle(PersonalApiKeyRateThrottle):
     scope = "api_queries_sustained"
     rate = "2400/hour"
+
+
+# Every other throttle on /query is personal-API-key-only and keyed per credential, so a project
+# driving the endpoint from the app (session auth) or from many minted keys has no ceiling on the
+# ClickHouse load it can put on the cluster, and one project can take a large share of platform
+# query capacity. These two cap a project's total, counting every auth method and pooling all
+# credentials into one bucket. They stack with the per-credential throttles rather than replacing
+# them: those keep one key from starving a project's other callers, these bound the project.
+#
+# The rates are deliberately a ceiling on runaway volume, not a budget the app should ever feel: the
+# app itself is the biggest legitimate caller, one request per insight loaded plus polls on async
+# ones, so a large project with many concurrent users has to fit comfortably underneath. Both are
+# env-overridable so a region can ratchet them down against observed `rate_limit_exceeded` volume
+# without a code change, and a project can be exempted at runtime through the
+# RATE_LIMITING_ALLOW_LIST_TEAMS instance setting.
+class QueryProjectBurstThrottle(_FixedWindowTeamBucketRateThrottle):
+    scope = "query_project_burst"
+    rate = settings.QUERY_PROJECT_BURST_THROTTLE_RATE
+
+
+class QueryProjectSustainedThrottle(_FixedWindowTeamBucketRateThrottle):
+    scope = "query_project_sustained"
+    rate = settings.QUERY_PROJECT_SUSTAINED_THROTTLE_RATE
 
 
 class AIObservabilityTextReprBurstThrottle(PersonalApiKeyRateThrottle):

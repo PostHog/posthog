@@ -918,3 +918,77 @@ class TestProjectSecretApiKeyTeamRateThrottle(APIBaseTest):
 
     def test_cache_key_is_keyed_per_team(self):
         self.assertIn("psak-team:7", _PSAKTeamThrottleForTest().get_cache_key(self._psak_request(team_id=7), Mock()))
+
+
+# The query API's other throttles only count personal-API-key requests, and count them per
+# credential, so before these the app's own session-authenticated traffic had no ceiling at all.
+class TestQueryProjectVolumeThrottle(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            secure_value=hash_key_value(self.personal_api_key),
+            scopes=["*"],
+        )
+
+    def tearDown(self):
+        super().tearDown()
+        cache.clear()
+
+    def _run_query(self, **kwargs):
+        # An unknown query kind is rejected before anything is executed, and throttles are checked
+        # before that, so this exercises the ceiling without running a query.
+        return self.client.post(
+            f"/api/environments/{self.team.id}/query/", {"query": {"kind": "NotARealQueryKind"}}, **kwargs
+        )
+
+    def _poll_query(self, **kwargs):
+        return self.client.get(f"/api/environments/{self.team.id}/query/nonexistent-query-id/", **kwargs)
+
+    @parameterized.expand([("running", "_run_query"), ("polling", "_poll_query")])
+    @patch("posthog.rate_limit.QueryProjectBurstThrottle.rate", new="2/minute")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_session_authenticated_requests_are_capped_per_project(
+        self, _name: str, request_method: str, _rate_limit_enabled: Mock
+    ) -> None:
+        send = getattr(self, request_method)
+
+        for _ in range(2):
+            self.assertNotEqual(send().status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+        response = send()
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertLessEqual(int(response.headers["Retry-After"]), 60)
+
+    @patch("posthog.rate_limit.QueryProjectBurstThrottle.rate", new="2/minute")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_all_credentials_share_one_project_bucket(self, _rate_limit_enabled: Mock) -> None:
+        for _ in range(2):
+            self._run_query()
+
+        response = self._run_query(headers={"authorization": f"Bearer {self.personal_api_key}"})
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @patch("posthog.rate_limit.QueryProjectBurstThrottle.rate", new="2/minute")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_cap_lifts_once_the_window_passes(self, _rate_limit_enabled: Mock) -> None:
+        with freeze_time("2024-01-01 12:00:00") as frozen_time:
+            for _ in range(2):
+                self._run_query()
+            self.assertEqual(self._run_query().status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+            frozen_time.tick(delta=timedelta(seconds=61))
+            self.assertNotEqual(self._run_query().status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @patch("posthog.rate_limit.QueryProjectBurstThrottle.rate", new="2/minute")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_cancelling_a_query_is_not_capped(self, _rate_limit_enabled: Mock) -> None:
+        # A project that has hit the ceiling still has to be able to stop the queries it started.
+        for _ in range(3):
+            self._run_query()
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/query/nonexistent-query-id/")
+        self.assertNotEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)

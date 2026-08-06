@@ -471,6 +471,14 @@ WHITENOISE_MAX_AGE = get_from_env("WHITENOISE_MAX_AGE", 3600, type_cast=int)
 # non-prod (e.g. dev deploy smoke-tests) can raise it without weakening the prod default.
 SIGNUP_IP_THROTTLE_RATE = get_from_env("SIGNUP_IP_THROTTLE_RATE", "5/day")
 
+# Project-wide ceilings on /query volume, counting every auth method (see
+# posthog.rate_limit.QueryProjectBurstThrottle). Sized so no single project can take a large share
+# of platform query capacity, while leaving the app's own session-authenticated traffic well below
+# the limit. Overridable per-env so a region can ratchet them down against observed
+# `rate_limit_exceeded` volume without a code change.
+QUERY_PROJECT_BURST_THROTTLE_RATE = get_from_env("QUERY_PROJECT_BURST_THROTTLE_RATE", "3000/minute")
+QUERY_PROJECT_SUSTAINED_THROTTLE_RATE = get_from_env("QUERY_PROJECT_SUSTAINED_THROTTLE_RATE", "60000/hour")
+
 # Email domains whose signups are created already-verified (skipping the email round-trip), so
 # non-prod deploy smoke-tests can sign up and act immediately. Empty by default — prod verifies
 # every signup.
