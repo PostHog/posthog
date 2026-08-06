@@ -320,6 +320,14 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # the sync path classifies and in the " ".join(e.args) form validate_credentials builds
             # (the formatted "codec can't encode character" text is reconstructed in neither).
             "ordinal not in range(256)": "One of your connection details contains an invisible or unsupported character (for example a zero-width space pasted in from another app). Retype the affected field — host, database, user, or password — by hand instead of pasting it, then re-enable the sync.",
+            # Vitess/PlanetScale vtgate error 1105 (ER_UNKNOWN_ERROR) raised when the target
+            # keyspace ("branch" in PlanetScale) has been deleted or put to sleep. Unlike the other
+            # transient 1105 payloads mysql.py already retries in-process (`code = Unavailable`,
+            # `reparent operation in progress`), a sleeping branch never wakes on its own — PlanetScale
+            # only wakes it from the dashboard or once a billing issue is resolved — and a deleted
+            # branch never comes back, so every retry fails identically. Match the stable phrase,
+            # excluding the volatile branch id that follows it.
+            "branch is missing or sleeping": "The PlanetScale (or Vitess) branch this source connects to has been deleted or put to sleep. Wake it from the PlanetScale dashboard (or resolve any billing issue), or point this source at a database that exists, then resync.",
         }
 
     def get_retryable_errors(self) -> set[str]:
