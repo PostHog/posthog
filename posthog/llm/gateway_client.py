@@ -45,6 +45,11 @@ def _team_id_header(team_id: int) -> dict[str, str]:
     return {"x-posthog-property-team_id": str(team_id)}
 
 
+def team_distinct_id(team_id: int) -> str:
+    """Namespace team-owned work away from bare numeric user distinct IDs."""
+    return f"team-{team_id}"
+
+
 def get_llm_client(
     product: Product = "django",
     team_id: int | None = None,
@@ -231,16 +236,8 @@ def _ai_property_headers(**labels: str | None) -> dict[str, str] | None:
     return {"X-PostHog-Properties": json.dumps(set_labels)}
 
 
-def ai_product_headers(ai_product: str | None) -> dict[str, str] | None:
-    """X-PostHog-Properties header tagging the captured generation with its AIO product.
-
-    The slugless Go gateway has no product route, so callers pass the product here to keep
-    per-product attribution on the shared ``phs_`` token.
-    """
-    return _ai_property_headers(ai_product=ai_product)
-
-
 def ai_gateway_headers(
+    *,
     ai_product: str | None = None,
     trace_id: str | None = None,
     session_id: str | None = None,
@@ -327,6 +324,8 @@ def build_openai_client(
     ``product`` names the Python-gateway route used in the fallback; the slugless Go gateway
     derives the team from its ``phs_`` bearer and ignores it. ``ai_product`` tags the captured
     generation in gateway mode (the Python-gateway fallback derives the tag from ``product``).
+    ``distinct_id`` is a Go-gateway header only. Callers must also pass the same value as ``user``
+    on every completion request so the Python-gateway fallback preserves end-user attribution.
     trust_env=False keeps the in-cluster call off the egress proxy.
     """
     gateway = resolve_ai_gateway_config()
@@ -335,13 +334,17 @@ def build_openai_client(
         return OpenAI(
             api_key=api_key,
             base_url=url,
-            default_headers=ai_gateway_headers(ai_product, trace_id, session_id, properties, distinct_id),
+            default_headers=ai_gateway_headers(
+                ai_product=ai_product,
+                trace_id=trace_id,
+                session_id=session_id,
+                properties=properties,
+                distinct_id=distinct_id,
+            ),
             http_client=httpx.Client(trust_env=False),
         )
     fallback_headers = _python_gateway_observability_headers(trace_id, session_id, properties)
-    if fallback_headers:
-        return get_llm_client(product, default_headers=fallback_headers)
-    return get_llm_client(product)
+    return get_llm_client(product, default_headers=fallback_headers)
 
 
 def build_async_openai_client(
@@ -359,13 +362,17 @@ def build_async_openai_client(
         return AsyncOpenAI(
             api_key=api_key,
             base_url=url,
-            default_headers=ai_gateway_headers(ai_product, trace_id, session_id, properties, distinct_id),
+            default_headers=ai_gateway_headers(
+                ai_product=ai_product,
+                trace_id=trace_id,
+                session_id=session_id,
+                properties=properties,
+                distinct_id=distinct_id,
+            ),
             http_client=httpx.AsyncClient(trust_env=False),
         )
     fallback_headers = _python_gateway_observability_headers(trace_id, session_id, properties)
-    if fallback_headers:
-        return get_async_llm_client(product, default_headers=fallback_headers)
-    return get_async_llm_client(product)
+    return get_async_llm_client(product, default_headers=fallback_headers)
 
 
 def build_async_anthropic_client(

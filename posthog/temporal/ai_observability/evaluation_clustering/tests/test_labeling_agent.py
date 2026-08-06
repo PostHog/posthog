@@ -253,7 +253,7 @@ class TestRunEvalLabelingAgent:
                 "clustering_run_id": "evaluation-clustering-run-1",
                 "clustering_job_id": "clustering-job-1",
             },
-            distinct_id="1",
+            distinct_id="team-1",
         )
         assert mock_agent.invoke.call_args.args[1]["callbacks"] == callbacks
 
@@ -278,4 +278,4 @@ class TestRunEvalLabelingAgent:
         assert result[0].title == "Cluster 0"
         observability_kwargs = mock_get_labeling_llm.call_args.kwargs
         assert observability_kwargs["session_id"] == observability_kwargs["trace_id"]
-        assert observability_kwargs["distinct_id"] == "1"
+        assert observability_kwargs["distinct_id"] == "team-1"

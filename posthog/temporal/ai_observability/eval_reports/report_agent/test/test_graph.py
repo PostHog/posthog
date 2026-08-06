@@ -397,7 +397,7 @@ class TestRunEvalReportAgentRouting(SimpleTestCase):
             trace_id="report-run-1",
             session_id="report-session-1",
             properties={"team_id": "1", "evaluation_id": "eval-1", "report_id": "report-1"},
-            distinct_id="1",
+            distinct_id="team-1",
         )
         # the agent is built with the gateway-helper client, not a directly-constructed one
         self.assertIs(mock_create_agent.call_args.kwargs["model"], mock_build_llm.return_value)
@@ -477,7 +477,7 @@ class TestRunEvalReportAgentInstrumentation(SimpleTestCase):
 
         expected_properties = {"team_id": "1", "evaluation_id": "eval-1", "report_id": "report-1"}
         mock_build_callbacks.assert_called_once_with(
-            distinct_id="1",
+            distinct_id="team-1",
             trace_id="report-run-1",
             session_id="report-session-1",
             ai_product="aio_eval_reports",

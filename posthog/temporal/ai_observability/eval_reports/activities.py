@@ -3,7 +3,6 @@
 import datetime as dt
 from collections import defaultdict
 from typing import TYPE_CHECKING, NamedTuple
-from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from django.db.models import Q
@@ -565,8 +564,6 @@ async def prepare_report_context_activity(
             period_end=period_end.isoformat(),
             previous_period_start=previous_period_start.isoformat(),
             report_prompt_guidance=guidance,
-            trace_id=str(uuid4()),
-            session_id=str(uuid4()),
         )
 
     return await prepare()

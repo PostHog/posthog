@@ -50,7 +50,13 @@ def build_langchain_chat_client(
             base_url=url,
             timeout=timeout,
             max_retries=2,
-            default_headers=ai_gateway_headers(ai_product, trace_id, session_id, properties, distinct_id),
+            default_headers=ai_gateway_headers(
+                ai_product=ai_product,
+                trace_id=trace_id,
+                session_id=session_id,
+                properties=properties,
+                distinct_id=distinct_id,
+            ),
             # trust_env=False keeps the in-cluster gateway call off the egress proxy.
             http_client=httpx.Client(trust_env=False),
             http_async_client=httpx.AsyncClient(trust_env=False),
@@ -70,6 +76,8 @@ def build_langchain_callbacks(
     ai_product: str,
     properties: Mapping[str, str] | None = None,
 ) -> list[BaseCallbackHandler]:
+    # The Go gateway captures $ai_generation itself, so attaching the SDK callback in gateway
+    # mode would double-count every model call.
     if not posthoganalytics.default_client or resolve_ai_gateway_config() is not None:
         return []
 

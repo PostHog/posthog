@@ -235,7 +235,7 @@ class TestBuildOpenAIClient:
     def test_falls_back_to_python_gateway_when_unset(self, mock_get_llm_client):
         result = build_openai_client("llma_summarization", ai_product="aio_summarization")
 
-        mock_get_llm_client.assert_called_once_with("llma_summarization")
+        mock_get_llm_client.assert_called_once_with("llma_summarization", default_headers=None)
         assert result is mock_get_llm_client.return_value
 
 
@@ -284,7 +284,7 @@ class TestBuildAsyncOpenAIClient:
     def test_falls_back_to_python_async_gateway_when_unset(self, mock_get_async):
         result = build_async_openai_client("llma_eval_summary", ai_product="aio_eval_summary")
 
-        mock_get_async.assert_called_once_with("llma_eval_summary")
+        mock_get_async.assert_called_once_with("llma_eval_summary", default_headers=None)
         assert result is mock_get_async.return_value
 
     @override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")

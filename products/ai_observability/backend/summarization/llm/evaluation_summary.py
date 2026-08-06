@@ -20,7 +20,7 @@ from redis.exceptions import LockError
 from rest_framework import exceptions
 
 from posthog import redis as posthog_redis
-from posthog.llm.gateway_client import build_async_openai_client
+from posthog.llm.gateway_client import build_async_openai_client, team_distinct_id
 
 from ..constants import (
     EVALUATION_SUMMARY_CHUNK_SIZE,
@@ -504,7 +504,7 @@ async def _generate_evaluation_summary(
     }
     trace_id = str(uuid4())
     session_id = str(uuid4())
-    resolved_distinct_id = user_distinct_id or str(team_id)
+    resolved_distinct_id = user_distinct_id or team_distinct_id(team_id)
     observability_properties = {
         "team_id": str(team_id),
         "filter_type": filter_type,

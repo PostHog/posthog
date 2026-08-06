@@ -7,6 +7,7 @@ import structlog
 from langchain_core.messages import HumanMessage
 from langgraph.prebuilt import create_react_agent
 
+from posthog.llm.gateway_client import team_distinct_id
 from posthog.temporal.ai_observability.clustering_agent import fill_missing_labels, get_labeling_llm
 from posthog.temporal.ai_observability.evaluation_clustering.labeling_agent.prompts import (
     EVAL_CLUSTER_LABELING_SYSTEM_PROMPT,
@@ -52,6 +53,7 @@ def run_eval_labeling_agent(
 
     resolved_trace_id = trace_id or str(uuid.uuid4())
     resolved_session_id = session_id or resolved_trace_id
+    resolved_distinct_id = team_distinct_id(team_id)
     observability_properties = {
         "team_id": str(team_id),
         "analysis_level": "evaluation",
@@ -64,7 +66,7 @@ def run_eval_labeling_agent(
         trace_id=resolved_trace_id,
         session_id=resolved_session_id,
         properties=observability_properties,
-        distinct_id=str(team_id),
+        distinct_id=resolved_distinct_id,
     )
 
     agent = create_react_agent(
@@ -84,14 +86,15 @@ def run_eval_labeling_agent(
         "current_labels": {},
     }
 
+    callbacks = build_langchain_callbacks(
+        distinct_id=resolved_distinct_id,
+        trace_id=resolved_trace_id,
+        session_id=resolved_session_id,
+        ai_product="aio_clustering",
+        properties=observability_properties,
+    )
+
     try:
-        callbacks = build_langchain_callbacks(
-            distinct_id=str(team_id),
-            trace_id=resolved_trace_id,
-            session_id=resolved_session_id,
-            ai_product="aio_clustering",
-            properties=observability_properties,
-        )
         result = agent.invoke(
             initial_state,
             {"recursion_limit": LABELING_AGENT_RECURSION_LIMIT, "callbacks": callbacks},

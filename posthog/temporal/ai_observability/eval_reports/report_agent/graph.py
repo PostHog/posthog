@@ -8,6 +8,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.prebuilt import create_react_agent
 
+from posthog.llm.gateway_client import team_distinct_id
 from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
 from posthog.temporal.ai_observability.eval_reports.report_agent.prompts import build_eval_report_system_prompt
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
@@ -260,6 +261,7 @@ def run_eval_report_agent(
 
     resolved_trace_id = trace_id or str(uuid.uuid4())
     resolved_session_id = session_id or resolved_trace_id
+    resolved_distinct_id = team_distinct_id(team_id)
     observability_properties = {
         "team_id": str(team_id),
         "evaluation_id": evaluation_id,
@@ -272,7 +274,7 @@ def run_eval_report_agent(
         trace_id=resolved_trace_id,
         session_id=resolved_session_id,
         properties=observability_properties,
-        distinct_id=str(team_id),
+        distinct_id=resolved_distinct_id,
     )
 
     system_prompt = build_eval_report_system_prompt(
@@ -317,7 +319,7 @@ def run_eval_report_agent(
     }
 
     callbacks = build_langchain_callbacks(
-        distinct_id=str(team_id),
+        distinct_id=resolved_distinct_id,
         trace_id=resolved_trace_id,
         session_id=resolved_session_id,
         ai_product="aio_eval_reports",

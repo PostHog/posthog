@@ -184,7 +184,7 @@ def valid_evaluation_summary_json():
 
 
 class TestSummarizeEvaluationRuns:
-    @pytest.mark.parametrize(("user_distinct_id", "expected_distinct_id"), [("user-1", "user-1"), ("", "1")])
+    @pytest.mark.parametrize(("user_distinct_id", "expected_distinct_id"), [("user-1", "user-1"), ("", "team-1")])
     def test_routes_through_async_gateway_builder_and_passes_timeout(
         self, valid_evaluation_summary_json, user_distinct_id, expected_distinct_id
     ):
