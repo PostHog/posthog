@@ -178,7 +178,7 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
     })
 })
 
-function makeCustomerComment(id: string, itemContext: Record<string, any>): CommentType {
+function makeCustomerComment(id: string, itemContext: Record<string, any> = {}): CommentType {
     return {
         id,
         content: 'reply body',
