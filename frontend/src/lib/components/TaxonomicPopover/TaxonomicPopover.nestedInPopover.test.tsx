@@ -53,6 +53,9 @@ describe('TaxonomicPopover nested inside a More dropdown', () => {
     })
 
     function renderNested(): void {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD], {
+            [FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD]: true,
+        })
         render(
             <Provider>
                 <More
@@ -75,17 +78,31 @@ describe('TaxonomicPopover nested inside a More dropdown', () => {
         )
     }
 
-    it('opens the rebuilt menu without dismissing the enclosing overlay', async () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD], {
-            [FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD]: true,
-        })
-        renderNested()
+    /** Open the `More` overlay, then the picker inside it. */
+    async function openPickerInsideOverlay(): Promise<void> {
         await userEvent.click(screen.getByLabelText('more'))
         await waitFor(() => expect(screen.getByText('Add column left')).toBeInTheDocument())
-
         await userEvent.click(screen.getByText('Add column left'))
-
         await waitFor(() => expect(screen.getByTestId('taxonomic-filter-menu-hogql')).toBeInTheDocument())
+    }
+
+    it('opens the rebuilt menu without dismissing the enclosing overlay', async () => {
+        renderNested()
+
+        await openPickerInsideOverlay()
+
+        expect(screen.getByTestId('taxonomic-popover-menu-trigger')).toBeInTheDocument()
+    })
+
+    it('keeps the enclosing overlay when clicking inside the portaled menu', async () => {
+        renderNested()
+        await openPickerInsideOverlay()
+
+        // The menu portals out of the parent overlay, so without the fix this
+        // click reads as "outside" and dismisses the picker before it can commit.
+        await userEvent.click(screen.getByTestId('taxonomic-filter-menu-new'))
+
+        await waitFor(() => expect(screen.getByTestId('menu-filter-search')).toBeInTheDocument())
         expect(screen.getByTestId('taxonomic-popover-menu-trigger')).toBeInTheDocument()
     })
 })
