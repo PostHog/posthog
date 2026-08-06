@@ -2161,15 +2161,17 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
 
 # A viewset gaining or losing AccessControlViewSetMixin changes this set. Regenerate with
 # `pytest ee/api/rbac/test/test_access_control.py --snapshot-update` so the change shows up in
-# review. Carrying the mixin is not enough to reach the settings picker: a resource also needs a
-# resolvable display name, so each entry records that verdict too. A resource landing in "excluded"
-# needs an entry in _MODELS_NOT_IN_ENTITY_MAP, or has no objects worth picking.
+# review, and give the settings picker a look for the new resource while at it.
 def test_resources_with_object_access_controls_snapshot(snapshot):
-    verdicts = [
-        f"{resource}: {'served' if _display_model(resource) else 'excluded (no resolvable name)'}"
-        for resource in sorted(resources_with_object_access_controls())
-    ]
-    assert verdicts == snapshot
+    assert sorted(resources_with_object_access_controls()) == snapshot
+
+
+# Carrying the mixin is not enough to reach the settings picker: a resource also needs a resolvable
+# display name, and the defaults endpoint drops those that don't have one. A resource present in the
+# snapshot above but missing here dropped out silently and needs an entry in
+# _MODELS_NOT_IN_ENTITY_MAP, or has no objects worth picking.
+def test_resources_served_to_the_object_rule_picker_snapshot(snapshot):
+    assert sorted(r for r in resources_with_object_access_controls() if _display_model(r)) == snapshot
 
 
 class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
