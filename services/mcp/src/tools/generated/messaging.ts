@@ -32,6 +32,26 @@ const optOutsAdd = (): ToolBase<typeof OptOutsAddSchema, Schemas.BulkAddOptOutsR
     },
 })
 
+const OptOutsListSchema = MessagingPreferencesOptOutsRetrieveQueryParams
+
+const optOutsList = (): ToolBase<typeof OptOutsListSchema, Schemas.PaginatedOptOuts> => ({
+    name: 'opt-outs-list',
+    schema: OptOutsListSchema,
+    handler: async (context: Context, params: z.infer<typeof OptOutsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedOptOuts>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_preferences/opt_outs/`,
+            query: {
+                category_key: params.category_key,
+                page: params.page,
+                page_size: params.page_size,
+            },
+        })
+        return result
+    },
+})
+
 const OptOutsRemoveSchema = MessagingPreferencesRemoveOptOutCreateBody
 
 const optOutsRemove = (): ToolBase<typeof OptOutsRemoveSchema, Schemas.MessagePreferences> => ({
@@ -55,28 +75,8 @@ const optOutsRemove = (): ToolBase<typeof OptOutsRemoveSchema, Schemas.MessagePr
     },
 })
 
-const OptOutsListSchema = MessagingPreferencesOptOutsRetrieveQueryParams
-
-const optOutsList = (): ToolBase<typeof OptOutsListSchema, Schemas.PaginatedOptOuts> => ({
-    name: 'opt-outs-list',
-    schema: OptOutsListSchema,
-    handler: async (context: Context, params: z.infer<typeof OptOutsListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedOptOuts>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_preferences/opt_outs/`,
-            query: {
-                category_key: params.category_key,
-                page: params.page,
-                page_size: params.page_size,
-            },
-        })
-        return result
-    },
-})
-
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'opt-outs-add': optOutsAdd,
-    'opt-outs-remove': optOutsRemove,
     'opt-outs-list': optOutsList,
+    'opt-outs-remove': optOutsRemove,
 }
