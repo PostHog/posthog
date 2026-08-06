@@ -265,11 +265,6 @@ def _resolve_object_names(resource: str, resource_ids: list[str], team_id: int) 
         return {}
 
 
-# Project-level access is its own control (the "Project access" dropdown), never an object rule —
-# every rules endpoint filters resource="project" out as well
-_OBJECT_RULE_EXCLUDED_SCOPES: frozenset[str] = frozenset({"project"})
-
-
 @cache
 def resources_with_object_access_controls() -> dict[APIScopeObject, frozenset[type[Model]]]:
     """Resources that support object-level access controls, mapped to the models behind them.
@@ -291,12 +286,9 @@ def resources_with_object_access_controls() -> dict[APIScopeObject, frozenset[ty
             if cls is None or not issubclass(cls, AccessControlViewSetMixin):
                 continue
             scope = getattr(cls, "scope_object", None)
-            if (
-                scope
-                and scope != "INTERNAL"
-                and scope not in INTERNAL_API_SCOPE_OBJECTS
-                and scope not in _OBJECT_RULE_EXCLUDED_SCOPES
-            ):
+            # Project-level access is its own control (the "Project access" dropdown), never an
+            # object rule; every rules endpoint filters resource="project" out as well
+            if scope and scope != "INTERNAL" and scope != "project" and scope not in INTERNAL_API_SCOPE_OBJECTS:
                 queryset = getattr(cls, "queryset", None)
                 found.setdefault(scope, set())
                 if queryset is not None:
