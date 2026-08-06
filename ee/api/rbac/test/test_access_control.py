@@ -2216,25 +2216,25 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
         results = res.json()["results"]
         assert [r["role_id"] for r in results] == [str(role.id)]
 
-    def test_object_options_search_and_lookup(self):
+    def test_object_search_and_lookup(self):
         Dashboard.objects.create(team=self.team, name="Growth dashboard", created_by=self.user)
         insight = Insight.objects.create(
             team=self.team, derived_name="Weekly signups", saved=True, created_by=self.user
         )
         notebook = Notebook.objects.create(team=self.team, title="Q3 planning", created_by=self.user)
 
-        res = self.client.get("/api/projects/@current/access_control_object_options?resource=notebook&search=q3")
+        res = self.client.get("/api/projects/@current/access_control_object_search?resource=notebook&search=q3")
         assert res.status_code == status.HTTP_200_OK, res.json()
         assert [(r["id"], r["name"]) for r in res.json()["results"]] == [(str(notebook.id), "Q3 planning")]
 
         # An insight URL carries the short_id; the lookup returns the pk that rules store
         res = self.client.get(
-            f"/api/projects/@current/access_control_object_options?resource=insight&id={insight.short_id}"
+            f"/api/projects/@current/access_control_object_search?resource=insight&id={insight.short_id}"
         )
         assert res.status_code == status.HTTP_200_OK, res.json()
         assert [(r["id"], r["name"]) for r in res.json()["results"]] == [(str(insight.id), "Weekly signups")]
 
-        res = self.client.get("/api/projects/@current/access_control_object_options?resource=webhook")
+        res = self.client.get("/api/projects/@current/access_control_object_search?resource=webhook")
         assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
 
     def test_object_rules_write_addresses_objects_by_pk(self):

@@ -464,7 +464,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
             "access_control_member_properties",
             "access_control_role_objects",
             "access_control_role_properties",
-            "access_control_object_options",
+            "access_control_object_search",
         ]:
             return ["access_control:read"]
         elif request.method == "PUT" and self.action in [
@@ -745,7 +745,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 "project_access_level": project_access_level,
                 "resource_access_levels": resource_access_levels,
                 # The resources the settings UI can search and rule on; every entry works with
-                # access_control_object_options and access_control_object_rules
+                # access_control_object_search and access_control_object_rules
                 "object_rule_resources": sorted(
                     r for r in resources_with_object_access_controls() if _object_search_config(r) is not None
                 ),
@@ -1152,9 +1152,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
         return self._property_rules_response(team, role=role)
 
     @extend_schema(exclude=True)
-    @action(methods=["GET"], detail=True, url_path="access_control_object_options")
-    def access_control_object_options(self, request: Request, *args, **kwargs) -> Response:
-        """Objects of one resource type for the settings picker: `?resource=` plus `?search=` or `?id=`.
+    @action(methods=["GET"], detail=True, url_path="access_control_object_search")
+    def access_control_object_search(self, request: Request, *args, **kwargs) -> Response:
+        """Searches objects of one resource type: `?resource=` plus `?search=` by name or `?id=` exact.
 
         Works for every resource the defaults endpoint lists in object_rule_resources, with the same
         display names the rules list shows. Returns pks, the identifier stored on rules and taken by

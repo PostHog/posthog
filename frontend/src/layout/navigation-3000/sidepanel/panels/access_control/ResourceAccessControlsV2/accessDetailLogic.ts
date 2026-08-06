@@ -61,7 +61,7 @@ interface ObjectRuleResourceConfig {
     /**
      * The inverse: pull the object's lookup id out of a pasted app path, so the picker can resolve
      * a URL. Receives the pathname with any /project/<id> prefix stripped. Insights yield the
-     * short_id; the options endpoint accepts it and returns the pk rules store.
+     * short_id; the search endpoint accepts it and returns the pk rules store.
      */
     parseUrl?: (path: string) => string | null
 }

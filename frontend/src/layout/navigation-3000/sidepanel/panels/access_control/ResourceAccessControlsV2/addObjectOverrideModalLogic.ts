@@ -716,7 +716,7 @@ export const addObjectOverrideModalLogic = kea<addObjectOverrideModalLogicType>(
                     await breakpoint(300)
                     // One backend endpoint serves every resource type with correct display names
                     const response = await api.get<{ results: ObjectOption[] }>(
-                        `api/projects/${props.projectId}/access_control_object_options?resource=${values.resource}&search=${encodeURIComponent(
+                        `api/projects/${props.projectId}/access_control_object_search?resource=${values.resource}&search=${encodeURIComponent(
                             values.search
                         )}`
                     )
@@ -760,7 +760,7 @@ export const addObjectOverrideModalLogic = kea<addObjectOverrideModalLogicType>(
         resolveObjectUrl: async ({ resource, lookupId }) => {
             try {
                 const response = await api.get<{ results: ObjectOption[] }>(
-                    `api/projects/${props.projectId}/access_control_object_options?resource=${resource}&id=${encodeURIComponent(
+                    `api/projects/${props.projectId}/access_control_object_search?resource=${resource}&id=${encodeURIComponent(
                         lookupId
                     )}`
                 )
