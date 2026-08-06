@@ -24,12 +24,14 @@ from rest_framework.exceptions import PermissionDenied
 
 from posthog.event_usage import groups
 from posthog.models.integration import Integration
+from posthog.models.team.team import Team
 from posthog.permissions import get_authenticator_scopes
 
 from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
+from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.tags import slugify_tag
 from products.signals.backend.scout_harness.tools.emit import (
@@ -2064,6 +2066,31 @@ def _validate_structured_output_schema(value: dict | None) -> dict | None:
         raise serializers.ValidationError(str(exc))
 
 
+_SCOUT_MODEL_HELP = (
+    "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Null keeps the "
+    "default model, chosen by the platform. Early access: the pin can only be set on projects "
+    "enrolled in the scout model preview, and only takes effect there. Set null to clear it."
+)
+
+
+def _validate_scout_model(value: str | None, context: dict) -> str | None:
+    """Normalize a scout model pin and gate setting one on the `scouts-model-config` dogfood flag.
+
+    Clearing (null, or a blank string normalized to null) stays ungated so a team that leaves the
+    preview can always remove a stored pin.
+    """
+    if value is not None:
+        value = value.strip() or None
+    if value is None:
+        return None
+    get_team = context.get("get_team")
+    # Some create paths pass a `team` object instead of the routed `get_team` lambda.
+    team = get_team() if callable(get_team) else context.get("team")
+    if not isinstance(team, Team) or not scout_model_config_enabled(team):
+        raise serializers.ValidationError("Choosing a scout model is not available on this project yet.")
+    return value
+
+
 class SignalScoutConfigSerializer(serializers.ModelSerializer):
     """Read shape for a per-(team, skill) scout config.
 
@@ -2156,6 +2183,11 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "external sources such as documentation or papers."
         ),
     )
+    model = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=_SCOUT_MODEL_HELP,
+    )
     last_run_at = serializers.DateTimeField(
         read_only=True,
         allow_null=True,
@@ -2233,6 +2265,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "output_destinations",
             "structured_output_schema",
             "network_access",
+            "model",
             "last_run_at",
             "consecutive_failure_count",
             "status_changed_at",
@@ -2362,6 +2395,13 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             "`no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet."
         ),
     )
+    model = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=200,
+        help_text=_SCOUT_MODEL_HELP,
+    )
     tags = _scout_tags_field()
     structured_output_schema = StructuredOutputSchemaField(
         required=False,
@@ -2377,6 +2417,9 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
 
     def validate_tags(self, value: list[str]) -> list[str]:
         return _validate_scout_tags(value)
+
+    def validate_model(self, value: str | None) -> str | None:
+        return _validate_scout_model(value, self.context)
 
     def validate_structured_output_schema(self, value: dict | None) -> dict | None:
         return _validate_structured_output_schema(value)
@@ -2456,6 +2499,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             "output_destinations",
             "structured_output_schema",
             "network_access",
+            "model",
             "auto_pause_exempt",
             "tags",
         ]
@@ -2513,6 +2557,13 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
             "Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
         ),
     )
+    model = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=200,
+        help_text=_SCOUT_MODEL_HELP,
+    )
     tags = _scout_tags_field()
     structured_output_schema = StructuredOutputSchemaField(
         required=False,
@@ -2525,6 +2576,9 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
 
     def validate_tags(self, value: list[str]) -> list[str]:
         return _validate_scout_tags(value)
+
+    def validate_model(self, value: str | None) -> str | None:
+        return _validate_scout_model(value, self.context)
 
     def validate_output_destinations(self, value: dict) -> dict:
         context = self.context

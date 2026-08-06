@@ -47,6 +47,11 @@ all resolve to `None` — the agent-server default. Gating the model must never 
 
 This is separate from the `signals-scout` enrollment/limits flag — that decides *whether* a team
 runs scouts; this decides *on which model*.
+
+One layer sits above the payload: a per-scout `SignalScoutConfig.model` pin, honored only while the
+`scouts-model-config` dogfood flag is on for the team (`scout_model_config_enabled`). An explicit
+pin routes every run of that scout onto its model deterministically — no bucketing — and beats the
+payload's distribution; everything else falls through to the payload as described above.
 """
 
 from __future__ import annotations
@@ -61,6 +66,14 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 
 SCOUTS_MODEL_FLAG = "scouts-model-selection"
+
+# Dogfood gate for the per-scout config layer: only while this flag is on for the team does a
+# `SignalScoutConfig.model` pin actually route runs. Distinct from `scouts-model-selection` (an
+# operator-keyed payload for fleet A/B trials, always-on with the payload as the config): this one
+# is a plain boolean flag over teams, because what it gates is whether the team's own stored
+# config is honored, not what the config says. Keeping the gate at resolve time (not at write
+# time only) makes turning the flag off an immediate kill switch for already-stored pins.
+SCOUTS_MODEL_CONFIG_FLAG = "scouts-model-config"
 
 # Fixed distinct_id for the payload read — config is team-keyed in the payload, not per-user. Matches
 # the `signals-scout` discovery pattern: the flag stays 100%-on so the payload is always served, and
@@ -134,6 +147,33 @@ def _infer_runtime_adapter(model_id: str) -> str:
     to the `codex` runtime. An explicit `runtime_adapter` in the payload overrides this.
     """
     return RUNTIME_ADAPTER_CLAUDE if "claude" in model_id.lower() else RUNTIME_ADAPTER_CODEX
+
+
+def scout_model_config_enabled(team: Team) -> bool:
+    """Whether this team's per-scout `SignalScoutConfig.model` pins are honored (dogfood gate).
+
+    Keyed on the `project` group the same way the web app registers it (group key = the team's
+    uuid, `id` = the numeric project id), so one flag definition — a project-group condition on
+    `id` — evaluates identically for this server-side check and the frontend's gated settings UI.
+    `id` carries the canonical parent id so a child environment follows its project's enrollment.
+    Fails closed on a flag-read error: an unhonored pin just means the default resolution chain,
+    never a broken run.
+    """
+    try:
+        canonical_team_id = team.parent_team_id or team.id
+        return (
+            posthoganalytics.feature_enabled(
+                SCOUTS_MODEL_CONFIG_FLAG,
+                str(team.uuid),
+                groups={"project": str(team.uuid)},
+                group_properties={"project": {"id": canonical_team_id, "uuid": str(team.uuid)}},
+                send_feature_flag_events=False,
+            )
+            is True
+        )
+    except Exception as error:
+        capture_exception(error)
+        return False
 
 
 def _read_payload() -> dict | None:
@@ -278,16 +318,21 @@ def _select_model(run_id: str, distribution: dict[str, float], default_model: st
     return default_model
 
 
-def resolve_scout_model(team: Team, skill_name: str, run_id: str) -> ScoutModel:
+def resolve_scout_model(team: Team, skill_name: str, run_id: str, configured_model: str | None = None) -> ScoutModel:
     """The agent-model override for one scout run, with the runtime that can serve it.
 
-    Resolves this team's scout map from the `scouts-model-selection` payload, then this scout's
-    per-run model from its distribution, then the runtime adapter for the chosen model (pinned in the
-    payload, else inferred from the id). Returns `ScoutModel(None, None)` (agent-server default) when
-    the team has no entry, the scout has no distribution, or the run falls in the unallocated
-    remainder with no named `default`. A payload read failure is swallowed and falls back to the
-    default model — gating the model must never be able to fail a scout run.
+    `configured_model` is the scout's own `SignalScoutConfig.model` pin. It is the top layer: while
+    the `scouts-model-config` dogfood flag is on for the team, an explicit per-scout pin beats the
+    `scouts-model-selection` experiment distribution — a user deliberately configured that scout,
+    and an operator trial must not silently reroute it. With the flag off (or no pin) resolution
+    falls through unchanged: this team's scout map from the `scouts-model-selection` payload, then
+    this scout's per-run model from its distribution, then the runtime adapter for the chosen model
+    (pinned in the payload, else inferred from the id). Returns `ScoutModel(None, None)`
+    (agent-server default) when nothing applies. A flag or payload read failure is swallowed and
+    falls back to the next layer — gating the model must never be able to fail a scout run.
     """
+    if configured_model and scout_model_config_enabled(team):
+        return ScoutModel(model=configured_model, runtime_adapter=_infer_runtime_adapter(configured_model))
     payload = _read_payload()
     scouts = _team_scouts(payload, team.id, team.parent_team_id or team.id)
     distribution, adapters, efforts, default_model = _scout_config(scouts, skill_name)
