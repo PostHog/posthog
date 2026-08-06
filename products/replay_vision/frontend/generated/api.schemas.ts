@@ -1137,7 +1137,7 @@ export interface ReplayScannerBackfillApi {
     readonly ineligible_count: number
     /** Observations from this backfill still pending or running. */
     readonly in_flight_count: number
-    readonly created_by: UserBasicApi
+    readonly created_by: UserBasicApi | null
     readonly created_at: string
     /**
      * When the backfill reached a terminal status (completed or cancelled).

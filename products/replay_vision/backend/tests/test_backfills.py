@@ -22,6 +22,12 @@ from products.replay_vision.backend.temporal.backfill_types import (
     BackfillTickAction,
     BackfillTickInputs,
 )
+from products.replay_vision.backend.temporal.constants import (
+    MAX_IN_FLIGHT_APPLIES_PER_BACKFILL,
+    MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
+    MAX_IN_FLIGHT_APPLIES_PER_TEAM,
+    backfill_dispatch_budget,
+)
 from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot
 from products.replay_vision.backend.temporal.types import CreateObservationInputs
 
@@ -59,6 +65,22 @@ def _make_backfill(scanner: ReplayScanner, **overrides) -> ReplayScannerBackfill
     }
     defaults.update(overrides)
     return ReplayScannerBackfill.objects.for_team(scanner.team_id).create(**defaults)
+
+
+@pytest.mark.parametrize(
+    "scanner_in_flight,team_in_flight,backfill_in_flight,expected",
+    [
+        (0, 0, 0, MAX_IN_FLIGHT_APPLIES_PER_BACKFILL),
+        (0, 0, MAX_IN_FLIGHT_APPLIES_PER_BACKFILL, 0),
+        (0, 0, 30, MAX_IN_FLIGHT_APPLIES_PER_BACKFILL - 30),
+        (MAX_IN_FLIGHT_APPLIES_PER_SCANNER - 10, 0, 0, 10),
+        (0, MAX_IN_FLIGHT_APPLIES_PER_TEAM - 5, 0, 5),
+    ],
+)
+def test_backfill_dispatch_budget_takes_the_tightest_cap(
+    scanner_in_flight: int, team_in_flight: int, backfill_in_flight: int, expected: int
+) -> None:
+    assert backfill_dispatch_budget(scanner_in_flight, team_in_flight, backfill_in_flight) == expected
 
 
 @pytest.mark.django_db(transaction=True)
@@ -144,6 +166,35 @@ class TestBackfillTickActivities:
         scanner.save()
         running = _make_backfill(scanner)
         assert prepare_backfill_tick_activity(self._tick_inputs(running)).action == BackfillTickAction.SKIP
+
+    def test_prepare_repauses_a_quota_paused_row(self) -> None:
+        # The reaper can recreate a paused backfill's schedule unpaused; a SKIP here would tick forever.
+        scanner = _make_scanner()
+        backfill = _make_backfill(scanner, status=BackfillStatus.PAUSED_QUOTA)
+        assert prepare_backfill_tick_activity(self._tick_inputs(backfill)).action == BackfillTickAction.PAUSE
+
+    def test_prepare_skips_without_org_ai_consent(self) -> None:
+        # Children would decline at create while the cursor walks past their sessions.
+        scanner = _make_scanner()
+        org = scanner.team.organization
+        org.is_ai_data_processing_approved = False
+        org.save()
+        backfill = _make_backfill(scanner)
+        assert prepare_backfill_tick_activity(self._tick_inputs(backfill)).action == BackfillTickAction.SKIP
+
+    def test_prepare_clamps_batch_to_remaining_quota(self) -> None:
+        scanner = _make_scanner()
+        backfill = _make_backfill(scanner, credits_per_observation=5)
+        headroom = MagicMock()
+        headroom.would_exceed.return_value = False
+        headroom.remaining = 7
+        with patch(
+            "products.replay_vision.backend.temporal.activities.backfill.compute_quota_snapshot",
+            return_value=headroom,
+        ):
+            result = prepare_backfill_tick_activity(self._tick_inputs(backfill))
+        assert result.action == BackfillTickAction.DISPATCH
+        assert result.dispatch_budget == 1
 
     def test_prepare_pauses_when_org_quota_exhausted(self) -> None:
         scanner = _make_scanner()

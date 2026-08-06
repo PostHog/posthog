@@ -13,7 +13,7 @@ from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -76,7 +76,7 @@ class BackfillEstimateResponseSerializer(serializers.Serializer):
 
 
 class ReplayScannerBackfillSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
+    created_by = UserBasicSerializer(read_only=True, allow_null=True)
     succeeded_count = serializers.IntegerField(
         read_only=True, help_text="Observations from this backfill that succeeded."
     )
@@ -133,13 +133,6 @@ class ReplayScannerBackfillViewSet(
             return ["replay_scanner:write", "session_recording:read"]
         return ["replay_scanner:read", "session_recording:read"]
 
-    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
-        super().initial(request, *args, **kwargs)
-        if self.action in self._WRITE_ACTIONS and not self.user_access_control.check_access_level_for_resource(
-            "session_recording", required_level="viewer"
-        ):
-            raise PermissionDenied("Starting a Replay Vision backfill requires session_recording read access.")
-
     def _scanner_for_url(self) -> ReplayScanner:
         cached = getattr(self, "_scanner_for_url_cache", None)
         if cached is not None:
@@ -151,6 +144,11 @@ class ReplayScannerBackfillViewSet(
         scanner = scanner_for_reading_observations(self.team_id, scanner_id)
         if scanner is None:
             raise NotFound()
+        # Backfills expose and dispatch recording-derived scans, so they inherit the scanner's RBAC
+        # and also require session_recording read (mirrors ReplayObservationViewSet._scanner_for_url).
+        self.check_object_permissions(self.request, scanner)
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Replay Vision backfills require session_recording read access.")
         self._scanner_for_url_cache = scanner
         return scanner
 
@@ -214,7 +212,12 @@ class ReplayScannerBackfillViewSet(
 
     @extend_schema(request=BackfillWindowSerializer, responses={201: ReplayScannerBackfillSerializer})
     def create(self, request: Request, **kwargs: Any) -> Response:
-        """Create a backfill: freeze the scanner config, enumerate the exact candidate set, start the tick schedule."""
+        """Create a backfill: freeze the scanner config, enumerate the exact candidate set, start the tick schedule.
+
+        The enumeration reruns here rather than trusting the client-confirmed estimate: the count is
+        billing-relevant, so the authoritative value is computed server-side at creation time. New
+        settled sessions between estimate and confirm can nudge total_count slightly.
+        """
         scanner = self._scanner_for_url()
         window = BackfillWindowSerializer(data=request.data)
         window.is_valid(raise_exception=True)
@@ -286,8 +289,14 @@ class ReplayScannerBackfillViewSet(
         from products.replay_vision.backend.temporal.schedule import a_resume_backfill_schedule  # noqa: PLC0415
 
         try:
-            async_to_sync(a_resume_backfill_schedule)(backfill.pk)
+            async_to_sync(a_resume_backfill_schedule)(backfill.pk, backfill.team_id, backfill.scanner_id)
         except Exception:
+            # A RUNNING row with a paused schedule would never tick again and nothing repairs it,
+            # so roll the status back and surface the failure for a retry.
             logger.exception("replay_vision.backfill_schedule_resume_failed", backfill_id=str(backfill.pk))
+            ReplayScannerBackfill.objects.filter(pk=backfill.pk, status=BackfillStatus.RUNNING).update(
+                status=BackfillStatus.PAUSED_QUOTA
+            )
+            raise APIException("Couldn't resume the backfill. Try again.")
         backfill.status = BackfillStatus.RUNNING
         return Response(self.get_serializer(backfill).data)

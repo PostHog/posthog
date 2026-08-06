@@ -629,6 +629,10 @@ export const VisionScannersObserveCreateBody = /* @__PURE__ */ zod
 
 /**
  * Create a backfill: freeze the scanner config, enumerate the exact candidate set, start the tick schedule.
+ *
+ * The enumeration reruns here rather than trusting the client-confirmed estimate: the count is
+ * billing-relevant, so the authoritative value is computed server-side at creation time. New
+ * settled sessions between estimate and confirm can nudge total_count slightly.
  */
 export const VisionScannersBackfillsCreateBody = /* @__PURE__ */ zod.object({
     window_start: zod.iso

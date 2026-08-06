@@ -187,6 +187,16 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         self.assertEqual(resp.status_code, 400, resp.json())
         self.assertEqual(resp.json()["attr"], "scanner_id")
 
+    def test_backfills_inherit_scanner_object_rbac(self) -> None:
+        scanner = self._create_scanner()
+        self._set_resource_default("replay_scanner", "none")
+        self.client.force_login(self.other_user)
+        url = f"{self.scanners_url}{scanner.id}/backfills/"
+        self.assertEqual(self.client.get(url).status_code, 403)
+        window = {"window_start": "2026-01-01T00:00:00Z", "window_end": "2026-02-01T00:00:00Z"}
+        self.assertEqual(self.client.post(f"{url}estimate/", window, format="json").status_code, 403)
+        self.assertEqual(self.client.post(url, window, format="json").status_code, 403)
+
 
 class TestVisionActionAccessControlInheritance(_VisionActionAPITestCase):
     def setUp(self) -> None:

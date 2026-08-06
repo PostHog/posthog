@@ -47326,7 +47326,7 @@ export namespace Schemas {
       readonly ineligible_count: number;
       /** Observations from this backfill still pending or running. */
       readonly in_flight_count: number;
-      readonly created_by: UserBasic;
+      readonly created_by: UserBasic | null;
       readonly created_at: string;
       /**
          * When the backfill reached a terminal status (completed or cancelled).

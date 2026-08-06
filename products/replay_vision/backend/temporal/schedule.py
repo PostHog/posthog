@@ -225,9 +225,9 @@ async def a_delete_backfill_schedule(backfill_id: UUID, client: Client | None = 
     )
 
 
-async def a_pause_backfill_schedule(backfill_id: UUID, note: str) -> None:
+async def a_pause_backfill_schedule(backfill_id: UUID, note: str, client: Client | None = None) -> None:
     """Idempotent — pausing a missing schedule is a no-op."""
-    client = await async_connect()
+    client = client or await async_connect()
     try:
         await a_pause_schedule(client, backfill_schedule_id(backfill_id), note=note)
     except RPCError as e:
@@ -235,11 +235,20 @@ async def a_pause_backfill_schedule(backfill_id: UUID, note: str) -> None:
             raise
 
 
-async def a_resume_backfill_schedule(backfill_id: UUID) -> None:
-    """Unpause the tick schedule and fire a tick right away so a resume feels immediate."""
+async def a_resume_backfill_schedule(backfill_id: UUID, team_id: int, scanner_id: UUID) -> None:
+    """Unpause the tick schedule and fire a tick right away so a resume feels immediate.
+
+    A lost schedule is recreated instead of failing the resume (creation triggers immediately).
+    """
     client = await async_connect()
     schedule_id = backfill_schedule_id(backfill_id)
-    await a_unpause_schedule(client, schedule_id, note="user resume")
+    try:
+        await a_unpause_schedule(client, schedule_id, note="user resume")
+    except RPCError as e:
+        if e.status != RPCStatusCode.NOT_FOUND:
+            raise
+        await a_upsert_backfill_schedule(backfill_id, team_id, scanner_id, client)
+        return
     await a_trigger_schedule(client, schedule_id)
 
 

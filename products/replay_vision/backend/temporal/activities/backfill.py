@@ -9,6 +9,7 @@ from django.utils import timezone
 import structlog
 from pydantic import ValidationError
 from temporalio import activity
+from temporalio.client import Client
 from temporalio.exceptions import ApplicationError
 
 from posthog.schema import RecordingsQuery
@@ -54,7 +55,10 @@ logger = structlog.get_logger(__name__)
 
 def _load_backfill(backfill_id: UUID, team_id: int) -> ReplayScannerBackfill | None:
     return (
-        ReplayScannerBackfill.objects.for_team(team_id).select_related("scanner", "team").filter(pk=backfill_id).first()
+        ReplayScannerBackfill.objects.for_team(team_id)
+        .select_related("scanner", "team__organization")
+        .filter(pk=backfill_id)
+        .first()
     )
 
 
@@ -67,15 +71,20 @@ def prepare_backfill_tick_activity(inputs: BackfillTickInputs) -> PrepareBackfil
         record_backfill_tick_outcome("finished")
         return PrepareBackfillTickOutput(action=BackfillTickAction.FINISHED)
     if backfill.status == BackfillStatus.PAUSED_QUOTA:
-        # A fire raced the pause; keep the schedule (paused) so an explicit resume can restart it.
+        # Re-pause rather than skip: a recreated or racing schedule would otherwise fire every minute forever.
         record_backfill_tick_outcome("skipped_paused")
+        return PrepareBackfillTickOutput(action=BackfillTickAction.PAUSE)
+    if not backfill.team.organization.is_ai_data_processing_approved:
+        # Children would decline at create while the cursor walks past their sessions; hold instead.
+        record_backfill_tick_outcome("skipped_no_consent")
         return PrepareBackfillTickOutput(action=BackfillTickAction.SKIP)
     if not backfill.scanner.enabled:
         # Disabling a scanner holds its backfill without a status change; re-enabling resumes on the next tick.
         record_backfill_tick_outcome("skipped_scanner_disabled")
         return PrepareBackfillTickOutput(action=BackfillTickAction.SKIP)
 
-    if compute_quota_snapshot(backfill.team.organization_id).would_exceed(backfill.credits_per_observation):
+    quota = compute_quota_snapshot(backfill.team.organization_id)
+    if quota.would_exceed(backfill.credits_per_observation):
         # Filtered so a concurrent cancel wins over the pause.
         ReplayScannerBackfill.objects.for_team(inputs.team_id).filter(
             pk=inputs.backfill_id, status=BackfillStatus.RUNNING
@@ -85,6 +94,11 @@ def prepare_backfill_tick_activity(inputs: BackfillTickInputs) -> PrepareBackfil
 
     in_flight = count_in_flight(inputs.team_id, backfill.scanner_id, backfill_id=backfill.id)
     budget = backfill_dispatch_budget(in_flight["scanner"], in_flight["team"], in_flight["backfill"])
+    if quota.remaining is not None:
+        # Never dispatch more children than the quota can pay for: a child declined at create still
+        # advances the cursor past its session. Concurrent spenders can still shrink headroom between
+        # this check and creation; that residual loss is bounded by one batch and accepted.
+        budget = min(budget, quota.remaining // backfill.credits_per_observation)
     if budget <= 0:
         record_backfill_tick_outcome("throttled")
         return PrepareBackfillTickOutput(action=BackfillTickAction.SKIP)
@@ -169,12 +183,22 @@ async def delete_backfill_schedule_activity(inputs: BackfillScheduleOpInputs) ->
     await a_delete_backfill_schedule(inputs.backfill_id)
 
 
-def _active_backfills_by_id() -> dict[UUID, tuple[int, UUID]]:
-    """`{backfill_id: (team_id, scanner_id)}` for every non-terminal backfill."""
+def _active_backfills_by_id() -> dict[UUID, tuple[int, UUID, str]]:
+    """`{backfill_id: (team_id, scanner_id, status)}` for every non-terminal backfill."""
     rows = ReplayScannerBackfill.objects.unscoped().filter(status__in=ACTIVE_BACKFILL_STATUSES)
     return {
-        row_id: (team_id, scanner_id) for row_id, team_id, scanner_id in rows.values_list("id", "team_id", "scanner_id")
+        row_id: (team_id, scanner_id, row_status)
+        for row_id, team_id, scanner_id, row_status in rows.values_list("id", "team_id", "scanner_id", "status")
     }
+
+
+async def _recreate_schedule(
+    backfill_id: UUID, team_id: int, scanner_id: UUID, row_status: str, client: Client
+) -> None:
+    await a_upsert_backfill_schedule(backfill_id, team_id, scanner_id, client)
+    # A quota-paused backfill's schedule comes back paused; only an explicit user resume unpauses it.
+    if row_status == BackfillStatus.PAUSED_QUOTA:
+        await a_pause_backfill_schedule(backfill_id, note="monthly quota exhausted", client=client)
 
 
 @activity.defn
@@ -199,9 +223,9 @@ async def reap_backfill_schedules_activity() -> None:
         if backfill_id not in active:
             logger.info("replay_vision.backfill_reaper.deleting_stale", backfill_id=str(backfill_id))
             fixes.append(a_delete_backfill_schedule(backfill_id, client))
-    for backfill_id, (team_id, scanner_id) in active.items():
+    for backfill_id, (team_id, scanner_id, row_status) in active.items():
         if backfill_id not in seen:
             logger.info("replay_vision.backfill_reaper.recreating_missing", backfill_id=str(backfill_id))
-            fixes.append(a_upsert_backfill_schedule(backfill_id, team_id, scanner_id, client))
+            fixes.append(_recreate_schedule(backfill_id, team_id, scanner_id, row_status, client))
     if fixes:
         await asyncio.gather(*fixes)
