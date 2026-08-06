@@ -31,10 +31,11 @@ use tonic::Status;
 use uuid::Uuid;
 
 use personhog_common::grpc::semantic_refusal;
-use personhog_identity::leader::LifecycleLeader;
+use personhog_identity::leader::{LifecycleLeader, PropertyWriter};
 use personhog_proto::personhog::types::v1::{
     FencePersonRequest, FencePersonResponse, FoldPersonDocumentRequest, FoldPersonDocumentResponse,
     LifecycleOpType, Person, ReleaseFenceRequest, ReleaseFenceResponse, ReleaseOutcome,
+    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 
 /// Which RPC a scripted failure applies to.
@@ -82,6 +83,9 @@ pub enum LeaderCall {
         mark_status_at_release: Option<String>,
     },
     ReleaseAborted {
+        person_id: i64,
+    },
+    PropertyPush {
         person_id: i64,
     },
 }
@@ -516,6 +520,36 @@ impl LifecycleLeader for SimLeader {
                 last_seen_at,
                 ..target
             }),
+        })
+    }
+}
+
+/// The RPC's inline path pushes the merge event's properties through the
+/// ordinary write surface; the sim applies the same admission rules as
+/// any other write, so a push to a fenced or destroyed person fails the
+/// test.
+#[async_trait]
+impl PropertyWriter for SimLeader {
+    async fn update_person_properties(
+        &self,
+        request: UpdatePersonPropertiesRequest,
+    ) -> Result<UpdatePersonPropertiesResponse, Status> {
+        if let Some(fence) = self.fence_for(request.person_id) {
+            return Err(fenced_status(&fence));
+        }
+        if self.deaths.lock().unwrap().contains_key(&request.person_id) {
+            return Err(Status::not_found("person is destroyed"));
+        }
+        let person = self
+            .live_person(request.team_id, request.person_id)
+            .await
+            .ok_or_else(|| Status::not_found("person is destroyed"))?;
+        self.record(LeaderCall::PropertyPush {
+            person_id: request.person_id,
+        });
+        Ok(UpdatePersonPropertiesResponse {
+            person: Some(person),
+            updated: true,
         })
     }
 }
