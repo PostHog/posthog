@@ -58,6 +58,8 @@ from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY, get_
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    DEFAULT_EXPOSURE_EVENT,
+    EXPERIMENT_EXPOSURE_EVENT,
     build_exposure_event_conditions,
     get_exposure_event_and_property,
     resolve_default_exposure_event,
@@ -635,38 +637,61 @@ class ExperimentService:
                 )
 
         if "exposure_config" in exposure_criteria:
-            exposure_config = exposure_criteria["exposure_config"]
+            cls._validate_exposure_config_shape(
+                exposure_criteria["exposure_config"], "exposure_criteria.exposure_config"
+            )
 
-            if not isinstance(exposure_config, dict):
+        if "activation_config" in exposure_criteria:
+            cls._validate_exposure_config_shape(
+                exposure_criteria["activation_config"], "exposure_criteria.activation_config"
+            )
+            exposure_config = exposure_criteria.get("exposure_config")
+            if isinstance(exposure_config, dict) and not cls._is_default_exposure_config(exposure_config):
                 raise ValidationError(
-                    f"exposure_criteria.exposure_config must be an object, got "
-                    f"{type(exposure_config).__name__}. {cls.EXPOSURE_CONFIG_HINT}"
+                    "exposure_criteria.activation_config requires the default exposure event; "
+                    "remove either the custom exposure_config or the activation_config."
                 )
 
-            # `kind` is optional; missing kind defaults to ExperimentEventExposureConfig
-            # to mirror the pydantic Literal default on that model.
-            kind = exposure_config.get("kind", "ExperimentEventExposureConfig")
-            if kind not in cls.EXPOSURE_CONFIG_KINDS:
-                raise ValidationError(
-                    f"exposure_criteria.exposure_config.kind must be one of "
-                    f"{list(cls.EXPOSURE_CONFIG_KINDS)}, got {cls._safe_repr(kind)}. "
-                    f"{cls.EXPOSURE_CONFIG_HINT}"
-                )
+    @classmethod
+    def _is_default_exposure_config(cls, exposure_config: dict) -> bool:
+        """A config naming a default exposure event is the stored default, not a custom exposure
+        (same convention as get_exposure_config_params_for_builder)."""
+        kind = exposure_config.get("kind", "ExperimentEventExposureConfig")
+        return kind == "ExperimentEventExposureConfig" and exposure_config.get("event") in (
+            DEFAULT_EXPOSURE_EVENT,
+            EXPERIMENT_EXPOSURE_EVENT,
+        )
 
-            model_cls = ActionsNode if kind == "ActionsNode" else ExperimentEventExposureConfig
-            try:
-                model_cls.model_validate(exposure_config)
-            except pydantic.ValidationError as e:
-                # Surface only the field locations and error types from pydantic — not the
-                # echoed `input` and `url` fields, which would reflect arbitrary user data
-                # back into the response.
-                safe_errors = [
-                    {"loc": err.get("loc"), "type": err.get("type"), "msg": err.get("msg")} for err in e.errors()
-                ]
-                raise ValidationError(
-                    f"Invalid exposure_criteria.exposure_config (kind={cls._safe_repr(kind)}): "
-                    f"{safe_errors}. {cls.EXPOSURE_CONFIG_HINT}"
-                )
+    @classmethod
+    def _validate_exposure_config_shape(cls, exposure_config: object, field_path: str) -> None:
+        if not isinstance(exposure_config, dict):
+            raise ValidationError(
+                f"{field_path} must be an object, got {type(exposure_config).__name__}. {cls.EXPOSURE_CONFIG_HINT}"
+            )
+
+        # `kind` is optional; missing kind defaults to ExperimentEventExposureConfig
+        # to mirror the pydantic Literal default on that model.
+        kind = exposure_config.get("kind", "ExperimentEventExposureConfig")
+        if kind not in cls.EXPOSURE_CONFIG_KINDS:
+            raise ValidationError(
+                f"{field_path}.kind must be one of "
+                f"{list(cls.EXPOSURE_CONFIG_KINDS)}, got {cls._safe_repr(kind)}. "
+                f"{cls.EXPOSURE_CONFIG_HINT}"
+            )
+
+        model_cls = ActionsNode if kind == "ActionsNode" else ExperimentEventExposureConfig
+        try:
+            model_cls.model_validate(exposure_config)
+        except pydantic.ValidationError as e:
+            # Surface only the field locations and error types from pydantic — not the
+            # echoed `input` and `url` fields, which would reflect arbitrary user data
+            # back into the response.
+            safe_errors = [
+                {"loc": err.get("loc"), "type": err.get("type"), "msg": err.get("msg")} for err in e.errors()
+            ]
+            raise ValidationError(
+                f"Invalid {field_path} (kind={cls._safe_repr(kind)}): {safe_errors}. {cls.EXPOSURE_CONFIG_HINT}"
+            )
 
     # Maps the public `metric_type` literal to the pydantic class name that pydantic reports
     # in `loc[0]` when validation fails. Used to narrow union-variant errors to the variant

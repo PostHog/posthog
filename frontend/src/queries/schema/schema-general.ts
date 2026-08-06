@@ -4444,6 +4444,10 @@ export type ExperimentExposureConfig = ExperimentEventExposureConfig | ActionsNo
 export interface ExperimentExposureCriteria {
     filterTestAccounts?: boolean
     exposure_config?: ExperimentExposureConfig
+    /** Additional event (or action) an entity must emit at/after their first default exposure
+     *  event before they count as exposed; exposure time becomes this event's timestamp.
+     *  Only valid with the default exposure event, not a custom `exposure_config`. */
+    activation_config?: ExperimentExposureConfig
     multiple_variant_handling?: 'exclude' | 'first_seen'
 }
 
@@ -4594,6 +4598,10 @@ export interface ExperimentApiExposureConfig {
 export interface ExperimentApiExposureCriteria {
     filterTestAccounts?: boolean
     exposure_config?: ExperimentApiExposureConfig
+    /** Additional event (or action) an entity must emit at/after their first default exposure
+     *  event before they count as exposed; exposure time becomes this event's timestamp.
+     *  Only valid with the default exposure event, not a custom `exposure_config`. */
+    activation_config?: ExperimentApiExposureConfig
     /** How to handle entities exposed to multiple variants. 'exclude' (default) drops them from
      *  the analysis; 'first_seen' assigns them to the variant from their earliest exposure. */
     multiple_variant_handling?: 'exclude' | 'first_seen'

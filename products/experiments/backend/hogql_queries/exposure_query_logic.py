@@ -114,14 +114,14 @@ def normalize_to_exposure_criteria(
     if isinstance(exposure_criteria, dict):
         # Create a copy to avoid mutating the input
         criteria_copy = exposure_criteria.copy()
-        # Also normalize nested exposure_config if present
-        if criteria_copy.get("exposure_config"):
-            exposure_config = criteria_copy["exposure_config"]
-            if isinstance(exposure_config, dict):
-                if _is_actions_node_dict(exposure_config):
-                    criteria_copy["exposure_config"] = ActionsNode.model_validate(exposure_config)
+        # Also normalize nested configs if present
+        for config_key in ("exposure_config", "activation_config"):
+            config = criteria_copy.get(config_key)
+            if config and isinstance(config, dict):
+                if _is_actions_node_dict(config):
+                    criteria_copy[config_key] = ActionsNode.model_validate(config)
                 else:
-                    criteria_copy["exposure_config"] = ExperimentEventExposureConfig.model_validate(exposure_config)
+                    criteria_copy[config_key] = ExperimentEventExposureConfig.model_validate(config)
 
         return ExperimentExposureCriteria.model_validate(criteria_copy)
 

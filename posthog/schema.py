@@ -16097,6 +16097,15 @@ class ExperimentApiExposureCriteria(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    activation_config: ExperimentApiExposureConfig | None = Field(
+        default=None,
+        description=(
+            "Additional event (or action) an entity must emit at/after their first"
+            " default exposure event before they count as exposed; exposure time"
+            " becomes this event's timestamp. Only valid with the default exposure"
+            " event, not a custom `exposure_config`."
+        ),
+    )
     exposure_config: ExperimentApiExposureConfig | None = None
     filterTestAccounts: bool | None = None
     multiple_variant_handling: MultipleVariantHandling | None = Field(
@@ -24475,6 +24484,15 @@ class EventTaxonomyQuery(BaseModel):
 class ExperimentExposureCriteria(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    activation_config: ExperimentEventExposureConfig | ActionsNode | None = Field(
+        default=None,
+        description=(
+            "Additional event (or action) an entity must emit at/after their first"
+            " default exposure event before they count as exposed; exposure time"
+            " becomes this event's timestamp. Only valid with the default exposure"
+            " event, not a custom `exposure_config`."
+        ),
     )
     exposure_config: ExperimentEventExposureConfig | ActionsNode | None = None
     filterTestAccounts: bool | None = None
