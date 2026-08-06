@@ -103,10 +103,11 @@ def _auth_session(credentials: FirebaseCredentials) -> requests.Session:
     return make_tracked_session(redact_values=credentials.secret_values, capture=False)
 
 
-def _api_session(credentials: FirebaseCredentials) -> requests.Session:
+def _api_session(credentials: FirebaseCredentials, *, capture: bool = True) -> requests.Session:
     return make_tracked_session(
         headers={"Accept": "application/json"},
         redact_values=credentials.secret_values,
+        capture=capture,
     )
 
 
@@ -143,7 +144,13 @@ def mint_access_token(session: requests.Session, credentials: FirebaseCredential
     token = body.get("access_token")
     if not token:
         raise FirebaseAuthError("Google's token response did not contain an access token.")
-    return str(token), int(body.get("expires_in") or JWT_ASSERTION_LIFETIME_SECONDS)
+    # A literal `0` is a meaningful lifetime; folding it into the default with `or` would cache a
+    # token that has already expired. Only a missing or unreadable value falls back.
+    try:
+        expires_in = int(body["expires_in"])
+    except (KeyError, TypeError, ValueError):
+        expires_in = JWT_ASSERTION_LIFETIME_SECONDS
+    return str(token), expires_in
 
 
 class AccessTokenProvider:
@@ -459,11 +466,16 @@ def get_rows(
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
     tokens = AccessTokenProvider(_auth_session(credentials), credentials)
-    api_session = _api_session(credentials)
 
     if table_name == AUTH_USERS_TABLE:
-        yield from iter_auth_users(api_session, tokens, credentials, resumable_source_manager, logger)
+        # Identity Platform hands back `passwordHash`, `salt` and `rawPassword` in the raw response,
+        # and a sample is captured before `flatten_auth_user` strips them — so this surface is read
+        # over a session that never captures at all.
+        auth_session = _api_session(credentials, capture=False)
+        yield from iter_auth_users(auth_session, tokens, credentials, resumable_source_manager, logger)
         return
+
+    api_session = _api_session(credentials)
 
     collection_id = _resolve_firestore_collection(table_name)
     if collection_id is not None:

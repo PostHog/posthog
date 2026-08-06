@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.s
     FIRESTORE_PATH_COLUMN,
     FIRESTORE_UPDATE_TIME_COLUMN,
     GOOGLE_TOKEN_URI,
+    JWT_ASSERTION_LIFETIME_SECONDS,
     OAUTH_SCOPES,
     REALTIME_DATABASE_KEY_COLUMN,
     REALTIME_DATABASE_PAGE_SIZE,
@@ -211,6 +212,22 @@ class TestAccessTokens:
 
         with pytest.raises(FirebaseAuthError, match=message):
             mint_access_token(session.as_session(), credentials())
+
+    @pytest.mark.parametrize(
+        "body,expected_lifetime",
+        [
+            # A zero lifetime is a real answer, not a missing one: treating it as missing would
+            # cache a dead token for an hour and turn every request into a 401.
+            ({**TOKEN_PAYLOAD, "expires_in": 0}, 0),
+            ({**TOKEN_PAYLOAD, "expires_in": 60}, 60),
+            ({"access_token": "tok-1", "token_type": "Bearer"}, JWT_ASSERTION_LIFETIME_SECONDS),
+            ({**TOKEN_PAYLOAD, "expires_in": "not-a-number"}, JWT_ASSERTION_LIFETIME_SECONDS),
+        ],
+    )
+    def test_lifetime_falls_back_only_when_google_omits_it(self, body: Any, expected_lifetime: int) -> None:
+        session = FakeSession(post_responses=[FakeResponse(payload=body)])
+
+        assert mint_access_token(session.as_session(), credentials()) == ("tok-1", expected_lifetime)
 
     def test_token_is_reused_until_forced_to_refresh(self) -> None:
         session = FakeSession(
@@ -500,6 +517,33 @@ class TestTableDiscovery:
         with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
             with pytest.raises(requests.HTTPError):
                 get_tables(credentials())
+
+
+class TestSampleCapture:
+    def test_auth_user_responses_never_reach_sample_capture(self, logger: FilteringBoundLogger) -> None:
+        session = FakeSession(
+            request_responses=[FakeResponse(payload={"users": [{"localId": "u1", "passwordHash": "hash"}]})],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+
+        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()) as factory:
+            batches = list(get_rows(credentials(), AUTH_USERS_TABLE, FakeResumeManager(), logger))
+
+        # The raw response carries password material that row-level redaction only removes
+        # afterwards, so no session used for this table may capture a sample.
+        assert [call.kwargs["capture"] for call in factory.call_args_list] == [False, False]
+        assert "passwordHash" not in batches[0][0]
+
+    def test_firestore_responses_are_still_captured(self, logger: FilteringBoundLogger) -> None:
+        session = FakeSession(
+            request_responses=[FakeResponse(payload={"documents": [firestore_document("a")]})],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+
+        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()) as factory:
+            list(get_rows(credentials(), "firestore_rooms", FakeResumeManager(), logger))
+
+        assert factory.call_args_list[-1].kwargs["capture"] is True
 
 
 class TestSourceResponseShape:
