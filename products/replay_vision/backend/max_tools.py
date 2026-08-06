@@ -1277,10 +1277,6 @@ class CreateReplayVisionActionTool(ReplayVisionGatesMixin, MaxTool):
     def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
         return [("vision_action", "editor"), ("session_recording", "viewer")]
 
-    # No is_dangerous_operation: a summary synthesizes over observations that already exist, so it
-    # spends no observation credits. Quota counts usage receipts, in-flight scans and prompt
-    # evaluations; a summary run is none of those.
-
     async def format_dangerous_operation_preview(self, name: str = "", cadence: str = "daily", **kwargs) -> str:
         return (
             f"**Create a {cadence} summary** '{name}'. It runs on that schedule from now on, and each run "
