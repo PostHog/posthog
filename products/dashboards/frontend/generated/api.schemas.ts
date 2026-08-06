@@ -6343,11 +6343,7 @@ export interface WebVitalsPathBreakdownQueryApi {
     /** Sampling rate */
     samplingFactor?: number | null
     tags?: QueryLogTagsApi | null
-    /**
-     * @minItems 2
-     * @maxItems 2
-     */
-    thresholds: number[]
+    thresholds?: number[] | null
     useSessionsTable?: boolean | null
     /** Opt this specific query into the web vitals path breakdown precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
     useWebAnalyticsPrecompute?: boolean | null

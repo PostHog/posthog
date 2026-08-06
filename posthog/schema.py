@@ -9829,14 +9829,14 @@ class AssistantWebVitalsPathBreakdownQuery(BaseModel):
             " isolate mobile."
         ),
     )
-    thresholds: list[float] = Field(
-        ...,
+    thresholds: list[float] | None = Field(
+        default=None,
         description=(
-            "Required. `[good, poor]` band boundaries for the chosen metric. Values"
-            " below `good` are good, above `poor` are poor, in between need"
-            " improvement. Use the standard Google thresholds unless the user supplies"
-            " their own: LCP `[2500, 4000]`, INP `[200, 500]`, CLS `[0.1, 0.25]`, FCP"
-            " `[1800, 3000]`."
+            "`[good, poor]` band boundaries for the chosen metric. Values below `good`"
+            " are good, above `poor` are poor, in between need improvement. Omit it to"
+            " use the standard Google thresholds for the metric (LCP `[2500, 4000]`,"
+            " INP `[200, 500]`, CLS `[0.1, 0.25]`, FCP `[1800, 3000]`); only pass a"
+            " value when the user supplies their own boundaries."
         ),
         max_length=2,
         min_length=2,
@@ -25697,7 +25697,7 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     sampling: WebAnalyticsSampling | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = None
-    thresholds: list[float] = Field(..., max_length=2, min_length=2)
+    thresholds: list[float] | None = Field(default=None, max_length=2, min_length=2)
     useSessionsTable: bool | None = None
     useWebAnalyticsPrecompute: bool | None = Field(
         default=None,

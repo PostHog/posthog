@@ -7,6 +7,10 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+
 from posthog.schema import (
     DateRange,
     EventPropertyFilter,
@@ -19,6 +23,7 @@ from posthog.schema import (
 )
 
 from products.web_analytics.backend.hogql_queries.web_vitals_path_breakdown import WebVitalsPathBreakdownQueryRunner
+from products.web_analytics.backend.hogql_queries.web_vitals_paths_lazy_precompute import resolve_thresholds
 
 
 @snapshot_clickhouse_queries
@@ -324,3 +329,60 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
             results,
         )
+
+    def test_omitted_thresholds_band_with_google_defaults(self):
+        # INP defaults are [200, 500]: values straddling both boundaries must band
+        # correctly when the query carries no thresholds (the MCP wrapper omits them).
+        self._create_events(
+            [
+                (
+                    "distinct_id_1",
+                    [
+                        ("2025-01-08", "/fast", 100),
+                        ("2025-01-08", "/medium", 300),
+                        ("2025-01-08", "/slow", 600),
+                    ],
+                ),
+            ],
+            WebVitalsMetric.INP,
+        )
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            query = WebVitalsPathBreakdownQuery(
+                dateRange=DateRange(date_from="2025-01-08", date_to="2025-01-15"),
+                metric=WebVitalsMetric.INP,
+                percentile=PropertyMathType.P75,
+                properties=[],
+            )
+            results = WebVitalsPathBreakdownQueryRunner(team=self.team, query=query).calculate().results
+
+        self.assertEqual(
+            [
+                WebVitalsPathBreakdownResult(
+                    good=[WebVitalsPathBreakdownResultItem(path="/fast", value=100)],
+                    needs_improvements=[WebVitalsPathBreakdownResultItem(path="/medium", value=300)],
+                    poor=[WebVitalsPathBreakdownResultItem(path="/slow", value=600)],
+                )
+            ],
+            results,
+        )
+
+
+class TestResolveThresholds(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (WebVitalsMetric.LCP, (2500.0, 4000.0)),
+            (WebVitalsMetric.INP, (200.0, 500.0)),
+            (WebVitalsMetric.CLS, (0.1, 0.25)),
+            (WebVitalsMetric.FCP, (1800.0, 3000.0)),
+        ]
+    )
+    def test_defaults_match_google_bands(self, metric, expected):
+        query = WebVitalsPathBreakdownQuery(metric=metric, percentile=PropertyMathType.P75, properties=[])
+        self.assertEqual(expected, resolve_thresholds(query))
+
+    def test_explicit_thresholds_win(self):
+        query = WebVitalsPathBreakdownQuery(
+            metric=WebVitalsMetric.LCP, percentile=PropertyMathType.P75, properties=[], thresholds=(100, 200)
+        )
+        self.assertEqual((100.0, 200.0), resolve_thresholds(query))

@@ -14,6 +14,7 @@ from posthog.schema import (
     WebAnalyticsPreComputeStrategy,
     WebVitalsMetric,
     WebVitalsMetricBand,
+    WebVitalsPathBreakdownQuery,
     WebVitalsPathBreakdownQueryResponse,
     WebVitalsPathBreakdownResult,
     WebVitalsPathBreakdownResultItem,
@@ -110,6 +111,23 @@ _METRIC_STATE_COLUMN: dict[WebVitalsMetric, str] = {
     WebVitalsMetric.CLS: "cls_quantiles_state",
     WebVitalsMetric.FCP: "fcp_quantiles_state",
 }
+
+# The standard Google band boundaries per metric, mirroring the frontend's
+# WEB_VITALS_THRESHOLDS. Applied when a query omits `thresholds`, so callers
+# that don't know the boundaries (agents through the MCP wrapper) get the
+# same bands the product UI shows.
+DEFAULT_WEB_VITALS_THRESHOLDS: dict[WebVitalsMetric, tuple[float, float]] = {
+    WebVitalsMetric.LCP: (2500, 4000),
+    WebVitalsMetric.INP: (200, 500),
+    WebVitalsMetric.CLS: (0.1, 0.25),
+    WebVitalsMetric.FCP: (1800, 3000),
+}
+
+
+def resolve_thresholds(query: WebVitalsPathBreakdownQuery) -> tuple[float, float]:
+    if query.thresholds:
+        return (float(query.thresholds[0]), float(query.thresholds[1]))
+    return DEFAULT_WEB_VITALS_THRESHOLDS[query.metric]
 
 
 def can_use_lazy_precompute(runner: "WebVitalsPathBreakdownQueryRunner") -> bool:
@@ -278,8 +296,7 @@ def execute_read_query(
     direct comparison against our UTC `cur_start` / `cur_end` constants.
     """
     pct_index = _PCT_INDEX[runner.query.percentile]
-    good_threshold = float(runner.query.thresholds[0])
-    needs_improvements_threshold = float(runner.query.thresholds[1])
+    good_threshold, needs_improvements_threshold = resolve_thresholds(runner.query)
     state_column = _METRIC_STATE_COLUMN[runner.query.metric]
 
     placeholders: dict[str, ast.Expr] = {
