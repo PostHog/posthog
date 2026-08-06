@@ -79,7 +79,6 @@ export interface CanvasApi {
     readonly pinned: boolean
     /** @nullable */
     readonly pinned_at: string | null
-    readonly is_home: boolean
     /**
      * Id of the live source version — pass as expected_current_version_id on publish. Null before the first publish.
      * @nullable
@@ -120,8 +119,6 @@ export interface CanvasCreateApi {
      * @maxLength 64
      */
     template_id?: string
-    /** Create the canvas as the channel's home board (at most one per channel). */
-    is_home?: boolean
 }
 
 /**
@@ -626,10 +623,6 @@ export type CanvasesListParams = {
      */
     channel?: string
     /**
-     * Filter by channel-home status.
-     */
-    is_home?: boolean
-    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -637,6 +630,13 @@ export type CanvasesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type CanvasesBuildsRetrieveParams = {
+    /**
+     * Include the retained ready build for this historical source version.
+     */
+    version_id?: string
 }
 
 export type CanvasesSourceRetrieveParams = {

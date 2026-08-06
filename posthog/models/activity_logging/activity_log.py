@@ -1,6 +1,6 @@
 import json
 import dataclasses
-from typing import TYPE_CHECKING, Any, Literal, Optional, Required, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Required, TypedDict, Union, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -80,6 +80,7 @@ ActivityScope = Literal[
     "ExternalDataSource",
     "ExternalDataSchema",
     "Evaluation",
+    "EvaluationDirectory",
     "LLMPrompt",
     "LLMPromptLabel",
     "LLMTrace",
@@ -312,6 +313,14 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
         "temporary_token",
         "pending_email",
     ],
+    # Support-ticket comment bodies are gated on ticket access and must not be readable via
+    # activity_log:read. Both ticket comment scopes mask `content`: internal ticket discussions
+    # ("Ticket") and customer-facing ticket messages ("conversations_ticket" — the literal scope
+    # the conversations product writes, not an ActivityScope member, hence the cast). Comment rows
+    # never go through changes_between; the Comment post_save signal consults these entries
+    # directly, keyed by the comment's own scope.
+    "Ticket": ["content"],
+    cast(AuditableScope, "conversations_ticket"): ["content"],
 }
 
 field_name_overrides: dict[AuditableScope, dict[str, str]] = {
@@ -462,6 +471,25 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         # and wallet balance out of the org-scoped activity log endpoints.
         "scope": "AIGatewayCredit",
         "activities": ["credit_added"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
+    {
+        # Support-ticket comment rows: bodies are gated on ticket access, and rows written before
+        # write-time masking (see field_with_masked_contents) still hold plaintext content readable
+        # with only activity_log:read. People with ticket access read the discussion on the ticket
+        # itself, so nothing needs these rows in the feeds. Ticket lifecycle activities
+        # (created/updated) stay visible — only comment rows are hidden.
+        "scope": "Ticket",
+        "activities": ["commented", "created task"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
+    {
+        # As above, for customer-facing ticket messages (the literal scope the conversations
+        # product writes).
+        "scope": "conversations_ticket",
+        "activities": ["commented", "created task"],
         "exclude_when": {},
         "allow_staff": True,
     },
@@ -775,6 +803,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "table",
     ],
     "Evaluation": [
+        # The fail-closed relation cannot be resolved outside a team scope; the handler diffs IDs instead.
+        "directory",
         # Reverse relations — auto-managed by FK creates, not user intent.
         "reports",
     ],

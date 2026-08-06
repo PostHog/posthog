@@ -1,11 +1,11 @@
 import "./generated.augment";
 import type {
   Adapter,
-  CloudMcpServerImport,
   CloudMcpServerRelayDesignation,
   CloudRunSource,
   CreateTaskAutomationOptions,
   ExecutionMode,
+  McpServerConnection,
   PrAuthorshipMode,
   SourceProduct,
   SourceType,
@@ -193,6 +193,16 @@ export interface TaskRunSessionLogsResult {
   complete: boolean;
 }
 
+export interface TaskListOptions {
+  repository?: string;
+  createdBy?: number;
+  originProduct?: string;
+  internal?: boolean;
+  channel?: string;
+  /** Caller-side cap for surfaces that only show the newest few. */
+  limit?: number;
+}
+
 export interface TaskSessionStorageAccess {
   id: string;
   download_url: string | null;
@@ -351,12 +361,49 @@ export interface SignalSourceConfig {
 // Endpoints live under /api/projects/{id}/signals/scout/ and require the
 // `signal_scout:read` / `signal_scout:write` scopes.
 
+/**
+ * Lifecycle state the coordinator keeps alongside `enabled`:
+ * - `active` – running on its schedule.
+ * - `pending_pause` – still running, but flagged by the inactivity sweep and
+ *   due to be paused unless something changes.
+ * - `paused_by_user` – a person switched it off; the system never overrides it.
+ * - `paused_by_system` – the platform switched it off, see `pause_reason`.
+ */
+export type ScoutLifecycleStatus =
+  | "active"
+  | "pending_pause"
+  | "paused_by_user"
+  | "paused_by_system";
+
+/**
+ * Why the system warned or paused a scout: `ignored` (its findings went
+ * unacted on), `no_output` (it stopped emitting anything), or
+ * `repeated_failures` (its runs kept erroring).
+ */
+export type ScoutPauseReason = "ignored" | "no_output" | "repeated_failures";
+
 export interface ScoutConfig {
   id: string;
   skill_name: string;
   enabled: boolean;
   /** False means dry-run: the scout runs but findings are not emitted. */
   emit: boolean;
+  /**
+   * Lifecycle state behind `enabled`. Absent on backends predating the
+   * lifecycle fields, in which case `enabled` is all there is to go on.
+   */
+  status?: ScoutLifecycleStatus;
+  /** Why the system warned or paused the scout; null while it is healthy. */
+  pause_reason?: ScoutPauseReason | null;
+  /** ISO timestamp of the last `status` transition; null if it never moved. */
+  status_changed_at?: string | null;
+  /** Runs that failed back to back; trips a `repeated_failures` pause. */
+  consecutive_failure_count?: number;
+  /**
+   * Exempts the scout from the inactivity sweep — both the `ignored` pause and
+   * the `no_output` warning. Set on watchdog scouts whose value is staying quiet.
+   */
+  auto_pause_exempt?: boolean;
   /**
    * Summary of what the scout investigates, from the skill's description
    * metadata. Empty string when the skill is absent or carries no description;
@@ -373,26 +420,6 @@ export interface ScoutConfig {
   run_interval_minutes: number;
   last_run_at: string | null;
   created_at: string;
-}
-
-/** A team's enforced scout run caps and current usage, as dispatch applies them. */
-export interface ScoutLimits {
-  max_runs_per_tick: number;
-  /** Null when the daily budget is uncapped. */
-  max_runs_per_day: number | null;
-  runs_today: number;
-  /** Null when the daily budget is uncapped. */
-  runs_remaining_today: number | null;
-}
-
-/**
- * Team-scoped scout metadata from the `signals-scout` flag: enrollment, an optional
- * announcement banner, and the enforced run limits. `banner_message` is null when unset.
- */
-export interface ScoutMetadata {
-  enrolled: boolean;
-  banner_message: string | null;
-  limits: ScoutLimits;
 }
 
 export interface ScoutRun {
@@ -675,7 +702,7 @@ export interface CloudRunOptions {
    * Local url-based MCP servers to make available inside the sandbox. The
    * backend merges these into the agent server's `--mcpServers` at spawn.
    */
-  importedMcpServers?: CloudMcpServerImport[];
+  importedMcpServers?: McpServerConnection[];
   relayedMcpServers?: CloudMcpServerRelayDesignation[];
 }
 
@@ -1838,17 +1865,19 @@ export class PostHogAPIClient {
     return Array.isArray(data) ? data : (data.results ?? []);
   }
 
-  async getScoutMetadata(projectId: number): Promise<ScoutMetadata> {
-    return this.scoutGet<ScoutMetadata>(projectId, "metadata/current/");
-  }
-
   async updateScoutConfig(
     projectId: number,
     configId: string,
     updates: {
+      /**
+       * Flipping this off records a user pause (`status` becomes
+       * `paused_by_user`, which the system never overrides); flipping it on
+       * resumes the scout from any pause, including a system one.
+       */
       enabled?: boolean;
       emit?: boolean;
       run_interval_minutes?: number;
+      auto_pause_exempt?: boolean;
     },
   ): Promise<ScoutConfig> {
     const urlPath = `/api/projects/${projectId}/signals/scout/configs/${configId}/`;
@@ -2119,16 +2148,20 @@ export class PostHogAPIClient {
     }
   }
 
-  async getTasks(options?: {
-    repository?: string;
-    createdBy?: number;
-    originProduct?: string;
-    internal?: boolean;
-    channel?: string;
-  }): Promise<Task[]> {
+  async getTasks(options?: TaskListOptions): Promise<Task[]> {
+    return (await this.getTasksPage(options)).tasks;
+  }
+
+  /**
+   * The same list with the total behind it, for surfaces that ask for a short
+   * page and still have to say how much they are not showing.
+   */
+  async getTasksPage(
+    options?: TaskListOptions,
+  ): Promise<{ tasks: Task[]; count: number }> {
     const teamId = await this.getTeamId();
     const params: Record<string, string | number | boolean> = {
-      limit: 500,
+      limit: options?.limit ?? 500,
     };
 
     if (options?.repository) {
@@ -2156,9 +2189,10 @@ export class PostHogAPIClient {
       query: params,
     });
 
-    return (data.results ?? []).map((task) =>
+    const tasks = (data.results ?? []).map((task) =>
       normalizeTaskResponse(task, { teamId }),
     );
+    return { tasks, count: data.count ?? tasks.length };
   }
 
   async getTaskSummaries(ids: string[]) {

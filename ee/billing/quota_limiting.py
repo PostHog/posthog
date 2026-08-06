@@ -7,7 +7,7 @@ from time import time
 from typing import Any, Optional, TypedDict, cast
 
 from django.conf import settings
-from django.db import close_old_connections
+from django.db import close_old_connections, transaction
 from django.db.models import Q
 from django.db.models.expressions import RawSQL
 from django.utils import timezone
@@ -25,12 +25,15 @@ from posthog.models.organization import Organization, OrganizationUsageInfo
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
+    combine_posthog_code_credits,
     convert_team_usage_rows_to_dict,
+    get_self_driving_credits_used_in_period_for_org,
     get_signals_credited_refund_credits_for_org,
     get_teams_with_ai_credits_used_in_period,
     get_teams_with_ai_event_count_in_period,
     get_teams_with_api_queries_metrics,
     get_teams_with_billable_event_count_in_period,
+    get_teams_with_billable_sandbox_compute_usage_in_period,
     get_teams_with_cdp_billable_invocations_in_period,
     get_teams_with_exceptions_captured_in_period,
     get_teams_with_feature_flag_requests_count_in_period,
@@ -131,7 +134,7 @@ GRACE_PERIOD_EXEMPT_RESOURCES: set[QuotaResource] = {
 }
 
 
-# These should be kept in sync with OrganizationUsageInfo and QuotaResource values.
+# These should be kept in sync with OrganizationUsageInfo.
 class UsageCounters(TypedDict):
     events: int
     exceptions: int
@@ -146,6 +149,10 @@ class UsageCounters(TypedDict):
     ai_credits: int
     signals_credits: int
     posthog_code_credits: int
+    posthog_code_token_credits: int
+    sandbox_compute_credits: int
+    sandbox_compute_cpu_millicore_seconds: int
+    sandbox_compute_memory_mib_seconds: int
     workflow_emails: int
     workflow_push: int
     workflow_destinations_dispatched: int
@@ -153,6 +160,12 @@ class UsageCounters(TypedDict):
     replay_vision_credits: int
 
 
+INFORMATIONAL_USAGE_RESOURCES = (
+    "posthog_code_token_credits",
+    "sandbox_compute_credits",
+    "sandbox_compute_cpu_millicore_seconds",
+    "sandbox_compute_memory_mib_seconds",
+)
 # -------------------------------------------------------------------------------------------------
 # REDIS FUNCTIONS
 # -------------------------------------------------------------------------------------------------
@@ -732,6 +745,57 @@ def update_org_billing_quotas(organization: Organization):
     invalidate_llm_gateway_quota_cache(teams_by_token.values())
 
 
+def refresh_org_self_driving_quota(organization_id: str) -> None:
+    """Recompute one org's live `signals_credits` usage for today and re-evaluate its quota limits.
+
+    Dispatched when a self-driving implementation run records its first PR URL (the billable moment), so
+    the Redis limited flag can flip within seconds of the PR that crosses the limit. Without this,
+    `update_org_billing_quotas` reads the `todays_usage` value patched by the last quota cron tick,
+    which by definition predates the PR that just landed — the cron (every 15 minutes) remains the
+    backstop for orgs that cross the limit without a PR event.
+
+    Concurrent refreshes for one org (two PRs landing close together) are serialized on the org
+    row, and this path only ever raises `todays_usage`: it fires exclusively because a PR landed,
+    so a slower refresh that counted usage before a newer PR must not overwrite the fresher value
+    and momentarily unpause the org. Decreases (refunds, cron corrections) stay the cron's job.
+
+    Scope caveat: the recount covers today's UTC window keyed on the implementation run's
+    `created_at`, so a PR recorded after midnight by a run created before midnight falls in
+    yesterday's window and is invisible to this refresh and to the cron. It reaches enforcement
+    hours later, when the previous day's usage report lands in `organization.usage`; billing
+    itself stays correct because that report queries yesterday's window with the PR present.
+    """
+    organization = Organization.objects.filter(id=organization_id).first()
+    if organization is None or not organization.usage:
+        return
+    if not organization.usage.get(QuotaResource.SIGNALS_CREDITS.value):
+        return
+
+    # The billing count runs outside the lock so the hot organization row is locked only for
+    # the compare-and-patch; the monotonic guard below makes a stale count harmless.
+    period_start, period_end = get_current_day()
+    todays_credits = get_self_driving_credits_used_in_period_for_org(organization.id, period_start, period_end)
+
+    with transaction.atomic():
+        # filter().first() like the precheck above: the org can be deleted between the two
+        # reads, and a deleted org needs no refresh rather than a DoesNotExist from the task.
+        organization = Organization.objects.select_for_update().filter(id=organization_id).first()
+        if organization is None:
+            return
+        resource_usage = (organization.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value)
+        if not resource_usage:
+            return
+        if todays_credits > (resource_usage.get("todays_usage") or 0):
+            resource_usage["todays_usage"] = todays_credits
+            _patch_organization_usage_jsonb(
+                organization, [([QuotaResource.SIGNALS_CREDITS.value, "todays_usage"], todays_credits)]
+            )
+    # Evaluate from the freshest committed usage, not this task's snapshot: a newer concurrent
+    # refresh may have written a higher value while we held or waited on the lock.
+    organization.refresh_from_db(fields=["usage"])
+    update_org_billing_quotas(organization)
+
+
 def set_org_usage_summary(
     organization: Organization,
     new_usage: Optional[OrganizationUsageInfo] = None,
@@ -783,10 +847,37 @@ def set_org_usage_summary(
                 todays_usage_value = original_field_usage.get("todays_usage", 0) if original_field_usage else 0
                 resource_usage["todays_usage"] = todays_usage_value
 
+    _merge_informational_usage_summary(cast(dict, new_usage), original_usage, todays_usage)
+
     has_changed = new_usage != organization.usage
     organization.usage = new_usage
 
     return has_changed
+
+
+def _merge_informational_usage_summary(
+    new_usage: dict[str, Any], original_usage: dict[str, Any], todays_usage: Optional[UsageCounters]
+) -> None:
+    for field in INFORMATIONAL_USAGE_RESOURCES:
+        original_field_usage = original_usage.get(field, {})
+        resource_usage = new_usage.get(field)
+
+        if not resource_usage:
+            if original_field_usage:
+                new_usage[field] = original_field_usage
+            else:
+                # Billing omitted the component and there's no last-known value: drop the
+                # empty placeholder OrganizationUsageInfo construction left behind rather
+                # than writing `{}` into every org's usage dict.
+                new_usage.pop(field, None)
+            continue
+
+        if todays_usage:
+            resource_usage["todays_usage"] = todays_usage.get(field, 0)
+        elif original_field_usage.get("usage") != resource_usage.get("usage"):
+            resource_usage["todays_usage"] = 0
+        else:
+            resource_usage["todays_usage"] = original_field_usage.get("todays_usage", 0)
 
 
 def _patch_organization_usage_jsonb(organization: Organization, ops: Sequence[tuple[list[str], Any]]) -> None:
@@ -822,7 +913,7 @@ def _patch_organization_usage_jsonb(organization: Organization, ops: Sequence[tu
 
 def _patch_todays_usage(organization: Organization, todays_report: "UsageCounters") -> bool:
     """
-    Cron-only: patches `usage[resource].todays_usage` for each `QuotaResource` where the
+    Cron-only: patches `usage[resource].todays_usage` for each current usage resource where the
     org has a non-empty resource dict. Mutates `organization.usage` in-memory and emits a
     single targeted UPDATE via `_patch_organization_usage_jsonb` so billing-owned fields
     (`usage`, `limit`, `period`) are not clobbered by stale snapshots. Returns True if
@@ -834,23 +925,33 @@ def _patch_todays_usage(organization: Organization, todays_report: "UsageCounter
     ops: list[tuple[list[str], Any]] = []
 
     for resource in QuotaResource:
-        field = resource.value
-        existing_resource = organization.usage.get(field)
-        if not existing_resource:
-            continue
-
-        new_todays_usage = todays_report[field]  # type: ignore[literal-required]
-        if existing_resource.get("todays_usage") == new_todays_usage:
-            continue
-
-        existing_resource["todays_usage"] = new_todays_usage
-        ops.append(([field, "todays_usage"], new_todays_usage))
+        _append_todays_usage_patch(organization, todays_report, resource.value, ops)
+    for field in INFORMATIONAL_USAGE_RESOURCES:
+        _append_todays_usage_patch(organization, todays_report, field, ops)
 
     if not ops:
         return False
 
     _patch_organization_usage_jsonb(organization, ops)
     return True
+
+
+def _append_todays_usage_patch(
+    organization: Organization,
+    todays_report: UsageCounters,
+    field: str,
+    ops: list[tuple[list[str], Any]],
+) -> None:
+    existing_resource = organization.usage.get(field) if organization.usage else None
+    if not existing_resource:
+        return
+
+    new_todays_usage = cast(dict[str, int], todays_report)[field]
+    if existing_resource.get("todays_usage") == new_todays_usage:
+        return
+
+    existing_resource["todays_usage"] = new_todays_usage
+    ops.append(([field, "todays_usage"], new_todays_usage))
 
 
 def _identify_refresh_candidates(
@@ -961,6 +1062,18 @@ def update_all_orgs_billing_quotas(
     _, exception_metrics = _timed_query(
         "exceptions_captured", get_teams_with_exceptions_captured_in_period, period_start, period_end
     )
+    token_credits = convert_team_usage_rows_to_dict(
+        _timed_query(
+            "posthog_code_token_credits",
+            get_teams_with_posthog_code_credits_used_in_period,
+            period_start,
+            period_end,
+        )
+    )
+    sandbox_compute_usage = _timed_query(
+        "sandbox_compute", get_teams_with_billable_sandbox_compute_usage_in_period, period_start, period_end
+    )
+    compute_credits = convert_team_usage_rows_to_dict(sandbox_compute_usage.credits)
 
     # Clickhouse is good at counting things so we count across all teams rather than doing it one by one
     all_data = {
@@ -1011,10 +1124,17 @@ def update_all_orgs_billing_quotas(
         "teams_with_signals_credits_used_in_period": convert_team_usage_rows_to_dict(
             _timed_query("signals_credits", get_teams_with_signals_credits_used_in_period, period_start, period_end)
         ),
-        "teams_with_posthog_code_credits_used_in_period": convert_team_usage_rows_to_dict(
-            _timed_query(
-                "posthog_code_credits", get_teams_with_posthog_code_credits_used_in_period, period_start, period_end
-            )
+        "teams_with_posthog_code_credits_used_in_period": {
+            team_id: combine_posthog_code_credits(token_credits.get(team_id, 0), compute_credits.get(team_id, 0))
+            for team_id in token_credits.keys() | compute_credits.keys()
+        },
+        "teams_with_posthog_code_token_credits_used_in_period": token_credits,
+        "teams_with_sandbox_compute_credits_used_in_period": compute_credits,
+        "teams_with_sandbox_compute_cpu_millicore_seconds_in_period": convert_team_usage_rows_to_dict(
+            sandbox_compute_usage.cpu_millicore_seconds
+        ),
+        "teams_with_sandbox_compute_memory_mib_seconds_in_period": convert_team_usage_rows_to_dict(
+            sandbox_compute_usage.memory_mib_seconds
         ),
         "teams_with_workflow_emails_sent_in_period": convert_team_usage_rows_to_dict(
             _timed_query("workflow_emails", get_teams_with_workflow_emails_sent_in_period, period_start, period_end)
@@ -1091,6 +1211,14 @@ def update_all_orgs_billing_quotas(
             ai_credits=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
             signals_credits=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
             posthog_code_credits=all_data["teams_with_posthog_code_credits_used_in_period"].get(team.id, 0),
+            posthog_code_token_credits=all_data["teams_with_posthog_code_token_credits_used_in_period"].get(team.id, 0),
+            sandbox_compute_credits=all_data["teams_with_sandbox_compute_credits_used_in_period"].get(team.id, 0),
+            sandbox_compute_cpu_millicore_seconds=all_data[
+                "teams_with_sandbox_compute_cpu_millicore_seconds_in_period"
+            ].get(team.id, 0),
+            sandbox_compute_memory_mib_seconds=all_data["teams_with_sandbox_compute_memory_mib_seconds_in_period"].get(
+                team.id, 0
+            ),
             cdp_trigger_events=all_data["teams_with_cdp_trigger_events_metrics"].get(team.id, 0),
             rows_exported=all_data["teams_with_rows_exported_in_period"].get(team.id, 0),
             workflow_emails=all_data["teams_with_workflow_emails_sent_in_period"].get(team.id, 0),
@@ -1186,6 +1314,16 @@ def update_all_orgs_billing_quotas(
                     org.refresh_from_db(fields=["usage", "customer_trust_scores", "never_drop_data"])
                     refresh_total_seconds += time() - refresh_call_start
                     refresh_count += 1
+                    if (org.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value):
+                        # The queries-phase snapshot predates any push-refresh that fired during
+                        # this run (`refresh_org_self_driving_quota` raises `todays_usage` the
+                        # moment a PR lands); writing the older snapshot back would unpause an
+                        # over-limit org until the next tick. Recount live instead — as a count
+                        # of the current window it also keeps legitimate decreases (day
+                        # rollover, refunds) intact.
+                        todays_report["signals_credits"] = get_self_driving_credits_used_in_period_for_org(
+                            org_id, period_start, period_end
+                        )
 
                 _patch_todays_usage(org, todays_report)
 

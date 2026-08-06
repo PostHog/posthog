@@ -16,10 +16,14 @@ use uuid::Uuid;
 
 use personhog_common::partitioning::partition_for_person;
 
+use personhog_coordination::authority::AuthorityClock;
+
 use crate::cache::{
     approx_person_bytes, CacheLookup, CachedPerson, DirtyIndex, DirtyMark, PartitionedCache,
     PersonCacheKey,
 };
+use crate::emitted::{EmittedVersionGuard, EmittedVersions};
+use crate::fencing::{FencedChangelogProducers, FencedProduceError};
 use crate::inflight::InflightTracker;
 use crate::kafka::produce_person_changelog;
 use crate::person_update::{apply_property_updates, compute_event_property_updates};
@@ -82,9 +86,68 @@ pub struct PersonHogLeaderService {
     recovery: Arc<ChangelogRecovery>,
     size_limits: PropertySizeLimits,
     warnings: WarningsProducer,
+    /// Present when broker-enforced epoch fencing is on; the write
+    /// path produces through the partition's transaction window.
+    fenced: Option<Arc<FencedChangelogProducers>>,
+    /// This pod's claim to serve, consulted before answering a strong
+    /// read. Present only when lease-gated reads are enabled.
+    authority: Option<Arc<AuthorityClock>>,
+    /// Versions emitted without a confirmed outcome, so a later write for
+    /// the same person cannot reuse one.
+    emitted_versions: Arc<EmittedVersions>,
 }
 
 impl PersonHogLeaderService {
+    /// Refuse to answer as the partition's owner once this pod's lease
+    /// may have expired.
+    ///
+    /// The cache is only authoritative while the lease behind it is, and
+    /// the keepalive's own detection cannot be relied on to notice: a
+    /// process that is stopped, starved, or wedged stops renewing and
+    /// stops noticing together, then keeps serving state the new owner
+    /// is already changing. Reading the published stamp here makes the
+    /// lapse self-enforcing — nothing has to be alive to apply it.
+    ///
+    /// Refusal starts at the keepalive's renewal margin, strictly before
+    /// the coordinator could treat the lease as expired, so requests are
+    /// turned away while ownership is merely doubtful rather than after
+    /// it is wrong. `FailedPrecondition` is the admission fence's own
+    /// vocabulary: the router bounces and re-resolves toward whoever
+    /// actually owns the partition.
+    #[allow(clippy::result_large_err)]
+    fn check_authority(&self, partition: u32) -> Result<(), Status> {
+        let Some(authority) = &self.authority else {
+            return Ok(());
+        };
+        if authority.is_valid() {
+            return Ok(());
+        }
+        let reason = if authority.is_surrendered() {
+            "surrendered"
+        } else {
+            "stale"
+        };
+        counter!(
+            "personhog_leader_authority_lapsed_rejections_total",
+            "reason" => reason
+        )
+        .increment(1);
+        let since = authority.since_confirmed();
+        // Debug, not warn: the gate refuses *every* request for the whole
+        // duration of a lapse, so this fires at the pod's full read rate
+        // during exactly the incident someone would be reading logs for.
+        // The labelled counter above carries the rate and the cause.
+        tracing::debug!(
+            partition,
+            ?since,
+            margin = ?authority.margin(),
+            "refusing to serve: no confirmed lease renewal within the margin"
+        );
+        Err(Status::failed_precondition(format!(
+            "serving authority lapsed: no confirmed lease renewal in {since:?}"
+        )))
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         cache: Arc<PartitionedCache>,
@@ -98,6 +161,9 @@ impl PersonHogLeaderService {
         recovery: Arc<ChangelogRecovery>,
         size_limits: PropertySizeLimits,
         warnings: WarningsProducer,
+        fenced: Option<Arc<FencedChangelogProducers>>,
+        authority: Option<Arc<AuthorityClock>>,
+        emitted_versions: Arc<EmittedVersions>,
     ) -> Self {
         Self {
             cache,
@@ -111,6 +177,9 @@ impl PersonHogLeaderService {
             recovery,
             size_limits,
             warnings,
+            fenced,
+            authority,
+            emitted_versions,
         }
     }
 
@@ -411,12 +480,19 @@ impl PersonHogLeader for PersonHogLeaderService {
         let partition = partition_from_metadata(&request)?;
         let req = request.into_inner();
         self.validate_partition(partition, req.team_id, req.person_id)?;
+        self.check_authority(partition)?;
         let cache_key = PersonCacheKey {
             team_id: req.team_id,
             person_id: req.person_id,
         };
 
         let person = self.lookup_or_load(partition, &cache_key).await?;
+        // Re-check before answering. The load can wait — on the per-key
+        // lock behind another request's produce, or on a changelog
+        // recovery — for long enough that a claim valid at admission has
+        // lapsed by the time there is something to return, and it is the
+        // answer, not the arrival, that has to be backed by ownership.
+        self.check_authority(partition)?;
 
         Ok(Response::new(GetPersonResponse {
             person: Some(cached_person_to_proto(&person)),
@@ -430,6 +506,16 @@ impl PersonHogLeader for PersonHogLeaderService {
         let partition = partition_from_metadata(&request)?;
         let req = request.into_inner();
         self.validate_partition(partition, req.team_id, req.person_id)?;
+        // A write is serving too. Broker-enforced fencing covers this
+        // path when it is on, but it cannot be turned on first — startup
+        // refuses fencing without the gate — so every fleet passes
+        // through a window where the gate is the only thing standing
+        // between a pod that stopped renewing and a write the successor
+        // will never see. The lease-loss path surrenders before it
+        // drains, deliberately, and until this check existed only reads
+        // honoured that: writes stayed admitted until the local fence
+        // landed, behind a watch teardown and a task join.
+        self.check_authority(partition)?;
 
         // Admit the write as inflight, unless the partition is fenced. A
         // fenced partition has drained for handoff: every router acked the
@@ -666,13 +752,21 @@ impl PersonHogLeader for PersonHogLeaderService {
         }
 
         let approx_bytes = approx_person_bytes(jsonb_column_size(&new_properties));
+        // A version this pod already put on the wire is spent even when
+        // it never learned the outcome, so the next one has to clear that
+        // floor as well as the state it derived from. Reusing it produces
+        // a second record at the same version, and the writer's strict
+        // guard keeps only whichever arrived first.
+        let base_version = self
+            .emitted_versions
+            .floor_for(partition, &cache_key, person.version);
         let updated_person = CachedPerson {
             id: person.id,
             uuid: person.uuid.clone(),
             team_id: person.team_id,
             properties: new_properties,
             created_at: person.created_at,
-            version: person.version + 1,
+            version: base_version + 1,
             is_identified: person.is_identified,
             approx_bytes,
         };
@@ -696,27 +790,190 @@ impl PersonHogLeader for PersonHogLeaderService {
 
         let proto = cached_person_to_proto(&updated_person);
 
+        // Re-check before producing, for the same reason the read path
+        // re-checks before answering: admission proves nothing about the
+        // moment the record lands. Between the check at entry and here a
+        // write can wait on the per-key lock behind another produce, and
+        // on a changelog recovery — long enough for a starved keepalive's
+        // stamp to age out, for the lease to expire at etcd, and for the
+        // coordinator to warm a successor past the point this record
+        // would land.
+        self.check_authority(partition)?;
+
+        // From here the record may reach the changelog whatever happens
+        // to this request — including the request simply ceasing to exist
+        // when the client's deadline expires. The guard is what makes the
+        // version un-reusable in that case.
+        let mut emitted = EmittedVersionGuard::new(
+            Arc::clone(&self.emitted_versions),
+            partition,
+            cache_key.clone(),
+            updated_person.version,
+        );
+        emitted.emitting();
+
         // Produce to Kafka first, then update the cache on success.
         // Readers only ever see durably committed state.
-        let offset = match produce_person_changelog(
-            &self.producer,
-            &self.changelog_topic,
-            partition,
-            &proto,
-        )
-        .await
-        {
-            Ok(offset) => offset,
-            Err(e) => {
-                tracing::error!(
-                    team_id = cache_key.team_id,
-                    person_id = cache_key.person_id,
-                    error = %e,
-                    "failed to produce person state changelog"
-                );
-                return Err(Status::internal(format!(
-                    "failed to durably store person state: {e}"
-                )));
+        let offset = if let Some(fenced) = &self.fenced {
+            match fenced.produce(partition, &proto).await {
+                Ok(offset) => offset,
+                // The broker fenced this pod: a newer owner holds the
+                // partition, so this claim is stale. FailedPrecondition
+                // is the admission fence's own vocabulary — the router
+                // classifies it as a bounce and re-resolves toward the
+                // real owner.
+                Err(e @ FencedProduceError::Fenced) => {
+                    // Rejected at the broker, so the record does not
+                    // exist and its version is free.
+                    emitted.discarded();
+                    tracing::error!(
+                        team_id = cache_key.team_id,
+                        person_id = cache_key.person_id,
+                        partition,
+                        "changelog producer fenced; rejecting write as stale owner"
+                    );
+                    // Deliberately no local reaction beyond failing the
+                    // write. A broker fence proves *someone* newer
+                    // initialized the transactional id, not that this pod
+                    // lost the partition: a zombie waking inside its
+                    // lease window re-acquires on the way to noticing it
+                    // is dead, which fences the legitimate owner. So the
+                    // fence is given up here as unusable and nothing
+                    // more; `heal_fence`, on the next convergence to
+                    // Serving, re-takes the epoch once the authority
+                    // stamp confirms this pod's standing. Reads stay
+                    // served meanwhile under the same stamp — the
+                    // `check_authority` calls at admission and before
+                    // answering are what refuse them once the claim
+                    // lapses.
+                    return Err(Status::failed_precondition(format!(
+                        "partition ownership fenced: {e}"
+                    )));
+                }
+                // This pod holds no producer for the partition — an
+                // ownership statement, in the same vocabulary the
+                // admission fence uses, so the router bounces and
+                // re-resolves instead of surfacing a hard error.
+                // The partition moved *and* this window's outcome was
+                // never settled. The router still needs the ownership
+                // answer, but the version cannot be handed back: the
+                // commit may have succeeded on an attempt librdkafka
+                // re-issued internally.
+                Err(e @ FencedProduceError::FencedUncertain(_)) => {
+                    // Deliberately not settled: the partition moved and
+                    // the window's own outcome never came back, so the
+                    // record may or may not be in the log. Keeping the
+                    // version spent is the whole of what safety needs.
+                    counter!(
+                        "personhog_leader_indeterminate_outcomes_total",
+                        "fenced" => "true"
+                    )
+                    .increment(1);
+                    tracing::error!(
+                        team_id = cache_key.team_id,
+                        person_id = cache_key.person_id,
+                        partition,
+                        error = %e,
+                        "changelog producer fenced with an unknown outcome; version kept spent"
+                    );
+                    return Err(Status::failed_precondition(format!(
+                        "partition ownership fenced: {e}"
+                    )));
+                }
+                Err(e @ FencedProduceError::NotAcquired) => {
+                    emitted.discarded();
+                    tracing::warn!(
+                        team_id = cache_key.team_id,
+                        person_id = cache_key.person_id,
+                        partition,
+                        "no changelog fence held for partition; rejecting write"
+                    );
+                    return Err(Status::failed_precondition(format!(
+                        "partition fence not held: {e}"
+                    )));
+                }
+                // The commit's outcome is unknown, so this pod cannot
+                // say whether the record became visible. A caller
+                // retrying against a cache still holding the pre-write
+                // version would produce a second record at the same
+                // version as the one that may already have committed,
+                // and the writer's strict guard keeps whichever arrived
+                // first — which the floor prevents by holding the
+                // version spent.
+                Err(e @ FencedProduceError::Indeterminate(_)) => {
+                    // Deliberately not settled: whether the record exists
+                    // is exactly what is unknown, so the version stays
+                    // spent and the retry derives past it.
+                    counter!(
+                        "personhog_leader_indeterminate_outcomes_total",
+                        "fenced" => "false"
+                    )
+                    .increment(1);
+                    tracing::error!(
+                        team_id = cache_key.team_id,
+                        person_id = cache_key.person_id,
+                        partition,
+                        error = %e,
+                        "changelog commit outcome unknown; version kept spent"
+                    );
+                    return Err(Status::unknown(format!(
+                        "person state may or may not have been stored: {e}"
+                    )));
+                }
+                // The window aborted, so no record became visible: the
+                // write is safe to retry, and ABORTED is the code the
+                // clients actually retry on.
+                Err(e) => {
+                    // The window aborted, so no record became visible and
+                    // the version can be derived again.
+                    emitted.discarded();
+                    tracing::error!(
+                        team_id = cache_key.team_id,
+                        person_id = cache_key.person_id,
+                        error = %e,
+                        "failed to produce person state changelog (fenced path)"
+                    );
+                    return Err(Status::aborted(format!(
+                        "failed to durably store person state: {e}"
+                    )));
+                }
+            }
+        } else {
+            match produce_person_changelog(&self.producer, &self.changelog_topic, partition, &proto)
+                .await
+            {
+                Ok(offset) => offset,
+                Err(e) => {
+                    // Deliberately not settled. This path collapses an
+                    // enqueue that never left the client with a delivery
+                    // that timed out after the broker may already have
+                    // appended it, and idempotence is off by default, so
+                    // the record's fate is genuinely unknown. Freeing the
+                    // version here let a retry derive the same number and
+                    // put a second record behind one that may be in the
+                    // log — the writer's strict guard then keeps whichever
+                    // arrived first and discards the acked one.
+                    //
+                    // The floor alone carries that: the next write
+                    // derives past it whether or not the cache still
+                    // holds the pre-write state. The entry stays, so
+                    // reads may answer with a version older than the
+                    // changelog until a later write for this person
+                    // settles one. Evicting instead would resolve
+                    // nothing — recovery reads the last *marked* offset,
+                    // which is the previous write that did succeed — and
+                    // would answer NOT_FOUND outright once that mark is
+                    // pruned and no fallback pool is configured.
+                    tracing::error!(
+                        team_id = cache_key.team_id,
+                        person_id = cache_key.person_id,
+                        error = %e,
+                        "failed to produce person state changelog"
+                    );
+                    return Err(Status::internal(format!(
+                        "failed to durably store person state: {e}"
+                    )));
+                }
             }
         };
 
@@ -733,6 +990,9 @@ impl PersonHogLeader for PersonHogLeaderService {
             },
         );
         self.cache.put(partition, cache_key, updated_person);
+        // The cache carries the version now, so the floor has nothing
+        // left to say.
+        emitted.resolved();
         counter!("personhog_leader_updates_total", "outcome" => "updated").increment(1);
 
         Ok(Response::new(UpdatePersonPropertiesResponse {
@@ -805,7 +1065,423 @@ mod tests {
             ),
             PropertySizeLimits::new(655360, 524288),
             WarningsProducer::new(producer, "clickhouse_ingestion_warnings".to_string()),
+            None,
+            None,
+            Arc::new(EmittedVersions::new(1_000_000)),
         )
+    }
+
+    /// The guarantee the clock exists for: a pod whose renewals have
+    /// stopped refuses to answer as the partition's owner, without
+    /// anything running to notice they stopped. The keepalive being
+    /// wedged is exactly the case the lease machinery cannot cover.
+    #[tokio::test]
+    async fn a_pod_whose_renewals_stopped_refuses_to_serve() {
+        // A clock whose renewals stopped longer ago than the margin —
+        // constructed stale rather than aged by sleeping, so no runner
+        // pace can blur which side of the margin the test is on.
+        let margin = Duration::from_secs(20);
+        let clock = Arc::new(AuthorityClock::stale_for(
+            margin,
+            margin + Duration::from_secs(1),
+        ));
+        let service = PersonHogLeaderService {
+            authority: Some(Arc::clone(&clock)),
+            ..make_test_service().await
+        };
+
+        let err = service
+            .check_authority(0)
+            .expect_err("a lapsed lease must not serve");
+        assert_eq!(err.code(), Code::FailedPrecondition);
+
+        clock.confirm(Instant::now());
+        service
+            .check_authority(0)
+            .expect("a confirmed renewal restores service");
+    }
+
+    /// Losing the lease is decided immediately, not after the margin:
+    /// the coordinator may already be reassigning.
+    #[tokio::test]
+    async fn surrendering_the_lease_stops_reads_at_once() {
+        let clock = Arc::new(AuthorityClock::unclaimed());
+        clock.begin_session(Duration::from_secs(30), Instant::now());
+        let service = PersonHogLeaderService {
+            authority: Some(Arc::clone(&clock)),
+            ..make_test_service().await
+        };
+
+        service.check_authority(0).expect("still the owner");
+        clock.surrender();
+        assert_eq!(
+            service.check_authority(0).unwrap_err().code(),
+            Code::FailedPrecondition
+        );
+    }
+
+    /// The gate has to be wired into the RPC, not merely implemented:
+    /// this drives `get_person` itself rather than the check in
+    /// isolation.
+    ///
+    /// It does not distinguish the two checks — a read that finds its
+    /// person in cache never waits, so either one refuses it, and both
+    /// return the same status. `a_read_admitted_before_the_lapse_still_
+    /// refuses_to_answer` is what pins the second.
+    #[tokio::test]
+    async fn get_person_refuses_once_authority_lapses() {
+        let margin = Duration::from_secs(20);
+        let clock = Arc::new(AuthorityClock::stale_for(
+            margin,
+            margin + Duration::from_secs(1),
+        ));
+        let service = PersonHogLeaderService {
+            authority: Some(Arc::clone(&clock)),
+            ..make_test_service().await
+        };
+        // The fixture's single partition makes 0 the only routing answer.
+        let (team_id, person_id) = (7, 42);
+        service.cache.create_partition(0);
+        service.cache.put(
+            0,
+            PersonCacheKey { team_id, person_id },
+            CachedPerson {
+                id: person_id,
+                uuid: "00000000-0000-0000-0000-000000000007".to_string(),
+                team_id,
+                properties: serde_json::json!({}),
+                created_at: 0,
+                version: 1,
+                is_identified: false,
+                approx_bytes: 64,
+            },
+        );
+
+        let request = || {
+            let mut request = Request::new(GetPersonRequest {
+                team_id,
+                person_id,
+                read_options: None,
+            });
+            request
+                .metadata_mut()
+                .insert("x-partition", "0".parse().unwrap());
+            request
+        };
+
+        let err = service
+            .get_person(request())
+            .await
+            .expect_err("a lapsed lease must refuse the read");
+        assert_eq!(err.code(), Code::FailedPrecondition);
+
+        clock.confirm(Instant::now());
+        service
+            .get_person(request())
+            .await
+            .expect("a confirmed renewal serves the read");
+    }
+
+    /// A write is serving too, and the lease-loss path surrenders before
+    /// it drains — so between the surrender and the local fence landing,
+    /// this check is what stops a pod that no longer holds its lease from
+    /// acking a mutation the successor will never see. Fencing covers the
+    /// same ground when it is on, but it cannot be enabled first, so this
+    /// is the only cover the intermediate rollout state has.
+    ///
+    /// Like its read-path counterpart it does not distinguish admission
+    /// from the pre-produce re-check; `a_write_admitted_before_the_lapse_
+    /// is_not_produced` pins the second.
+    ///
+    /// The person is seeded deliberately: without it a removed check
+    /// would still surface `FailedPrecondition` from the ownership guard
+    /// further down, and the test would pass having proved nothing.
+    #[tokio::test]
+    async fn update_refuses_once_authority_is_surrendered() {
+        let clock = Arc::new(AuthorityClock::unclaimed());
+        clock.begin_session(Duration::from_secs(30), Instant::now());
+        let service = PersonHogLeaderService {
+            authority: Some(Arc::clone(&clock)),
+            ..make_test_service().await
+        };
+        let (team_id, person_id) = (7, 42);
+        service.cache.create_partition(0);
+        service.cache.put(
+            0,
+            PersonCacheKey { team_id, person_id },
+            CachedPerson {
+                id: person_id,
+                uuid: "00000000-0000-0000-0000-000000000007".to_string(),
+                team_id,
+                properties: serde_json::json!({}),
+                created_at: 0,
+                version: 1,
+                is_identified: false,
+                approx_bytes: 64,
+            },
+        );
+
+        let request = || {
+            let mut request = Request::new(UpdatePersonPropertiesRequest {
+                team_id,
+                person_id,
+                event_name: "$set".to_string(),
+                set_properties: serde_json::to_vec(&serde_json::json!({"a": 1})).unwrap(),
+                set_once_properties: vec![],
+                unset_properties: vec![],
+            });
+            request
+                .metadata_mut()
+                .insert("x-partition", "0".parse().unwrap());
+            request
+        };
+
+        // Losing the lease is decided at once, not after the margin, so
+        // no sleep is needed to reach the state that matters.
+        clock.surrender();
+
+        // Bounded on purpose: with the check gone the handler runs on to
+        // produce against a broker that is not there, so an unbounded
+        // await would report this regression as a hung test rather than a
+        // failing one.
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            service.update_person_properties(request()),
+        )
+        .await
+        .expect("the refusal must come from the claim check, not from a produce timeout");
+        let err = result.expect_err("a surrendered pod must not ack a write");
+        assert_eq!(err.code(), Code::FailedPrecondition);
+    }
+
+    /// `get_person` checks the claim twice, and asserting only on the
+    /// status code cannot tell the two apart: delete either and the other
+    /// still answers FailedPrecondition. This one pins the second.
+    ///
+    /// The load is what makes it distinct. A read that finds the person
+    /// in cache never waits, so the admission check is the only one it
+    /// can trip; a read that has to wait — on the per-key lock, or on a
+    /// changelog recovery — can be admitted under a claim that is gone by
+    /// the time there is an answer, and it is the answer, not the
+    /// arrival, that has to be backed by ownership.
+    #[tokio::test]
+    async fn a_read_admitted_before_the_lapse_still_refuses_to_answer() {
+        let clock = Arc::new(AuthorityClock::unclaimed());
+        clock.begin_session(Duration::from_secs(30), Instant::now());
+        let service = Arc::new(PersonHogLeaderService {
+            authority: Some(Arc::clone(&clock)),
+            ..make_test_service().await
+        });
+        let (team_id, person_id) = (7, 42);
+        let cache_key = PersonCacheKey { team_id, person_id };
+        service.cache.create_partition(0);
+
+        // Hold the per-key lock. The read misses the cache, reaches for
+        // this lock, and parks there — which is where a changelog
+        // recovery would leave it.
+        let mutex = service
+            .locks
+            .entry(cache_key.clone())
+            .or_default()
+            .value()
+            .clone();
+        let held = mutex.lock().await;
+
+        let mut request = Request::new(GetPersonRequest {
+            team_id,
+            person_id,
+            read_options: None,
+        });
+        request
+            .metadata_mut()
+            .insert("x-partition", "0".parse().unwrap());
+        let reading = tokio::spawn({
+            let service = Arc::clone(&service);
+            async move { service.get_person(request).await }
+        });
+        tokio::task::yield_now().await;
+
+        // The claim goes while the read is parked, and the answer it was
+        // waiting for arrives at the same time.
+        clock.surrender();
+        service.cache.put(
+            0,
+            cache_key.clone(),
+            CachedPerson {
+                id: person_id,
+                uuid: "00000000-0000-0000-0000-000000000007".to_string(),
+                team_id,
+                properties: serde_json::json!({}),
+                created_at: 0,
+                version: 1,
+                is_identified: false,
+                approx_bytes: 64,
+            },
+        );
+        drop(held);
+
+        let err = reading
+            .await
+            .expect("the read task must not panic")
+            .expect_err("a claim that lapsed during the load must not be answered");
+        assert_eq!(err.code(), Code::FailedPrecondition);
+    }
+
+    /// The write path checks the claim twice for the same reason the read
+    /// path does, and asserting only on the status code cannot tell them
+    /// apart. This one pins the second.
+    ///
+    /// A write admitted under a valid claim can wait on the per-key lock
+    /// behind another produce, and on a changelog recovery — long enough
+    /// for a starved keepalive's stamp to age out, for the lease to
+    /// expire, and for a successor to warm past the point this record
+    /// would land. Acking it then is acked-write loss that needs only one
+    /// wedged pod, not a double zombie.
+    #[tokio::test]
+    async fn a_write_admitted_before_the_lapse_is_not_produced() {
+        let clock = Arc::new(AuthorityClock::unclaimed());
+        clock.begin_session(Duration::from_secs(30), Instant::now());
+        let service = Arc::new(PersonHogLeaderService {
+            authority: Some(Arc::clone(&clock)),
+            ..make_test_service().await
+        });
+        let (team_id, person_id) = (7, 42);
+        let cache_key = PersonCacheKey { team_id, person_id };
+        service.cache.create_partition(0);
+        service.cache.put(
+            0,
+            cache_key.clone(),
+            CachedPerson {
+                id: person_id,
+                uuid: "00000000-0000-0000-0000-000000000007".to_string(),
+                team_id,
+                properties: serde_json::json!({}),
+                created_at: 0,
+                version: 1,
+                is_identified: false,
+                approx_bytes: 64,
+            },
+        );
+
+        // Hold the per-key lock so the write is admitted and then parks,
+        // where a concurrent produce for the same person would leave it.
+        let mutex = service
+            .locks
+            .entry(cache_key.clone())
+            .or_default()
+            .value()
+            .clone();
+        let held = mutex.lock().await;
+
+        let mut request = Request::new(UpdatePersonPropertiesRequest {
+            team_id,
+            person_id,
+            event_name: "$set".to_string(),
+            set_properties: serde_json::to_vec(&serde_json::json!({"a": 1})).unwrap(),
+            set_once_properties: vec![],
+            unset_properties: vec![],
+        });
+        request
+            .metadata_mut()
+            .insert("x-partition", "0".parse().unwrap());
+        let writing = tokio::spawn({
+            let service = Arc::clone(&service);
+            async move { service.update_person_properties(request).await }
+        });
+        tokio::task::yield_now().await;
+
+        // The claim goes while the write is parked, then the lock frees.
+        clock.surrender();
+        drop(held);
+
+        // Bounded: without the re-check the handler runs on to produce
+        // against a broker that is not there, and an unbounded await
+        // would report the regression as a hang rather than a failure.
+        let result = tokio::time::timeout(Duration::from_secs(5), writing)
+            .await
+            .expect("the refusal must come from the claim check, not a produce timeout")
+            .expect("the write task must not panic");
+        let err = result.expect_err("a claim that lapsed during the wait must not be produced");
+        assert_eq!(err.code(), Code::FailedPrecondition);
+    }
+
+    /// The admission checks refuse *before* the request does any work, and
+    /// only the wait distinguishes them from the pre-answer re-checks: a
+    /// request that reaches the per-key lock has already been admitted.
+    ///
+    /// Holding that lock turns the difference into a deadline. With
+    /// admission intact neither call ever reaches it; without it they park
+    /// there and are refused only once the lock frees, having meanwhile
+    /// taken an inflight seat a handoff's drain must wait out and, on a
+    /// miss, driven a Postgres fallback or a changelog recovery for a
+    /// partition this pod no longer answers for.
+    #[tokio::test]
+    async fn a_request_arriving_after_the_lapse_is_refused_before_it_loads() {
+        let clock = Arc::new(AuthorityClock::unclaimed());
+        clock.begin_session(Duration::from_secs(30), Instant::now());
+        let service = Arc::new(PersonHogLeaderService {
+            authority: Some(Arc::clone(&clock)),
+            ..make_test_service().await
+        });
+        let (team_id, person_id) = (7, 42);
+        let cache_key = PersonCacheKey { team_id, person_id };
+        // Deliberately unseeded: the read reaches the lock only on a
+        // miss, and a hit would let a dropped admission check still be
+        // caught by the pre-answer one, proving nothing.
+        service.cache.create_partition(0);
+
+        // Anything admitted parks here; nothing admitted ever arrives.
+        let mutex = service
+            .locks
+            .entry(cache_key.clone())
+            .or_default()
+            .value()
+            .clone();
+        let _held = mutex.lock().await;
+
+        clock.surrender();
+
+        let mut read = Request::new(GetPersonRequest {
+            team_id,
+            person_id,
+            read_options: None,
+        });
+        read.metadata_mut()
+            .insert("x-partition", "0".parse().unwrap());
+        let err = tokio::time::timeout(Duration::from_millis(200), service.get_person(read))
+            .await
+            .expect("the read must be refused at admission, not behind the load")
+            .expect_err("a lapsed claim must not be served");
+        assert_eq!(err.code(), Code::FailedPrecondition);
+
+        let mut write = Request::new(UpdatePersonPropertiesRequest {
+            team_id,
+            person_id,
+            event_name: "$set".to_string(),
+            set_properties: serde_json::to_vec(&serde_json::json!({"a": 1})).unwrap(),
+            set_once_properties: vec![],
+            unset_properties: vec![],
+        });
+        write
+            .metadata_mut()
+            .insert("x-partition", "0".parse().unwrap());
+        let err = tokio::time::timeout(
+            Duration::from_millis(200),
+            service.update_person_properties(write),
+        )
+        .await
+        .expect("the write must be refused at admission, not behind the load")
+        .expect_err("a lapsed claim must not be admitted");
+        assert_eq!(err.code(), Code::FailedPrecondition);
+    }
+
+    /// With the gate off the pod serves exactly as before, so the flag
+    /// is a real off switch rather than a partial one.
+    #[tokio::test]
+    async fn an_ungated_service_serves_regardless_of_renewals() {
+        let service = make_test_service().await;
+        assert!(service.authority.is_none());
+        service.check_authority(0).expect("no gate, no refusal");
     }
 
     #[test]

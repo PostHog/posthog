@@ -9,6 +9,7 @@ import type { ScoutConfig } from "@posthog/api-client/posthog-client";
 import {
   computeFleetSummary,
   computeScoutRollups,
+  deriveScoutLifecycle,
   getScoutOrigin,
   listScoutCreatorOptions,
   type ScoutCreatorIndex,
@@ -42,7 +43,6 @@ import { useScoutRuns } from "../hooks/useScoutRuns";
 import { useScoutSkillCreators } from "../hooks/useScoutSkillCreators";
 import { FleetFindingsCallout } from "./FleetFindingsCallout";
 import { FleetMemoryCallout } from "./FleetMemoryCallout";
-import { ScoutAlphaBanner } from "./ScoutAlphaBanner";
 import { ScoutHelperSkillLinks } from "./ScoutHelperSkillLinks";
 import { ScoutRowCard } from "./ScoutRowCard";
 
@@ -103,10 +103,12 @@ export function ScoutsFleetSection() {
   }
 
   const enabledCount = configs.filter((config) => config.enabled).length;
+  const systemPausedCount = configs.filter(
+    (config) => deriveScoutLifecycle(config).isSystemPaused,
+  ).length;
 
   return (
     <Flex direction="column" gap="3">
-      <ScoutAlphaBanner />
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
@@ -121,6 +123,11 @@ export function ScoutsFleetSection() {
             </Text>
             <Text className="text-[12px] text-gray-11 leading-snug">
               {enabledCount} of {configs.length} scouts enabled
+              {systemPausedCount > 0 ? (
+                <span className="text-(--red-11)">
+                  {` · ${systemPausedCount} auto-paused`}
+                </span>
+              ) : null}
               {lastRunAt ? (
                 <>
                   {" · last dispatched "}
@@ -221,7 +228,13 @@ export function ScoutsFleetListView({
   const visibleConfigs = useMemo(() => {
     let sorted = sortConfigsForDisplay(configs);
     if (hideDisabled) {
-      sorted = sorted.filter((config) => config.enabled);
+      // "Disabled" means the scouts a person switched off. The ones PostHog
+      // switched off are exactly what this view has to keep in front of them,
+      // since switching them back on is the only way to recover them.
+      sorted = sorted.filter(
+        (config) =>
+          config.enabled || deriveScoutLifecycle(config).isSystemPaused,
+      );
     }
     if (creatorKey && creators) {
       sorted = sorted.filter(
@@ -251,6 +264,18 @@ export function ScoutsFleetListView({
             · {scoutRunsWindowLabel(runsWindow)}
           </span>
         </Text>
+        {/* Auto-paused scouts sink below the enabled ones and vanish entirely
+            under "Hide disabled", so the count has to lead here. */}
+        {summary.systemPausedCount > 0 ? (
+          <span className="whitespace-nowrap text-(--red-11) text-[12.5px]">
+            {summary.systemPausedCount} auto-paused
+          </span>
+        ) : null}
+        {summary.pausingSoonCount > 0 ? (
+          <span className="whitespace-nowrap text-(--amber-11) text-[12.5px]">
+            {summary.pausingSoonCount} pausing soon
+          </span>
+        ) : null}
         <span className="flex-1" />
         {creatorOptions.length > 0 ? (
           <Flex align="center" gap="2">
@@ -421,7 +446,6 @@ function ScoutsEmptyState() {
   useTrackFleetViewed(EMPTY_CONFIGS);
   return (
     <Flex direction="column" gap="3">
-      <ScoutAlphaBanner />
       <Flex
         direction="column"
         gap="2"

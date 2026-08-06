@@ -189,14 +189,11 @@ const Component = ({
                 ) : hasStreamOutput ? null : (
                     <div className="text-xs text-muted font-mono p-2">Run the cell to see execution results.</div>
                 )}
-                {attributes.runId ? (
-                    <div className="shrink-0 px-2 pb-2 text-[10px] uppercase tracking-wide text-muted select-text">
-                        run_id: {attributes.runId}
-                    </div>
-                ) : null}
             </div>
             <div
-                className="flex shrink-0 items-center gap-2 text-xs text-muted border-t p-2"
+                // Translucent overlay, not a surface token: the shell is surface-primary in light
+                // mode but surface-tertiary in dark, so a fixed surface vanishes against one of them.
+                className="flex shrink-0 items-center gap-2 text-xs text-muted border-t border-primary bg-fill-highlight-50 p-2"
                 onClick={(event) => event.stopPropagation()}
                 onMouseDown={(event) => event.stopPropagation()}
             >
@@ -207,10 +204,13 @@ const Component = ({
                     type="text"
                     // The dataframe name this cell's result is exposed as to later cells.
                     // Optional: left empty, the cell binds nothing and later cells can't read it.
-                    className="rounded border border-border px-1.5 py-0.5 text-xs font-mono bg-bg-light text-default focus:outline-none focus:ring-1 focus:ring-primary"
+                    // Wide enough for the placeholder to sit on one line without clipping. The name
+                    // carries weight through size and a faintly warm near-black rather than a hue —
+                    // a saturated color here competes with the accent the app spends on links.
+                    className="w-56 rounded border border-primary px-1.5 py-0.5 text-sm font-medium font-mono bg-surface-primary text-[oklch(0.27_0.022_345deg)] dark:text-[oklch(0.93_0.014_345deg)] focus:outline-none focus:ring-1 focus:ring-primary"
                     value={attributes.returnVariable ?? ''}
                     onChange={(event) => updateAttributes({ returnVariable: event.target.value })}
-                    placeholder="Dataframe name (optional)"
+                    placeholder="Output dataframe name"
                     spellCheck={false}
                 />
             </div>

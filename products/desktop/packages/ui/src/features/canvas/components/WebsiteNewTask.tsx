@@ -3,10 +3,11 @@ import type { Task } from "@posthog/shared/domain-types";
 import { CHANNEL_TASK_SUGGESTIONS } from "@posthog/ui/features/canvas/channelTaskSuggestions";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
 import { ChannelContextPanel } from "@posthog/ui/features/canvas/components/ChannelContextPanel";
-import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
+import { SpaceSelect } from "@posthog/ui/features/canvas/components/SpaceSelect";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
 import { useFolderInstructions } from "@posthog/ui/features/canvas/hooks/useFolderInstructions";
+import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { TaskInput } from "@posthog/ui/features/task-detail/components/TaskInput";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
@@ -28,8 +29,10 @@ export function WebsiteNewTask({ channelId }: { channelId: string }) {
   const view = useAppView();
   const queryClient = useQueryClient();
   const { fileTask } = useChannelTaskMutations();
-  const { channels } = useChannels();
-  const channelName = channels.find((c) => c.id === channelId)?.name;
+  // The raw channel row also carries the space's repository defaults.
+  const { channels } = useTaskChannels();
+  const channel = channels.find((c) => c.id === channelId);
+  const channelName = channel?.name;
 
   // Surface the channel breadcrumb in the shared header, same as the other
   // channel scenes ("# channel / New task").
@@ -106,16 +109,46 @@ export function WebsiteNewTask({ channelId }: { channelId: string }) {
     [channelId, fileTask, navigate, queryClient],
   );
 
+  // Retargeting navigates to that space's own new-task route; the composer's
+  // draft lives in the shared "task-input" draft store, so text typed before
+  // switching survives the navigation.
+  const handleSpaceChange = useCallback(
+    (nextChannelId: string) => {
+      track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+        action_type: "new_task_open",
+        surface: "new_task",
+        channel_id: nextChannelId,
+      });
+      void navigate({
+        to: "/website/$channelId/new",
+        params: { channelId: nextChannelId },
+      });
+    },
+    [navigate],
+  );
+
   return (
     <Flex className="h-full min-w-0 flex-1">
       <div className="min-w-0 flex-1">
         <TaskInput
+          // Beside the Cloud/Local chip: which space the task files into.
+          // Arriving from a space's own "+" this is pre-filled; the global
+          // new-task entry points land on #me.
+          spaceSelector={({ disabled }) => (
+            <SpaceSelect
+              value={channelId}
+              onChange={handleSpaceChange}
+              disabled={disabled}
+            />
+          )}
           onTaskCreated={onTaskCreated}
           channelContext={channelContext}
           channelName={channelName}
           channelId={channelId}
           channelContextId={channelId}
           allowNoRepo
+          channelRepositories={channel?.repositories}
+          channelGithubIntegration={channel?.github_integration}
           // So a prompt handed to openTaskInput survives routing into a channel.
           initialPrompt={view.initialPrompt}
           initialPromptKey={view.taskInputRequestId}

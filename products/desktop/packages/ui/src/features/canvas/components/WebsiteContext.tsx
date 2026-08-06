@@ -321,22 +321,41 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
         </Box>
       ) : null}
 
-      <ScrollArea
-        type="auto"
-        scrollbars="vertical"
-        className="scroll-area-constrain-width min-h-0 flex-1"
-      >
-        <Box p="4">
-          {selectedVersion ? (
-            <Callout.Root color="gray" size="1">
-              <Callout.Text>
-                Viewing v{selectedVersion.version} metadata. Past content is not
-                fetched today — switch to "Latest" to read or edit current
-                content.
-              </Callout.Text>
-            </Callout.Root>
-          ) : mode === "rendered" ? (
-            hasInstructions ? (
+      {!selectedVersion && mode === "edit" ? (
+        // The editor sits outside the scroll area so it grows with the window
+        // instead of scrolling the page around a fixed-height box.
+        <Box p="4" className="flex min-h-0 flex-1">
+          <TextArea
+            value={draft}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              setHasDraft(true);
+            }}
+            size="2"
+            placeholder={
+              spacesLayout
+                ? "# Space context\n\nWrite markdown describing this space…"
+                : "# Channel context\n\nWrite markdown describing this channel…"
+            }
+            className="min-h-0 flex-1 font-[var(--code-font-family)]"
+          />
+        </Box>
+      ) : (
+        <ScrollArea
+          type="auto"
+          scrollbars="vertical"
+          className="scroll-area-constrain-width min-h-0 flex-1"
+        >
+          <Box p="4">
+            {selectedVersion ? (
+              <Callout.Root color="gray" size="1">
+                <Callout.Text>
+                  Viewing v{selectedVersion.version} metadata. Past content is
+                  not fetched today — switch to "Latest" to read or edit current
+                  content.
+                </Callout.Text>
+              </Callout.Root>
+            ) : hasInstructions ? (
               <Box className="text-[13px]">
                 <MarkdownRenderer content={renderedContent} />
               </Box>
@@ -350,26 +369,10 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
                   setMode("edit");
                 }}
               />
-            )
-          ) : (
-            <TextArea
-              value={draft}
-              onChange={(e) => {
-                setDraft(e.target.value);
-                setHasDraft(true);
-              }}
-              size="2"
-              rows={24}
-              placeholder={
-                spacesLayout
-                  ? "# Space context\n\nWrite markdown describing this space…"
-                  : "# Channel context\n\nWrite markdown describing this channel…"
-              }
-              className="font-[var(--code-font-family)]"
-            />
-          )}
-        </Box>
-      </ScrollArea>
+            )}
+          </Box>
+        </ScrollArea>
+      )}
     </Flex>
   );
 }

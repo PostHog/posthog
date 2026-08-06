@@ -1,19 +1,30 @@
 import { assertCanvasCapability } from "@posthog/core/canvas/canvasCapabilities";
 import {
   type CanvasNavIntent,
+  type CanvasTheme,
   canvasToHostMessageSchema,
 } from "@posthog/core/canvas/freeformSchemas";
 import type { CanvasCapabilities } from "@posthog/shared";
 import { logger } from "@posthog/ui/shell/logger";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
-import { useLayoutEffect, useRef } from "react";
+import { useThemeStore } from "@posthog/ui/shell/themeStore";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { createCanvasHostMessageRouter } from "./canvasHostMessageRouter";
 
 const log = logger.scope("built-canvas");
 
-function buildArtifactHostDocument(artifactUrl: string): string {
+function buildArtifactHostDocument(
+  artifactUrl: string,
+  theme: CanvasTheme,
+): string {
   const artifactOrigin = new URL(artifactUrl).origin;
-  const serializedArtifactUrl = JSON.stringify(artifactUrl).replaceAll(
+  // The theme rides the fragment so the artifact runtime (a synchronous head
+  // script) applies `.dark` before first paint — the bridge port only connects
+  // at the load event, far too late to prevent a light flash. Fragments don't
+  // reach the server, so signed artifact URLs stay valid.
+  const themedUrl = new URL(artifactUrl);
+  themedUrl.hash = `theme=${theme}`;
+  const serializedArtifactUrl = JSON.stringify(themedUrl.href).replaceAll(
     "<",
     "\\u003c",
   );
@@ -93,7 +104,16 @@ export function BuiltCanvas({
   onNavigate,
 }: BuiltCanvasProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const hostDocument = buildArtifactHostDocument(artifactUrl);
+  // Mirrors the host's light/dark theme, like FreeformCanvas — sent over the
+  // artifact bridge port right after connect and again on every change.
+  const theme = useThemeStore(
+    (s): CanvasTheme => (s.isDarkMode ? "dark" : "light"),
+  );
+  const artifactPortRef = useRef<MessagePort | null>(null);
+  // The srcDoc bakes in the mount-time theme only — folding the live theme in
+  // would reload the artifact on every toggle. Live changes go over the port.
+  const initialTheme = useRef(theme).current;
+  const hostDocument = buildArtifactHostDocument(artifactUrl, initialTheme);
   const latest = useRef({
     capabilities,
     onDataRequest,
@@ -101,6 +121,7 @@ export function BuiltCanvas({
     onReady,
     onRendered,
     onNavigate,
+    theme,
   });
   latest.current = {
     capabilities,
@@ -109,15 +130,15 @@ export function BuiltCanvas({
     onReady,
     onRendered,
     onNavigate,
+    theme,
   };
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new host document needs a fresh bridge even though the effect reads it only through the iframe.
   useLayoutEffect(() => {
     const iframe = iframeRef.current;
-    let artifactPort: MessagePort | null = null;
 
     const route = createCanvasHostMessageRouter({
-      post: (message) => artifactPort?.postMessage(message),
+      post: (message) => artifactPortRef.current?.postMessage(message),
       callbacks: () => ({
         onDataRequest: (method, payload) => {
           // Gating lives here so every consumer of BuiltCanvas gets it by
@@ -149,16 +170,23 @@ export function BuiltCanvas({
     };
 
     const onLoad = () => {
-      if (artifactPort) return;
+      if (artifactPortRef.current) return;
       const bridge = new MessageChannel();
-      artifactPort = bridge.port1;
-      artifactPort.addEventListener("message", onMessage);
-      artifactPort.start();
+      artifactPortRef.current = bridge.port1;
+      artifactPortRef.current.addEventListener("message", onMessage);
+      artifactPortRef.current.start();
       iframe?.contentWindow?.postMessage(
         { channel: "posthog-canvas-host", type: "connect" },
         "*",
         [bridge.port2],
       );
+      // Queued on the port until the artifact runtime starts it, so the first
+      // themed paint happens before any data renders.
+      artifactPortRef.current.postMessage({
+        channel: "posthog-canvas",
+        type: "set-theme",
+        theme: latest.current.theme,
+      });
     };
 
     const onHostMessage = (event: MessageEvent) => {
@@ -169,8 +197,8 @@ export function BuiltCanvas({
       ) {
         return;
       }
-      artifactPort?.close();
-      artifactPort = null;
+      artifactPortRef.current?.close();
+      artifactPortRef.current = null;
     };
 
     iframe?.addEventListener("load", onLoad);
@@ -178,9 +206,20 @@ export function BuiltCanvas({
     return () => {
       iframe?.removeEventListener("load", onLoad);
       window.removeEventListener("message", onHostMessage);
-      artifactPort?.close();
+      artifactPortRef.current?.close();
+      artifactPortRef.current = null;
     };
   }, [hostDocument]);
+
+  // Live theme change: re-theme the running artifact without reloading it. On
+  // mount the port is still null — the initial theme goes out in onLoad above.
+  useEffect(() => {
+    artifactPortRef.current?.postMessage({
+      channel: "posthog-canvas",
+      type: "set-theme",
+      theme,
+    });
+  }, [theme]);
 
   return (
     <iframe
@@ -189,6 +228,10 @@ export function BuiltCanvas({
       sandbox="allow-scripts"
       srcDoc={hostDocument}
       referrerPolicy="no-referrer"
+      // Like FreeformCanvas: without a matching color-scheme the UA paints the
+      // embedded documents' base canvas opaque white, flashing over a dark app
+      // before the artifact's stylesheets and theme land.
+      style={{ colorScheme: theme }}
       className="h-full w-full border-0 bg-background"
     />
   );

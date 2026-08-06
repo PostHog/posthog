@@ -618,13 +618,19 @@ export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
                 ])
                 .optional()
                 .describe(
-                    'Top-level column to facet on. Provide exactly one of facetField or facetResourceAttribute. Its own filter is excluded so counts reflect the other active filters.\n\n\* `severity_text` - severity_text\n\* `service_name` - service_name'
+                    'Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own filter is excluded so counts reflect the other active filters.\n\n\* `severity_text` - severity_text\n\* `service_name` - service_name'
                 ),
             facetResourceAttribute: zod
                 .string()
                 .nullish()
                 .describe(
-                    "Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField or facetResourceAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters."
+                    "Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters."
+                ),
+            facetAttribute: zod
+                .string()
+                .nullish()
+                .describe(
+                    "Log attribute key to facet on (e.g. 'log.iostream'). Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Counts honour severity, service and resource-attribute filters, but not body search, other log-attribute filters, or this facet's own filter."
                 ),
             dateRange: zod
                 .object({
@@ -1775,6 +1781,13 @@ export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe(
                     'Break down sparkline by \"severity\" (default) or \"service\".\n\n\* `severity` - severity\n\* `service` - service'
+                ),
+            sparklineRankBy: zod
+                .enum(['count', 'bytes'])
+                .describe('\* `count` - count\n\* `bytes` - bytes')
+                .optional()
+                .describe(
+                    'Rank breakdown values by \"count\" (default) or \"bytes\" before collapsing the tail into \"other\".\n\n\* `count` - count\n\* `bytes` - bytes'
                 ),
             personId: zod
                 .string()
