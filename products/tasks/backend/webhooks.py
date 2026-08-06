@@ -15,6 +15,7 @@ from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 
 from products.signals.backend.models import InvalidStatusTransition, SignalReport
+from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
 from products.tasks.backend.facade.cancellation import cancel_task_run
 from products.tasks.backend.models import TaskRun
@@ -431,17 +432,57 @@ def _pr_payload_properties(payload: dict) -> dict:
     }
 
 
+def _merged_by_attribution(payload: dict, team_id: int) -> tuple[dict, str | None]:
+    """Identity of the GitHub user who merged the PR, resolved to a PostHog user when possible.
+
+    Merging is the one unambiguous personal act in the loop, so when the merger's GitHub
+    login maps to an org member the pr_merged event attributes to them. Without a match the
+    event keeps the task's assigned user (an auto-resolved reviewer or fallback for
+    auto-started reports), so a consumer tells the two apart by the presence of
+    pr_merged_by_distinct_id.
+    """
+    merged_by = (payload.get("pull_request") or {}).get("merged_by") or {}
+    login = merged_by.get("login")
+    if not login:
+        return {}, None
+    properties: dict = {"pr_merged_by_login": login, "pr_merged_by_id": merged_by.get("id")}
+    distinct_id: str | None = None
+    try:
+        resolved = resolve_org_github_login_to_users(team_id, [login]).get(str(login).strip().lower())
+        if resolved is not None:
+            distinct_id = str(resolved.distinct_id)
+            properties["pr_merged_by_distinct_id"] = distinct_id
+    except Exception as e:
+        logger.warning("github_pr_webhook_merged_by_resolution_failed", login=login, team_id=team_id, error=str(e))
+    return properties, distinct_id
+
+
 def _capture_pr_event(payload: dict, task_run: TaskRun | None, analytics_event: str, event_uuid: str) -> None:
     pr_properties = _pr_payload_properties(payload)
 
     if task_run is not None:
-        task_run.capture_event(analytics_event, {**pr_properties, "pr_source": "task"}, event_uuid=event_uuid)
+        merger_distinct_id: str | None = None
+        if analytics_event == "pr_merged":
+            merged_by_properties, merger_distinct_id = _merged_by_attribution(payload, task_run.team_id)
+            pr_properties = {**pr_properties, **merged_by_properties}
+        task_run.capture_event(
+            analytics_event,
+            {**pr_properties, "pr_source": "task"},
+            event_uuid=event_uuid,
+            distinct_id_override=merger_distinct_id,
+        )
         return
 
     team = _resolve_external_team(payload)
     if team is None:
         logger.debug("github_pr_webhook_unresolved_installation", pr_url=pr_properties.get("pr_url"))
         return
+
+    external_distinct_id = str(team.uuid)
+    if analytics_event == "pr_merged":
+        merged_by_properties, merger_distinct_id = _merged_by_attribution(payload, team.id)
+        pr_properties = {**pr_properties, **merged_by_properties}
+        external_distinct_id = merger_distinct_id or external_distinct_id
 
     properties: dict = {
         **pr_properties,
@@ -454,7 +495,7 @@ def _capture_pr_event(payload: dict, task_run: TaskRun | None, analytics_event: 
 
     try:
         posthoganalytics.capture(
-            distinct_id=str(team.uuid),
+            distinct_id=external_distinct_id,
             event=analytics_event,
             properties=properties,
             groups=groups(team=team),

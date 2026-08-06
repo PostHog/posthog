@@ -859,9 +859,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'review-hog',
                 'warehouse-person-properties',
                 'streamlit-apps',
+                'posthog-connect',
             ])
         )
-        expect(flags).toHaveLength(29)
+        expect(flags).toHaveLength(30)
     })
 
     it('every loops tool is gated on the loops flag', () => {

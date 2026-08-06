@@ -25,7 +25,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.sendgrid import (
     SendGridResumeConfig,
+    get_endpoint_permissions as get_sendgrid_endpoint_permissions,
+    get_endpoint_status_code,
     get_status_code,
+    permission_error_for,
     sendgrid_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.settings import (
@@ -58,7 +61,9 @@ class SendGridSource(ResumableSource[SendGridSourceConfig, SendGridResumeConfig]
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url: https://api.sendgrid.com": "Your SendGrid API key is invalid or expired. Please generate a new key and reconnect.",
-            "403 Client Error: Forbidden for url: https://api.sendgrid.com": "Your SendGrid API key is missing a scope required to sync this data. Please grant the required read scopes and reconnect.",
+            # Keyed on the error text, so this covers every endpoint and can't name the one scope.
+            # `get_endpoint_permissions` does that per table before a sync is ever queued.
+            "403 Client Error: Forbidden for url: https://api.sendgrid.com": "Your SendGrid API key cannot read this table. Add that table's read access to the key in SendGrid under Settings > API Keys, then resume this sync. Marketing lists also need an account with Marketing Campaigns.",
         }
 
     def get_schemas(
@@ -81,8 +86,12 @@ class SendGridSource(ResumableSource[SendGridSourceConfig, SendGridResumeConfig]
     ) -> tuple[bool, str | None]:
         # `/scopes` is readable by any genuine key, so it's the cheapest probe at source-create.
         # For a specific schema we probe its own endpoint to confirm the key has that read scope.
-        path = SENDGRID_ENDPOINTS[schema_name].path if schema_name in SENDGRID_ENDPOINTS else "/scopes"
-        status = get_status_code(config.api_key, path)
+        endpoint = SENDGRID_ENDPOINTS.get(schema_name) if schema_name is not None else None
+        status = (
+            get_endpoint_status_code(config.api_key, endpoint)
+            if endpoint is not None
+            else get_status_code(config.api_key, "/scopes")
+        )
 
         if status == 200:
             return True, None
@@ -92,12 +101,19 @@ class SendGridSource(ResumableSource[SendGridSourceConfig, SendGridResumeConfig]
             # the endpoints they want); reject when validating a specific schema.
             if schema_name is None:
                 return True, None
+            if endpoint is not None:
+                return False, permission_error_for(endpoint)
             return False, "Your SendGrid API key is missing the scope required to sync this data."
 
         if status == 401:
             return False, "Invalid SendGrid API key"
 
         return False, "Could not validate SendGrid API key"
+
+    def get_endpoint_permissions(
+        self, config: SendGridSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
+    ) -> dict[str, str | None]:
+        return get_sendgrid_endpoint_permissions(config.api_key, endpoints)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[SendGridResumeConfig]:
         return ResumableSourceManager[SendGridResumeConfig](inputs, SendGridResumeConfig)
@@ -133,9 +149,11 @@ class SendGridSource(ResumableSource[SendGridSourceConfig, SendGridResumeConfig]
 You can create an API key in your [SendGrid account settings](https://app.sendgrid.com/settings/api_keys).
 
 Grant the following read access (Restricted Access) so the key can reach the data you want to sync:
-- **Suppressions** — bounces, blocks, invalid emails, spam reports, global unsubscribes, unsubscribe groups
-- **Marketing** — marketing lists
-- **Template Engine** — templates
+- **Suppressions**: bounces, blocks, invalid emails, spam reports, global unsubscribes, unsubscribe groups
+- **Marketing**: marketing lists. This also needs an account with Marketing Campaigns enabled.
+- **Template Engine**: templates
+
+Tables your key cannot read are flagged in the next step and left unselected.
 """,
             iconPath="/static/services/sendgrid.png",
             docsUrl="https://posthog.com/docs/cdp/sources/sendgrid",

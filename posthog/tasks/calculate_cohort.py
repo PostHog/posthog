@@ -8,7 +8,7 @@ from django.utils import timezone
 
 import structlog
 import posthoganalytics
-from celery import chain, current_task, shared_task
+from celery import Task, chain, current_task, shared_task
 from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter, Gauge, Histogram
 
@@ -498,9 +498,33 @@ def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id
         cohort.calculate_people_ch(pending_version, initiating_user_id=initiating_user_id)
 
 
-@shared_task(ignore_result=True, max_retries=1)
+def _is_final_attempt(task: Task, err: Exception) -> bool:
+    """Whether a failure is permanent, so the task must finalize terminal state now.
+
+    Nothing retries an error outside CH_TRANSIENT_ERRORS, a direct (synchronous) call, which has no
+    Celery retry machinery behind it, or the last autoretry attempt.
+    """
+    if not isinstance(err, CH_TRANSIENT_ERRORS):
+        return True
+    if task.request.called_directly:
+        return True
+    return task.max_retries is not None and (task.request.retries or 0) >= task.max_retries
+
+
+@shared_task(
+    bind=True,
+    ignore_result=True,
+    # Auto-retry transient ClickHouse capacity errors with exponential backoff, matching the
+    # dynamic-cohort sibling calculate_cohort_ch. Without this, a brief capacity blip during
+    # the person_static_cohort insert leaves the static cohort permanently half-populated.
+    autoretry_for=CH_TRANSIENT_ERRORS,
+    retry_backoff=60,
+    retry_backoff_max=1800,
+    max_retries=6,
+)
 @skip_team_scope_audit
 def calculate_cohort_from_list(
+    self: Task,
     cohort_id: int,
     items: list[str],
     team_id: Optional[int] = None,
@@ -516,14 +540,30 @@ def calculate_cohort_from_list(
     if team_id is None:
         team_id = cohort.team_id
 
-    if id_type == "distinct_id":
-        batch_count = cohort.insert_users_by_list(items, team_id=team_id)
-    elif id_type == "person_id":
-        batch_count = cohort.insert_users_list_by_uuid(items, team_id=team_id)
-    elif id_type == "email":
-        batch_count = cohort.insert_users_by_email(items, team_id=team_id, email_property_key=email_property_key)
-    else:
+    if id_type not in ("distinct_id", "person_id", "email"):
         raise ValueError(f"Unsupported id_type: {id_type}")
+
+    # raise_on_error surfaces a batch insert failure instead of swallowing it, so a transient
+    # capacity blip propagates and triggers the backed-off retry above. Retries are safe: the
+    # insert path dedupes members already in the cohort (ClickHouse excludes existing UUIDs, the
+    # InsertCohortMembers RPC dedupes on person id), so re-running the whole list adds no duplicates.
+    try:
+        if id_type == "distinct_id":
+            batch_count = cohort.insert_users_by_list(items, team_id=team_id, raise_on_error=True)
+        elif id_type == "person_id":
+            batch_count = cohort.insert_users_list_by_uuid(items, team_id=team_id, raise_on_error=True)
+        else:
+            batch_count = cohort.insert_users_by_email(
+                items, team_id=team_id, email_property_key=email_property_key, raise_on_error=True
+            )
+    except Exception as err:
+        # raise_on_error also hands terminal-state finalization to us, so record the failure, but
+        # only when nothing will retry. Recording it while attempts remain would leave a cohort
+        # that is still being retried looking errored and no longer calculating.
+        if _is_final_attempt(self, err):
+            cohort._safe_save_cohort_state(team_id=team_id, processing_error=err)
+        raise
+
     logger.warn(
         "Cohort {}: {:,} items in {} batches from CSV completed in {:.2f}s".format(
             cohort.pk, len(items), batch_count, (time.time() - start_time)

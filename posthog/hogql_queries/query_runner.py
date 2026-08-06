@@ -62,6 +62,7 @@ from posthog.schema import (
     MetricsQuery,
     NodeKind,
     PathsQuery,
+    PathsV2Query,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     QueryStatus,
@@ -341,6 +342,7 @@ RunnableQueryNode = Union[
     FunnelsQuery,
     RetentionQuery,
     PathsQuery,
+    PathsV2Query,
     StickinessQuery,
     LifecycleQuery,
     ActorsQuery,
@@ -496,6 +498,17 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == "PathsV2Query":
+        from products.product_analytics.backend.hogql_queries.paths_v2.paths_v2_query_runner import PathsV2QueryRunner
+
+        return PathsV2QueryRunner(
+            query=cast(PathsV2Query | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
     if kind == "CalendarHeatmapQuery":
         from .insights.trends.calendar_heatmap_query_runner import CalendarHeatmapQueryRunner
 
@@ -605,6 +618,7 @@ def get_query_runner(
         "FunnelCorrelationActorsQuery",
         "ExperimentActorsQuery",
         "StickinessActorsQuery",
+        "PathsV2ActorsQuery",
     ):
         from .insights.insight_actors_query_runner import InsightActorsQueryRunner
 
@@ -1528,9 +1542,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             groups=(groups(self.team.organization, self.team)),
         )
 
+        # A shared-link viewer has no user row, so `user_id` is None and the worker would otherwise
+        # run userless - denying every warehouse table and fingerprinting the cache differently than
+        # this request. Carry the share along so the worker can rebuild the same principal.
+        # `user` is typed Optional[User] but shared renders pass a SharedLinkUser at runtime.
+        principal = cast("Optional[User | SyntheticUser | SharedLinkUser]", user)
+        sharing_configuration_id = principal.sharing_configuration.pk if isinstance(principal, SharedLinkUser) else None
+
         return enqueue_process_query_task(
             team=self.team,
             user_id=user.id if user else None,
+            sharing_configuration_id=sharing_configuration_id,
             insight_id=cache_manager.insight_id,
             dashboard_id=cache_manager.dashboard_id,
             query_json=self.query.model_dump(),

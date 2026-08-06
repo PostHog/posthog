@@ -71,6 +71,9 @@ export async function createHarnessRuntime(
   const {
     credentialStore,
     posthogOAuthCredentials,
+    runtimeMcpServers: _runtimeMcpServers,
+    mcpToolPolicies: _mcpToolPolicies,
+    requestMcpToolPermission: _requestMcpToolPermission,
     projectTrusted,
     ...runtimeOptions
   } = options;

@@ -186,6 +186,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.FUNNELS_QUERY
             | NodeKind.RETENTION_QUERY
             | NodeKind.PATHS_QUERY
+            | NodeKind.PATHS_V2_QUERY
             | NodeKind.STICKINESS_QUERY
             | NodeKind.LIFECYCLE_QUERY
             | NodeKind.EVENTS_QUERY
@@ -304,6 +305,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.FUNNELS_ACTORS_QUERY
             | NodeKind.FUNNEL_CORRELATION_QUERY
             | NodeKind.FUNNEL_CORRELATION_ACTORS_QUERY
+            | NodeKind.PATHS_V2_ACTORS_QUERY
             # data-source nodes, not full queries
             | NodeKind.EVENTS_NODE
             | NodeKind.GROUP_NODE
@@ -684,6 +686,7 @@ _EVENT_TO_TAGS: tuple[tuple[frozenset[str], FallbackTags], ...] = (
     (frozenset({"$exception"}), {"product": Product.ERROR_TRACKING}),
     (frozenset({"$web_vitals"}), {"product": Product.WEB_ANALYTICS}),
     (frozenset({"$feature_flag_called"}), {"product": Product.FEATURE_FLAGS}),
+    (frozenset({"$experiment_exposure"}), {"product": Product.EXPERIMENTS}),
 )
 
 # Union of every event the fallback can match — exposed so HogQLFeatureExtractor can use it as

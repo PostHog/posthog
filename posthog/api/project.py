@@ -5,6 +5,7 @@ from typing import Any, Optional, cast
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Model
+from django.db.models.functions import Trim
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -51,6 +52,7 @@ from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
+from posthog.exceptions import Conflict
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
@@ -584,6 +586,12 @@ class ProjectBackwardCompatSerializer(
     project_id = serializers.IntegerField(
         source="id", read_only=True, help_text="ID of the project this environment belongs to."
     )
+    name = serializers.CharField(
+        required=False,
+        min_length=1,
+        max_length=200,
+        help_text="Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.",
+    )
     # Analytics config sub-objects live on the passthrough Team — reuse the Team serializers for identical shape
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
@@ -979,6 +987,30 @@ class ProjectBackwardCompatSerializer(
     )
     def get_available_setup_task_ids(self, obj) -> list[str]:
         return [e.value for e in SetupTaskId]
+
+    def validate_name(self, value: str) -> str:
+        value = value.strip()
+        # A no-op save must stay valid even for projects that already share a name from before
+        # duplicate names were rejected, so only newly chosen names are checked.
+        if self.instance is not None and value == self.instance.name:
+            return value
+        organization_id = (
+            self.instance.organization_id if self.instance is not None else self.context["view"].organization_id
+        )
+        # Trim the stored side too: names created before this validation (or via the ORM) may carry
+        # surrounding whitespace and must still count as duplicates of their trimmed form.
+        duplicates = (
+            Project.objects.annotate(trimmed_name=Trim("name"))
+            .filter(organization_id=organization_id, trimmed_name__iexact=value)
+            .exclude(is_pending_deletion=True)
+        )
+        if self.instance is not None:
+            duplicates = duplicates.exclude(pk=self.instance.pk)
+        if duplicates.exists():
+            raise Conflict(
+                detail=f'There is already a project called "{value}" in this organization. Choose a different name.'
+            )
+        return value
 
     def validate_access_control(self, value) -> None:
         return TeamSerializer.validate_access_control(cast(TeamSerializer, self), value)
