@@ -3,7 +3,9 @@ import time
 import pytest
 
 from products.marketing_analytics.backend.services.campaign_mapping_suggester import (
+    BATCH_SCORE,
     MIN_EVENT_COUNT,
+    SCORE_CUTOFF,
     differs_only_by_period,
     suggest_campaign_name_mappings,
 )
@@ -391,7 +393,13 @@ class TestBatchSafety:
 
         proposals = suggest_campaign_name_mappings(campaigns, utm_events, NO_MAPPINGS).proposals
 
-        assert proposals == [] or proposals[0].safe_to_batch is False
+        # Pinned rather than `[] or not safe_to_batch`: that spelling also passes when nothing is
+        # proposed at all, and when `safe_to_batch` is hardwired False. The point is that this
+        # score is high enough to propose (93.3 > 88) and too low to batch (< 95), so both halves
+        # have to be asserted.
+        assert len(proposals) == 1
+        assert SCORE_CUTOFF < proposals[0].score < BATCH_SCORE
+        assert proposals[0].safe_to_batch is False
 
 
 class TestScale:

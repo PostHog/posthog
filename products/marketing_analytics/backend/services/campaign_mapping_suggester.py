@@ -25,8 +25,8 @@ Pure function, no queries. Feed it `get_campaigns_with_spend` and
 
 import re
 from collections import Counter, defaultdict
-from dataclasses import asdict, dataclass, field
-from typing import Any, Literal
+from dataclasses import dataclass, field
+from typing import Literal
 
 import structlog
 
@@ -124,9 +124,6 @@ class CampaignMappingProposal:
     expected_utm_campaign: str
     expected_utm_source: str
 
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
 
 @dataclass
 class AmbiguousCampaign:
@@ -150,9 +147,6 @@ class CampaignMappingSuggestions:
     total_orphans: int = 0
     orphans_considered: int = 0
     notes: list[str] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
 
 
 def suggest_campaign_name_mappings(
