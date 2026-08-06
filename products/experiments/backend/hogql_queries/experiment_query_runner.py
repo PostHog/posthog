@@ -67,6 +67,7 @@ from products.experiments.backend.hogql_queries.experiment_query_context import 
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_entity_key,
     get_multiple_variant_handling_from_experiment,
+    has_activation_config,
 )
 from products.experiments.backend.hogql_queries.utils import (
     aggregate_variants_across_breakdowns,
@@ -407,6 +408,11 @@ class ExperimentQueryRunner(QueryRunner):
         ):
             return False
 
+        # Activation-mode exposures can't be cached per day: the flag→activation ordering
+        # crosses bucket boundaries.
+        if has_activation_config(self.experiment.exposure_criteria):
+            return False
+
         return not has_uncalculated_cohorts(self.team, self.experiment.exposure_criteria, self.metric)
 
     def _precompute_skip_reason(self) -> Optional[str]:
@@ -422,6 +428,8 @@ class ExperimentQueryRunner(QueryRunner):
             self.experiment.end_date,
         ):
             return "min_runtime"
+        if has_activation_config(self.experiment.exposure_criteria):
+            return "activation_config"
         if has_uncalculated_cohorts(self.team, self.experiment.exposure_criteria, self.metric):
             return "cohort_not_calculated"
         if self.is_data_warehouse_query:
@@ -462,20 +470,16 @@ class ExperimentQueryRunner(QueryRunner):
         )
 
         # Get the "missing" (not directly accessible) parameters required for the builder
-        (
-            exposure_config,
-            multiple_variant_handling,
-            filter_test_accounts,
-        ) = get_exposure_config_params_for_builder(
+        exposure_params = get_exposure_config_params_for_builder(
             self.experiment.exposure_criteria, self.team, self.experiment.start_date
         )
 
         builder = ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=self.feature_flag_key,
-            exposure_config=exposure_config,
-            filter_test_accounts=filter_test_accounts,
-            multiple_variant_handling=multiple_variant_handling,
+            exposure_config=exposure_params.exposure_config,
+            filter_test_accounts=exposure_params.filter_test_accounts,
+            multiple_variant_handling=exposure_params.multiple_variant_handling,
             variants=self.variants,
             date_range_query=self.date_range_query,
             entity_key=self.entity_key,
@@ -483,6 +487,7 @@ class ExperimentQueryRunner(QueryRunner):
             breakdowns=self._get_breakdowns_for_builder(),
             only_count_matured_users=self.experiment.only_count_matured_users,
             cuped_config=self.cuped_config,
+            activation_config=exposure_params.activation_config,
         )
 
         should_precompute = self._should_precompute()
@@ -868,15 +873,20 @@ class ExperimentQueryRunner(QueryRunner):
         from posthog.schema import ActionsNode, ExperimentEventExposureConfig
 
         exposure_config: ExperimentEventExposureConfig | ActionsNode
+        activation_config: ExperimentEventExposureConfig | ActionsNode | None = None
         if self.actors_query.exposureConfig is not None:
+            # An explicit override replaces the whole exposure definition, including any
+            # stored activation event.
             exposure_config = resolve_exposure_config_for_builder(
                 self.actors_query.exposureConfig, self.team, self.experiment.start_date
             )
         else:
             # Same resolution as the main experiment query, so the actor list matches the counts.
-            exposure_config, _, _ = get_exposure_config_params_for_builder(
+            exposure_params = get_exposure_config_params_for_builder(
                 self.experiment.exposure_criteria, self.team, self.experiment.start_date
             )
+            exposure_config = exposure_params.exposure_config
+            activation_config = exposure_params.activation_config
 
         # Get multiple variant handling
         if self.actors_query.multipleVariantHandling is not None:
@@ -940,6 +950,7 @@ class ExperimentQueryRunner(QueryRunner):
             funnel_step=funnel_step,
             funnel_step_breakdown=funnel_step_breakdown,
             include_recordings=self.actors_query.includeRecordings or False,
+            activation_config=activation_config,
         )
 
         return builder.build_actors_query()

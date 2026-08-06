@@ -45,7 +45,7 @@ from products.experiments.backend.hogql_queries.experiment_query_runner import (
     experiment_precompute_ttl_schedule,
     has_uncalculated_cohorts,
 )
-from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key
+from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key, has_activation_config
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
@@ -133,21 +133,20 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         )
 
     def _get_exposure_query(self) -> ast.SelectQuery:
-        (
-            exposure_config,
-            multiple_variant_handling,
-            filter_test_accounts,
-        ) = get_exposure_config_params_for_builder(self.exposure_criteria, self.team, self.experiment.start_date)
+        exposure_params = get_exposure_config_params_for_builder(
+            self.exposure_criteria, self.team, self.experiment.start_date
+        )
 
         builder = ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=self.feature_flag_key,
-            exposure_config=exposure_config,
-            filter_test_accounts=filter_test_accounts,
-            multiple_variant_handling=multiple_variant_handling,
+            exposure_config=exposure_params.exposure_config,
+            filter_test_accounts=exposure_params.filter_test_accounts,
+            multiple_variant_handling=exposure_params.multiple_variant_handling,
             variants=self.variants,
             date_range_query=self.date_range_query,
             entity_key=get_entity_key(self.group_type_index),
+            activation_config=exposure_params.activation_config,
         )
 
         # TODO: Add query-level precomputation_mode override for ExperimentExposureQuery.
@@ -166,6 +165,9 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                 self.experiment.end_date,
             )
             and not has_uncalculated_cohorts(self.team, self.exposure_criteria)
+            # Activation-mode exposures can't be cached per day: the flag→activation
+            # ordering crosses bucket boundaries.
+            and not has_activation_config(self.exposure_criteria)
         ):
             try:
                 with tags_context(experiment_query_surface="precompute_build", experiment_precompute_table="exposures"):
@@ -278,12 +280,12 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             return None
         multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
         flag_variants = multivariate_data.get("variants", [])
-        _, handling, _ = get_exposure_config_params_for_builder(
+        exposure_params = get_exposure_config_params_for_builder(
             self.exposure_criteria, self.team, self.experiment.start_date
         )
         return evaluate_bias_risk(
             flag_variants=flag_variants,
-            multiple_variant_handling=handling,
+            multiple_variant_handling=exposure_params.multiple_variant_handling,
             total_exposures=total_exposures,
         )
 

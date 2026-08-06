@@ -126,6 +126,29 @@ def normalize_to_exposure_criteria(
         return ExperimentExposureCriteria.model_validate(criteria_copy)
 
 
+def is_default_exposure_config(config: Union[ActionsNode, ExperimentEventExposureConfig, None]) -> bool:
+    """A missing config or one naming a default exposure event is the default exposure, not a
+    custom one (same convention as get_exposure_event_and_property)."""
+    if config is None:
+        return True
+    return isinstance(config, ExperimentEventExposureConfig) and config.event in (
+        DEFAULT_EXPOSURE_EVENT,
+        EXPERIMENT_EXPOSURE_EVENT,
+    )
+
+
+def has_activation_config(exposure_criteria: Union[ExperimentExposureCriteria, dict, None]) -> bool:
+    """Whether the criteria put the experiment in activation mode: an activation event on top of
+    the default exposure. A custom exposure_config disables activation (validation rejects the
+    combination, but stored data predating it must not change semantics)."""
+    criteria = normalize_to_exposure_criteria(exposure_criteria)
+    return (
+        criteria is not None
+        and criteria.activation_config is not None
+        and is_default_exposure_config(criteria.exposure_config)
+    )
+
+
 def get_multiple_variant_handling_from_experiment(
     exposure_criteria: Union[ExperimentExposureCriteria, dict, None],
 ) -> MultipleVariantHandling:
