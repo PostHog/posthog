@@ -19,7 +19,7 @@ import { isEmail } from 'lib/utils/url'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
 import { CardTitle } from 'scenes/authentication/shared/paperDesk/CardTitle'
-import { PaperDeskCard, PaperDeskScene } from 'scenes/authentication/shared/paperDesk/PaperDeskScene'
+import { PaperDeskCard, PaperDeskScene, usePaperDeskTheme } from 'scenes/authentication/shared/paperDesk/PaperDeskScene'
 import { RegionField } from 'scenes/authentication/shared/paperDesk/RegionField'
 import { RedirectIfLoggedInOtherInstance } from 'scenes/authentication/shared/RedirectToLoggedInInstance'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -52,6 +52,7 @@ function Login(): JSX.Element {
         autoRedirectingToProvider,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
+    const theme = usePaperDeskTheme()
 
     const isPasswordHidden = !!precheckResponse.sso_enforcement || isPasswordLoginUnavailable
     const isCodeSent = codeVerificationRequired
@@ -85,7 +86,20 @@ function Login(): JSX.Element {
             {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
             <PaperDeskCard footer={footer}>
                 <CardTitle
-                    title={isCodeSent ? 'Enter your login code' : 'Log in to PostHog'}
+                    title={
+                        isCodeSent ? (
+                            'Enter your login code'
+                        ) : theme === 'glass' ? (
+                            <>
+                                Log in to{' '}
+                                <span className="px-1 rounded-md bg-[color-mix(in_srgb,var(--color-blue-500)_10%,transparent)] text-[var(--color-blue-500)]">
+                                    @PostHog
+                                </span>
+                            </>
+                        ) : (
+                            'Log in to PostHog'
+                        )
+                    }
                     sub={isCodeSent ? undefined : "Welcome back. Let's go ship something."}
                 />
                 <SessionRiskBanner className="mb-4" />

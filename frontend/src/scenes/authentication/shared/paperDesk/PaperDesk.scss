@@ -29,6 +29,8 @@
 // card, plus the same dot grid in a darker green. The base color overrides the parchment
 // `bg-[#eef0e7]` utility (unlayered rules beat Tailwind's cascade layer).
 .PaperDesk--glass {
+    --color-text-warning: var(--color-text-primary);
+
     background-color: #b5cd8f;
     background-image:
         radial-gradient(80% 70% at 50% 30%, rgb(255 253 240 / 45%), transparent 70%),

@@ -13,6 +13,10 @@ export type PaperDeskTheme = 'paper' | 'glass'
 
 const PaperDeskThemeContext = createContext<PaperDeskTheme>('paper')
 
+export function usePaperDeskTheme(): PaperDeskTheme {
+    return useContext(PaperDeskThemeContext)
+}
+
 /** Wrap a paper-desk page to re-skin it - the glass variant renders the same pages through this. */
 export function PaperDeskThemeProvider({
     theme,
@@ -26,7 +30,7 @@ export function PaperDeskThemeProvider({
 
 /** Full-viewport paper-desk stage: dotted parchment + accent glow + mono corner notes. */
 export function PaperDeskScene({ notes, children }: { notes: string[]; children: ReactNode }): JSX.Element {
-    const theme = useContext(PaperDeskThemeContext)
+    const theme = usePaperDeskTheme()
     return (
         <div
             className={cn(
