@@ -296,16 +296,32 @@ class TestTierRunReport(BaseTest):
         assert {n.name: n.status for n in tier.nodes}["both"] == SUSPENDED
 
     def test_a_node_suspended_in_another_tier_blocks_its_descendants_here(self):
-        # execute_dag reads suspended_nodes for the whole DAG, so a suspension on the daily tier
-        # skips hourly descendants; seeding blocks only from this tier would call them unexplained
-        upstream = self._node("daily_upstream", DAILY)
-        downstream = self._node("hourly_downstream", HOURLY)
+        # execute_dag reads suspended_nodes for the whole DAG, so a suspension on the hourly tier
+        # skips daily descendants; seeding blocks only from this tier would call them unexplained
+        upstream = self._node("hourly_upstream", HOURLY)
+        downstream = self._node("daily_downstream", DAILY)
         Edge.objects.create(team=self.team, dag=self.dag, source=upstream, target=downstream)
         self._suspend(upstream)
 
-        hourly, _daily = build_tier_runs(self.dag)
+        _hourly, daily = build_tier_runs(self.dag)
 
-        assert {n.name: n.status for n in hourly.nodes}["hourly_downstream"] == BLOCKED
+        assert {n.name: n.status for n in daily.nodes}["daily_downstream"] == BLOCKED
+
+    def test_a_node_rides_its_effective_cadence_tier_not_its_declared_one(self):
+        # schedules bucket by effective cadence (min of own target and downstream, source-clamped),
+        # so a declared-daily node above a 15min consumer runs under the 15min schedule; grouping
+        # by declared target would look it up in a daily run that never contains it
+        upstream = self._node("upstream_model", DAILY)
+        consumer = self._node("consumer_model", timedelta(minutes=15))
+        Edge.objects.create(team=self.team, dag=self.dag, source=upstream, target=consumer)
+        parent = f"execute-dag-{self.dag.id}:900-2026-07-25T03:00:00Z"
+        self._job(upstream, parent_workflow_id=parent, status=DataModelingJobStatus.COMPLETED)
+        self._job(consumer, parent_workflow_id=parent, status=DataModelingJobStatus.COMPLETED)
+
+        (tier,) = build_tier_runs(self.dag)
+
+        assert tier.seconds == 900
+        assert {n.name: n.status for n in tier.nodes} == {"upstream_model": OK, "consumer_model": OK}
 
     def test_only_the_serving_engine_counts_for_suspension_and_for_jobs(self):
         # the duckgres shadow suspends independently and writes its own job row; neither should

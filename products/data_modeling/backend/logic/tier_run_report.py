@@ -1,8 +1,13 @@
-"""What each cadence tier of a DAG declares, and what its most recent run actually did.
+"""What each cadence tier of a DAG holds, and what its most recent run actually did.
 
 Answers "the daily tier holds N nodes — did they all run, and if not why not?" from Postgres
 alone. `DataModelingJob.parent_workflow_id` carries the tier's schedule id, so a run's job rows
 are attributable to the tier that produced them without asking Temporal.
+
+Tiers are grouped by *effective* cadence — the same propagation + source-floor clamp + bucketing
+the schedule reconciler runs — not by declared target. A declared-daily node above a 15min
+consumer runs under the 15min schedule; grouping by declared target would look it up in a daily
+run that never contains it and report it MISSING forever.
 
 This is deliberately *not* a check that a node is in the live schedule's `node_ids` — that lives
 in Temporal, encrypted. A node reported `MISSING` here is either absent from the live tier or was
@@ -15,8 +20,15 @@ from datetime import datetime, timedelta
 
 from django.db import models
 
-from products.data_modeling.backend.logic.cohort_scheduling import Tier, format_tier, tier_schedule_id, tier_sort_key
-from products.data_modeling.backend.logic.node_frequency import get_declared_anchor, get_declared_target
+from products.data_modeling.backend.logic.cohort_scheduling import (
+    Tier,
+    bucket_into_cadence_tiers,
+    format_tier,
+    tier_schedule_id,
+    tier_sort_key,
+)
+from products.data_modeling.backend.logic.freshness import clamp_to_source_floor, compute_effective_cadences
+from products.data_modeling.backend.logic.node_frequency import build_frequency_graph
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.data_modeling_job import (
     DataModelingJob,
@@ -108,13 +120,13 @@ class TierRun:
 
 
 def build_tier_runs(dag: DAG) -> list[TierRun]:
-    """One TierRun per declared cadence on `dag`, finest cadence first."""
+    """One TierRun per effective cadence cohort on `dag`, finest cadence first."""
     nodes = _reportable_nodes(dag)
-    nodes_by_tier: dict[Tier, list[Node]] = defaultdict(list)
-    for node in nodes:
-        target = get_declared_target(node)
-        if target is not None:
-            nodes_by_tier[Tier(target, get_declared_anchor(node))].append(node)
+    by_id = {str(node.id): node for node in nodes}
+    tiers = _desired_tiers(dag)
+    nodes_by_tier = {
+        tier: [by_id[node_id] for node_id in sorted(node_ids) if node_id in by_id] for tier, node_ids in tiers.items()
+    }
 
     downstream = _downstream_lookup(dag)
     # the runtime blocks on suspension DAG-wide, not per tier: get_dag_structure builds
@@ -129,8 +141,19 @@ def build_tier_runs(dag: DAG) -> list[TierRun]:
 
 
 def untargeted_nodes(dag: DAG) -> list[Node]:
-    """Nodes carrying no declared target — they belong to no tier, so no schedule fires them."""
-    return [node for node in _reportable_nodes(dag) if get_declared_target(node) is None]
+    """Nodes in no cohort — nothing gives them an effective cadence, so no schedule fires them."""
+    scheduled = {node_id for node_ids in _desired_tiers(dag).values() for node_id in node_ids}
+    return [node for node in _reportable_nodes(dag) if str(node.id) not in scheduled]
+
+
+def _desired_tiers(dag: DAG) -> dict[Tier, set[str]]:
+    """The cohorts the reconciler would build, mirroring its propagation + clamp + bucketing."""
+    graph = build_frequency_graph(dag)
+    effective = compute_effective_cadences(
+        nodes=graph.nodes, edges=graph.edges, declared_targets=graph.declared_targets
+    )
+    effective, _clamped = clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals)
+    return bucket_into_cadence_tiers(effective, graph.declared_anchors)
 
 
 def _reportable_nodes(dag: DAG) -> list[Node]:
