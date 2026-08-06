@@ -1,11 +1,21 @@
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
+from posthog.models.user import User
+
 from ...models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillVote
 from ...models.skills import LLMSkill
+
+try:
+    from ee.models.rbac.access_control import AccessControl
+except ImportError:
+    pass
 
 
 def _create_community_skill(
@@ -136,7 +146,7 @@ class TestCommunitySkillAPI(APIBaseTest):
             ("reviewhog_canonical", "review-hog-perspective-logic-correctness"),
         ]
     )
-    def test_install_rejects_reserved_auto_running_names(self, _name, reserved_name, _mock_flag) -> None:
+    def test_install_rejects_reserved_auto_running_names(self, _mock_flag, _name, reserved_name) -> None:
         _create_community_skill(slug="web-analytics-triage")
         # These namespaces auto-run community-controlled instructions on install, so they're refused.
         response = self.client.post(self._url("web-analytics-triage/install/"), {"new_name": reserved_name})
@@ -178,4 +188,38 @@ class TestCommunitySkillAPI(APIBaseTest):
 
         second = self.client.post(self._url("web-analytics-triage/vote/"))
         self.assertEqual(second.json(), {"vote_count": 0, "has_voted": False})
+        self.assertFalse(CommunitySkillVote.objects.exists())
+
+
+@pytest.mark.ee
+@patch(
+    "products.skills.backend.api.community_skills.posthoganalytics.feature_enabled",
+    return_value=True,
+)
+class TestCommunitySkillWriteAccess(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        viewer = User.objects.create_and_join(self.organization, "skills-viewer@posthog.com", "testtest")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_skill",
+            resource_id=None,
+            access_level="viewer",
+            organization_member=OrganizationMembership.objects.get(user=viewer, organization=self.organization),
+        )
+        self.client.force_login(viewer)
+
+    @parameterized.expand([("install",), ("vote",)])
+    def test_viewer_cannot_write(self, _mock_flag, action: str) -> None:
+        _create_community_skill(slug="web-analytics-triage")
+
+        response = self.client.post(f"/api/projects/{self.team.id}/community_skills/web-analytics-triage/{action}/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertFalse(LLMSkill.objects.filter(team=self.team).exists())
         self.assertFalse(CommunitySkillVote.objects.exists())

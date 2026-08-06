@@ -238,6 +238,12 @@ class CommunitySkillViewSet(
     @extend_schema(request=None, responses={200: CommunitySkillVoteResponseSerializer})
     @action(methods=["POST"], detail=True)
     def vote(self, request: Request, slug: str = "", **kwargs) -> Response:
+        # A vote mutates instance-global catalog state (it feeds default ordering for every team), so
+        # it takes the same skill-write access as install rather than the project membership that
+        # scope_object="INTERNAL" alone would check.
+        if not self.user_access_control.check_access_level_for_resource("llm_skill", "editor"):
+            raise PermissionDenied("You do not have permission to vote on community skills.")
+
         try:
             vote_count, has_voted = toggle_community_skill_vote(slug=slug, user=cast(User, request.user))
         except CommunitySkillNotFoundError:

@@ -52,10 +52,12 @@ Because catalog content originates outside the app, the install path re-validate
 trusting the sync:
 
 - Bundled file paths and sizes are re-checked with the same guards as normal skill creation.
-- Installs into auto-running namespaces are refused: the `signals-scout-` prefix (whose skills the
-  Signals coordinator auto-registers and runs with privileged scopes) and ReviewHog's canonical skill
-  names (which auto-enable in a team's PR reviews). Custom `review-hog-*` names stay installable —
-  they require explicit enablement.
+- Installs into auto-running namespaces are refused: the `signals-scout-` and `review-hog-` prefixes,
+  whose skills PostHog registers and runs on its own (Signals scouts run with privileged scopes,
+  ReviewHog skills auto-enable in a team's PR reviews). The whole `review-hog-` prefix is reserved,
+  not only ReviewHog's canonical names, because `products.skills` can't import `products.review_hog`
+  to read that list — `review_hog` already depends on `skills`, so the import would cycle. Install a
+  community skill whose slug starts with either prefix under a different `new_name`.
 - ReviewHog provenance keys (`seeded_by`, `canonical_hash`, `source`) are stripped from copied
   metadata so a catalog entry can't make an installed skill get pruned by ReviewHog's sync.
 - Entries with an empty body or description are rejected (an empty description would later fail
