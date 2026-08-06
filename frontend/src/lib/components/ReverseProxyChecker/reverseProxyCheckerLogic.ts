@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { isExpectedAuthorizationError } from 'lib/api-error'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { sceneLogic } from 'scenes/sceneLogic'
 
@@ -81,9 +82,11 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
                         // of `$exception_list`, so the central `before_send` filter in
                         // `selfReadOnlyModeLogic` can drop `ReadOnlyModeError` without
                         // assuming posthog-js serialises the cause chain.
-                        posthog.captureException(error, {
-                            posthog_source: 'reverseProxyCheckerLogic.loadHasReverseProxy',
-                        })
+                        if (!isExpectedAuthorizationError(error)) {
+                            posthog.captureException(error, {
+                                posthog_source: 'reverseProxyCheckerLogic.loadHasReverseProxy',
+                            })
+                        }
                         return values.hasReverseProxy
                     }
                 },

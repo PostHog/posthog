@@ -6,6 +6,30 @@ export function isAccessDeniedError(error: { status?: number; code?: string | nu
     return error.status === 403 && error.code === 'permission_denied'
 }
 
+/*
+403 codes where the backend is enforcing an authorization rule and the app already answers it —
+an access-denied gate, the 2FA setup modal, the re-authentication prompt. The status is scoped to
+403 deliberately: the same code on a 400 is form validation and still worth reporting.
+*/
+const EXPECTED_AUTHORIZATION_CODES = new Set([
+    'permission_denied',
+    'two_factor_setup_required',
+    'two_factor_verification_required',
+    'sensitive_action_required_reauth',
+    'verified_domain_required',
+])
+
+/**
+ * A 403 the app expects and handles, so error tracking should ignore it. One blocked page load
+ * fails every request the app makes on boot, and each call site fingerprints as its own issue —
+ * enough volume to bury real frontend errors.
+ */
+export function isExpectedAuthorizationError(error: unknown): boolean {
+    // Takes `unknown` because every call site is a catch block or kea's untyped loader error.
+    const { status, code } = (error ?? {}) as { status?: number; code?: string | null }
+    return status === 403 && !!code && EXPECTED_AUTHORIZATION_CODES.has(code)
+}
+
 export class ApiError extends Error {
     /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null
