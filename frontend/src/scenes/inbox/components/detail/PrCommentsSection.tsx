@@ -1,10 +1,12 @@
 import { useValues } from 'kea'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconComment, IconExternal } from '@posthog/icons'
-import { LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { cn } from 'lib/utils/css-classes'
 
 import type { PullRequestCommentApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -12,45 +14,73 @@ import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
 import { DetailSection } from './DetailSection'
 
-/** A single PR comment row: avatar, author, relative time, optional file path, then the markdown body. */
+/**
+ * A single PR comment: who wrote it and when on one muted line, then the body.
+ *
+ * The body is clipped until asked for. GitHub bodies arrive with their own headings, tables and code
+ * blocks, and a bot-written one can be longer than the report it hangs off — rendered in full they
+ * out-shout the report's own summary directly above them. Clipping keeps this section a pointer back
+ * to the thread rather than a second place to read it.
+ */
 function CommentRow({ comment }: { comment: PullRequestCommentApi }): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
+    const [clipped, setClipped] = useState(false)
+    const bodyRef = useRef<HTMLDivElement | null>(null)
+
+    // While collapsed `max-h-24` caps clientHeight, so an overflowing scrollHeight means there is
+    // more body to show. Only re-measured when the body changes — once expanded the two are equal.
+    useEffect(() => {
+        if (bodyRef.current) {
+            setClipped(bodyRef.current.scrollHeight > bodyRef.current.clientHeight)
+        }
+    }, [comment.body])
+
     return (
-        <li className="flex gap-2.5 min-w-0">
-            {comment.author_avatar_url ? (
-                <img
-                    src={comment.author_avatar_url}
-                    alt={comment.author ?? 'author'}
-                    className="size-6 shrink-0 rounded-full bg-fill-highlight-50"
-                    loading="lazy"
-                />
-            ) : (
-                <span className="size-6 shrink-0 rounded-full bg-fill-highlight-100" aria-hidden />
-            )}
-            <div className="flex flex-col gap-1 min-w-0 flex-1">
-                <div className="flex items-center gap-2 flex-wrap text-xs text-tertiary min-w-0">
-                    <span className="font-semibold text-secondary">{comment.author ?? 'Unknown'}</span>
-                    {comment.created_at && <TZLabel time={comment.created_at} />}
-                    {comment.comment_type === 'review' && comment.path && (
-                        <Tooltip title={comment.path}>
-                            <LemonTag type="muted" className="font-mono max-w-[16rem]">
-                                <span className="truncate">{comment.path}</span>
-                            </LemonTag>
-                        </Tooltip>
-                    )}
-                    {comment.url && (
-                        <Link to={comment.url} target="_blank" className="inline-flex items-center text-tertiary">
-                            <IconExternal className="size-3.5" />
-                        </Link>
-                    )}
-                </div>
-                {comment.body ? (
-                    <LemonMarkdown className="text-sm text-secondary leading-relaxed break-words" disableImages>
-                        {comment.body}
-                    </LemonMarkdown>
-                ) : (
-                    <p className="m-0 text-sm text-tertiary italic">No content.</p>
+        <li className="flex flex-col gap-1 min-w-0">
+            <div className="flex items-center gap-2 text-xs text-tertiary min-w-0">
+                <span className="shrink-0 font-medium text-secondary">{comment.author ?? 'Unknown'}</span>
+                {comment.created_at && <TZLabel time={comment.created_at} />}
+                {comment.comment_type === 'review' && comment.path && (
+                    <Tooltip title={comment.path}>
+                        <span className="truncate">{comment.path}</span>
+                    </Tooltip>
+                )}
+                {comment.url && (
+                    <Link
+                        to={comment.url}
+                        target="_blank"
+                        className="ml-auto shrink-0 inline-flex items-center text-tertiary"
+                        aria-label="Open comment in GitHub"
+                    >
+                        <IconExternal className="size-3.5" />
+                    </Link>
                 )}
             </div>
+            {comment.body ? (
+                <>
+                    <div
+                        ref={bodyRef}
+                        className={cn('text-sm text-secondary break-words', !expanded && 'max-h-24 overflow-hidden')}
+                    >
+                        <LemonMarkdown lowKeyHeadings disableImages>
+                            {comment.body}
+                        </LemonMarkdown>
+                    </div>
+                    {clipped && (
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            onClick={() => setExpanded(!expanded)}
+                            aria-expanded={expanded}
+                            className="self-start -ml-2"
+                        >
+                            {expanded ? 'Show less' : 'Show more'}
+                        </LemonButton>
+                    )}
+                </>
+            ) : (
+                <p className="m-0 text-sm text-tertiary italic">No content.</p>
+            )}
         </li>
     )
 }
@@ -96,7 +126,7 @@ export function PrCommentsSection({ report }: { report: SignalReport }): JSX.Ele
                     <LemonSkeleton className="h-10 w-4/5" />
                 </div>
             ) : (
-                <ul className="flex flex-col gap-4 m-0 p-0 list-none">
+                <ul className="flex flex-col gap-3 m-0 p-0 list-none">
                     {prComments.map((comment) => (
                         <CommentRow key={comment.id} comment={comment} />
                     ))}

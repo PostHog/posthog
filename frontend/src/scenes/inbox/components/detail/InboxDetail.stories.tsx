@@ -266,3 +266,64 @@ export const PullRequestInlineReview: Story = {
         </Frame>
     ),
 }
+
+// The report's "Comments" section, which every other story leaves empty via `detailMocks`. Mixes a
+// long bot-written conversation comment with an inline review comment, since those two are what set
+// the section's weight next to the report summary above it.
+const reportComments = [
+    {
+        id: '901',
+        author: 'posthog-bot',
+        author_avatar_url: null,
+        body: [
+            '## Bundle size report',
+            '',
+            '| Chunk | Before | After |',
+            '| --- | --- | --- |',
+            '| `main` | 1.42 MB | 1.44 MB |',
+            '| `inbox` | 118 kB | 121 kB |',
+            '',
+            '### Notes',
+            '',
+            '- The inbox chunk grows because the detail pane now pulls in the markdown renderer.',
+            '- Run `pnpm --filter=@posthog/frontend build --analyze` to reproduce locally.',
+            '',
+            '```text',
+            'main    1.44 MB  (+18 kB)',
+            'inbox    121 kB  (+3 kB)',
+            '```',
+        ].join('\n'),
+        created_at: '2026-06-11T08:30:00Z',
+        url: 'https://github.com/PostHog/posthog/pull/12001#issuecomment-901',
+        comment_type: 'conversation',
+        path: null,
+        line: null,
+        start_line: null,
+        side: null,
+        diff_hunk: null,
+        in_reply_to_id: null,
+        commit_id: null,
+        reactions: [],
+    },
+    reviewComment({
+        id: '902',
+        author: 'twixes',
+        body: 'This reads better as a guard clause — the nested branch is doing two things at once.',
+        created_at: '2026-06-11T08:45:00Z',
+    }),
+]
+
+const reportCommentMocks = mswDecorator({
+    get: {
+        '/api/projects/:id/signals/reports/:reportId/pr_comments/': () => [200, { comments: reportComments }],
+    },
+})
+
+export const ReportComments: Story = {
+    decorators: [reportCommentMocks],
+    render: () => (
+        <Frame>
+            <ReportDetail report={pullRequestReports[0]} tab="reports" />
+        </Frame>
+    ),
+}
