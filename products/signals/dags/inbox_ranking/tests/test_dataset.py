@@ -79,8 +79,10 @@ def test_snapshot_bounds_cover_the_partition_day():
 
 def test_valid_report_uuids_canonicalizes_and_drops_junk():
     # Case/hyphenation variants must collapse onto the canonical id, or a forged variant would
-    # survive as a separate label-only training row instead of joining its report.
-    assert valid_report_uuids({UUID_A, UUID_A.upper(), "not-a-uuid", ""}) == {UUID_A}
+    # survive as a separate label-only training row instead of joining its report. None reaches
+    # here when a label event lacks its report id property (uuid.UUID(None) raises TypeError,
+    # which must be swallowed like ValueError, not fail the asset).
+    assert valid_report_uuids({UUID_A, UUID_A.upper(), "not-a-uuid", "", None}) == {UUID_A}
 
 
 def test_utc_bound_carries_an_explicit_offset():
