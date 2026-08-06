@@ -29,7 +29,9 @@ from products.signals.backend.emission.pipeline import (
     _emit_signals,
     _summarize_description,
     build_emitter_outputs,
+    build_readiness_filter,
     filter_actionable,
+    filter_ready_outputs,
     run_signal_pipeline,
     summarize_long_descriptions,
 )
@@ -252,6 +254,91 @@ class TestRunSignalPipelineEmitterFailures:
         result = await run_signal_pipeline(team=team, config=config, records=[{"id": 1}, {"id": 2}], extra={})
 
         assert result == {"status": "success", "reason": "no_actionable_records", "signals_emitted": 0}
+
+
+def _output_with_extra(extra: dict[str, Any], source_id: str = "1") -> SignalEmitterOutput:
+    return SignalEmitterOutput(
+        source_product="linear",
+        source_type="issue",
+        source_id=source_id,
+        description="test signal",
+        weight=1.0,
+        extra=extra,
+    )
+
+
+class TestReadinessFilter:
+    @pytest.mark.parametrize(
+        "source_config,expected_active",
+        [
+            (None, False),
+            ({}, False),
+            ({"label_allowlist": ["", "  "]}, False),
+            ({"label_allowlist": "ready"}, False),
+            ({"label_allowlist": ["ready-for-dev"]}, True),
+            ({"state_allowlist": ["Ready"]}, True),
+        ],
+    )
+    def test_is_active(self, source_config, expected_active):
+        assert build_readiness_filter(source_config).is_active is expected_active
+
+    @pytest.mark.parametrize(
+        "source_config,extra,expected_ready",
+        [
+            # No allowlist configured — every output is ready (backward compatible default).
+            ({}, {"labels": [], "state_name": "Triage"}, True),
+            # Label allowlist: match is case-insensitive and only needs one overlapping label.
+            ({"label_allowlist": ["ready-for-dev"]}, {"labels": ["bug", "Ready-For-Dev"]}, True),
+            ({"label_allowlist": ["ready-for-dev"]}, {"labels": ["bug"]}, False),
+            ({"label_allowlist": ["ready-for-dev"]}, {}, False),
+            # State allowlist matches on state_name, case-insensitively.
+            ({"state_allowlist": ["Ready"]}, {"state_name": "ready"}, True),
+            ({"state_allowlist": ["Ready"]}, {"state_name": "Triage"}, False),
+            # Both set — an output must clear both to be ready.
+            (
+                {"label_allowlist": ["ready-for-dev"], "state_allowlist": ["Ready"]},
+                {"labels": ["ready-for-dev"], "state_name": "Ready"},
+                True,
+            ),
+            (
+                {"label_allowlist": ["ready-for-dev"], "state_allowlist": ["Ready"]},
+                {"labels": ["ready-for-dev"], "state_name": "Triage"},
+                False,
+            ),
+        ],
+    )
+    def test_output_readiness(self, source_config, extra, expected_ready):
+        readiness = build_readiness_filter(source_config)
+        ready, not_ready = filter_ready_outputs([_output_with_extra(extra)], readiness)
+
+        assert (len(ready), len(not_ready)) == ((1, 0) if expected_ready else (0, 1))
+
+    def test_splits_mixed_batch(self):
+        readiness = build_readiness_filter({"label_allowlist": ["ready-for-dev"]})
+        outputs = [
+            _output_with_extra({"labels": ["ready-for-dev"]}, source_id="ready"),
+            _output_with_extra({"labels": ["triage"]}, source_id="unready"),
+        ]
+
+        ready, not_ready = filter_ready_outputs(outputs, readiness)
+
+        assert [o.source_id for o in ready] == ["ready"]
+        assert [o.source_id for o in not_ready] == ["unready"]
+
+    @pytest.mark.asyncio
+    async def test_pipeline_skips_when_no_output_is_ready(self):
+        config = _make_config()
+        team = MagicMock(id=1)
+
+        result = await run_signal_pipeline(
+            team=team,
+            config=config,
+            records=[{"id": 1, "labels": ["triage"]}],
+            extra={},
+            source_config={"label_allowlist": ["ready-for-dev"]},
+        )
+
+        assert result == {"status": "success", "reason": "no_ready_records", "signals_emitted": 0}
 
 
 class TestCheckActionability:
@@ -754,6 +841,7 @@ class TestEmitActivityTableNameResolution:
             patch(f"{ACTIVITY_MODULE_PATH}.Heartbeater"),
             patch(f"{ACTIVITY_MODULE_PATH}.get_signal_config", return_value=config),
             patch(f"{ACTIVITY_MODULE_PATH}._fetch_schema_and_team", fetch_mock),
+            patch(f"{ACTIVITY_MODULE_PATH}._fetch_source_config", new_callable=AsyncMock, return_value={}),
             patch(f"{ACTIVITY_MODULE_PATH}.run_signal_pipeline", new_callable=AsyncMock) as run_mock,
         ):
             run_mock.return_value = {"status": "success", "signals_emitted": 0}

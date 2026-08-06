@@ -16,6 +16,7 @@ from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 
 from products.signals.backend.emission import get_signal_config
 from products.signals.backend.emission.pipeline import run_signal_pipeline
+from products.signals.backend.models import SignalSourceConfig
 from products.warehouse_sources.backend.facade.hooks import EmitSignalsActivityInputs
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
@@ -49,11 +50,13 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
         records = await database_sync_to_async(config.record_fetcher, thread_sensitive=False)(
             team, config, fetcher_context
         )
+        source_config = await _fetch_source_config(inputs.team_id, config.source_product, config.source_type)
         return await run_signal_pipeline(
             team=team,
             config=config,
             records=records,
             extra=inputs.properties_to_log,
+            source_config=source_config,
         )
 
 
@@ -61,6 +64,24 @@ async def _fetch_schema_and_team(schema_id: uuid.UUID, team_id: int) -> tuple[Ex
     schema = await ExternalDataSchema.objects.prefetch_related("table", "source").aget(id=schema_id, team_id=team_id)
     team = await Team.objects.aget(id=team_id)
     return schema, team
+
+
+async def _fetch_source_config(team_id: int, source_product: str, source_type: str) -> dict[str, Any]:
+    """The team's freeform `SignalSourceConfig.config` for this source, or `{}` if no row exists.
+
+    The emission gate has already confirmed an enabled row before this activity runs, so an absent
+    row here just means the config was cleared between the gate check and now — treat it as no config.
+    """
+
+    def _load() -> dict[str, Any]:
+        config = (
+            SignalSourceConfig.objects.filter(team_id=team_id, source_product=source_product, source_type=source_type)
+            .values_list("config", flat=True)
+            .first()
+        )
+        return config or {}
+
+    return await database_sync_to_async(_load, thread_sensitive=False)()
 
 
 @workflow.defn(name="emit-data-import-signals")

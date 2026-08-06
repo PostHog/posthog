@@ -114,6 +114,73 @@ def _capture_pipeline_stage(
         )
 
 
+# Keys a team can set on `SignalSourceConfig.config` to gate which imported records become signals.
+# Read alongside the AI observability `evaluation_ids` allowlist in `temporal/emit_eval_signal.py`.
+READINESS_LABEL_ALLOWLIST_KEY = "label_allowlist"
+READINESS_STATE_ALLOWLIST_KEY = "state_allowlist"
+
+
+@dataclasses.dataclass(frozen=True)
+class ReadinessFilter:
+    """Per-team allowlists that gate which imported records reach the inbox.
+
+    Built from `SignalSourceConfig.config`. Empty allowlists mean "no restriction", so a source
+    with no config keeps its prior behavior of emitting every record. When both are set a record
+    must clear both — carry an allowed label AND sit in an allowed workflow state. Matching is
+    case-insensitive against the emitter's `extra["labels"]` and `extra["state_name"]`, so only
+    sources that populate those fields (e.g. Linear issues) are affected.
+    """
+
+    labels: frozenset[str]
+    states: frozenset[str]
+
+    @property
+    def is_active(self) -> bool:
+        return bool(self.labels or self.states)
+
+
+def _normalize_readiness_terms(raw: Any) -> frozenset[str]:
+    if not isinstance(raw, list):
+        return frozenset()
+    return frozenset(term.strip().casefold() for term in raw if isinstance(term, str) and term.strip())
+
+
+def build_readiness_filter(source_config: dict[str, Any] | None) -> ReadinessFilter:
+    config = source_config or {}
+    return ReadinessFilter(
+        labels=_normalize_readiness_terms(config.get(READINESS_LABEL_ALLOWLIST_KEY)),
+        states=_normalize_readiness_terms(config.get(READINESS_STATE_ALLOWLIST_KEY)),
+    )
+
+
+def _output_is_ready(output: SignalEmitterOutput, readiness: ReadinessFilter) -> bool:
+    extra = output.extra or {}
+    if readiness.labels:
+        raw_labels = extra.get("labels")
+        raw_labels = raw_labels if isinstance(raw_labels, list) else []
+        labels = {label.casefold() for label in raw_labels if isinstance(label, str)}
+        if labels.isdisjoint(readiness.labels):
+            return False
+    if readiness.states:
+        state = extra.get("state_name")
+        if not isinstance(state, str) or state.casefold() not in readiness.states:
+            return False
+    return True
+
+
+def filter_ready_outputs(
+    outputs: list[SignalEmitterOutput], readiness: ReadinessFilter
+) -> tuple[list[SignalEmitterOutput], list[SignalEmitterOutput]]:
+    """Split outputs into (ready, not_ready). A no-op returning everything when no allowlist is set."""
+    if not readiness.is_active:
+        return outputs, []
+    ready: list[SignalEmitterOutput] = []
+    not_ready: list[SignalEmitterOutput] = []
+    for output in outputs:
+        (ready if _output_is_ready(output, readiness) else not_ready).append(output)
+    return ready, not_ready
+
+
 def _safe_heartbeat() -> None:
     # Pipeline runs both inside Temporal activities (production) and standalone via the
     # emit_signals_from_fixture management command. Outside an activity context, heartbeat()
@@ -463,6 +530,7 @@ async def run_signal_pipeline(
     config: SignalSourceTableConfig,
     records: list[dict[str, Any]],
     extra: dict[str, Any],
+    source_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     source_label = f"{config.source_product}/{config.source_type}"
 
@@ -487,6 +555,22 @@ async def run_signal_pipeline(
     organization = await database_sync_to_async(lambda: team.organization)()
     for output in outputs:
         _capture_pipeline_stage("signal_data_source_entered", team, organization, output)
+
+    # Readiness filter runs before the LLM stages so unready records never cost a summarization or
+    # actionability call — the structured allowlist is cheap and decisive where a team has set one.
+    readiness = build_readiness_filter(source_config)
+    if readiness.is_active:
+        outputs, not_ready = filter_ready_outputs(outputs, readiness)
+        for output in not_ready:
+            _capture_pipeline_stage("signal_data_source_not_ready", team, organization, output)
+        if not_ready:
+            logger.info(
+                f"Readiness filter dropped {len(not_ready)} of {len(not_ready) + len(outputs)} outputs for {source_label}",
+                **extra,
+            )
+        if not outputs:
+            logger.info(f"No ready records after readiness filter for {source_label}", **extra)
+            return {"status": "success", "reason": "no_ready_records", "signals_emitted": 0}
 
     if config.summarization_prompt is not None and config.description_summarization_threshold_chars is not None:
         threshold = config.description_summarization_threshold_chars

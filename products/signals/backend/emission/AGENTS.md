@@ -57,6 +57,15 @@ Triggered by a Temporal schedule (hourly):
 All sources are gated behind AI consent (`organization.is_ai_data_processing_approved`) and a `SignalSourceConfig` row with `enabled=True` for the matching `source_product`/`source_type`.
 Users enable sources via the Inbox Sources modal.
 
+### Readiness filter
+
+A team can narrow which imported records become signals by adding allowlists to the source's `SignalSourceConfig.config`:
+
+- `label_allowlist` — keep only records carrying at least one of these labels (`extra["labels"]`).
+- `state_allowlist` — keep only records in one of these workflow states (`extra["state_name"]`).
+
+Both are lists of strings, matched case-insensitively. Set both and a record must clear both. Empty or absent means no restriction, so a source with no config emits every record as before. The `run_signal_pipeline` applies this before the LLM summarization/actionability stages, so unready records never cost an LLM call. Only sources whose emitters populate `labels`/`state_name` (e.g. Linear issues) are affected. This mirrors the per-evaluation `evaluation_ids` allowlist in `temporal/emit_eval_signal.py`.
+
 ## Adding a new source
 
 1. **Create the emitter module** — add a file in this directory (e.g., `jira_issues.py`).

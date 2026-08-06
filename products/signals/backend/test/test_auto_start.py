@@ -593,6 +593,9 @@ def test_autostart_description_lists_source_issues_only_when_references_exist(so
     # The refs ride the established PR footer convention with their concrete links: an agent told
     # merely to "reference the source issue" has nothing to link, which is the gap this feature closes.
     assert (f", addressing {links}.' -" in description) is expect_references
+    # The PR-title instruction only appears when there's an identifier to place — without it the agent
+    # has nothing to put in the title, which is why repos with a title convention got untitled PRs.
+    assert ("into the PR title" in description) is expect_references
     # No references must mean the plain footer and no dangling block, not an empty label.
     if not expect_references:
         assert "Source issues" not in description

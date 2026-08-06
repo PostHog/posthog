@@ -1,11 +1,35 @@
 from posthog.test.base import APIBaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.team.team import Team
 
 from products.signals.backend.models import SignalSourceConfig
+from products.signals.backend.serializers import SignalSourceConfigSerializer
+
+
+class TestSignalSourceConfigReadinessValidation(SimpleTestCase):
+    # Readiness allowlist validation is pure DRF field checking with no DB; the endpoint wiring that
+    # runs `validate()` is already covered by `TestSignalSourceConfigAPI.test_create_config_validation`.
+    @parameterized.expand(
+        [
+            ("valid_label_allowlist", {"label_allowlist": ["ready-for-dev"]}, True),
+            ("valid_state_allowlist", {"state_allowlist": ["Ready", "In review"]}, True),
+            ("empty_config", {}, True),
+            ("label_allowlist_not_list", {"label_allowlist": "ready"}, False),
+            ("state_allowlist_non_string_entry", {"state_allowlist": ["Ready", 3]}, False),
+        ]
+    )
+    def test_readiness_allowlist_validation(self, _name, config, expected_valid):
+        serializer = SignalSourceConfigSerializer(
+            data={"source_product": "linear", "source_type": "issue", "config": config}
+        )
+        assert serializer.is_valid() is expected_valid, serializer.errors
+        if not expected_valid:
+            assert "config" in serializer.errors
 
 
 class TestSignalSourceConfigAPI(APIBaseTest):

@@ -141,6 +141,8 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError({"config": "sample_rate must be a number between 0 and 1"})
                 if not (0 <= sample_rate <= 1):
                     raise serializers.ValidationError({"config": "sample_rate must be between 0 and 1"})
+        if isinstance(config, dict):
+            self._validate_readiness_allowlists(config)
         if enabled and source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER:
             get_team = self.context.get("get_team")
             team = get_team() if get_team else None
@@ -151,6 +153,17 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                     }
                 )
         return attrs
+
+    @staticmethod
+    def _validate_readiness_allowlists(config: dict) -> None:
+        # Readiness allowlists gate which imported records become signals (see the emission pipeline's
+        # ReadinessFilter). Only sources whose records carry labels/state — e.g. Linear issues — act on them.
+        for key in ("label_allowlist", "state_allowlist"):
+            value = config.get(key)
+            if value is None:
+                continue
+            if not isinstance(value, list) or not all(isinstance(term, str) for term in value):
+                raise serializers.ValidationError({"config": f"{key} must be a list of strings"})
 
     def create(self, validated_data: dict) -> SignalSourceConfig:
         if (
