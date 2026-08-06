@@ -34,6 +34,17 @@ export class PersonPropertiesSizeViolationError extends Error {
     readonly isRetriable = false
 }
 
+export class DistinctIdConflictError extends Error {
+    constructor(
+        message: string,
+        public teamId: number,
+        public distinctId?: string
+    ) {
+        super(message)
+        this.name = 'DistinctIdConflictError'
+    }
+}
+
 /**
  * Read-only person lookups backed by personhog gRPC. Used by services that
  * only need to fetch person data (CDP, error tracking, future pipelines).

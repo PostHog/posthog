@@ -13,7 +13,7 @@ import { NoRowsUpdatedError, UUIDT } from '~/common/utils/utils'
 import { createTeam, insertRow, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, InternalPerson, PropertyUpdateOperation, Team } from '~/types'
 
-import { PersonPropertiesSizeViolationError } from './person-repository'
+import { DistinctIdConflictError, PersonPropertiesSizeViolationError } from './person-repository'
 import { PostgresPersonRepository } from './postgres-person-repository'
 import { createPersonUpdateFields, fetchDistinctIdValues, fetchDistinctIds } from './test-helpers'
 
@@ -358,6 +358,122 @@ describe('PostgresPersonRepository', () => {
             const sourceRows = await fetchDistinctIds(postgres, source)
             expect(sourceRows).toHaveLength(1)
             expect(sourceRows[0].distinct_id).toBe('guard-move-dead-did')
+        })
+
+        it('createPerson revives a tombstoned person and its distinct id at death_version + 1', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const uuid = new UUIDT().toString()
+            const first = await repository.createPerson(TIMESTAMP, { a: 1 }, {}, {}, team.id, null, false, uuid, {
+                distinctId: 'revive-did',
+            })
+            if (!first.success) {
+                throw new Error('Failed to create person')
+            }
+            await tombstonePerson(first.person)
+            await tombstoneDistinctId(team.id, 'revive-did')
+
+            const revived = await repository.createPerson(TIMESTAMP, { b: 2 }, {}, {}, team.id, null, true, uuid, {
+                distinctId: 'revive-did',
+            })
+
+            if (!revived.success) {
+                throw new Error('Expected revival to succeed')
+            }
+            expect(revived.created).toBe(true)
+            expect(revived.person.version).toBe(2)
+            expect(revived.person.properties).toEqual({ b: 2 })
+            await expect(repository.fetchPerson(team.id, 'revive-did')).resolves.toMatchObject({ uuid, version: 2 })
+
+            const personMessage = parseJSON(revived.messages[0].value!.toString())
+            expect(personMessage.version).toBe(2)
+            expect(personMessage.is_deleted).toBe(0)
+            const distinctIdMessage = parseJSON(revived.messages[1].value!.toString())
+            expect(distinctIdMessage.version).toBe(2)
+        })
+
+        it('createPerson returns CreationConflict against a live person with the same uuid', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const uuid = new UUIDT().toString()
+            const first = await repository.createPerson(TIMESTAMP, { a: 1 }, {}, {}, team.id, null, false, uuid, {
+                distinctId: 'live-uuid-did',
+            })
+            if (!first.success) {
+                throw new Error('Failed to create person')
+            }
+
+            const second = await repository.createPerson(TIMESTAMP, { b: 2 }, {}, {}, team.id, null, false, uuid, {
+                distinctId: 'live-uuid-did-2',
+            })
+
+            expect(second).toEqual({ success: false, error: 'CreationConflict', distinctIds: ['live-uuid-did-2'] })
+            await expect(repository.fetchPerson(team.id, 'live-uuid-did')).resolves.toMatchObject({
+                version: 0,
+                properties: { a: 1 },
+            })
+        })
+
+        it('createPerson undoes its insert when a distinct id is owned by a live mapping', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            await createTestPerson(team.id, 'contested-did')
+            const uuid = new UUIDT().toString()
+
+            const result = await repository.createPerson(
+                TIMESTAMP,
+                {},
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                uuid,
+                { distinctId: 'undo-primary-did' },
+                [{ distinctId: 'contested-did' }]
+            )
+
+            expect(result).toMatchObject({ success: false, error: 'CreationConflict' })
+            // The person row and the primary mapping it did attach are tombstoned, not
+            // left live: a live person unreachable by its contested distinct id would
+            // block the key forever.
+            const personRows = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT is_deleted FROM posthog_person WHERE team_id = $1 AND uuid = $2',
+                [team.id, uuid],
+                'fetchUndonePerson'
+            )
+            expect(personRows.rows).toEqual([{ is_deleted: true }])
+            await expect(repository.fetchPerson(team.id, 'undo-primary-did')).resolves.toBeUndefined()
+        })
+
+        it('addDistinctId revives a tombstoned mapping, repointing it at the new person', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const newOwner = await createTestPerson(team.id, 'adder-did')
+            const oldOwner = await createTestPerson(team.id, 'old-owner-did')
+            await repository.addDistinctId(oldOwner, 'recycled-did', 0)
+            await tombstoneDistinctId(team.id, 'recycled-did')
+
+            const messages = await repository.addDistinctId(newOwner, 'recycled-did', 0)
+
+            await expect(repository.fetchPerson(team.id, 'recycled-did')).resolves.toMatchObject({
+                uuid: newOwner.uuid,
+            })
+            const message = parseJSON(messages[0].value!.toString())
+            expect(message).toEqual({
+                person_id: newOwner.uuid,
+                team_id: team.id,
+                distinct_id: 'recycled-did',
+                version: 2,
+                is_deleted: 0,
+            })
+        })
+
+        it('addDistinctId throws DistinctIdConflictError for a live mapping', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const person = await createTestPerson(team.id, 'conflict-adder-did')
+            await createTestPerson(team.id, 'already-owned-did')
+
+            await expect(repository.addDistinctId(person, 'already-owned-did', 0)).rejects.toThrow(
+                DistinctIdConflictError
+            )
         })
     })
 

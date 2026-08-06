@@ -32,6 +32,7 @@ import {
 } from '~/types'
 
 import {
+    DistinctIdConflictError,
     InternalPersonWithDistinctId,
     PersonMessage,
     PersonPropertiesSizeViolationError,
@@ -524,24 +525,10 @@ export class PostgresPersonRepository
             distinctId.version ||= 0
         }
 
-        // The Person is being created, and so we can hardcode version 0!
+        // Fresh inserts start at version 0; a tombstone conflict revives at death_version + 1 instead.
         const personVersion = 0
 
         try {
-            const columns = [
-                'created_at',
-                'properties',
-                'properties_last_updated_at',
-                'properties_last_operation',
-                'team_id',
-                'is_user_id',
-                'is_identified',
-                'uuid',
-                'version',
-                'last_seen_at',
-            ]
-            const valuePlaceholders = columns.map((_, i) => `$${i + 1}`).join(', ')
-
             // Sanitize and measure JSON field sizes
             const sanitizedProperties = sanitizeJsonbValue(properties)
             const sanitizedPropertiesLastUpdatedAt = sanitizeJsonbValue(propertiesLastUpdatedAt)
@@ -580,69 +567,115 @@ export class PostgresPersonRepository
                 lastSeenAt.toISO(),
             ]
 
-            // Find the actual index of team_id in the personParams array (1-indexed for SQL)
-            const teamIdParamIndex = personParams.indexOf(teamId) + 1
-            const distinctIdVersionStartIndex = columns.length + 1
-            const distinctIdStartIndex = distinctIdVersionStartIndex + distinctIds.length
+            // A conflict with a tombstoned row is a revival: continue the version
+            // counter above the death version so the reborn key outranks its own
+            // ClickHouse tombstone from its first write. Conflicts with live rows
+            // fail the WHERE qual and surface as CreationConflict below.
+            const query = `
+                WITH inserted_person AS (
+                    INSERT INTO posthog_person (
+                        created_at, properties, properties_last_updated_at, properties_last_operation,
+                        team_id, is_user_id, is_identified, uuid, version, last_seen_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    ON CONFLICT (team_id, uuid) DO UPDATE SET
+                        is_deleted = false,
+                        version = COALESCE(posthog_person.version, 0) + 1,
+                        properties = EXCLUDED.properties,
+                        properties_last_updated_at = EXCLUDED.properties_last_updated_at,
+                        properties_last_operation = EXCLUDED.properties_last_operation,
+                        created_at = EXCLUDED.created_at,
+                        is_user_id = EXCLUDED.is_user_id,
+                        is_identified = EXCLUDED.is_identified,
+                        last_seen_at = EXCLUDED.last_seen_at
+                    WHERE posthog_person.is_deleted = true
+                    RETURNING ${PERSON_COLUMNS}
+                ),
+                inserted_distinct_ids AS (
+                    -- NOTE: Keep this in sync with the posthog_persondistinctid INSERT in addDistinctId
+                    INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                    SELECT d.distinct_id, ip.id, $5, d.version
+                    FROM inserted_person ip
+                    CROSS JOIN unnest($11::text[], $12::bigint[]) AS d(distinct_id, version)
+                    ON CONFLICT (team_id, distinct_id) DO UPDATE SET
+                        person_id = EXCLUDED.person_id,
+                        version = COALESCE(posthog_persondistinctid.version, 0) + 1,
+                        is_deleted = false
+                    WHERE posthog_persondistinctid.is_deleted = true
+                    RETURNING id, distinct_id, version
+                )
+                SELECT
+                    ip.*,
+                    (
+                        SELECT COALESCE(jsonb_agg(jsonb_build_object('id', d.id::text, 'distinct_id', d.distinct_id, 'version', d.version)), '[]'::jsonb)
+                        FROM inserted_distinct_ids d
+                    ) AS distinct_id_rows
+                FROM inserted_person ip;`
 
-            const distinctIdsCTE =
-                distinctIds.length > 0
-                    ? `, distinct_ids AS (
-                            INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
-                            VALUES ${distinctIds
-                                .map(
-                                    // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in
-                                    // `addDistinctId`
-                                    (_, index) => `(
-                                $${distinctIdStartIndex + index},
-                                (SELECT id FROM inserted_person),
-                                $${teamIdParamIndex},
-                                $${distinctIdVersionStartIndex + index}
-                            )`
-                                )
-                                .join(', ')}
-                        )`
-                    : ''
-
-            const query =
-                `WITH inserted_person AS (
-                        INSERT INTO posthog_person (${columns.join(', ')})
-                        VALUES (${valuePlaceholders})
-                        RETURNING ${PERSON_COLUMNS}
-                    )` +
-                distinctIdsCTE +
-                ` SELECT * FROM inserted_person;`
-
-            const { rows } = await this.postgres.query<RawPerson>(
+            const { rows } = await this.postgres.query<
+                RawPerson & { distinct_id_rows: { id: string; distinct_id: string; version: number }[] }
+            >(
                 tx ?? PostgresUse.PERSONS_WRITE,
                 query,
                 [
                     ...personParams,
-                    ...distinctIds
-                        .slice()
-                        .reverse()
-                        .map(({ version }) => version),
-                    ...distinctIds
-                        .slice()
-                        .reverse()
-                        .map(({ distinctId }) => distinctId),
+                    distinctIds.map(({ distinctId }) => distinctId),
+                    distinctIds.map(({ version }) => version),
                 ],
                 'insertPerson',
                 'warn'
             )
-            const person = this.toPerson(rows[0])
+
+            if (rows.length === 0) {
+                // A live row already owns this (team_id, uuid): a concurrent create or
+                // an existing person. Same outcome as a unique violation.
+                return {
+                    success: false,
+                    error: 'CreationConflict',
+                    distinctIds: distinctIds.map((d) => d.distinctId),
+                }
+            }
+
+            const { distinct_id_rows: distinctIdRows, ...personRow } = rows[0]
+            const person = this.toPerson(personRow)
+
+            if (distinctIdRows.length < distinctIds.length) {
+                // A live mapping owns one of the distinct ids, so the create must not
+                // stand: a person row without that mapping would be unreachable by it
+                // and would block the key's future revival. Tombstoning what this
+                // statement wrote (a monotonic version bump, correct for revived rows
+                // too) restores the pre-insert state.
+                await this.postgres.query(
+                    tx ?? PostgresUse.PERSONS_WRITE,
+                    `WITH undone_distinct_ids AS (
+                        UPDATE posthog_persondistinctid
+                        SET is_deleted = true, version = COALESCE(version, 0) + 1
+                        WHERE id = ANY($1::bigint[])
+                    )
+                    UPDATE posthog_person
+                    SET is_deleted = true, version = COALESCE(version, 0) + 1
+                    WHERE team_id = $2 AND id = $3`,
+                    [distinctIdRows.map((row) => row.id), teamId, person.id],
+                    'undoInsertPerson'
+                )
+                return {
+                    success: false,
+                    error: 'CreationConflict',
+                    distinctIds: distinctIds.map((d) => d.distinctId),
+                }
+            }
 
             const kafkaMessages: PersonMessage[] = [generateKafkaPersonUpdateMessage(person)]
 
-            for (const distinctId of distinctIds) {
+            for (const row of distinctIdRows) {
                 kafkaMessages.push({
                     output: PERSON_DISTINCT_IDS_OUTPUT,
                     value: Buffer.from(
                         JSON.stringify({
                             person_id: person.uuid,
                             team_id: teamId,
-                            distinct_id: distinctId.distinctId,
-                            version: distinctId.version,
+                            distinct_id: row.distinct_id,
+                            version: Number(row.version),
                             is_deleted: 0,
                         })
                     ),
@@ -771,21 +804,44 @@ export class PostgresPersonRepository
     ): Promise<PersonMessage[]> {
         const insertResult = await this.postgres.query(
             tx ?? PostgresUse.PERSONS_WRITE,
-            // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in `createPerson`
-            'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4) RETURNING *',
+            // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in `createPerson`.
+            // A conflict with a tombstoned mapping is a revival: repoint it and continue the
+            // version counter above the death version. A live mapping is left untouched and
+            // reported as a conflict, matching the pre-tombstone unique violation.
+            `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (team_id, distinct_id) DO UPDATE SET
+                 person_id = EXCLUDED.person_id,
+                 version = COALESCE(posthog_persondistinctid.version, 0) + 1,
+                 is_deleted = false
+             WHERE posthog_persondistinctid.is_deleted = true
+             RETURNING *`,
             [distinctId, person.id, person.team_id, version],
             'addDistinctId',
             'warn'
         )
 
-        const { id, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId
+        if (insertResult.rows.length === 0) {
+            throw new DistinctIdConflictError(
+                'Distinct id is already owned by a live mapping',
+                person.team_id,
+                distinctId
+            )
+        }
+
+        const {
+            id,
+            is_deleted,
+            version: insertedVersion,
+            ...personDistinctIdCreated
+        } = insertResult.rows[0] as PersonDistinctId & { is_deleted: boolean }
         return [
             {
                 output: PERSON_DISTINCT_IDS_OUTPUT,
                 value: Buffer.from(
                     JSON.stringify({
                         ...personDistinctIdCreated,
-                        version,
+                        version: Number(insertedVersion || 0),
                         person_id: person.uuid,
                         is_deleted: 0,
                     })
