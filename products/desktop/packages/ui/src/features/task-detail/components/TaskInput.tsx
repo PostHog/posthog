@@ -15,6 +15,15 @@ import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { ButtonGroup } from "@posthog/quill";
 import { type AgentRuntime, ANALYTICS_EVENTS } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
+import {
+  TaskRepositoryChip,
+  TaskRepositoryDialog,
+} from "@posthog/ui/features/canvas/components/TaskRepositoryDialog";
+import { useUpdateTaskChannelRepositories } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import {
+  resolveTaskRepositoryDraft,
+  useTaskRepositoryDraftStore,
+} from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import type { TaskInputReportAssociation } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
@@ -24,7 +33,14 @@ import { track } from "@posthog/ui/shell/analytics";
 import { Box, Flex, Text, Tooltip } from "@radix-ui/themes";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useConnectivity } from "../../../hooks/useConnectivity";
 import { DotPatternBackground } from "../../../primitives/DotPatternBackground";
 import { toast } from "../../../primitives/toast";
@@ -73,12 +89,10 @@ import type { EditorHandle } from "../../message-editor/types";
 import { useAutoFocusOnTyping } from "../../message-editor/useAutoFocusOnTyping";
 import { resolveAndAttachDroppedFiles } from "../../message-editor/utils/persistFile";
 import { usePanelLayoutStore } from "../../panels/panelLayoutStore";
-import {
-  PiModelSelector,
-  PiThinkingLevelSelector,
-} from "../../pi-sessions/PiSessionControls";
+import { PiModelSelector } from "../../pi-sessions/PiSessionControls";
 import { usePiModelCatalog } from "../../pi-sessions/usePiModelCatalog";
 import { DropZoneOverlay } from "../../sessions/components/DropZoneOverlay";
+import type { AgentHarness } from "../../sessions/components/HarnessSubmenu";
 import { ReasoningLevelSelector } from "../../sessions/components/ReasoningLevelSelector";
 import { getCurrentModeFromConfigOptions } from "../../sessions/sessionStore";
 import {
@@ -96,7 +110,6 @@ import { usePreviewConfig } from "../hooks/usePreviewConfig";
 import { useTaskCreation } from "../hooks/useTaskCreation";
 import { useWarmTask } from "../hooks/useWarmTask";
 import { resolveWorkspaceModePreference } from "../hooks/workspaceModePreference";
-import { AgentRuntimeSelect } from "./AgentRuntimeSelect";
 import { ChannelContextChip } from "./ChannelContextChip";
 import { CloudGithubMissingNotice } from "./CloudGithubMissingNotice";
 import { NewTaskSuggestions } from "./ContinueCliSessions";
@@ -133,6 +146,8 @@ interface TaskInputProps {
    * needs a repo and attaches one lazily.
    */
   allowNoRepo?: boolean;
+  channelRepositories?: string[];
+  channelGithubIntegration?: number | null;
   /**
    * Channels new-task starter prompts. When provided, a column of suggestion
    * cards renders below the input while it's empty; clicking one fills the
@@ -152,6 +167,13 @@ interface TaskInputProps {
    * the chip is non-interactive (only dismissable).
    */
   onContextChipClick?: () => void;
+  /**
+   * A space picker chip rendered first in the selector row above the composer
+   * (beside the workspace-mode chip). Channels new-task screen only — /code
+   * has no spaces to pick. Called with the composer's in-flight state so the
+   * picker can hold shut mid-submit, like every other chip in the row.
+   */
+  spaceSelector?: (props: { disabled: boolean }) => ReactNode;
 }
 
 export function TaskInput({
@@ -168,9 +190,12 @@ export function TaskInput({
   channelId,
   channelContextId,
   allowNoRepo,
+  channelRepositories = [],
+  channelGithubIntegration = null,
   suggestions,
   onSuggestionSelect,
   onContextChipClick,
+  spaceSelector,
 }: TaskInputProps = {}) {
   const cloudRegion = useAuthStateValue((s) => s.cloudRegion);
   const trpc = useHostTRPC();
@@ -192,6 +217,24 @@ export function TaskInput({
   );
   const selectedDirectory = useActiveRepoStore((s) => s.path);
   const setSelectedDirectory = useActiveRepoStore((s) => s.setPath);
+  const [repositoryDialogOpen, setRepositoryDialogOpen] = useState(false);
+  // "" only on channel-less repo-optional surfaces (none today); a real space
+  // id keys the draft shared with the space home composer.
+  const repositoryDraftKey = channelId ?? "";
+  const repositoryDraft = useTaskRepositoryDraftStore(
+    (s) => s.drafts[repositoryDraftKey],
+  );
+  const setRepositoryDraft = useTaskRepositoryDraftStore((s) => s.setDraft);
+  const {
+    repositories: taskRepositories,
+    githubIntegration: taskGithubIntegration,
+    folder: taskFolder,
+  } = resolveTaskRepositoryDraft(
+    repositoryDraft,
+    channelRepositories,
+    channelGithubIntegration,
+  );
+  const updateChannelRepositories = useUpdateTaskChannelRepositories();
   // Inline file preview opened from the command palette's file search.
   const previewFile = useFileSearchStore((s) => s.previewFile);
   const closePreviewFile = useFileSearchStore((s) => s.closePreview);
@@ -350,8 +393,12 @@ export function TaskInput({
     }
   }, [mostRecentRepo?.path, selectedDirectory, setSelectedDirectory]);
 
-  const setAdapter = (newAdapter: AgentAdapter) =>
-    setLastUsedAdapter(newAdapter);
+  const setAdapter = useCallback(
+    (newAdapter: AgentAdapter) => {
+      setLastUsedAdapter(newAdapter);
+    },
+    [setLastUsedAdapter],
+  );
 
   const {
     repositories,
@@ -444,6 +491,7 @@ export function TaskInput({
   const {
     repositories: visibleCloudRepositories,
     isPending: cloudRepositoriesLoading,
+    isFetchingMore: cloudRepositoriesFetchingMore,
     hasMore: cloudRepositoriesHasMore,
     loadMore: loadMoreCloudRepositories,
   } = useUserGithubRepositories(cloudRepoSearchQuery, isCloudRepoPickerOpen);
@@ -652,7 +700,7 @@ export function TaskInput({
     setConfigOption,
   ]);
 
-  const { folders } = useFolders();
+  const { folders, isLoaded: foldersLoaded } = useFolders();
 
   useEffect(() => {
     if (selectedRepository || !lastUsedCloudRepository) {
@@ -701,8 +749,10 @@ export function TaskInput({
 
   useInitialRepoSelectionFromFolderId({
     folderId: view.folderId,
+    folderRepository: view.folderRepository,
     requestId: view.taskInputRequestId,
     folders,
+    foldersLoaded,
     repositories,
     reposLoaded: reposReady,
     currentMode: workspaceMode,
@@ -761,6 +811,7 @@ export function TaskInput({
   const currentPiModel =
     piModelCatalog.find((model) => model.id === selectedPiModelId) ??
     piModelCatalog.find((model) => model.id === lastUsedPiModel) ??
+    piModelCatalog.find((model) => model.isDefault) ??
     piModelCatalog[0];
   const piThinkingLevels = currentPiModel?.thinkingLevels ?? [];
   const currentPiThinkingLevel = piThinkingLevels.includes(
@@ -925,8 +976,14 @@ export function TaskInput({
   } = useTaskCreation({
     editorRef,
     sessionId,
-    selectedDirectory,
+    selectedDirectory: allowNoRepo ? taskFolder : selectedDirectory,
     selectedRepository: selectedCloudRepository,
+    repositories:
+      allowNoRepo && workspaceMode === "cloud" ? taskRepositories : undefined,
+    githubIntegrationId:
+      allowNoRepo && workspaceMode === "cloud"
+        ? (taskGithubIntegration ?? undefined)
+        : undefined,
     githubUserIntegrationId: selectedGithubUserIntegrationId,
     workspaceMode: effectiveWorkspaceMode,
     branch: branchForTaskCreation,
@@ -1067,6 +1124,19 @@ export function TaskInput({
     [sessionId, setLastUsedAgentRuntime],
   );
 
+  const handleHarnessChange = useCallback(
+    (harness: AgentHarness) => {
+      if (harness === "pi") {
+        handleRuntimeChange("pi");
+        return;
+      }
+
+      handleRuntimeChange("acp");
+      setAdapter(harness);
+    },
+    [handleRuntimeChange, setAdapter],
+  );
+
   const handlePiModelChange = useCallback(
     (model: PiModelSelection) => {
       setSelectedPiModelId(model.id);
@@ -1091,7 +1161,6 @@ export function TaskInput({
       useDraftStore.getState().actions.clearCommands(promptSessionId);
     };
   }, [promptSessionId, skills]);
-  const hasHistory = useTaskInputHistoryStore((s) => s.entries.length > 0);
   const getPromptHistory = useCallback(
     () => useTaskInputHistoryStore.getState().entries.map((e) => e.text),
     [],
@@ -1104,13 +1173,6 @@ export function TaskInput({
     () => !(editorRef.current?.isEmpty() ?? true),
     [],
   );
-  const hints = [
-    "@ to add files",
-    "/ for skills",
-    hasHistory ? "\u2191\u2193 for history" : "",
-  ]
-    .filter(Boolean)
-    .join(", ");
 
   useAutoFocusOnTyping(editorRef, isCreatingTask);
 
@@ -1198,20 +1260,14 @@ export function TaskInput({
                 top: suggestions && suggestions.length > 0 ? "38%" : "50%",
                 transform: "translate(-50%, -50%)",
               }}
-              className="absolute left-1/2 z-[1] flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2"
+              className="absolute left-1/2 z-1 flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2"
             >
               <Flex
                 gap="2"
                 align="center"
-                className="absolute bottom-full left-0 mb-2 min-w-0"
+                className="absolute bottom-full left-0 mb-1 min-w-0 gap-1"
               >
-                {piHarnessEnabled && (
-                  <AgentRuntimeSelect
-                    value={runtime}
-                    onChange={handleRuntimeChange}
-                    disabled={isCreatingTask}
-                  />
-                )}
+                {spaceSelector?.({ disabled: isCreatingTask })}
                 <WorkspaceModeSelect
                   value={workspaceMode}
                   onChange={setWorkspaceMode}
@@ -1221,6 +1277,15 @@ export function TaskInput({
                   onCustomImageChange={setSelectedCustomImageId}
                   size="1"
                 />
+                {allowNoRepo && (
+                  <TaskRepositoryChip
+                    cloud={workspaceMode === "cloud"}
+                    repositoryCount={taskRepositories.length}
+                    hasFolder={!!taskFolder}
+                    disabled={isCreatingTask}
+                    onOpen={() => setRepositoryDialogOpen(true)}
+                  />
+                )}
                 {!allowNoRepo && workspaceMode === "worktree" && (
                   <EnvironmentSelector
                     repoPath={effectiveRepoPath ?? null}
@@ -1261,6 +1326,7 @@ export function TaskInput({
                           isLoadingRepos ||
                           (isCloudRepoPickerOpen && cloudRepositoriesLoading)
                         }
+                        isLoadingMore={cloudRepositoriesFetchingMore}
                         isRefreshing={isRefreshingRepos}
                         onRefresh={handleRefreshRepositories}
                         open={isCloudRepoPickerOpen}
@@ -1371,7 +1437,7 @@ export function TaskInput({
                   placeholder={
                     autoresearchDraft
                       ? "Example: Reduce memory usage measured by `pnpm bench:memory` without changing behavior."
-                      : `What do you want to ship? ${hints}`
+                      : `What do you want to ship?`
                   }
                   editorHeight="large"
                   disabled={isCreatingTask}
@@ -1386,7 +1452,7 @@ export function TaskInput({
                     (runtime === "pi" && !currentPiModel)
                   }
                   tourTarget="task-input"
-                  attachmentsPrefix={
+                  submitAdornment={
                     includeChannelContext ? (
                       <ChannelContextChip
                         channelName={channelName}
@@ -1416,8 +1482,16 @@ export function TaskInput({
                       <PiModelSelector
                         models={piModelCatalog}
                         currentModel={currentPiModel}
+                        thinkingLevel={
+                          supportsPiThinking
+                            ? currentPiThinkingLevel
+                            : undefined
+                        }
+                        thinkingLevels={piThinkingLevels}
                         disabled={isCreatingTask || isPiConfigLoading}
                         onChange={handlePiModelChange}
+                        onThinkingLevelChange={handlePiThinkingLevelChange}
+                        onHarnessChange={handleHarnessChange}
                       />
                     ) : null
                   }
@@ -1429,16 +1503,7 @@ export function TaskInput({
                     />
                   }
                   reasoningSelector={
-                    autoresearchDraft ? null : runtime === "pi" ? (
-                      currentPiThinkingLevel && supportsPiThinking ? (
-                        <PiThinkingLevelSelector
-                          level={currentPiThinkingLevel}
-                          levels={piThinkingLevels}
-                          disabled={isCreatingTask || isPiConfigLoading}
-                          onChange={handlePiThinkingLevelChange}
-                        />
-                      ) : null
-                    ) : (
+                    autoresearchDraft || runtime === "pi" ? null : (
                       <ReasoningLevelSelector
                         thoughtOption={thoughtOption}
                         modelOption={modelOption}
@@ -1448,6 +1513,10 @@ export function TaskInput({
                         onChange={handleThoughtChange}
                         onModelChange={handleModelChange}
                         onAdapterChange={setAdapter}
+                        onHarnessChange={
+                          piHarnessEnabled ? handleHarnessChange : undefined
+                        }
+                        includePiHarness={piHarnessEnabled}
                         onConfigOptionChange={setConfigOption}
                         disabled={isCreatingTask}
                         isLoading={isPreviewLoading}
@@ -1565,6 +1634,41 @@ export function TaskInput({
           </Flex>
         </Box>
       </Flex>
+
+      {allowNoRepo && (
+        <TaskRepositoryDialog
+          open={repositoryDialogOpen}
+          onOpenChange={setRepositoryDialogOpen}
+          cloud={workspaceMode === "cloud"}
+          repositories={taskRepositories}
+          integrationId={taskGithubIntegration}
+          folder={taskFolder}
+          onApply={(selection) => {
+            setRepositoryDraft(repositoryDraftKey, {
+              repositories: selection.repositories,
+              githubIntegration: selection.integrationId,
+              folder: selection.folder,
+            });
+            if (
+              selection.saveToSpace &&
+              channelId &&
+              workspaceMode === "cloud"
+            ) {
+              updateChannelRepositories.mutate(
+                {
+                  channelId,
+                  githubIntegration: selection.integrationId,
+                  repositories: selection.repositories,
+                },
+                {
+                  onError: () =>
+                    toast.error("Couldn't save repositories to the space"),
+                },
+              );
+            }
+          }}
+        />
+      )}
 
       <GitBranchDialog
         open={branchOpen}

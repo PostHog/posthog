@@ -491,6 +491,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                         <LabeledRow label="Session">
                             <Link
                                 to={urls.sessionProfile(observation.session_id)}
+                                className="break-all lg:break-normal"
                                 data-attr="vision-observation-session-link"
                             >
                                 {observation.session_id}
@@ -498,11 +499,14 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                         </LabeledRow>
                         <LabeledRow label="Person">
                             {observation.distinct_id ? (
-                                <Link to={urls.personByDistinctId(observation.distinct_id)}>
+                                <Link
+                                    to={urls.personByDistinctId(observation.distinct_id)}
+                                    className="break-all lg:break-normal"
+                                >
                                     {observation.recording_subject_email ?? observation.distinct_id}
                                 </Link>
                             ) : observation.recording_subject_email ? (
-                                <span>{observation.recording_subject_email}</span>
+                                <span className="break-all lg:break-normal">{observation.recording_subject_email}</span>
                             ) : (
                                 <span className="text-muted">—</span>
                             )}

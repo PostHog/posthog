@@ -124,6 +124,12 @@ pub struct ConsistencyArgs {
 
 #[derive(Args, Clone)]
 pub struct GateArgs {
+    /// Extra KEY=VALUE environment for spawned leaders — the lever for
+    /// benchmarking leader features (e.g. KAFKA_TRANSACTIONAL_FENCING)
+    /// without a harness change per flag. Repeatable.
+    #[arg(long = "leader-env", value_parser = parse_env_pair)]
+    pub leader_env: Vec<(String, String)>,
+
     /// Target an already-running stack at this router URL instead of
     /// spawning one. When unset, the harness spawns its own isolated stack
     /// (replica, leaders, leader-mode router, writer) against the
@@ -256,9 +262,10 @@ pub struct GateArgs {
     #[arg(long, default_value_t = false)]
     pub kill_handoff_target: bool,
 
-    /// Leader cache capacity in entries. Set below --persons to put the
-    /// cache under eviction pressure.
-    #[arg(long, default_value_t = 100_000)]
+    /// Leader per-partition cache budget in bytes (CACHE_MEMORY_CAPACITY_BYTES).
+    /// Set below the seeded pool's footprint to put the cache under
+    /// eviction pressure. Default matches the dev deployment (16 MiB).
+    #[arg(long, default_value_t = 16_777_216)]
     pub cache_capacity: usize,
 
     /// Recovery consumer pool size for spawned leaders
@@ -431,4 +438,39 @@ pub struct TrafficArgs {
     /// this namespace.
     #[arg(long, env = "CHAOS_ETCD_NAMESPACE")]
     pub chaos_etcd_namespace: Option<String>,
+}
+
+/// Environment the stack assigns per leader; overriding any of these
+/// would break pod identity or point a spawned leader at the wrong
+/// topic or table, and the resulting run would look like a real result.
+const RESERVED_LEADER_ENV: &[&str] = &[
+    "POD_NAME",
+    "GRPC_ADDRESS",
+    "METRICS_PORT",
+    "ETCD_ENDPOINTS",
+    "ETCD_PREFIX",
+    "KAFKA_PERSON_STATE_TOPIC",
+    "FALLBACK_TABLE",
+    "FALLBACK_DATABASE_URL",
+    "WRITER_CONSUMER_GROUP",
+    // Derived fencing timeouts scale off the lease TTL, so overriding it
+    // here would silently contradict --leader-lease-ttl and can leave a
+    // fenced leader unable to start.
+    "LEASE_TTL",
+];
+
+/// Parse a `KEY=VALUE` pair for environment passthrough arguments.
+fn parse_env_pair(s: &str) -> Result<(String, String), String> {
+    let (key, value) = s
+        .split_once('=')
+        .ok_or_else(|| format!("expected KEY=VALUE, got {s:?}"))?;
+    if key.is_empty() {
+        return Err(format!("empty environment variable name in {s:?}"));
+    }
+    if RESERVED_LEADER_ENV.contains(&key) {
+        return Err(format!(
+            "{key} is assigned per leader by the harness and cannot be overridden"
+        ));
+    }
+    Ok((key.to_string(), value.to_string()))
 }

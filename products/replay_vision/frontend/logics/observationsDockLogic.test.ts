@@ -4,17 +4,24 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { observationsDockLogic } from './observationsDockLogic'
+import { visionScannersListLogic } from './visionScannersListLogic'
 
 describe('observationsDockLogic', () => {
     let logic: ReturnType<typeof observationsDockLogic.build>
     let observeCalls: number
     let releaseObserve: () => void
+    let releaseScanners: () => void
 
     beforeEach(() => {
         observeCalls = 0
         useMocks({
             get: {
-                '/api/projects/:team/vision/scanners/': () => [200, { results: [] }],
+                '/api/projects/:team/vision/scanners/': async () => {
+                    await new Promise<void>((resolve) => {
+                        releaseScanners = resolve
+                    })
+                    return [200, { results: [] }]
+                },
                 '/api/projects/:team/vision/observations/': () => [200, { results: [] }],
             },
             post: {
@@ -35,7 +42,19 @@ describe('observationsDockLogic', () => {
 
     afterEach(() => {
         releaseObserve?.()
+        releaseScanners?.()
         logic?.unmount()
+    })
+
+    // Regression guard: the picker used `scanners.length === 0` alone to decide when to show the
+    // "No scanners yet" dead-end link, so it rendered that link during the initial fetch too — the
+    // exact window `scannersLoading` exists to distinguish from a team that truly has none.
+    it('reports scanners as loading until the fetch resolves', async () => {
+        await expectLogic(logic).toMatchValues({ scanners: [], scannersLoading: true })
+
+        releaseScanners()
+        await expectLogic(visionScannersListLogic).toDispatchActions(['loadScannersSuccess'])
+        await expectLogic(logic).toMatchValues({ scannersLoading: false })
     })
 
     it('starts one observation when the same scanner row is clicked twice', async () => {

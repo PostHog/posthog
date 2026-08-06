@@ -164,13 +164,14 @@ export class PushNotificationService {
         private encryptedFields: EncryptedFields,
         private fetchUtils: PushNotificationFetchUtils,
         private redis: RedisV2 | null,
-        private messageAssetsService?: MessageAssetsService,
-        private redisMirror: RedisV2 | null = null
+        private redisMirror: RedisV2,
+        private messageAssetsService?: MessageAssetsService
     ) {}
 
     @instrumented('push-notification.executeSendPushNotification')
     async executeSendPushNotification(
-        invocation: CyclotronJobInvocationHogFunction
+        invocation: CyclotronJobInvocationHogFunction,
+        isTest = false
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         if (invocation.queueParameters?.type !== 'sendPushNotification') {
             throw new Error('Bad invocation')
@@ -198,7 +199,9 @@ export class PushNotificationService {
         // Business metrics are emitted once, at the terminal outcome below, rather than per channel — a
         // rescheduled attempt must not re-count the same notification's skips or failures on every retry.
         const pushMetric = (metricName: 'push_sent' | 'push_skipped' | 'push_failed', count: number): void => {
-            if (count <= 0) {
+            // A test send from the editor's "Run test" must not land in the workflow's Metrics tab,
+            // matching what the email path already does.
+            if (count <= 0 || isTest) {
                 return
             }
             result.metrics.push({
@@ -322,7 +325,9 @@ export class PushNotificationService {
         // Only a delivered notification is captured, matching email: an asset is a snapshot of what a
         // recipient received, and a skip has no recipient. Skips stay visible as `push_skipped` plus the
         // per-channel run log explaining why.
-        if (this.messageAssetsService && successCount > 0) {
+        // Skipped for a test send for the same reason the metrics are: the Assets tab should show
+        // what real recipients were sent, not what an editor preview produced.
+        if (this.messageAssetsService && successCount > 0 && !isTest) {
             // Best-effort: the notification is already delivered by this point, so a capture failure
             // must not fail the invocation. Throwing here would send the whole batch back for a retry
             // and deliver every notification in it a second time. Losing an Assets row is the cheaper
@@ -330,7 +335,7 @@ export class PushNotificationService {
             try {
                 const assetRow = this.messageAssetsService.buildRowForPush(invocation, params, [...deliveredPlatforms])
                 if (assetRow) {
-                    result.emailAssets.push(assetRow)
+                    result.messageAssets.push(assetRow)
                 }
             } catch (err) {
                 addLog('warn', 'The notification was delivered but could not be captured for the Assets tab.')
@@ -564,7 +569,7 @@ export class PushNotificationService {
             ? await mirrorCompare(
                   'push-notification.apns-jwt-read',
                   () => read(this.redis!),
-                  () => (this.redisMirror ? read(this.redisMirror) : undefined)
+                  () => read(this.redisMirror)
               )
             : null
         if (cached) {
@@ -586,9 +591,7 @@ export class PushNotificationService {
             )
         await Promise.all([
             this.redis ? write(this.redis) : undefined,
-            mirrorCall('push-notification.apns-jwt-write', () =>
-                this.redisMirror ? write(this.redisMirror) : undefined
-            ),
+            mirrorCall('push-notification.apns-jwt-write', () => write(this.redisMirror)),
         ])
         return jwt
     }

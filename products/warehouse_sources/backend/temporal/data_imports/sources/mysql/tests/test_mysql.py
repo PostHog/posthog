@@ -1868,12 +1868,44 @@ class TestMySQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # DNS resolution failure for the configured SSH tunnel host (`_pinned_ssh_host` in
+            # common/mixins.py).
+            "SSH tunnel host not allowed: Couldn't resolve the host 'bastion.example.com'. Check "
+            "that it's spelled correctly and reachable from the public internet.",
+            # Temporal-wrapped form carrying the exception class name.
+            "Exception: SSH tunnel host not allowed: Couldn't resolve the host 'bastion.example.com'. "
+            "Check that it's spelled correctly and reachable from the public internet.",
+            # The other rejection `_pinned_ssh_host` can raise: the host resolves to a private/internal address.
+            "SSH tunnel host not allowed: This host points to an internal or private IP address, "
+            "which PostHog can't reach. Use a host that's reachable from the public internet.",
+        ],
+    )
+    def test_ssh_tunnel_host_not_allowed_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        assert "SSH tunnel host not allowed" in non_retryable
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"SSH tunnel host rejection should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Raw pymysql str(error) form (classified in `_handle_import_error`).
             str(pymysql.err.OperationalError(1054, "Unknown column 'favoritor_id' in 'where clause'")),
             # Temporal-wrapped str(e.cause) form (classified in external_data_job).
             "OperationalError: (1054, \"Unknown column 'favoritor_id' in 'where clause'\")",
             # Other clause variants share the same 1054 code and "Unknown column" prefix.
             "OperationalError: (1054, \"Unknown column 'deleted_at' in 'order clause'\")",
+            # Vitess/PlanetScale's vtgate re-wraps the same 1054 error with its own gRPC preamble,
+            # so "Unknown column" sits well after `(1054, ` and behind a single quote rather than
+            # pymysql's own double quote — this shape doesn't share a contiguous `(1054, "` prefix
+            # with the raw pymysql form above.
+            str(
+                pymysql.err.OperationalError(
+                    1054,
+                    "unknown: target: ks.-.primary: vttablet: rpc error: code = NotFound desc = "
+                    "Unknown column 'team_id' in 'field list' (errno 1054) (sqlstate 42S22)",
+                )
+            ),
         ],
     )
     def test_unknown_column_is_non_retryable(self, source, error_msg):
@@ -2037,6 +2069,20 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Non-latin-1 connection field error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw pymysql str(error) form the import/sync path classifies.
+            str(pymysql.err.OperationalError(1105, "not_found: branch is missing or sleeping: aaaaaaaaaaaa")),
+            # Temporal-wrapped str(e.cause) form — different branch id, same stable phrase.
+            "OperationalError: (1105, 'not_found: branch is missing or sleeping: bbbbbbbbbbbb')",
+        ],
+    )
+    def test_planetscale_branch_sleeping_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"PlanetScale sleeping/missing branch error should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",
