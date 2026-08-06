@@ -57,6 +57,21 @@ describe('observationsDockLogic', () => {
         await expectLogic(logic).toMatchValues({ scannersLoading: false })
     })
 
+    it('recovers the trigger when an observe request never settles', async () => {
+        // The observe POST mock is held open, standing in for a request that hangs. Without the
+        // self-heal, `observing` (the trigger's loading state) would stay true until a remount.
+        jest.useFakeTimers()
+        try {
+            logic.actions.observe('scanner-1')
+            await expectLogic(logic).toMatchValues({ observing: true })
+
+            jest.advanceTimersByTime(30_000)
+            await expectLogic(logic).toMatchValues({ observing: false })
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('starts one observation when the same scanner row is clicked twice', async () => {
         // The picker rows disable while observing, but both click events can land before React re-renders,
         // and the duplicate-scanner guard can't see a run that has no observation row yet. Two POSTs mean a

@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 import type { ReplayScannerApi } from '../generated/api.schemas'
 import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { notifyScanQuotaBlocked } from '../utils/quotaBlockedToast'
 import { quotaUx } from '../utils/quotaProjection'
 import { ObservationDockCard } from './ObservationCard'
 
@@ -31,7 +32,7 @@ export function ObservationsDock(): JSX.Element | null {
 }
 
 /** Searchable scanner picker for "Observe this recording"; a flat menu doesn't scale to teams with many scanners. */
-function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
+export function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
     const { scanners, scannersLoading, filteredScanners, scannerSearch, scannerPickerOpen, observing } =
         useValues(logic)
@@ -39,10 +40,20 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
     const { quota } = useValues(visionQuotaLogic)
     const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota)
 
+    // Quota block can't ride on the trigger's `disabledReason` — that swallows the click behind a
+    // hover-only tooltip. Keep the trigger clickable and answer the click here instead.
+    const openPicker = (open: boolean): void => {
+        if (open && quotaDisabledReason) {
+            notifyScanQuotaBlocked(quotaDisabledReason)
+            return
+        }
+        setScannerPickerOpen(open)
+    }
+
     return (
         <LemonDropdown
             visible={scannerPickerOpen}
-            onVisibilityChange={setScannerPickerOpen}
+            onVisibilityChange={openPicker}
             closeOnClickInside={false}
             placement="top-start"
             overlay={
@@ -98,8 +109,7 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
                 icon={<IconEye />}
                 sideIcon={<IconChevronDown />}
                 loading={observing}
-                disabledReason={quotaDisabledReason}
-                tooltip={quotaTooltip}
+                tooltip={quotaDisabledReason ?? quotaTooltip}
                 data-attr="vision-scan-recording"
             >
                 Scan this recording

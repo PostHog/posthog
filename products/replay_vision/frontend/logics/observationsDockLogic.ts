@@ -6,7 +6,12 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { visionObservationsList, visionScannersObserveCreate } from '../generated/api'
 import type { ReplayScannerApi, ReplayObservationApi } from '../generated/api.schemas'
-import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from './observationPolling'
+import {
+    OBSERVE_POLL_GRACE_MS,
+    scheduleObservationPoll,
+    scheduleObserveTimeout,
+    shouldPollObservations,
+} from './observationPolling'
 import { requestObservationRetry } from './observationRetry'
 import { refreshVisionQuota } from './visionQuotaLogic'
 import { visionScannersListLogic } from './visionScannersListLogic'
@@ -227,7 +232,8 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
 
             observe: async ({ scannerId }) => {
                 // A cache flag, not `values.observing`: the reducer has already flipped that to true by the
-                // time this listener runs, so it would reject every call.
+                // time this listener runs, so it would reject every call. The in-flight owner resets both
+                // `observing` and this flag together when its request settles, so a bare return is safe.
                 if (cache.observeInFlight) {
                     return
                 }
@@ -245,6 +251,12 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                     return
                 }
                 cache.observeInFlight = true
+                // Self-heal if the request never settles: release the lock and clear the spinner so the
+                // trigger can't stay disabled until the logic remounts.
+                scheduleObserveTimeout(cache.disposables, true, () => {
+                    cache.observeInFlight = false
+                    actions.observeFailure()
+                })
                 try {
                     await visionScannersObserveCreate(String(teamId), scannerId, { session_id: props.sessionId })
                     lemonToast.success('Observation started')
@@ -260,6 +272,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                     actions.observeFailure()
                 } finally {
                     cache.observeInFlight = false
+                    scheduleObserveTimeout(cache.disposables, false, () => {})
                 }
             },
 

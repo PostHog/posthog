@@ -20,6 +20,7 @@ import { AccessControlLevel, AccessControlResourceType, RecordingUniversalFilter
 
 import { bulkScanLogic } from 'products/replay_vision/frontend/logics/bulkScanLogic'
 import { visionQuotaLogic } from 'products/replay_vision/frontend/logics/visionQuotaLogic'
+import { notifyScanQuotaBlocked } from 'products/replay_vision/frontend/utils/quotaBlockedToast'
 import { quotaUx } from 'products/replay_vision/frontend/utils/quotaProjection'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
@@ -428,6 +429,25 @@ function BulkScanMenuItem(): JSX.Element {
     const { quota } = useValues(visionQuotaLogic)
     const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota)
 
+    // Quota block can't ride on `disabledReason` — LemonButton makes that a hover-only tooltip and
+    // swallows the click. Answer the click with a toast, and skip the scanner submenu that can't run.
+    if (quotaDisabledReason) {
+        return (
+            <LemonButton
+                fullWidth
+                role="menuitem"
+                size="xsmall"
+                icon={<IconEye />}
+                sideIcon={<IconChevronRight />}
+                tooltip={quotaDisabledReason}
+                onClick={() => notifyScanQuotaBlocked(quotaDisabledReason)}
+                data-attr="vision-bulk-scan-recordings"
+            >
+                Scan these recordings
+            </LemonButton>
+        )
+    }
+
     const submenuItems: LemonMenuItem[] = scannersLoading
         ? [{ label: 'Loading scanners…', disabledReason: 'Loading' }]
         : scanners.length === 0
@@ -464,7 +484,7 @@ function BulkScanMenuItem(): JSX.Element {
                         ? 'Starting scans…'
                         : selectedRecordingsIds.length === 0
                           ? 'Select recordings to scan'
-                          : quotaDisabledReason
+                          : undefined
                 }
                 tooltip={quotaTooltip}
                 data-attr="vision-bulk-scan-recordings"
