@@ -330,7 +330,9 @@ Four tables, and the two that matter most for an auth provider are missing.
 - [x] `allowlist_identifiers`, `blocklist_identifiers`.
 - [x] `domains`, `saml_connections`, `enterprise_connections` — enterprise SSO configuration.
 - [x] `billing` and `commerce` — Clerk's newer billing surface (shipped as `commerce_plans` and `commerce_subscription_items`)
-- [x] `oauth_applications`, `api_keys`, `m2m_tokens`, `machines`, `clients`.
+- [x] `oauth_applications`, `api_keys`, `m2m_tokens`, `machines`.
+- [ ] `clients` — retired. Clerk deprecated `GET /v1/clients` and it now answers 410, with no
+      replacement listing endpoint.
 - [ ] `email_addresses`, `phone_numbers` as their own tables.
 - [x] `jwt_templates`, `redirect_urls`, `role_sets`, `email_templates`, `sms_templates`
 - [ ] `actor_tokens`, `sign_in_tokens`, `webhooks`
