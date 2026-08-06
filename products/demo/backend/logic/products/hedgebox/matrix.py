@@ -62,6 +62,7 @@ from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.demo.backend.logic.matrix.matrix import Cluster, Matrix
 from products.demo.backend.logic.matrix.models import SimEvent
 from products.demo.backend.logic.matrix.randomization import Industry
+from products.demo.backend.logic.signal_reports import seed_signal_report_for_error_issue
 from products.endpoints.backend.facade.models import Endpoint, EndpointVersion
 from products.error_tracking.backend.facade import sync_issues_to_clickhouse
 from products.event_definitions.backend.models.event_definition import EventDefinition
@@ -2013,10 +2014,13 @@ class HedgeboxMatrix(Matrix):
         self._upsert_error_tracking_stack_frames(team, issue_specs)
 
         created_issue_ids: list = []
-        for issue_spec in issue_specs:
-            if ErrorTrackingIssueFingerprintV2.objects.filter(
+        demo_issues: list = []
+        for issue_index, issue_spec in enumerate(issue_specs):
+            existing_fingerprint = ErrorTrackingIssueFingerprintV2.objects.filter(
                 team=team, fingerprint=issue_spec["fingerprint"]
-            ).exists():
+            ).select_related("issue").first()
+            if existing_fingerprint is not None:
+                demo_issues.append((issue_index, existing_fingerprint.issue))
                 continue
 
             issue = ErrorTrackingIssue.objects.create(
@@ -2030,6 +2034,7 @@ class HedgeboxMatrix(Matrix):
                 fingerprint=issue_spec["fingerprint"],
             )
             created_issue_ids.append(issue.id)
+            demo_issues.append((issue_index, issue))
 
             for index, days_ago in enumerate(issue_spec["days_ago"]):
                 person = selected_people[index % len(selected_people)]
@@ -2095,6 +2100,9 @@ class HedgeboxMatrix(Matrix):
 
         if created_issue_ids:
             sync_issues_to_clickhouse(issue_ids=created_issue_ids, team_id=team.pk)
+
+        for issue_index, issue in demo_issues:
+            seed_signal_report_for_error_issue(team_id=team.pk, issue_id=str(issue.id), index=issue_index)
 
     def _upsert_error_tracking_stack_frames(self, team: "Team", issue_specs: list[ErrorTrackingDemoIssueSpec]) -> None:
         for issue_spec in issue_specs:
