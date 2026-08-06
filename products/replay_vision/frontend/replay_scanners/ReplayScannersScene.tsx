@@ -41,9 +41,15 @@ import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../utils/credits'
+import { notifyScanQuotaBlocked } from '../utils/quotaBlockedToast'
 import { VisionMetrics } from './components/VisionMetrics'
 import { VisionUsageTab } from './components/VisionUsageTab'
-import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
+import {
+    type ScannersSorting,
+    SCANNERS_PAGE_SIZE,
+    enableQuotaBlockReason,
+    replayScannersLogic,
+} from './replayScannersLogic'
 import { ENABLED_OPTIONS, EnabledFilter, SCANNER_TYPE_OPTIONS, ScannerType, ReplayScanner } from './types'
 
 const HedgehogXRay = pngHoggie(xRayPng)
@@ -137,7 +143,7 @@ export function ReplayScannersScene(): JSX.Element {
     const { searchParams } = useValues(router)
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { featureFlagsTimedOut } = useValues(appLogic)
-    const { showUsd } = useValues(visionQuotaLogic)
+    const { showUsd, quota } = useValues(visionQuotaLogic)
 
     if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION]) {
         // Flags load asynchronously, so wait for them before deciding the page doesn't exist.
@@ -164,26 +170,39 @@ export function ReplayScannersScene(): JSX.Element {
         {
             title: 'Status',
             key: 'enabled',
-            render: (_, scanner) => (
-                <div className="flex items-center gap-2">
-                    <LemonSwitch
-                        checked={scanner.enabled}
-                        onChange={() => toggleScannerEnabled(scanner.id)}
-                        disabledReason={
-                            togglingIds.includes(scanner.id)
-                                ? 'Updating…'
-                                : getReplayVisionEditDisabledReason(scanner.user_access_level)
-                        }
-                        size="small"
-                        data-attr="vision-scanner-toggle-enabled"
-                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                        data-ph-capture-attribute-will-be-enabled={!scanner.enabled}
-                    />
-                    <span className={`inline-block min-w-[4.5rem] ${scanner.enabled ? 'text-success' : 'text-muted'}`}>
-                        {scanner.enabled ? 'Enabled' : 'Disabled'}
-                    </span>
-                </div>
-            ),
+            render: (_, scanner) => {
+                // Keep the switch clickable so a quota-blocked enable can answer with a toast + billing link;
+                // a `disabledReason` here would swallow the click behind a hover-only tooltip.
+                const quotaBlockReason = enableQuotaBlockReason(scanner.enabled, quota)
+                return (
+                    <div className="flex items-center gap-2">
+                        <LemonSwitch
+                            checked={scanner.enabled}
+                            onChange={() => {
+                                if (quotaBlockReason) {
+                                    notifyScanQuotaBlocked(quotaBlockReason)
+                                    return
+                                }
+                                toggleScannerEnabled(scanner.id)
+                            }}
+                            disabledReason={
+                                togglingIds.includes(scanner.id)
+                                    ? 'Updating…'
+                                    : getReplayVisionEditDisabledReason(scanner.user_access_level)
+                            }
+                            size="small"
+                            data-attr="vision-scanner-toggle-enabled"
+                            data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                            data-ph-capture-attribute-will-be-enabled={!scanner.enabled}
+                        />
+                        <span
+                            className={`inline-block min-w-[4.5rem] ${scanner.enabled ? 'text-success' : 'text-muted'}`}
+                        >
+                            {scanner.enabled ? 'Enabled' : 'Disabled'}
+                        </span>
+                    </div>
+                )
+            },
             sorter: true,
         },
         {

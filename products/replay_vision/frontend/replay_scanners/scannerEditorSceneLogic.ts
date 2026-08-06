@@ -5,6 +5,9 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
+import type { VisionQuotaApi } from '../generated/api.schemas'
+import { quotaUx } from '../utils/quotaProjection'
+
 export type ScannerEditorStep = 'template' | 'configure' | 'triggers' | 'self_driving'
 export const SCANNER_EDITOR_STEPS: readonly ScannerEditorStep[] = ['template', 'configure', 'triggers', 'self_driving']
 export const SCANNER_EDITOR_STEP_ORDER: Record<ScannerEditorStep, number> = {
@@ -27,6 +30,24 @@ export function firstErroredScannerStep(errors: {
         return 'triggers'
     }
     return null
+}
+
+/**
+ * Reason to block creating a scanner while the org is out of credits, or null to allow it.
+ * A new scanner starts scanning on save, so on an exhausted budget the run only records skips and
+ * reads as "in progress" forever. Editing an existing scanner stays allowed — narrowing it to fit
+ * next period's budget is valid. Only the final step carries the create action, so earlier steps
+ * (and the "Next" button) are never gated, which would trap the wizard mid-flow.
+ */
+export function creationQuotaBlockReason(
+    quota: VisionQuotaApi | null,
+    isNew: boolean,
+    isFinalStep: boolean
+): string | null {
+    if (!isNew || !isFinalStep) {
+        return null
+    }
+    return quotaUx(quota).disabledReason ?? null
 }
 
 export function scannerStepUrl(step: ScannerEditorStep, scannerId: string): string {

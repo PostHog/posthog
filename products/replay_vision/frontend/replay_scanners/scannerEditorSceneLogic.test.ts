@@ -5,7 +5,8 @@ import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
-import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
+import { makeQuota } from '../utils/quotaTestUtils'
+import { creationQuotaBlockReason, scannerEditorSceneLogic } from './scannerEditorSceneLogic'
 
 describe('scannerEditorSceneLogic', () => {
     let logic: ReturnType<typeof scannerEditorSceneLogic.build>
@@ -72,6 +73,26 @@ describe('scannerEditorSceneLogic', () => {
             await expectLogic(logic).toMatchValues({
                 visibleSteps: ['configure', 'triggers', 'self_driving'],
             })
+        })
+    })
+
+    describe('creationQuotaBlockReason', () => {
+        const exhausted = makeQuota({ credits_used: 10_000, remaining: 0, exhausted: true })
+
+        it('blocks the final create step for a new scanner when quota is exhausted', () => {
+            expect(creationQuotaBlockReason(exhausted, true, true)).toMatch(/credit|limit/i)
+        })
+
+        it('never blocks an earlier step, so the wizard can still advance', () => {
+            expect(creationQuotaBlockReason(exhausted, true, false)).toBeNull()
+        })
+
+        it('never blocks editing an existing scanner, only creation', () => {
+            expect(creationQuotaBlockReason(exhausted, false, true)).toBeNull()
+        })
+
+        it('allows creation when quota has room', () => {
+            expect(creationQuotaBlockReason(makeQuota(), true, true)).toBeNull()
         })
     })
 

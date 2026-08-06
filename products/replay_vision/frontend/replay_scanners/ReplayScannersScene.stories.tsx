@@ -558,6 +558,46 @@ export const ObservationDetail: StoryObj = {
     parameters: { pageUrl: urls.replayVisionObservation(observationDetail.id) },
 }
 
+const exhaustedQuota: VisionQuotaApi = {
+    ...quota,
+    credits_used: 10000,
+    remaining: 0,
+    exhausted: true,
+    projected_monthly_credits: 10000,
+}
+
+// Out of credits: the list toggle now blocks a re-enable with a billing link instead of a silent snap-back.
+export const ScannersListQuotaExhausted: StoryObj = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/scanners/': scanners,
+                '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
+                '/api/projects/:team_id/vision/scanners/creators/': { creators: [alice, bob] },
+                '/api/projects/:team_id/vision/quota/': exhaustedQuota,
+            },
+        }),
+    ],
+}
+
+// Out of credits on the final wizard step: the create button is gated and the billing link sits beside it,
+// instead of a blue CTA that makes a scanner stuck reading "in progress".
+export const ScannerEditorSelfDrivingQuotaExhausted: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerSelfDriving('new'),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/quota/': exhaustedQuota,
+            },
+            post: {
+                '/api/projects/:team_id/vision/scanners/estimate/': estimate,
+            },
+        }),
+    ],
+}
+
 // Billing hasn't clamped this org's limit yet, so the API still reports it as uncapped.
 export const StartupProgramCap: StoryObj = {
     decorators: [

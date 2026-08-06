@@ -15,9 +15,15 @@ import {
     visionScannersPartialUpdate,
     visionScannersStatsRetrieve,
 } from '../generated/api'
-import type { ScannerStatsResponseApi, UserBasicApi, VisionScannersListParams } from '../generated/api.schemas'
+import type {
+    ScannerStatsResponseApi,
+    UserBasicApi,
+    VisionQuotaApi,
+    VisionScannersListParams,
+} from '../generated/api.schemas'
 import type { ScannerTypeEnumApi } from '../generated/api.schemas'
 import { refreshVisionQuota, visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { quotaUx } from '../utils/quotaProjection'
 import { csvParam, parseCsvParam, parseSortParam, serializeSortParam } from '../utils/urlParams'
 import {
     ENABLED_OPTIONS,
@@ -71,6 +77,18 @@ export const DEFAULT_FILTERS: ScannersFilters = {
     createdByFilter: [],
     page: 1,
     sort: DEFAULT_SORT,
+}
+
+/**
+ * Reason to block turning a scanner on while the org is out of credits, or null to allow it.
+ * Enabling on an exhausted budget produces nothing — the scanner just skips every recording — so the
+ * re-enable the launch banner asks for reads as a silent no-op. Disabling stays allowed regardless.
+ */
+export function enableQuotaBlockReason(isEnabled: boolean, quota: VisionQuotaApi | null): string | null {
+    if (isEnabled) {
+        return null
+    }
+    return quotaUx(quota).disabledReason ?? null
 }
 
 export function resolveScannerOrderByKey(columnKey: string): ScannerOrderKey | null {
@@ -501,6 +519,8 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             }
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
+                // Snapping the switch back with no word left users clicking a control that never takes.
+                lemonToast.error("Couldn't update the scanner. Refresh the page and try again.")
                 actions.revertScannerEnabled(id)
                 return
             }

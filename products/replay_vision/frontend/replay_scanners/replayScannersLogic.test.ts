@@ -8,6 +8,7 @@ import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { makeQuota as makeQuotaFixture } from '../utils/quotaTestUtils'
 import {
     buildScannerListParams,
+    enableQuotaBlockReason,
     replayScannersLogic,
     resolveScannerOrderByKey,
     type ScannerOrderKey,
@@ -104,6 +105,22 @@ describe('replayScannersLogic', () => {
         makeScanner({ id: 'b', name: 'Power user behavior', scanner_type: 'classifier', enabled: false }),
         makeScanner({ id: 'c', name: 'Refund summarizer', scanner_type: 'summarizer', enabled: true, created_by: bob }),
     ]
+
+    describe('enableQuotaBlockReason', () => {
+        const exhausted = makeQuotaFixture({ credits_used: 10_000, remaining: 0, exhausted: true })
+
+        it('blocks turning a disabled scanner on when quota is exhausted', () => {
+            expect(enableQuotaBlockReason(false, exhausted)).toMatch(/credit|limit/i)
+        })
+
+        it('always allows turning a scanner off, even when exhausted', () => {
+            expect(enableQuotaBlockReason(true, exhausted)).toBeNull()
+        })
+
+        it('allows enabling when quota has room', () => {
+            expect(enableQuotaBlockReason(false, quotaFixture)).toBeNull()
+        })
+    })
 
     describe('buildScannerListParams', () => {
         const emptyValues = {

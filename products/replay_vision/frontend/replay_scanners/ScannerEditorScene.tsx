@@ -32,7 +32,9 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { QuotaExhaustedNote } from '../components/QuotaExhaustedNote'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
+import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { ScannerTemplatePicker } from './components/ScannerTemplatePicker'
 import { ScannerTriggers } from './components/ScannerTriggers'
@@ -41,6 +43,7 @@ import { replayScannerLogic } from './replayScannerLogic'
 import {
     SCANNER_EDITOR_STEP_ORDER,
     ScannerEditorStep,
+    creationQuotaBlockReason,
     scannerEditorSceneLogic,
     scannerStepUrl,
 } from './scannerEditorSceneLogic'
@@ -339,7 +342,7 @@ function SelfDrivingStep(): JSX.Element {
     )
 }
 
-function EditorFooter({
+export function EditorFooter({
     step,
     scannerId,
     visibleSteps,
@@ -357,6 +360,7 @@ function EditorFooter({
     onSave: () => void
 }): JSX.Element {
     const { scanner, durationValidationError } = useValues(replayScannerLogic({ id: scannerId }))
+    const { quota, onFreePlan } = useValues(visionQuotaLogic)
     const stepIndex = visibleSteps.indexOf(step)
     const prevStep = stepIndex > 0 ? visibleSteps[stepIndex - 1] : null
     const nextStep = stepIndex < visibleSteps.length - 1 ? visibleSteps[stepIndex + 1] : null
@@ -365,7 +369,9 @@ function EditorFooter({
     // takes priority and must match the backend's create/update requirement exactly.
     const ownsDurationFilter = step === 'triggers' || step === 'self_driving'
     const durationError = ownsDurationFilter ? durationValidationError : null
-    const saveDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level) ?? durationError
+    const quotaBlockReason = creationQuotaBlockReason(quota, isNew, nextStep === null)
+    const saveDisabledReason =
+        getReplayVisionEditDisabledReason(scanner?.user_access_level) ?? durationError ?? quotaBlockReason
 
     return (
         <div className="flex flex-col gap-2">
@@ -373,6 +379,9 @@ function EditorFooter({
             {step === 'self_driving' && durationError ? (
                 <div className="text-danger text-sm">{durationError}</div>
             ) : null}
+            {/* The triggers step already carries this note inside the cost forecast; on the final step
+                otherwise (self-driving) the disabled create button needs the billing link beside it. */}
+            {quotaBlockReason && step !== 'triggers' ? <QuotaExhaustedNote onFreePlan={onFreePlan} /> : null}
             <div className="flex flex-wrap items-center justify-between gap-2">
                 {/* First form step of a new scanner goes back to the template picker; a mid-flow step goes to the
                 previous visible step; editing's first step (configure, no template) has no back. */}
