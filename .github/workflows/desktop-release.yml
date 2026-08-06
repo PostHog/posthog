@@ -16,14 +16,6 @@ jobs:
         permissions:
             contents: write
         steps:
-            - name: Get app token
-              id: app-token
-              uses: getsentry/action-github-app-token@5c1e90706fe007857338ac1bfbd7a4177db2f789 # v4.0.0
-              with:
-                  app_id: ${{ secrets.GH_APP_ARRAY_RELEASER_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
-                  scope: PostHog
-
             - name: Extract version from tag
               id: version
               run: |
@@ -32,17 +24,17 @@ jobs:
 
             - name: Create draft release if absent
               env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  GH_TOKEN: ${{ github.token }}
                   APP_VERSION: ${{ steps.version.outputs.version }}
               run: |
                   # Pre-create a single draft release so every parallel publish job uploads
                   # into the same release. Without this, parallel jobs each create-if-missing
                   # at once, producing multiple releases for one tag and scattering assets
                   # (the orphans get left as drafts).
-                  if gh release view "v$APP_VERSION" --repo PostHog/code >/dev/null 2>&1; then
-                    echo "Release v$APP_VERSION already exists — reusing it"
+                  if gh release view "desktop-v$APP_VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+                    echo "Release desktop-v$APP_VERSION already exists — reusing it"
                   else
-                    gh release create "v$APP_VERSION" --repo PostHog/code --draft \
+                    gh release create "desktop-v$APP_VERSION" --repo "$GITHUB_REPOSITORY" --draft \
                       --title "v$APP_VERSION" --notes "Release v$APP_VERSION (build in progress)"
                   fi
 
@@ -80,20 +72,11 @@ jobs:
             APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
             APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         steps:
-            - name: Get app token
-              id: app-token
-              uses: getsentry/action-github-app-token@5c1e90706fe007857338ac1bfbd7a4177db2f789 # v4.0.0
-              with:
-                  app_id: ${{ secrets.GH_APP_ARRAY_RELEASER_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
-                  scope: PostHog
-
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 0
                   filter: blob:none
-                  token: ${{ steps.app-token.outputs.token }}
                   persist-credentials: false
 
             - name: Setup pnpm
@@ -239,10 +222,10 @@ jobs:
 
             - name: Upload release artifacts
               env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  GH_TOKEN: ${{ github.token }}
                   APP_VERSION: ${{ steps.version.outputs.version }}
               run: |
-                  gh release upload "v$APP_VERSION" --repo PostHog/code --clobber \
+                  gh release upload "desktop-v$APP_VERSION" --repo "$GITHUB_REPOSITORY" --clobber \
                     apps/code/out/*.dmg \
                     apps/code/out/*-mac.zip \
                     apps/code/out/*.blockmap
@@ -307,20 +290,11 @@ jobs:
             POSTHOG_ENV_ID: ${{ secrets.DESKTOP_POSTHOG_ENV_ID }}
             POSTHOG_HOST: ${{ secrets.DESKTOP_POSTHOG_HOST }}
         steps:
-            - name: Get app token
-              id: app-token
-              uses: getsentry/action-github-app-token@5c1e90706fe007857338ac1bfbd7a4177db2f789 # v4.0.0
-              with:
-                  app_id: ${{ secrets.GH_APP_ARRAY_RELEASER_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
-                  scope: PostHog
-
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 0
                   filter: blob:none
-                  token: ${{ steps.app-token.outputs.token }}
                   persist-credentials: false
 
             - name: Setup pnpm
@@ -409,7 +383,7 @@ jobs:
             - name: Upload release artifacts
               shell: pwsh
               env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  GH_TOKEN: ${{ github.token }}
                   APP_VERSION: ${{ steps.version.outputs.version }}
               run: |
                   $out = "apps/code/out"
@@ -419,7 +393,7 @@ jobs:
                   $items += Get-ChildItem $out -File -Filter "latest.yml"
                   $items += Get-ChildItem $out -File -Filter "*.blockmap"
                   $files = $items | Select-Object -ExpandProperty FullName
-                  gh release upload "v$env:APP_VERSION" --repo PostHog/code --clobber @files
+                  gh release upload "desktop-v$env:APP_VERSION" --repo $env:GITHUB_REPOSITORY --clobber @files
 
             - name: Configure AWS credentials for the update feed
               uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
@@ -491,20 +465,11 @@ jobs:
             POSTHOG_ENV_ID: ${{ secrets.DESKTOP_POSTHOG_ENV_ID }}
             POSTHOG_HOST: ${{ secrets.DESKTOP_POSTHOG_HOST }}
         steps:
-            - name: Get app token
-              id: app-token
-              uses: getsentry/action-github-app-token@5c1e90706fe007857338ac1bfbd7a4177db2f789 # v4.0.0
-              with:
-                  app_id: ${{ secrets.GH_APP_ARRAY_RELEASER_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
-                  scope: PostHog
-
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
                   fetch-depth: 0
                   filter: blob:none
-                  token: ${{ steps.app-token.outputs.token }}
                   persist-credentials: false
 
             - name: Install Linux packaging tooling
@@ -596,10 +561,10 @@ jobs:
 
             - name: Upload release artifacts
               env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  GH_TOKEN: ${{ github.token }}
                   APP_VERSION: ${{ steps.version.outputs.version }}
               run: |
-                  gh release upload "v$APP_VERSION" --repo PostHog/code --clobber \
+                  gh release upload "desktop-v$APP_VERSION" --repo "$GITHUB_REPOSITORY" --clobber \
                     apps/code/out/*.AppImage \
                     apps/code/out/*.deb \
                     apps/code/out/*.rpm
@@ -654,14 +619,6 @@ jobs:
             contents: write
             id-token: write
         steps:
-            - name: Get app token
-              id: app-token
-              uses: getsentry/action-github-app-token@5c1e90706fe007857338ac1bfbd7a4177db2f789 # v4.0.0
-              with:
-                  app_id: ${{ secrets.GH_APP_ARRAY_RELEASER_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
-                  scope: PostHog
-
             - name: Extract version from tag
               id: version
               run: |
@@ -711,10 +668,10 @@ jobs:
 
             - name: Upload merged mac manifest
               env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  GH_TOKEN: ${{ github.token }}
                   APP_VERSION: ${{ steps.version.outputs.version }}
               run: |
-                  gh release upload "v$APP_VERSION" --repo PostHog/code --clobber /tmp/latest-mac.yml
+                  gh release upload "desktop-v$APP_VERSION" --repo "$GITHUB_REPOSITORY" --clobber /tmp/latest-mac.yml
 
             - name: Download checksum artifacts
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -725,13 +682,13 @@ jobs:
 
             - name: Publish GitHub release
               env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  GH_TOKEN: ${{ github.token }}
                   APP_VERSION: ${{ steps.version.outputs.version }}
               run: |
                   CURRENT_TAG="desktop-v$APP_VERSION"
                   node .github/scripts/desktop/generate-release-notes.mjs "$CURRENT_TAG" > /tmp/release-notes.md
                   node products/desktop/apps/code/scripts/generate-release-download-tables.mjs "$APP_VERSION" /tmp/checksums >> /tmp/release-notes.md
-                  gh release edit "v$APP_VERSION" --repo PostHog/code --draft=false --notes-file /tmp/release-notes.md
+                  gh release edit "desktop-v$APP_VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --notes-file /tmp/release-notes.md
 
             - name: Download windows manifest
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -743,7 +700,7 @@ jobs:
             # generated notes) is included; the in-app release notes read this file.
             - name: Build releases feed manifest
               env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  GH_TOKEN: ${{ github.token }}
               run: node products/desktop/apps/code/scripts/build-releases-feed.mjs /tmp/releases.json
 
             # The generic provider fetches nothing from GitHub, so the channel files
