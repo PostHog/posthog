@@ -3278,8 +3278,7 @@ export const experimentLogic = kea<experimentLogicType>([
             // to the metrics and nothing needs reloading.
             actions.setExperiment({ [orderingField]: orderedUuids })
 
-            // Coalesce a flurry of drops into one request. Kea cancels the superseded run, so
-            // two updates can't race and land out of order.
+            // Coalesce a flurry of drops into one request.
             await breakpoint(300)
 
             try {
@@ -3293,6 +3292,8 @@ export const experimentLogic = kea<experimentLogicType>([
                         update_feature_flag_params: false,
                     }
                 )
+                // A newer reorder may have started while this request was in flight.
+                breakpoint()
                 const responseWithMetricsOrdering = initializeMetricOrdering(response)
                 // Refreshing unmodifiedExperiment too, so a later edit-cancel doesn't revert the
                 // order the user just set.
