@@ -65,6 +65,88 @@ const STORY_EVENTS_RESPONSE = {
         STORY_PERSON,
     ]),
 }
+const STORY_BREAKDOWNS_RESPONSE = {
+    results: {
+        $browser: {
+            values: [
+                { value: 'Chrome', count: 24 },
+                { value: 'Firefox', count: 9 },
+                { value: 'Safari', count: 5 },
+            ],
+            total_count: 38,
+        },
+        $device_type: {
+            values: [
+                { value: 'Desktop', count: 30 },
+                { value: 'Mobile', count: 8 },
+            ],
+            total_count: 38,
+        },
+        $os: {
+            values: [
+                { value: 'Mac OS X', count: 20 },
+                { value: 'Windows', count: 12 },
+                { value: 'Linux', count: 6 },
+            ],
+            total_count: 38,
+        },
+        $pathname: {
+            values: [
+                { value: '/billing', count: 19 },
+                { value: '/settings', count: 11 },
+                { value: '/dashboard', count: 8 },
+            ],
+            total_count: 38,
+        },
+        $user_id: {
+            values: [
+                { value: 'user-101', count: 16 },
+                { value: 'user-205', count: 12 },
+                { value: 'user-309', count: 10 },
+            ],
+            total_count: 38,
+        },
+        $ip: {
+            values: [
+                { value: '192.0.2.10', count: 18 },
+                { value: '198.51.100.20', count: 12 },
+                { value: '203.0.113.30', count: 8 },
+            ],
+            total_count: 38,
+        },
+        $current_url: {
+            values: [
+                { value: 'https://example.com/billing', count: 21 },
+                { value: 'https://example.com/settings', count: 11 },
+                { value: 'https://example.com/dashboard', count: 6 },
+            ],
+            total_count: 38,
+        },
+    },
+}
+const STORY_PROPERTY_DEFINITIONS = {
+    count: 2,
+    next: null,
+    previous: null,
+    results: [
+        {
+            id: 'current-url',
+            name: '$current_url',
+            description: 'The current URL of the page',
+            property_type: 'String',
+            type: 1,
+            verified: true,
+        },
+        {
+            id: 'plan',
+            name: 'plan',
+            description: 'The account plan',
+            property_type: 'String',
+            type: 1,
+            verified: false,
+        },
+    ],
+}
 const STORY_POSITION_EVENT = {
     uuid: STORY_EVENT_UUIDS[0],
     distinct_id: STORY_PERSON.distinct_id,
@@ -144,6 +226,7 @@ const meta: Meta = {
                     },
                 ],
                 '/api/environments/:team_id/error_tracking/spike_events': [200, { results: [] }],
+                '/api/projects/:team_id/property_definitions/': [200, STORY_PROPERTY_DEFINITIONS],
                 '/api/environments/:team_id/session_recordings/:id/capture_diagnostics/': [
                     200,
                     { properties: { $has_recording: true, $recording_status: 'active' } },
@@ -152,6 +235,9 @@ const meta: Meta = {
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
                     const body = (await request.json()) as { query?: { kind?: string; select?: string[] } }
+                    if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
+                        return [200, STORY_BREAKDOWNS_RESPONSE]
+                    }
                     if (body.query?.kind === NodeKind.EventsQuery) {
                         return body.query.select?.includes('properties.$exception_list')
                             ? [200, STORY_TIMELINE_RESPONSE]

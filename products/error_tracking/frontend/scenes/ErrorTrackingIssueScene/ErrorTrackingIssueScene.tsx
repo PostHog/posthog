@@ -1,27 +1,20 @@
 import '../ErrorTrackingIssueScene/ErrorTrackingIssueScene.scss'
 
 import clsx from 'clsx'
-import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
-import { IconFilter, IconList, IconRewindPlay, IconX } from '@posthog/icons'
+import { IconRewindPlay, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import {
-    TabsPrimitive,
-    TabsPrimitiveContent,
-    TabsPrimitiveList,
-    TabsPrimitiveTrigger,
-} from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -33,29 +26,20 @@ import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, ReplayTabs
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { PostHogSDKIssueBanner } from '../../components/Banners/PostHogSDKIssueBanner'
-import { breakdownFiltersLogic } from '../../components/Breakdowns/breakdownFiltersLogic'
-import { BreakdownsChart } from '../../components/Breakdowns/BreakdownsChart'
-import { BreakdownsSearchBar } from '../../components/Breakdowns/BreakdownsSearchBar'
-import { MiniBreakdowns } from '../../components/Breakdowns/MiniBreakdowns'
 import { miniBreakdownsLogic } from '../../components/Breakdowns/miniBreakdownsLogic'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { StackTraceActions } from '../../components/ExceptionCard/Tabs/StackTraceTab/StackTraceActions'
 import { StatusIndicator } from '../../components/Indicators'
-import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
+import {
+    ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY,
+    issueFiltersLogic,
+} from '../../components/IssueFilters/issueFiltersLogic'
 import { IssueStatusButton } from '../../components/IssueStatusButton'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { getIssueReplayDateRange } from '../../utils'
-import {
-    ErrorTrackingIssueSceneCategory,
-    errorTrackingIssueSceneConfigurationLogic,
-} from './errorTrackingIssueSceneConfigurationLogic'
-import {
-    ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY,
-    ErrorTrackingIssueSceneLogicProps,
-    errorTrackingIssueSceneLogic,
-} from './errorTrackingIssueSceneLogic'
+import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { IssueEventsPanel } from './IssueEventsPanel'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
@@ -73,12 +57,6 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const isMobile = isWindowLessThan('md')
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
-
-    // breakdownFiltersLogic is a keyless singleton that miniBreakdownsLogic connects to. Mounting it here ties its
-    // lifecycle to the scene (the stable parent), so it is torn down after the keyed miniBreakdownsLogic below rather
-    // than mid-cascade — otherwise its store path can vanish while miniBreakdownsLogic's connected selectors still
-    // re-evaluate, throwing "Can not find path breakdownFiltersLogic".
-    useMountedLogic(breakdownFiltersLogic)
 
     useAttachedContext(
         issueId ? [{ type: 'error_tracking_issue', key: issueId, label: issue?.name ?? undefined }] : null
@@ -295,10 +273,6 @@ const RightHandColumn = ({
 }
 
 const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
-    const { category } = useValues(errorTrackingIssueSceneConfigurationLogic)
-    const { setCategory } = useActions(errorTrackingIssueSceneConfigurationLogic)
-    const { issueId } = useValues(errorTrackingIssueSceneLogic)
-
     const ref = useRef<HTMLDivElement>(null)
     const resizerLogicProps: ResizerLogicProps = {
         containerRef: ref,
@@ -323,47 +297,9 @@ const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
             }
             className={clsx('flex flex-col h-full relative bg-surface-primary', isMobile && 'flex-1 max-w-full')}
         >
-            <TabsPrimitive
-                value={category}
-                onValueChange={(value) => {
-                    setCategory(value as ErrorTrackingIssueSceneCategory)
-                    posthog.capture('error_tracking_issue_tab_viewed', { issue_id: issueId, tab: value })
-                }}
-                className="flex flex-col flex-1 min-h-0"
-            >
-                <div>
-                    <ScrollableShadows direction="horizontal" className="border-b" hideScrollbars>
-                        <TabsPrimitiveList className="flex space-x-0.5 gap-2">
-                            <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="exceptions">
-                                <IconList className="mr-1" />
-                                <span className="text-nowrap">Exceptions</span>
-                            </TabsPrimitiveTrigger>
-                            <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="breakdowns">
-                                <IconFilter className="mr-1" />
-                                <span className="text-nowrap">Breakdowns</span>
-                            </TabsPrimitiveTrigger>
-                        </TabsPrimitiveList>
-                    </ScrollableShadows>
-                </div>
-                <TabsPrimitiveContent value="exceptions" className="h-full min-h-0">
-                    <IssueEventsPanel />
-                </TabsPrimitiveContent>
-                <TabsPrimitiveContent value="breakdowns" className="flex-1 min-h-0">
-                    <BreakdownsTab />
-                </TabsPrimitiveContent>
-            </TabsPrimitive>
+            <IssueEventsPanel />
 
             {!isMobile && <Resizer {...resizerLogicProps} />}
-        </div>
-    )
-}
-
-const BreakdownsTab = (): JSX.Element => {
-    return (
-        <div className="flex flex-col h-full">
-            <BreakdownsSearchBar />
-            <MiniBreakdowns />
-            <BreakdownsChart />
         </div>
     )
 }
