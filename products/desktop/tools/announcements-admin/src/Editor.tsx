@@ -10,7 +10,7 @@ import {
   type EditableItem,
   isoToLocalInput,
   localInputToIso,
-  nextItemId,
+  newItemId,
   toEditable,
   toPayloadItem,
 } from "./items";
@@ -250,10 +250,7 @@ export function Editor({
   };
 
   const add = (kind: EditableItem["kind"]) => {
-    setItems((prev) => [
-      ...prev,
-      { ...blankItem(kind), id: nextItemId(kind, prev) },
-    ]);
+    setItems((prev) => [...prev, { ...blankItem(kind), id: newItemId() }]);
     setSelected(items.length);
     setPublished(false);
   };

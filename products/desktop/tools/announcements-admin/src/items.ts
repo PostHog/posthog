@@ -48,17 +48,15 @@ export function blankItem(kind: EditableItem["kind"]): EditableItem {
   };
 }
 
-export function nextItemId(
-  kind: EditableItem["kind"],
-  items: EditableItem[],
-  now = new Date(),
-): string {
-  const stem = `${kind}-${now.toISOString().slice(0, 10)}`;
-  const ids = new Set(items.map((item) => item.id));
-  if (!ids.has(stem)) return stem;
-  let suffix = 2;
-  while (ids.has(`${stem}-${suffix}`)) suffix += 1;
-  return `${stem}-${suffix}`;
+/**
+ * Dismissals persist per id on every client forever, so an id must never be
+ * reused across the payload's whole history — deduping against the current
+ * items (as a date-stamped scheme would) still collides with ids that were
+ * published and since removed. UUIDs make reuse impossible; the field stays
+ * editable for anyone who wants a semantic id instead.
+ */
+export function newItemId(): string {
+  return crypto.randomUUID();
 }
 
 export function toEditable(items: Announcement[]): EditableItem[] {
