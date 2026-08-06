@@ -43,6 +43,14 @@ interface InternalInlineSourceSetupProps extends InlineSourceSetupProps {
     onFormSuccess: () => void
 }
 
+// A source matches the search when the query hits its label, its kind, or any of its extra
+// keywords (alternate spellings and acronyms — e.g. GoogleAnalytics carries "ga4"). Matching only
+// the label used to hide sources whose display name differs from what people type.
+function sourceMatchesQuery(source: SourceConfig, query: string): boolean {
+    const haystack = [source.label ?? source.name, source.name, ...(source.keywords ?? [])]
+    return haystack.some((term) => term.toLowerCase().includes(query))
+}
+
 function InternalInlineSourceSetup({
     featured = false,
     title,
@@ -56,6 +64,7 @@ function InternalInlineSourceSetup({
     onFormSuccess,
 }: InternalInlineSourceSetupProps): JSX.Element {
     const { connectors } = useValues(sourceWizardLogic)
+    const { onClear } = useActions(sourceWizardLogic)
     const { searchParams, location } = useValues(router)
     const { replace } = useActions(router)
 
@@ -92,7 +101,7 @@ function InternalInlineSourceSetup({
     // While searching, match across every source — the featured/expand split only applies
     // to the default (unsearched) view.
     const sourcesToShow = isSearching
-        ? availableConnectors.filter((c: SourceConfig) => (c.label ?? c.name).toLowerCase().includes(trimmedQuery))
+        ? availableConnectors.filter((c: SourceConfig) => sourceMatchesQuery(c, trimmedQuery))
         : expanded
           ? availableConnectors
           : featuredSources
@@ -144,9 +153,22 @@ function InternalInlineSourceSetup({
                                     </div>
                                 ))}
                             </div>
+                        ) : isSearching ? (
+                            // Only blame the search when there's actually a query. Offer a way out
+                            // (clear the search) rather than dead-ending on "no sources match".
+                            <div className="flex flex-col items-center gap-2 py-4">
+                                <p className="text-sm text-muted-alt text-center">
+                                    No sources match "{searchQuery.trim()}".
+                                </p>
+                                <LemonButton type="secondary" size="small" onClick={() => setSearchQuery('')}>
+                                    Clear search
+                                </LemonButton>
+                            </div>
                         ) : (
+                            // No query and still no sources: the catalog isn't loaded rather than the
+                            // search having failed, so don't tell the user their (empty) search missed.
                             <p className="text-sm text-muted-alt text-center py-4">
-                                No sources match "{searchQuery.trim()}".
+                                Sources couldn't be loaded. Try refreshing the page.
                             </p>
                         )}
 
@@ -172,13 +194,23 @@ function InternalInlineSourceSetup({
                 <LemonCard hoverEffect={false}>
                     <div className="space-y-4">
                         <div className="flex items-center justify-between mb-4">
-                            <LemonButton type="secondary" size="small" onClick={onBack}>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => {
+                                    onClear()
+                                    onBack()
+                                }}
+                            >
                                 ← Back to sources
                             </LemonButton>
                         </div>
                         <NewSourcesWizard
                             hideBackButton
-                            onComplete={onFormSuccess}
+                            onComplete={() => {
+                                onClear()
+                                onFormSuccess()
+                            }}
                             allowedSources={availableConnectors.map((c: SourceConfig) => c.name)}
                             initialSource={selectedSource}
                             autoConfigureTables={autoConfigureTables}
@@ -192,19 +224,17 @@ function InternalInlineSourceSetup({
 
 export function InlineSourceSetup(props: InlineSourceSetupProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
-    const { onClear } = useActions(sourceWizardLogic)
 
     const [currentView, setCurrentView] = useState<InlineSourceSetupView>('selection')
     const [selectedSource, setSelectedSource] = useState<ExternalDataSourceType | null>(null)
 
-    // Defined once here and bound as the logic's `onComplete` below, so the wizard's step-5
-    // completion listener always sees this same callback — never the logic's unbound default —
-    // regardless of which of this component's `BindLogic` mounts happens to be active at that
-    // moment (see `NewSourcesWizard`'s own nested `BindLogic`, which receives this same callback).
+    // Resetting the wizard form (`onClear`) is handled inside the bound child, which reads the
+    // action from within the `BindLogic` below. Mounting `sourceWizardLogic` out here — outside
+    // that `BindLogic` — would build the singleton propless, so its `connectors` selector resolves
+    // to `[]` and the source grid empties, surfacing as a spurious "No sources match".
     const handleFormSuccess = (): void => {
         setCurrentView('selection')
         setSelectedSource(null)
-        onClear()
         props.onComplete?.()
     }
 
@@ -216,7 +246,6 @@ export function InlineSourceSetup(props: InlineSourceSetupProps): JSX.Element {
     const handleBack = (): void => {
         setCurrentView('selection')
         setSelectedSource(null)
-        onClear()
     }
 
     if (availableSourcesLoading) {
