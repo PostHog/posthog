@@ -1,7 +1,7 @@
 """Tests for hogli pr:upload-video.
 
-The shared upload plumbing (key shape, base64 body, 409 retry, validation gates) is
-pinned in ``test_pr_assets``; these guard what is video-specific: the extension
+The shared upload plumbing (key shape, signed git upload, validation gates) is pinned
+in ``test_pr_assets``; these guard what is video-specific: the extension
 allowlist, the link-style markdown on stdout (a plain [label](url), never an image
 embed, since GitHub renders no player for raw-hosted video), the "add video" commit
 message, and the --yes gate.
@@ -11,10 +11,9 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 from click.testing import CliRunner
 from hogli_commands import pr_assets, upload_video
@@ -29,20 +28,6 @@ def mp4(tmp_path: Path) -> Path:
     return path
 
 
-def _resp(status: int, sha: str | None = None) -> SimpleNamespace:
-    return SimpleNamespace(
-        status_code=status,
-        ok=status < 400,
-        json=lambda: {"commit": {"sha": sha}} if sha is not None else {},
-    )
-
-
-def _session(*responses: SimpleNamespace) -> Mock:
-    session = Mock()
-    session.put.side_effect = responses
-    return session
-
-
 @pytest.mark.parametrize("name", ["reel.gif", "still.png", "notes.txt"], ids=["gif", "png", "txt"])
 def test_video_allowlist_rejects_non_video_extensions(tmp_path: Path, name: str) -> None:
     # The video command's allowlist is its contract: mp4/webm only; images belong to
@@ -55,20 +40,20 @@ def test_video_allowlist_rejects_non_video_extensions(tmp_path: Path, name: str)
 
 
 def test_without_yes_uploads_nothing_and_exits_nonzero(mp4: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GH_TOKEN", "tok")
-    session = _session(_resp(201, "x"))
-    with patch.object(upload_video.requests, "Session", return_value=session):
-        result = CliRunner(mix_stderr=False).invoke(upload_video.upload_video, [str(mp4)])
+    upload_many = Mock(return_value="x")
+    monkeypatch.setattr(pr_assets, "upload_many", upload_many)
+
+    result = CliRunner(mix_stderr=False).invoke(upload_video.upload_video, [str(mp4)])
 
     assert result.exit_code == 1
     assert not result.stdout
-    session.put.assert_not_called()
+    upload_many.assert_not_called()
 
 
 def test_stdout_is_link_markdown_not_image_embed(mp4: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GH_TOKEN", "tok")
-    with patch.object(upload_video.requests, "Session", return_value=_session(_resp(201, "deadbeef"))):
-        result = CliRunner(mix_stderr=False).invoke(upload_video.upload_video, ["--yes", str(mp4)])
+    monkeypatch.setattr(pr_assets, "upload_many", Mock(return_value="deadbeef"))
+
+    result = CliRunner(mix_stderr=False).invoke(upload_video.upload_video, ["--yes", str(mp4)])
 
     assert result.exit_code == 0
     lines = result.stdout.strip().splitlines()
@@ -78,13 +63,13 @@ def test_stdout_is_link_markdown_not_image_embed(mp4: Path, monkeypatch: pytest.
 
 
 def test_upload_uses_video_commit_message(mp4: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GH_TOKEN", "tok")
-    session = _session(_resp(201, "deadbeef"))
-    with patch.object(upload_video.requests, "Session", return_value=session):
-        result = CliRunner(mix_stderr=False).invoke(upload_video.upload_video, ["--yes", str(mp4)])
+    upload_many = Mock(return_value="deadbeef")
+    monkeypatch.setattr(pr_assets, "upload_many", upload_many)
+
+    result = CliRunner(mix_stderr=False).invoke(upload_video.upload_video, ["--yes", str(mp4)])
 
     assert result.exit_code == 0
-    assert session.put.call_args.kwargs["json"]["message"] == "add video"
+    assert upload_many.call_args.kwargs["message"] == "add video"
 
 
 def test_label_rejected_for_multiple_files(mp4: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -92,11 +77,11 @@ def test_label_rejected_for_multiple_files(mp4: Path, tmp_path: Path, monkeypatc
     # the public repo from a token-bearing machine.
     other = tmp_path / "second.webm"
     other.write_bytes(b"webm fake")
-    monkeypatch.setenv("GH_TOKEN", "tok")
-    session = _session(_resp(201, "x"))
-    with patch.object(upload_video.requests, "Session", return_value=session):
-        result = CliRunner(mix_stderr=False).invoke(
-            upload_video.upload_video, ["--yes", "--label", "demo", str(mp4), str(other)]
-        )
+    upload_many = Mock(return_value="x")
+    monkeypatch.setattr(pr_assets, "upload_many", upload_many)
+
+    result = CliRunner(mix_stderr=False).invoke(
+        upload_video.upload_video, ["--yes", "--label", "demo", str(mp4), str(other)]
+    )
     assert result.exit_code != 0
-    session.put.assert_not_called()
+    upload_many.assert_not_called()

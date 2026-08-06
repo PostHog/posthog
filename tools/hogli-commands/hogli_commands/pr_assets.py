@@ -1,32 +1,40 @@
 """Shared client for the public PostHog/pr-assets evidence repo.
 
-pr:upload-image and pr:upload-video both publish files here through the GitHub
-contents API; this module owns the storage concerns they share - the repo
+pr:upload-image and pr:upload-video both publish files here through a local
+signed git commit; this module owns the storage concerns they share - the repo
 constant, the public-and-permanent warning, the object-key scheme, path
-validation, and the upload PUT with its concurrent-commit retry. The commands
-keep what differs between them: allowed extensions, the markdown they print,
-and their flags.
+validation, and the signed git upload flow. The commands keep what differs
+between them: allowed extensions, the markdown they print, and their flags.
 """
 
 from __future__ import annotations
 
-import base64
+import shutil
+import tempfile
+import subprocess
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
 from uuid import uuid4
 
 import click
-import requests
-
-from hogli_commands.github_auth import github_headers
 
 REPO: Final = "PostHog/pr-assets"
+REMOTE: Final = f"git@github.com:{REPO}.git"
+DEFAULT_BRANCH: Final = "main"
 PUBLIC_WARNING: Final = (
     "⚠  PUBLIC + PERMANENT upload to PostHog/pr-assets.\n"
     "   SHA-pinned URLs keep serving even after the file is deleted, so an upload cannot be taken back.\n"
     "   Never upload customer data, secrets, tokens, or internal-only information."
 )
+
+
+@dataclass(frozen=True)
+class AssetUpload:
+    path: Path
+    key: str
 
 
 def escape_markdown_label(text: str) -> str:
@@ -63,51 +71,92 @@ def validate(path: Path, allowed_exts: frozenset[str], max_mb: int) -> str:
     return ext
 
 
-def _encode_base64(path: Path) -> str:
-    """Base64-encode the file as a single newline-free line.
+def upload_many(uploads: Sequence[AssetUpload], message: str) -> str:
+    """Upload files in one signed commit and return that commit's sha."""
+    if not uploads:
+        raise click.ClickException("no files to upload")
 
-    The contents API wants raw base64 with no line breaks; ``b64encode`` (unlike
-    ``encodebytes``) never inserts them.
-    """
-    return base64.b64encode(path.read_bytes()).decode("ascii")
+    with tempfile.TemporaryDirectory(prefix="hogli-pr-assets-") as tempdir:
+        repo_dir = Path(tempdir) / "pr-assets"
+        clone = _git(["clone", "--depth", "1", REMOTE, str(repo_dir)])
+        _check_git(clone, f"clone {REPO}")
 
+        for upload in uploads:
+            destination = repo_dir.joinpath(*upload.key.split("/"))
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(upload.path, destination)
 
-def _put(session: requests.Session, url: str, token: str, body: dict[str, str]) -> requests.Response:
-    """PUT to the contents API, turning a network error into a friendly ClickException."""
-    try:
-        return session.put(url, headers=github_headers(token), json=body, timeout=120)
-    except requests.RequestException as exc:
-        raise click.ClickException(f"GitHub request failed: {exc}")
+        keys = [upload.key for upload in uploads]
+        add = _git(["add", "--", *keys], cwd=repo_dir)
+        _check_git(add, "stage pr-assets upload")
 
+        commit = _git(["commit", "-S", "-m", message], cwd=repo_dir)
+        _check_git(commit, "create a signed pr-assets commit")
 
-def upload(path: Path, key: str, token: str, session: requests.Session, message: str) -> str:
-    """PUT the file to the contents API, returning the created commit sha.
+        _push(repo_dir)
 
-    Retries once on HTTP 409 with the same key, since concurrent commits to the repo's
-    default branch can race.
-    """
-    url = f"https://api.github.com/repos/{REPO}/contents/{key}"
-    body = {"message": message, "content": _encode_base64(path)}
-
-    resp = _put(session, url, token, body)
-    if resp.status_code == 409:
-        # a concurrent commit to the default branch raced us; retry once with the same key
-        resp = _put(session, url, token, body)
-
-    if resp.status_code in (403, 404):
-        raise click.ClickException(_denied_message(path))
-    if not resp.ok:
-        raise click.ClickException(f"upload of {path.name} failed (HTTP {resp.status_code})")
-    try:
-        return resp.json()["commit"]["sha"]
-    except (ValueError, KeyError, TypeError) as exc:
-        raise click.ClickException(f"GitHub returned an unexpected response uploading {path.name}: {exc}")
+        rev_parse = _git(["rev-parse", "HEAD"], cwd=repo_dir)
+        _check_git(rev_parse, "read the pr-assets commit sha")
+        return rev_parse.stdout.strip()
 
 
-def _denied_message(path: Path) -> str:
-    """Explain a 403/404: the token can't write to pr-assets (not an org member, or missing scope)."""
+def _push(repo_dir: Path) -> None:
+    """Push the current HEAD, retrying once if another upload raced us."""
+    push = _git(["push", "origin", f"HEAD:{DEFAULT_BRANCH}"], cwd=repo_dir)
+    if push.returncode == 0:
+        return
+
+    if _is_non_fast_forward(push):
+        rebase = _git(["pull", "--rebase", "origin", DEFAULT_BRANCH], cwd=repo_dir)
+        _check_git(rebase, "rebase on the latest pr-assets commit")
+        push = _git(["push", "origin", f"HEAD:{DEFAULT_BRANCH}"], cwd=repo_dir)
+
+    _check_git(push, "push the signed pr-assets commit")
+
+
+def _git(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _check_git(result: subprocess.CompletedProcess[str], action: str) -> None:
+    if result.returncode == 0:
+        return
+
+    output = _git_output(result)
+    hint = _hint_for_git_error(output)
+    message = f"could not {action}"
+    if hint:
+        message = f"{message}. {hint}"
+    if output:
+        message = f"{message}\n\nGit said:\n{output}"
+    raise click.ClickException(message)
+
+
+def _git_output(result: subprocess.CompletedProcess[str]) -> str:
+    return "\n".join(part.strip() for part in (result.stdout, result.stderr) if part and part.strip())
+
+
+def _hint_for_git_error(output: str) -> str:
+    lower = output.lower()
+    if "verified signatures" in lower or "gpg failed to sign" in lower or "signing failed" in lower:
+        return f"{REPO} requires verified signed commits; make sure `git commit -S` works in a normal terminal."
+    if "could not resolve hostname" in lower or "temporary failure in name resolution" in lower:
+        return "could not resolve GitHub; check network/DNS access and retry."
+    if "permission denied (publickey)" in lower or "could not read from remote repository" in lower:
+        return f"make sure your GitHub SSH key can write to {REPO}."
+    return ""
+
+
+def _is_non_fast_forward(result: subprocess.CompletedProcess[str]) -> bool:
+    output = _git_output(result).lower()
     return (
-        f"upload of {path.name} was denied. Writing to {REPO} needs write access to a public PostHog repo: "
-        "confirm your token is a PostHog org account with the `repo` scope "
-        "(gh users: `gh auth refresh -s repo`; or set GH_TOKEN to a PAT with the repo scope)."
+        "non-fast-forward" in output
+        or "fetch first" in output
+        or "remote contains work that you do not have locally" in output
     )

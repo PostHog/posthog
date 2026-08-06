@@ -1,15 +1,12 @@
 """hogli pr:upload-image: upload screenshots to the public PostHog/pr-assets repo.
 
-Wraps the GitHub contents API upload documented in the pr-assets README so engineers
+Creates a signed git upload commit in PostHog/pr-assets so engineers
 and agents can turn a local screenshot into an embeddable, SHA-pinned markdown image
 line for a PR description with one command. Running through hogli means the usage is
 tracked by hogli's built-in command telemetry.
 
-Auth reuses a GitHub token from GH_TOKEN/GITHUB_TOKEN or the gh CLI (`gh auth token`),
-so it works with or without gh installed as long as a token with write access to a
-PostHog org repo is available. The target repo is public by design: GitHub renders PR
-images through its anonymous camo proxy, which requires anonymous read. The command
-warns about this on every run.
+The target repo is public by design: GitHub renders PR images through its anonymous
+camo proxy, which requires anonymous read. The command warns about this on every run.
 """
 
 from __future__ import annotations
@@ -18,10 +15,8 @@ from pathlib import Path
 from typing import Final
 
 import click
-import requests
 
 from hogli_commands import pr_assets
-from hogli_commands.github_auth import github_token
 
 # svg is excluded: raw.githubusercontent.com serves it as text/plain, so GitHub won't inline it
 _ALLOWED_EXTS: Final = frozenset({"png", "jpg", "jpeg", "gif", "webp"})
@@ -68,19 +63,18 @@ def upload_image(files: tuple[Path, ...], alt: str | None, yes: bool) -> None:
         )
         raise SystemExit(1)
 
-    token = github_token()
-    if token is None:
-        raise click.ClickException(
-            "no GitHub token found. Set GH_TOKEN or GITHUB_TOKEN, or install gh "
-            "(https://cli.github.com/) and run `gh auth login`."
-        )
-    session = requests.Session()
+    uploads = [pr_assets.AssetUpload(path=path, key=pr_assets.make_key(ext)) for path, ext in validated]
+    for upload in uploads:
+        click.secho(f"Uploading {upload.path.name} → {pr_assets.REPO}/{upload.key} …", fg="cyan", err=True)
 
-    for path, ext in validated:
-        key = pr_assets.make_key(ext)
-        click.secho(f"Uploading {path.name} → {pr_assets.REPO}/{key} …", fg="cyan", err=True)
-        sha = pr_assets.upload(path, key, token, session, message=_COMMIT_MESSAGE)
+    sha = pr_assets.upload_many(uploads, message=_COMMIT_MESSAGE)
+
+    for upload in uploads:
+        path = upload.path
         caption = alt if alt is not None else path.stem
-        markdown = f"![{pr_assets.escape_markdown_label(caption)}](https://raw.githubusercontent.com/{pr_assets.REPO}/{sha}/{key})"
+        markdown = (
+            f"![{pr_assets.escape_markdown_label(caption)}]"
+            f"(https://raw.githubusercontent.com/{pr_assets.REPO}/{sha}/{upload.key})"
+        )
         click.echo(markdown)  # stdout carries only the markdown, so callers can pipe it
         click.secho(f"✓ uploaded {path.name}", fg="green", err=True)

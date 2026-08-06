@@ -1,19 +1,17 @@
 """Tests for the shared pr-assets client.
 
 Moved here with the plumbing when it was extracted from upload_image: the exact key
-shape, the base64 content body, the single retry on a concurrent-commit 409, the
-denied-PUT guidance, and the validation gates both upload commands share.
+shape, the signed git upload, the single retry on a concurrent push race, the
+signed-commit guidance, and the validation gates both upload commands share.
 """
 
 from __future__ import annotations
 
 import re
-import base64
+import subprocess
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
-from unittest.mock import Mock
 
 from hogli_commands import pr_assets
 
@@ -28,18 +26,10 @@ def png(tmp_path: Path) -> Path:
     return path
 
 
-def _resp(status: int, sha: str | None = None) -> SimpleNamespace:
-    return SimpleNamespace(
-        status_code=status,
-        ok=status < 400,
-        json=lambda: {"commit": {"sha": sha}} if sha is not None else {},
-    )
-
-
-def _session(*responses: SimpleNamespace) -> Mock:
-    session = Mock()
-    session.put.side_effect = responses
-    return session
+def _git_result(
+    args: list[str], returncode: int = 0, stdout: str = "", stderr: str = ""
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess(["git", *args], returncode, stdout=stdout, stderr=stderr)
 
 
 def test_make_key_shape() -> None:
@@ -47,53 +37,115 @@ def test_make_key_shape() -> None:
     assert re.fullmatch(_KEY_RE + r"\.png", pr_assets.make_key("png"))
 
 
-def test_upload_puts_base64_body_and_returns_sha(png: Path) -> None:
-    session = _session(_resp(201, "deadbeef"))
-    sha = pr_assets.upload(png, "2026/07/abc.png", "tok", session, message="add screenshot")
+def test_upload_many_creates_signed_commit_and_returns_sha(
+    png: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[list[str], Path | None]] = []
+    checkout = tmp_path / "checkout"
+
+    class StaticTemporaryDirectory:
+        def __init__(self, prefix: str) -> None:
+            self.prefix = prefix
+
+        def __enter__(self) -> str:
+            checkout.mkdir()
+            return str(checkout)
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+    def fake_git(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+        calls.append((args, cwd))
+        if args[:3] == ["clone", "--depth", "1"]:
+            Path(args[-1]).mkdir()
+        if args == ["rev-parse", "HEAD"]:
+            return _git_result(args, stdout="deadbeef\n")
+        return _git_result(args)
+
+    monkeypatch.setattr(pr_assets.tempfile, "TemporaryDirectory", StaticTemporaryDirectory)
+    monkeypatch.setattr(pr_assets, "_git", fake_git)
+
+    sha = pr_assets.upload_many([pr_assets.AssetUpload(path=png, key="2026/08/diagram.png")], "add screenshot")
 
     assert sha == "deadbeef"
-    url = session.put.call_args.args[0]
-    assert url == "https://api.github.com/repos/PostHog/pr-assets/contents/2026/07/abc.png"
-    body = session.put.call_args.kwargs["json"]
-    assert body["message"] == "add screenshot"
-    assert body["content"] == base64.b64encode(png.read_bytes()).decode()
-    assert "\n" not in body["content"]  # the contents API rejects line-wrapped base64
-    assert session.put.call_args.kwargs["headers"]["Authorization"] == "Bearer tok"
+    assert (checkout / "pr-assets" / "2026" / "08" / "diagram.png").read_bytes() == png.read_bytes()
+    assert (["commit", "-S", "-m", "add screenshot"], checkout / "pr-assets") in calls
+    assert (["push", "origin", "HEAD:main"], checkout / "pr-assets") in calls
 
 
-def test_upload_retries_once_on_409_with_same_key(png: Path) -> None:
-    session = _session(_resp(409), _resp(201, "sha2"))
-    sha = pr_assets.upload(png, "2026/07/abc.png", "tok", session, message="add screenshot")
+def test_upload_many_rebases_once_after_push_race(png: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pushes = 0
+    calls: list[list[str]] = []
 
-    assert sha == "sha2"
-    assert session.put.call_count == 2
-    # both attempts target the identical key; a fresh key on retry would orphan the first
-    urls = {call.args[0] for call in session.put.call_args_list}
-    assert urls == {"https://api.github.com/repos/PostHog/pr-assets/contents/2026/07/abc.png"}
+    class StaticTemporaryDirectory:
+        def __init__(self, prefix: str) -> None:
+            self.prefix = prefix
+
+        def __enter__(self) -> str:
+            return str(tmp_path)
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+    def fake_git(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+        nonlocal pushes
+        calls.append(args)
+        if args[:3] == ["clone", "--depth", "1"]:
+            Path(args[-1]).mkdir()
+        if args == ["push", "origin", "HEAD:main"]:
+            pushes += 1
+            if pushes == 1:
+                return _git_result(args, returncode=1, stderr="! [rejected] HEAD -> main (fetch first)")
+        if args == ["rev-parse", "HEAD"]:
+            return _git_result(args, stdout="cafebabe\n")
+        return _git_result(args)
+
+    monkeypatch.setattr(pr_assets.tempfile, "TemporaryDirectory", StaticTemporaryDirectory)
+    monkeypatch.setattr(pr_assets, "_git", fake_git)
+
+    sha = pr_assets.upload_many([pr_assets.AssetUpload(path=png, key="2026/08/diagram.png")], "add screenshot")
+
+    assert sha == "cafebabe"
+    assert pushes == 2
+    assert ["pull", "--rebase", "origin", "main"] in calls
 
 
-def test_upload_gives_up_after_second_409(png: Path) -> None:
-    session = _session(_resp(409), _resp(409))
-    with pytest.raises(pr_assets.click.ClickException):
-        pr_assets.upload(png, "2026/07/x.png", "tok", session, message="add screenshot")
-    assert session.put.call_count == 2  # one retry, then surface the failure
+def test_upload_many_points_signed_commit_rejections_at_git_signing(
+    png: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class StaticTemporaryDirectory:
+        def __init__(self, prefix: str) -> None:
+            self.prefix = prefix
+
+        def __enter__(self) -> str:
+            return str(tmp_path)
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+    def fake_git(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+        if args[:3] == ["clone", "--depth", "1"]:
+            Path(args[-1]).mkdir()
+        if args == ["push", "origin", "HEAD:main"]:
+            return _git_result(
+                args,
+                returncode=1,
+                stderr="GH013: Repository rule violations found\nCommits must have verified signatures.",
+            )
+        return _git_result(args)
+
+    monkeypatch.setattr(pr_assets.tempfile, "TemporaryDirectory", StaticTemporaryDirectory)
+    monkeypatch.setattr(pr_assets, "_git", fake_git)
+
+    with pytest.raises(pr_assets.click.ClickException, match="requires verified signed commits"):
+        pr_assets.upload_many([pr_assets.AssetUpload(path=png, key="2026/08/diagram.png")], "add screenshot")
 
 
-@pytest.mark.parametrize("status", [403, 404], ids=["forbidden", "not_found"])
-def test_permission_denied_points_at_org_access(png: Path, status: int) -> None:
-    # A denied PUT must explain the write-access fix, not surface a raw error; this is the
-    # "only PostHog org members can write" boundary.
-    session = _session(_resp(status))
-    with pytest.raises(pr_assets.click.ClickException, match="PostHog org"):
-        pr_assets.upload(png, "2026/07/x.png", "tok", session, message="add screenshot")
+def test_git_error_hint_keeps_dns_failures_distinct_from_ssh_auth() -> None:
+    hint = pr_assets._hint_for_git_error("ssh: Could not resolve hostname github.com")
 
-
-def test_upload_wraps_unexpected_response(png: Path) -> None:
-    # A 2xx whose body isn't the contents-API shape must surface as a ClickException, not a
-    # raw KeyError traceback.
-    session = _session(_resp(201))  # json() -> {} with no commit.sha
-    with pytest.raises(pr_assets.click.ClickException, match="unexpected response"):
-        pr_assets.upload(png, "2026/07/x.png", "tok", session, message="add screenshot")
+    assert "network/DNS" in hint
+    assert "SSH key" not in hint
 
 
 def test_validate_rejects_symlink_before_reading_target(tmp_path: Path) -> None:

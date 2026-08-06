@@ -13,10 +13,8 @@ from pathlib import Path
 from typing import Final
 
 import click
-import requests
 
 from hogli_commands import pr_assets
-from hogli_commands.github_auth import github_token
 
 _ALLOWED_EXTS: Final = frozenset({"mp4", "webm"})
 # GitHub's own inline-upload cap for videos on free plans, and roomy for the intended
@@ -64,21 +62,18 @@ def upload_video(files: tuple[Path, ...], label: str | None, yes: bool) -> None:
         )
         raise SystemExit(1)
 
-    token = github_token()
-    if token is None:
-        raise click.ClickException(
-            "no GitHub token found. Set GH_TOKEN or GITHUB_TOKEN, or install gh "
-            "(https://cli.github.com/) and run `gh auth login`."
-        )
-    session = requests.Session()
+    uploads = [pr_assets.AssetUpload(path=path, key=pr_assets.make_key(ext)) for path, ext in validated]
+    for upload in uploads:
+        click.secho(f"Uploading {upload.path.name} → {pr_assets.REPO}/{upload.key} …", fg="cyan", err=True)
 
-    for path, ext in validated:
-        key = pr_assets.make_key(ext)
-        click.secho(f"Uploading {path.name} → {pr_assets.REPO}/{key} …", fg="cyan", err=True)
-        sha = pr_assets.upload(path, key, token, session, message=_COMMIT_MESSAGE)
+    sha = pr_assets.upload_many(uploads, message=_COMMIT_MESSAGE)
+
+    for upload in uploads:
+        path = upload.path
         text = label if label is not None else path.stem
         markdown = (
-            f"[{pr_assets.escape_markdown_label(text)}](https://raw.githubusercontent.com/{pr_assets.REPO}/{sha}/{key})"
+            f"[{pr_assets.escape_markdown_label(text)}]"
+            f"(https://raw.githubusercontent.com/{pr_assets.REPO}/{sha}/{upload.key})"
         )
         click.echo(markdown)  # stdout carries only the markdown, so callers can pipe it
         click.secho(f"✓ uploaded {path.name}", fg="green", err=True)
