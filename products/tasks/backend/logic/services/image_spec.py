@@ -99,6 +99,63 @@ class SandboxImageSpec(BaseModel):
         return yaml.safe_dump(self.model_dump(), sort_keys=False)
 
 
+_ERROR_EXCERPT_LENGTH = 200
+
+_LIST_FIELD_ITEM_NAMES = {
+    "apt_packages": "package name",
+    "run_commands": "command",
+    "repo_setup_commands": "command",
+}
+
+
+def _render_yaml_mapping(item: dict) -> str:
+    """Rebuild the line the user typed, so `{'echo a': 'b'}` reads back as `echo a: b`."""
+    rendered = ", ".join(f"{key}: {value}" if value is not None else f"{key}:" for key, value in item.items())
+    if len(rendered) > _ERROR_EXCERPT_LENGTH:
+        return rendered[:_ERROR_EXCERPT_LENGTH] + "..."
+    return rendered
+
+
+def _validate_yaml_value_types(data: dict) -> None:
+    """Explain YAML's typing surprises before pydantic reports them.
+
+    An unquoted list item containing ': ' parses as a mapping and `PORT: 8080` parses as an int,
+    both of which pydantic rejects with a `string_type` error that names no cause and no fix.
+    """
+    for field, item_name in _LIST_FIELD_ITEM_NAMES.items():
+        value = data.get(field)
+        if not isinstance(value, list):
+            continue
+        for index, item in enumerate(value):
+            if isinstance(item, str):
+                continue
+            where = f"{field} entry {index + 1}"
+            if item is None:
+                raise SandboxImageSpecError(f"{where} is empty; give it a {item_name} or remove the entry")
+            if isinstance(item, dict):
+                raise SandboxImageSpecError(
+                    f"{where} was read as a YAML mapping, not a {item_name}, because the line contains ': ' "
+                    f"and YAML splits that into a key and a value. Wrap the whole {item_name} in single "
+                    f"quotes, or write it as a '|-' block: {_render_yaml_mapping(item)}"
+                )
+            raise SandboxImageSpecError(
+                f"{where} is not a {item_name}: {item!r}. Wrap it in quotes so YAML keeps it as text"
+            )
+
+    env = data.get("env")
+    if isinstance(env, dict):
+        for key, val in env.items():
+            if not isinstance(key, str):
+                raise SandboxImageSpecError(f"Env var key {key!r} is not text; wrap it in quotes")
+            if isinstance(val, str):
+                continue
+            if val is None:
+                raise SandboxImageSpecError(f"Env var {key} has no value; give it a value or remove it")
+            raise SandboxImageSpecError(
+                f"Env var {key} has a non-text value: {val!r}. Wrap it in quotes so YAML keeps it as text"
+            )
+
+
 _REPOSITORY_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9._-]+$")
 
 
@@ -126,6 +183,7 @@ def parse_image_spec_yaml(raw: str) -> SandboxImageSpec:
         raise SandboxImageSpecError(f"Invalid YAML: {e}")
     if not isinstance(data, dict):
         raise SandboxImageSpecError("Image spec must be a YAML mapping")
+    _validate_yaml_value_types(data)
     try:
         return SandboxImageSpec.model_validate(data)
     except ValueError as e:

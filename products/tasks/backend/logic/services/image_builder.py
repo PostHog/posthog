@@ -50,6 +50,7 @@ RULES:
 - Verify before you promise: actually run installs/commands here in the sandbox to confirm they work, then record the working steps in the spec.
 - Build-time commands must be non-interactive and idempotent. No `sudo` needed — builds run as root.
 - Every run_commands / repo_setup_commands entry must be a SINGLE line: each becomes one Dockerfile RUN instruction, so multi-line strings (backslash continuations, heredocs) break the build. Chain steps with `&&`.
+- Quote any entry containing a colon followed by a space, e.g. `- 'curl -H "Accept: application/json" https://example.com'`. Unquoted, YAML reads it as a key and a value instead of a string, and the spec is rejected. Quote env values that would otherwise parse as a number or a boolean too (`PORT: '8080'`).
 - Prefer apt_packages over run_commands when a Debian package exists.
 - Keep the spec minimal: only what the user asked for, no speculative extras.
 - Never put secrets, tokens, or credentials in the spec — it is scanned and rejected if it exfiltrates data or weakens sandbox security.

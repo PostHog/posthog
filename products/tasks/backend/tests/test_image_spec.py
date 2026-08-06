@@ -61,3 +61,29 @@ class TestParseImageSpecYaml:
     def test_rejects_invalid_specs(self, _name, raw):
         with pytest.raises(SandboxImageSpecError):
             parse_image_spec_yaml(raw)
+
+    @parameterized.expand(
+        [
+            (
+                "command_with_unquoted_colon",
+                'run_commands:\n  - ls\n  - curl -H "Accept: application/json" https://example.com\n',
+                "run_commands entry 2 was read as a YAML mapping, not a command, because the line contains ': ' and YAML splits that into a key and a value. Wrap the whole command in single quotes, or write it as a '|-' block: curl -H \"Accept: application/json\" https://example.com",
+            ),
+            (
+                "apt_package_with_unquoted_colon",
+                "apt_packages:\n  - postgresql-client: needed\n",
+                "apt_packages entry 1 was read as a YAML mapping, not a package name",
+            ),
+            (
+                "unquoted_numeric_env_value",
+                "env:\n  PORT: 8080\n",
+                "Env var PORT has a non-text value: 8080. Wrap it in quotes so YAML keeps it as text",
+            ),
+        ]
+    )
+    def test_explains_yaml_type_surprises(self, _name, raw, expected_message):
+        with pytest.raises(SandboxImageSpecError) as excinfo:
+            parse_image_spec_yaml(raw)
+        message = str(excinfo.value)
+        assert expected_message in message
+        assert "pydantic" not in message
