@@ -103,6 +103,10 @@ class ExperimentPrecomputeCanaryInputs:
     # Drop back toward ~10 once the mean table has a few clean weeks of canary history.
     mean_quota: int = 20
     ratio_quota: int = 4
+    # Bake-in level for the retention metric-events precompute path. Most retention metrics are
+    # eligible (breakdowns and data warehouse sources are rare on them), so nominal stays close
+    # to effective. Drop toward ~5 once retention has a few clean weeks of canary history.
+    retention_quota: int = 15
     per_experiment_cap: int = 3
     time_budget_seconds: int = 5400
     triggered_manually: bool = False
