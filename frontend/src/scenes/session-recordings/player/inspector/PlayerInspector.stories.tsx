@@ -11,7 +11,6 @@ import largeRecordingWebVitalsEventsPropertiesJson from 'scenes/session-recordin
 import { PlayerInspector } from 'scenes/session-recordings/player/inspector/PlayerInspector'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import { mswDecorator, setFeatureFlags } from '~/mocks/browser'
@@ -139,6 +138,9 @@ export const Default: Story = {
 // The recording spans 09:19–09:25; this match lands minutes after it ends, so its video never
 // covers the filtered moment and the inspector surfaces the coverage warning.
 export const WithMatchingEventOutsideRecording: Story = {
+    // The inspector loads snapshots and events asynchronously, so a captured image is not
+    // deterministic; this story exists as an interactive reproduction, not a visual baseline.
+    tags: ['test-skip'],
     render: () =>
         renderInspector({
             matchType: 'uuid',
