@@ -1,7 +1,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
-use metrics::{counter, gauge};
+use metrics::counter;
 use personhog_proto::personhog::types::v1::Person;
 
 /// In-memory dedup buffer keyed by (team_id, person_id).
@@ -45,8 +45,6 @@ impl PersonBuffer {
                 e.insert(person);
             }
         }
-
-        gauge!("personhog_writer_buffer_size").set(self.entries.len() as f64);
     }
 
     pub fn len(&self) -> usize {
@@ -70,7 +68,6 @@ impl PersonBuffer {
     pub fn drain(&mut self) -> (Vec<Person>, HashMap<i32, i64>) {
         let persons: Vec<Person> = self.entries.drain().map(|(_, p)| p).collect();
         let offsets = std::mem::take(&mut self.offsets);
-        gauge!("personhog_writer_buffer_size").set(0.0);
         (persons, offsets)
     }
 }
