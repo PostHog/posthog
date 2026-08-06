@@ -1,6 +1,6 @@
 {
     "template_name": "User interactions",
-    "dashboard_description": "See what people click in your product, and where their clicks go nowhere. Everything here comes from autocapture, so it needs no extra tracking code.",
+    "dashboard_description": "See what people click in your product, and which clicks do nothing. Everything here comes from autocapture, so it needs no extra tracking code.",
     "dashboard_filters": {},
     "tags": [],
     "image_url": null,
@@ -108,7 +108,7 @@
                     "minW": 3
                 }
             },
-            "description": "A dead click is a click that changed nothing on the page. When the two lines get close, something looks clickable but is not."
+            "description": "A dead click is a click that changed nothing on the page. When the two lines get close, people are probably clicking something that does not respond."
         },
         {
             "name": "Most clicked elements",
