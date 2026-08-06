@@ -244,10 +244,7 @@ export function InsightMeta({
 
     // For dashboard-specific actions (remove from dashboard, change tile color), check dashboard permissions
     const currentDashboard = dashboardId ? nameSortedDashboards.find((d) => d.id === dashboardId) : null
-    const canEditDashboard =
-        dashboardId === null ||
-        dashboardId === undefined ||
-        (!!currentDashboard && canEditDashboardAccess(currentDashboard))
+    const canEditDashboard = !dashboardId || (!!currentDashboard && canEditDashboardAccess(currentDashboard))
 
     // Feedback buttons for Customer Analytics
     const feedbackButtons =
