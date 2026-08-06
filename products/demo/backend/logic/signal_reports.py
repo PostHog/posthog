@@ -4,6 +4,8 @@ from dataclasses import dataclass
 
 from django.utils import timezone
 
+from posthog.hogql.escape_sql import escape_clickhouse_identifier
+
 from posthog.clickhouse.client import sync_execute
 
 from products.signals.backend.artefact_schemas import (
@@ -157,7 +159,7 @@ def _seed_bound_signal(*, team_id: int, issue_id: str, report_id: str, content: 
     }
     sync_execute(
         f"""
-        INSERT INTO {_MODEL_TABLE} (
+        INSERT INTO {escape_clickhouse_identifier(_MODEL_TABLE)} (
             team_id, product, document_type, rendering, document_id,
             timestamp, inserted_at, content, metadata, embedding,
             _timestamp, _offset, _partition
