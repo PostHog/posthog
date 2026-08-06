@@ -303,6 +303,8 @@ pub async fn serve(
         config.object_storage_region.clone(),
         config.object_storage_bucket.clone(),
     );
+    // Etag-paired on the Django writer side, which makes HyperCacheReader refuse read repair.
+    flags_hypercache_config.enable_etag = true;
 
     if !config.object_storage_endpoint.is_empty() {
         flags_hypercache_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
@@ -322,10 +324,15 @@ pub async fn serve(
         };
 
     // Read repair for the two hypercaches that are read straight through to Redis on every
-    // request. The flags hypercache is deliberately left out: it is etag-enabled, and
-    // FlagDefinitionsCache already absorbs repeat reads of a cold key in process.
-    let read_repair_ttl_seconds = (config.hypercache_read_repair_ttl_seconds != 0)
-        .then_some(config.hypercache_read_repair_ttl_seconds);
+    // request. Both feature_flags readers are left out: each carries a companion `:etag` key
+    // that a payload-only repair would leave stale, and FlagDefinitionsCache already absorbs
+    // repeat reads of a cold flags.json in process.
+    let read_repair_ttl_seconds =
+        if config.hypercache_read_repair_ttl_seconds == 0 || *config.skip_writes {
+            None
+        } else {
+            Some(config.hypercache_read_repair_ttl_seconds)
+        };
 
     // Create HyperCacheReader for team metadata at startup
     // Uses token-based lookup instead of team_id
@@ -369,6 +376,8 @@ pub async fn serve(
         config.object_storage_region.clone(),
         config.object_storage_bucket.clone(),
     );
+    // Etag-paired, same as flags.json above.
+    flags_with_cohorts_config.enable_etag = true;
 
     if !config.object_storage_endpoint.is_empty() {
         flags_with_cohorts_config.s3_endpoint = Some(config.object_storage_endpoint.clone());

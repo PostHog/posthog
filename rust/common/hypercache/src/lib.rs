@@ -354,8 +354,8 @@ impl HyperCacheReader {
         // Read repair writes only the payload, but an etag-enabled namespace needs the
         // payload and its companion etag written atomically (see
         // `HyperCacheWriter::set_with_etag`). Repairing only the payload would leave the
-        // pair inconsistent, so those namespaces are left to the writer — and the refusal
-        // is announced at construction rather than silently skipping every repair.
+        // pair inconsistent, so those namespaces are left to the writer. The refusal is
+        // announced at construction rather than silently skipping every repair.
         if config.enable_etag && config.read_repair_ttl_seconds.is_some() {
             warn!(
                 namespace = %config.namespace,
@@ -934,7 +934,7 @@ impl HyperCacheReader {
 
     /// Best-effort write-back of an S3 hit into Redis, after Django's read path
     /// (`HyperCache.get_from_cache_with_source`, which repairs on S3 hit). Unlike Django,
-    /// the caller only invokes this for a confirmed Redis miss — not for an error or
+    /// the caller only invokes this for a confirmed Redis miss, not for an error or
     /// timeout fall-through, where the Redis tier is degraded.
     ///
     /// Without this a key that is absent from Redis but present in S3 stays cold, so every
@@ -951,7 +951,7 @@ impl HyperCacheReader {
         let object_name = self.config.object_name.clone();
 
         tokio::spawn(async move {
-            // NX: a repair must never overwrite an entry that already exists — the writer
+            // NX: a repair must never overwrite an entry that already exists. The writer
             // (or a concurrent repair) may have landed a fresher value after our S3 read.
             let result = redis_client
                 .set_nx_ex_with_format(
@@ -1075,6 +1075,8 @@ mod tests {
 
         let mut mock_redis = MockRedisClient::new();
         mock_redis = mock_redis.get_raw_bytes_ret(&cache_key, Err(redis_err));
+        // Let a repair land, so the write-back path reaches its success outcome.
+        mock_redis = mock_redis.set_nx_ex_ret(&cache_key, Ok(true));
         let redis = Arc::new(mock_redis);
 
         let mut mock_s3 = MockS3Client::new();
@@ -1409,14 +1411,14 @@ mod tests {
         assert_eq!(data, test_data);
     }
 
-    /// Drive one fixture read to its S3 hit and return every call the reader made to
-    /// Redis, alongside the cache key the read used. Callers run under paused tokio time:
-    /// the sleep parks this task, the runtime drives the detached repair task to idle, and
-    /// only then advances the clock — so any spawned repair has landed before inspection.
+    /// Drive one fixture read to its S3 hit and return every call the reader made to Redis.
+    /// Callers run under paused tokio time: the sleep parks this task, the runtime drives the
+    /// detached repair task to idle, and only then advances the clock, so any spawned repair
+    /// has landed before inspection.
     #[cfg(feature = "mock-client")]
     async fn redis_calls_after_s3_hit(
-        fixture: RedisMissS3HitFixture,
-    ) -> (Vec<common_redis::MockRedisCall>, String) {
+        fixture: &RedisMissS3HitFixture,
+    ) -> Vec<common_redis::MockRedisCall> {
         let (_, source) = fixture
             .reader
             .get_with_source(&fixture.team_key)
@@ -1425,7 +1427,7 @@ mod tests {
         assert_eq!(source, CacheSource::S3);
 
         tokio::time::sleep(Duration::from_millis(1)).await;
-        (fixture.redis.get_calls(), fixture.cache_key)
+        fixture.redis.get_calls()
     }
 
     #[tokio::test(start_paused = true)]
@@ -1435,14 +1437,14 @@ mod tests {
         let mut config = create_test_config();
         config.read_repair_ttl_seconds = Some(600);
 
-        let (calls, cache_key) =
-            redis_calls_after_s3_hit(redis_miss_s3_hit_fixture(config, payload)).await;
+        let fixture = redis_miss_s3_hit_fixture(config, payload);
+        let calls = redis_calls_after_s3_hit(&fixture).await;
 
         let repair = calls
             .iter()
             .find(|c| c.op == "set_nx_ex_with_format")
             .expect("expected the S3 hit to be written back to Redis");
-        assert_eq!(repair.key, cache_key);
+        assert_eq!(repair.key, fixture.cache_key);
         match &repair.value {
             common_redis::MockRedisValue::StringWithTTLAndFormat(value, ttl, format) => {
                 // Written back verbatim, in the pickle format Django reads.
@@ -1459,7 +1461,7 @@ mod tests {
     async fn test_s3_hit_does_not_repair_redis_by_default() {
         // The reader is read-only unless a caller opts in.
         let fixture = redis_miss_s3_hit_fixture(create_test_config(), r#"{"key":"value"}"#);
-        let (calls, _) = redis_calls_after_s3_hit(fixture).await;
+        let calls = redis_calls_after_s3_hit(&fixture).await;
         assert!(calls.iter().all(|c| c.op != "set_nx_ex_with_format"));
     }
 
@@ -1472,7 +1474,7 @@ mod tests {
         config.enable_etag = true;
 
         let fixture = redis_miss_s3_hit_fixture(config, r#"{"key":"value"}"#);
-        let (calls, _) = redis_calls_after_s3_hit(fixture).await;
+        let calls = redis_calls_after_s3_hit(&fixture).await;
         assert!(calls.iter().all(|c| c.op != "set_nx_ex_with_format"));
     }
 
@@ -1486,7 +1488,7 @@ mod tests {
 
         let fixture =
             redis_failure_s3_hit_fixture(config, r#"{"key":"value"}"#, CustomRedisError::Timeout);
-        let (calls, _) = redis_calls_after_s3_hit(fixture).await;
+        let calls = redis_calls_after_s3_hit(&fixture).await;
         assert!(calls.iter().all(|c| c.op != "set_nx_ex_with_format"));
     }
 
