@@ -16,6 +16,7 @@ import type { PullRequestCheckApi } from 'products/signals/frontend/generated/ap
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
 import { DetailSection } from './DetailSection'
+import { GithubLoadErrorNotice } from './GithubLoadErrorNotice'
 
 type CheckVariant = 'failure' | 'cancelled' | 'pending' | 'stale' | 'success' | 'neutral'
 
@@ -108,7 +109,7 @@ function CheckSummary({ variant, count }: { variant: CheckVariant; count: number
  * detail is open. Read-only — each row links out to the check on GitHub.
  */
 export function PrChecksSection({ report }: { report: SignalReport }): JSX.Element | null {
-    const { prChecks, prChecksLoading, prChecksError } = useValues(
+    const { prChecks, prChecksLoading, prChecksError, implementationPrUrl } = useValues(
         inboxReportDetailLogic({ reportId: report.id, report })
     )
 
@@ -157,9 +158,7 @@ export function PrChecksSection({ report }: { report: SignalReport }): JSX.Eleme
             }
         >
             {prChecksError ? (
-                <div className="rounded border border-danger bg-danger-highlight px-3 py-2.5 text-sm text-danger">
-                    {prChecksError}
-                </div>
+                <GithubLoadErrorNotice error={prChecksError} prUrl={implementationPrUrl} />
             ) : prChecks === null ? (
                 <div className="overflow-hidden rounded border border-primary bg-surface-primary">
                     <LemonSkeleton className="h-10 w-full rounded-none" />

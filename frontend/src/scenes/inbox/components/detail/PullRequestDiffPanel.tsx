@@ -8,6 +8,7 @@ import { LemonSegmentedButton, LemonSkeleton, LemonTag, Tooltip } from '@posthog
 import { DraftThread, inboxReportDetailLogic, ReviewThread, threadKey } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
 import { CommitContent } from './artefactTypes'
+import { GithubLoadErrorNotice } from './GithubLoadErrorNotice'
 import { InlineDraftThread, InlineReviewThread } from './InlineReviewThread'
 import { DiffAnnotationData, PullRequestDiffView, summarizeDiff } from './PullRequestDiffView'
 
@@ -105,8 +106,15 @@ export function PullRequestBranchTag({ commit }: { commit: CommitContent }): JSX
  */
 export function PullRequestDiffPanel({ report, commit }: { report: SignalReport; commit: CommitContent }): JSX.Element {
     const logicProps = useMemo(() => ({ reportId: report.id, report }), [report])
-    const { reportDiff, reportDiffError, inlineThreadsByFile, inlineThreadCount, draftThread, hasImplementationPr } =
-        useValues(inboxReportDetailLogic(logicProps))
+    const {
+        reportDiff,
+        reportDiffError,
+        inlineThreadsByFile,
+        inlineThreadCount,
+        draftThread,
+        hasImplementationPr,
+        implementationPrUrl,
+    } = useValues(inboxReportDetailLogic(logicProps))
     const { openDraftThread } = useActions(inboxReportDetailLogic(logicProps))
     const [diffStyle, setDiffStyle] = useState<'unified' | 'split'>('unified')
     const diffSummary = useMemo(
@@ -171,7 +179,7 @@ export function PullRequestDiffPanel({ report, commit }: { report: SignalReport;
                 />
             </div>
             {reportDiffError ? (
-                <p className="m-0 py-4 text-sm text-danger">{reportDiffError}</p>
+                <GithubLoadErrorNotice error={reportDiffError} prUrl={implementationPrUrl} />
             ) : reportDiff ? (
                 <>
                     <PullRequestDiffView

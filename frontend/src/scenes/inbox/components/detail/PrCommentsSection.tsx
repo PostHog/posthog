@@ -11,6 +11,7 @@ import type { PullRequestCommentApi } from 'products/signals/frontend/generated/
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
 import { DetailSection } from './DetailSection'
+import { GithubLoadErrorNotice } from './GithubLoadErrorNotice'
 
 /** A single PR comment row: avatar, author, relative time, optional file path, then the markdown body. */
 function CommentRow({ comment }: { comment: PullRequestCommentApi }): JSX.Element {
@@ -61,7 +62,7 @@ function CommentRow({ comment }: { comment: PullRequestCommentApi }): JSX.Elemen
  * links out to GitHub. Collapsed by default so it doesn't crowd the overview.
  */
 export function PrCommentsSection({ report }: { report: SignalReport }): JSX.Element | null {
-    const { prComments, prCommentsLoading, prCommentsError } = useValues(
+    const { prComments, prCommentsLoading, prCommentsError, implementationPrUrl } = useValues(
         inboxReportDetailLogic({ reportId: report.id, report })
     )
 
@@ -89,7 +90,7 @@ export function PrCommentsSection({ report }: { report: SignalReport }): JSX.Ele
             }
         >
             {prCommentsError ? (
-                <p className="m-0 py-2 text-sm text-danger">{prCommentsError}</p>
+                <GithubLoadErrorNotice error={prCommentsError} prUrl={implementationPrUrl} />
             ) : prComments === null ? (
                 <div className="flex flex-col gap-3">
                     <LemonSkeleton className="h-10 w-full" />

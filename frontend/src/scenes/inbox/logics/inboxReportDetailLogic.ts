@@ -145,6 +145,21 @@ export function threadKey(anchor: { path: string; line: number; side: string }):
     return `${anchor.path}:${anchor.side}:${anchor.line}`
 }
 
+/**
+ * A failed GitHub-backed fetch, rendered inline by the section that owns it. These loaders sit in
+ * `ERROR_FILTER_ALLOW_LIST`, so nothing toasts on top. `gone` separates the expected end of a report's
+ * life (branch merged and deleted, PR removed) from a fetch that genuinely broke.
+ */
+export interface GithubLoadError {
+    message: string
+    gone: boolean
+}
+
+/** Build the inline error state for a GitHub-backed loader failure. */
+function githubLoadError(errorObject: any, goneMessage: string, failureMessage: string): GithubLoadError {
+    return errorObject?.status === 404 ? { message: goneMessage, gone: true } : { message: failureMessage, gone: false }
+}
+
 /** Pull the most specific message out of a review-comment API error, falling back to `fallback`. */
 function reviewCommentError(error: any, fallback: string): string {
     return error?.data?.error || error?.detail || error?.message || fallback
@@ -203,6 +218,7 @@ export interface inboxReportDetailLogicValues {
     feedbackSentiment: InboxReportFeedbackSentiment | null
     hasImplementationPr: boolean
     hasPersonalGithub: boolean
+    implementationPrUrl: string | null
     inlineThreadCount: number
     inlineThreadsByFile: Record<string, ReviewThread[]>
     isReResearch: boolean
@@ -212,10 +228,10 @@ export interface inboxReportDetailLogicValues {
     optimisticReviewers: EnrichedReviewer[] | null
     postingThreadKey: string | null
     prChecks: readonly PullRequestCheckApi[] | null
-    prChecksError: string | null
+    prChecksError: GithubLoadError | null
     prChecksLoading: boolean
     prComments: readonly PullRequestCommentApi[] | null
-    prCommentsError: string | null
+    prCommentsError: GithubLoadError | null
     prCommentsLoading: boolean
     primaryTask: ReportTaskEntry | null
     priorityExplanation: string | null
@@ -224,7 +240,7 @@ export interface inboxReportDetailLogicValues {
     reportArtefactsLoading: boolean
     reportCharts: ReportChartApi[]
     reportDiff: CommitDiffResponseApi | null
-    reportDiffError: string | null
+    reportDiffError: GithubLoadError | null
     reportDiffLoading: boolean
     reportReviewers: EnrichedReviewer[] | null
     reportSignals: SignalNode[] | null
@@ -773,15 +789,19 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 setFeedbackNoteSubmitting: (_, { submitting }) => submitting,
             },
         ],
-        // Human-readable diff-load failure (kea-loaders only exposes a boolean loading flag). A failed
-        // compare usually means the branch was merged, deleted, or force-rewritten away.
+        // Human-readable diff-load failure (kea-loaders only exposes a boolean loading flag). A 404 from
+        // the compare API means the branch was merged, deleted, or force-rewritten away.
         reportDiffError: [
-            null as string | null,
+            null as GithubLoadError | null,
             {
                 loadReportDiff: () => null,
                 loadReportDiffSuccess: () => null,
-                loadReportDiffFailure: () =>
-                    "Couldn't load the diff. The branch may have been merged, deleted, or rewritten.",
+                loadReportDiffFailure: (_, { errorObject }) =>
+                    githubLoadError(
+                        errorObject,
+                        'This branch is no longer on GitHub. It was probably merged and deleted.',
+                        "Couldn't load the diff from GitHub. Try again in a moment."
+                    ),
             },
         ],
         // The commit artefact the current `reportDiff` was loaded for, so the artefact poll re-fetches
@@ -793,21 +813,31 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             },
         ],
         // Human-readable PR checks/comments load failures (kea-loaders only exposes a boolean flag).
-        // A failure usually means the branch/PR was deleted or the GitHub integration lost access.
+        // A 404 means the PR is gone from GitHub or the integration lost access to its repository.
         prChecksError: [
-            null as string | null,
+            null as GithubLoadError | null,
             {
                 loadPrChecks: () => null,
                 loadPrChecksSuccess: () => null,
-                loadPrChecksFailure: () => "Couldn't load the PR checks from GitHub.",
+                loadPrChecksFailure: (_, { errorObject }) =>
+                    githubLoadError(
+                        errorObject,
+                        "This pull request's checks are no longer available on GitHub.",
+                        "Couldn't load the CI checks from GitHub. Try again in a moment."
+                    ),
             },
         ],
         prCommentsError: [
-            null as string | null,
+            null as GithubLoadError | null,
             {
                 loadPrComments: () => null,
                 loadPrCommentsSuccess: () => null,
-                loadPrCommentsFailure: () => "Couldn't load the PR comments from GitHub.",
+                loadPrCommentsFailure: (_, { errorObject }) =>
+                    githubLoadError(
+                        errorObject,
+                        "This pull request's comments are no longer available on GitHub.",
+                        "Couldn't load the comments from GitHub. Try again in a moment."
+                    ),
             },
         ],
         // The one in-progress draft thread on a diff line. Reset when the report changes.
@@ -865,6 +895,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         hasImplementationPr: [
             (s) => [s.report],
             (report: SignalReport | null): boolean => !!report?.implementation_pr_url,
+        ],
+        // The report's PR on GitHub, so a section that couldn't load its GitHub data can still hand the
+        // reader somewhere to go.
+        implementationPrUrl: [
+            (s) => [s.report],
+            (report: SignalReport | null): string | null => report?.implementation_pr_url ?? null,
         ],
         // Whether the current user has a personal GitHub connection — required to post review comments
         // (they're attributed to the user's own GitHub identity, not the app's).

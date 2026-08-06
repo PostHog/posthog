@@ -266,3 +266,31 @@ export const PullRequestInlineReview: Story = {
         </Frame>
     ),
 }
+
+// The normal end of a shipped report: the PR merged and GitHub deleted the branch, so every
+// GitHub-backed section 404s. Each one explains itself and points at the PR.
+const branchGoneMocks = mswDecorator({
+    get: {
+        '/api/projects/:id/signals/reports/:reportId/artefacts/:artefactId/diff/': () => [
+            404,
+            { error: "Branch 'fix/checkout' or repository 'PostHog/posthog' was not found on GitHub." },
+        ],
+        '/api/projects/:id/signals/reports/:reportId/pr_checks/': () => [
+            404,
+            { error: 'This report has no implementation pull request.' },
+        ],
+        '/api/projects/:id/signals/reports/:reportId/pr_comments/': () => [
+            404,
+            { error: 'This report has no implementation pull request.' },
+        ],
+    },
+})
+
+export const PullRequestBranchGone: Story = {
+    decorators: [branchGoneMocks],
+    render: () => (
+        <Frame>
+            <PullRequestDetail report={pullRequestReports[0]} />
+        </Frame>
+    ),
+}

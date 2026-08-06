@@ -47,6 +47,9 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadDatasetItemDetails', // Dataset item modals render their own retry state
     'loadDatasetItemVersions', // Dataset item modals render their own retry state
     'exportDataset', // Dataset scenes render their own retry state
+    'loadReportDiff', // Inbox report detail renders `reportDiffError` in the "Files changed" panel
+    'loadPrChecks', // Inbox report detail renders `prChecksError` in the "CI checks" section
+    'loadPrComments', // Inbox report detail renders `prCommentsError` in the "Comments" section
 ]
 
 /*
