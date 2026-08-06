@@ -127,7 +127,6 @@ export function getTicketSummaryData(
 
     // If /ticket is NOT the first human message, and there's an AI response after it
     if (ticketCommandIndex > 0 && ticketCommandIndex < threadGrouped.length - 1) {
-        const ticketCommandMessage = threadGrouped[ticketCommandIndex]
         const responseMessage = threadGrouped[ticketCommandIndex + 1]
         if (
             responseMessage?.type === 'ai' &&
@@ -154,17 +153,10 @@ export function getTicketSummaryData(
                 }
             }
 
-            // Extract any user-provided text from the /ticket command
-            const userText =
-                'content' in ticketCommandMessage
-                    ? extractTicketText(ticketCommandMessage.content as string)
-                    : undefined
-
-            // Combine user text with AI summary if both exist
-            const summary = userText ? `User notes: ${userText}\n\n${responseMessage.content}` : responseMessage.content
-
+            // The summarizer quotes the customer's own words, including any text they put after
+            // /ticket, so repeating that text above the summary only duplicates it
             return {
-                summary,
+                summary: responseMessage.content,
                 messageIndex: ticketCommandIndex + 1,
                 targetArea: parseTicketTargetArea(responseMessage.content),
             }
