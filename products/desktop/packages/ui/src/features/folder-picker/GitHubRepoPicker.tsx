@@ -93,6 +93,7 @@ export function GitHubRepoPicker({
   const [paginationPending, setPaginationPending] = useState(false);
   const paginationStartCountRef = useRef(0);
   const paginationWasLoadingRef = useRef(false);
+  const paginationRepositoriesRef = useRef<string[]>([]);
   const open = controlledOpen ?? uncontrolledOpen;
   const searchQuery = controlledSearchQuery ?? uncontrolledSearchQuery;
   const remoteMode =
@@ -101,6 +102,14 @@ export function GitHubRepoPicker({
     controlledHasMore !== undefined ||
     onLoadMore !== undefined;
   const effectiveIsLoadingMore = isLoadingMore || paginationPending;
+  if (paginationPending && repositories.length > 0) {
+    paginationRepositoriesRef.current = Array.from(
+      new Set([...paginationRepositoriesRef.current, ...repositories]),
+    );
+  }
+  const displayedRepositories = paginationPending
+    ? paginationRepositoriesRef.current
+    : repositories;
   const showInlineLoadingState =
     remoteMode && open && isLoading && !effectiveIsLoadingMore;
   const onlyRepo =
@@ -159,6 +168,7 @@ export function GitHubRepoPicker({
     if (remoteMode) {
       paginationStartCountRef.current = repositories.length;
       paginationWasLoadingRef.current = false;
+      paginationRepositoriesRef.current = repositories;
       setPaginationPending(true);
       onLoadMore?.();
       return;
@@ -224,7 +234,7 @@ export function GitHubRepoPicker({
 
   return (
     <Combobox
-      items={repositories}
+      items={displayedRepositories}
       filter={remoteMode ? null : undefined}
       limit={remoteMode ? undefined : visibleLimit}
       value={value}
