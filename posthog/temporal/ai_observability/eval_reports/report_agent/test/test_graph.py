@@ -379,6 +379,7 @@ class TestRunEvalReportAgentRouting(SimpleTestCase):
             team_id=1,
             report_id="report-1",
             trace_id="report-run-1",
+            session_id="report-session-1",
             evaluation_id="eval-1",
             evaluation_name="Relevance",
             evaluation_description="",
@@ -394,8 +395,9 @@ class TestRunEvalReportAgentRouting(SimpleTestCase):
             EVAL_REPORT_AGENT_TIMEOUT,
             ai_product="aio_eval_reports",
             trace_id="report-run-1",
-            session_id="report-1",
-            properties={"evaluation_id": "eval-1", "report_id": "report-1"},
+            session_id="report-session-1",
+            properties={"team_id": "1", "evaluation_id": "eval-1", "report_id": "report-1"},
+            distinct_id="1",
         )
         # the agent is built with the gateway-helper client, not a directly-constructed one
         self.assertIs(mock_create_agent.call_args.kwargs["model"], mock_build_llm.return_value)
@@ -443,7 +445,7 @@ class TestRunEvalReportAgentInstrumentation(SimpleTestCase):
     @patch.object(graph, "create_react_agent")
     @patch.object(graph, "build_langchain_chat_client")
     @patch.object(graph, "_compute_metrics")
-    def test_uses_one_trace_for_the_agent_loop_and_report_as_session(
+    def test_uses_one_trace_and_session_for_the_report_run(
         self, mock_metrics, mock_build_llm, mock_create_agent, mock_build_callbacks
     ):
         mock_metrics.return_value = EvalReportMetrics()
@@ -462,6 +464,7 @@ class TestRunEvalReportAgentInstrumentation(SimpleTestCase):
             team_id=1,
             report_id="report-1",
             trace_id="report-run-1",
+            session_id="report-session-1",
             evaluation_id="eval-1",
             evaluation_name="Relevance",
             evaluation_description="",
@@ -472,11 +475,11 @@ class TestRunEvalReportAgentInstrumentation(SimpleTestCase):
             previous_period_start="2026-04-08T13:00:00+00:00",
         )
 
-        expected_properties = {"evaluation_id": "eval-1", "report_id": "report-1"}
+        expected_properties = {"team_id": "1", "evaluation_id": "eval-1", "report_id": "report-1"}
         mock_build_callbacks.assert_called_once_with(
             distinct_id="1",
             trace_id="report-run-1",
-            session_id="report-1",
+            session_id="report-session-1",
             ai_product="aio_eval_reports",
             properties=expected_properties,
         )

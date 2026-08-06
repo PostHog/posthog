@@ -274,6 +274,7 @@ class GenerateLabelsActivityInputs:
     trace_id: str = ""
     session_id: str = ""
     clustering_run_id: str = ""
+    clustering_job_id: str = ""
 
     @property
     def properties_to_log(self) -> dict[str, Any]:

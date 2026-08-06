@@ -503,8 +503,10 @@ async def _generate_evaluation_summary(
         "max_candidates": EVALUATION_SUMMARY_CHUNK_SIZE,
     }
     trace_id = str(uuid4())
-    session_id = evaluation_id or f"{team_id}:evaluation-summary"
+    session_id = str(uuid4())
+    resolved_distinct_id = user_distinct_id or str(team_id)
     observability_properties = {
+        "team_id": str(team_id),
         "filter_type": filter_type,
         **({"evaluation_id": evaluation_id} if evaluation_id else {}),
     }
@@ -514,6 +516,7 @@ async def _generate_evaluation_summary(
         trace_id=trace_id,
         session_id=session_id,
         properties=observability_properties,
+        distinct_id=resolved_distinct_id,
     )
     if len(evaluation_runs) <= EVALUATION_SUMMARY_CHUNK_SIZE:
         single_system_prompt = load_summarization_template("prompts/evaluation_summary.djt", prompt_context)
@@ -525,7 +528,7 @@ async def _generate_evaluation_summary(
                 system_prompt=single_system_prompt,
                 user_prompt=single_user_prompt,
                 team_id=team_id,
-                user_distinct_id=user_distinct_id,
+                user_distinct_id=resolved_distinct_id,
                 response_model=EvaluationSummaryResponse,
                 schema_name="evaluation_summary",
             )
@@ -547,7 +550,7 @@ async def _generate_evaluation_summary(
                 system_prompt=map_system_prompt,
                 evaluation_runs=chunk,
                 team_id=team_id,
-                user_distinct_id=user_distinct_id,
+                user_distinct_id=resolved_distinct_id,
             )
 
     batch_candidates = list(await asyncio.gather(*(summarize_chunk(chunk) for chunk in chunks)))
@@ -558,7 +561,7 @@ async def _generate_evaluation_summary(
         statistics=statistics,
         prompt_context=prompt_context,
         team_id=team_id,
-        user_distinct_id=user_distinct_id,
+        user_distinct_id=resolved_distinct_id,
         llm_call_semaphore=llm_call_semaphore,
     )
     summary.statistics = statistics
@@ -586,7 +589,7 @@ async def summarize_evaluation_runs(
         evaluation_runs: List of dicts with 'generation_id' (str), 'result' (bool or None), and 'reasoning' (str)
         team_id: Team ID for logging and tracking
         model: OpenAI model to use
-        evaluation_id: Stable session identifier for summaries of this evaluation
+        evaluation_id: Evaluation identifier attached as observability metadata
         filter_type: The filter applied ('all', 'pass', 'fail', 'na')
         evaluation_name: Name of the evaluation being summarized
         evaluation_description: Description of what the evaluation tests for

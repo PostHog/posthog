@@ -566,6 +566,7 @@ async def prepare_report_context_activity(
             previous_period_start=previous_period_start.isoformat(),
             report_prompt_guidance=guidance,
             trace_id=str(uuid4()),
+            session_id=str(uuid4()),
         )
 
     return await prepare()
@@ -594,6 +595,7 @@ async def run_eval_report_agent_activity(
                     team_id=inputs.team_id,
                     report_id=inputs.report_id,
                     trace_id=inputs.trace_id,
+                    session_id=inputs.session_id,
                     evaluation_id=inputs.evaluation_id,
                     evaluation_name=inputs.evaluation_name,
                     evaluation_description=inputs.evaluation_description,

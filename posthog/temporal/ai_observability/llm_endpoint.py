@@ -28,13 +28,15 @@ def build_langchain_chat_client(
     trace_id: str | None = None,
     session_id: str | None = None,
     properties: Mapping[str, str] | None = None,
+    distinct_id: str | None = None,
 ) -> ChatOpenAI:
     """Return a ChatOpenAI client for the labeling/report agents. Cloud/DEBUG only.
 
     Routes through the internal Go ai-gateway when configured; on a misconfiguration the shared
     resolver logs and returns None, so this falls back to direct OpenAI rather than failing the
-    call. In gateway mode the ``phs_`` bearer is team-scoped, so no per-team header is needed;
-    the observability arguments correlate every model call in one agent invocation.
+    call. In gateway mode the bearer selects the capture project, while ``distinct_id`` attributes
+    the generation to the customer user or team. The other observability arguments correlate every
+    model call in one agent invocation.
     """
     if not settings.DEBUG and not is_cloud():
         raise Exception("AI features are only available in PostHog Cloud")
@@ -48,7 +50,7 @@ def build_langchain_chat_client(
             base_url=url,
             timeout=timeout,
             max_retries=2,
-            default_headers=ai_gateway_headers(ai_product, trace_id, session_id, properties),
+            default_headers=ai_gateway_headers(ai_product, trace_id, session_id, properties, distinct_id),
             # trust_env=False keeps the in-cluster gateway call off the egress proxy.
             http_client=httpx.Client(trust_env=False),
             http_async_client=httpx.AsyncClient(trust_env=False),

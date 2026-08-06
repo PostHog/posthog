@@ -234,8 +234,9 @@ class TestRunEvalLabelingAgent:
             window_start="2026-04-15T00:00:00Z",
             window_end="2026-04-16T00:00:00Z",
             trace_id="evaluation-clustering-run-1",
-            session_id="clustering-job-1",
+            session_id="evaluation-clustering-run-1:session",
             clustering_run_id="evaluation-clustering-run-1",
+            clustering_job_id="clustering-job-1",
         )
 
         assert result[0].title == "Agent-produced"
@@ -245,8 +246,14 @@ class TestRunEvalLabelingAgent:
             ANY,
             ANY,
             trace_id="evaluation-clustering-run-1",
-            session_id="clustering-job-1",
-            properties={"analysis_level": "evaluation", "clustering_run_id": "evaluation-clustering-run-1"},
+            session_id="evaluation-clustering-run-1:session",
+            properties={
+                "team_id": "1",
+                "analysis_level": "evaluation",
+                "clustering_run_id": "evaluation-clustering-run-1",
+                "clustering_job_id": "clustering-job-1",
+            },
+            distinct_id="1",
         )
         assert mock_agent.invoke.call_args.args[1]["callbacks"] == callbacks
 
@@ -269,3 +276,6 @@ class TestRunEvalLabelingAgent:
         )
         # Fallback kicks in; test must not raise
         assert result[0].title == "Cluster 0"
+        observability_kwargs = mock_get_labeling_llm.call_args.kwargs
+        assert observability_kwargs["session_id"] == observability_kwargs["trace_id"]
+        assert observability_kwargs["distinct_id"] == "1"

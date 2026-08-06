@@ -130,6 +130,7 @@ class GenerateEvaluationLabelsInputs:
     trace_id: str = ""
     session_id: str = ""
     clustering_run_id: str = ""
+    clustering_job_id: str = ""
 
 
 @dataclass
@@ -356,6 +357,7 @@ def _label_sync(inputs: GenerateEvaluationLabelsInputs) -> GenerateEvaluationLab
         trace_id=inputs.trace_id,
         session_id=inputs.session_id,
         clustering_run_id=inputs.clustering_run_id,
+        clustering_job_id=inputs.clustering_job_id,
     )
     return GenerateEvaluationLabelsOutputs(cluster_labels=labels)
 

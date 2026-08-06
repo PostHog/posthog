@@ -31,7 +31,7 @@ When a gap closes, new work uses the Go gateway and affected callers should migr
 | Stock SDK proxy               | The caller needs OpenAI Chat Completions or Responses, Anthropic Messages or token counting, streaming, idempotency, or the model catalog.                              |
 | Gateway-managed routing       | The caller accepts Go host selection across OpenAI, Anthropic, Azure OpenAI, Bedrock, or selected Modal models.                                                         |
 
-Existing Django callers should use `build_openai_client`, `build_async_openai_client`, or `build_async_anthropic_client` from [`posthog/llm/gateway_client.py`](../../posthog/llm/gateway_client.py). These builders keep a temporary Python fallback during rollout.
+Existing Django callers should use `build_openai_client`, `build_async_openai_client`, or `build_async_anthropic_client` from [`posthog/llm/gateway_client.py`](../../posthog/llm/gateway_client.py). The OpenAI builders forward caller-selected distinct IDs, traces, sessions, and metadata while keeping a temporary Python fallback during rollout.
 
 ### ⛔ Stay on the Python gateway for now
 
@@ -89,8 +89,8 @@ Run `/auditing-llm-gateway-parity` after either gateway changes auth, attributio
 
 Last verified on 2026-08-06 against:
 
-- `PostHog/posthog` master at `609f3665c2e879eebf0dc452aaba2f7cd23b932f`
-- `PostHog/ai-gateway` main at `a7f50903199f74f4f8295da57816735a8d221ecd`
+- `PostHog/posthog` master at `64bcdbd983585d754d6a8e5c975f0a0122eb6510`
+- `PostHog/ai-gateway` main at `e2e28a738e701d107e57d12c6ed244a50af2b2ac`
 
 ## References
 

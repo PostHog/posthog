@@ -42,6 +42,7 @@ async def test_generate_workflow_forwards_sentiment_output_type() -> None:
                 period_end="2026-07-02T00:00:00+00:00",
                 previous_period_start="2026-06-30T00:00:00+00:00",
                 trace_id="report-run-id",
+                session_id="report-session-id",
             ),
             RunEvalReportAgentOutput(
                 report_id="report-id",
@@ -76,6 +77,7 @@ async def test_generate_workflow_forwards_sentiment_output_type() -> None:
     assert isinstance(agent_input, RunEvalReportAgentInput)
     assert agent_input.output_type == "sentiment"
     assert agent_input.trace_id == "report-run-id"
+    assert agent_input.session_id == "report-session-id"
 
 
 @pytest.mark.parametrize(

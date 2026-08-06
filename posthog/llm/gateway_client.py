@@ -245,6 +245,7 @@ def ai_gateway_headers(
     trace_id: str | None = None,
     session_id: str | None = None,
     properties: Mapping[str, str] | None = None,
+    distinct_id: str | None = None,
 ) -> dict[str, str] | None:
     """Build the Go ai-gateway headers that correlate a multi-call AI operation."""
     labels = dict(properties or {})
@@ -256,6 +257,8 @@ def ai_gateway_headers(
         headers["X-PostHog-Trace-Id"] = trace_id
     if session_id:
         headers["X-PostHog-Session-Id"] = session_id
+    if distinct_id:
+        headers["X-PostHog-Distinct-Id"] = distinct_id
     return headers or None
 
 
@@ -316,6 +319,7 @@ def build_openai_client(
     trace_id: str | None = None,
     session_id: str | None = None,
     properties: Mapping[str, str] | None = None,
+    distinct_id: str | None = None,
 ) -> OpenAI:
     """Return a raw OpenAI client routed through the internal Go ai-gateway when configured,
     else the Python LLM gateway via :func:`get_llm_client`.
@@ -331,7 +335,7 @@ def build_openai_client(
         return OpenAI(
             api_key=api_key,
             base_url=url,
-            default_headers=ai_gateway_headers(ai_product, trace_id, session_id, properties),
+            default_headers=ai_gateway_headers(ai_product, trace_id, session_id, properties, distinct_id),
             http_client=httpx.Client(trust_env=False),
         )
     fallback_headers = _python_gateway_observability_headers(trace_id, session_id, properties)
@@ -346,6 +350,7 @@ def build_async_openai_client(
     trace_id: str | None = None,
     session_id: str | None = None,
     properties: Mapping[str, str] | None = None,
+    distinct_id: str | None = None,
 ) -> AsyncOpenAI:
     """Async variant of :func:`build_openai_client`."""
     gateway = resolve_ai_gateway_config()
@@ -354,7 +359,7 @@ def build_async_openai_client(
         return AsyncOpenAI(
             api_key=api_key,
             base_url=url,
-            default_headers=ai_gateway_headers(ai_product, trace_id, session_id, properties),
+            default_headers=ai_gateway_headers(ai_product, trace_id, session_id, properties, distinct_id),
             http_client=httpx.AsyncClient(trust_env=False),
         )
     fallback_headers = _python_gateway_observability_headers(trace_id, session_id, properties)

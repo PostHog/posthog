@@ -34,6 +34,7 @@ def generate_cluster_labels(
     trace_id: str = "",
     session_id: str = "",
     clustering_run_id: str = "",
+    clustering_job_id: str = "",
 ) -> dict[int, ClusterLabel]:
     """Generate titles and descriptions for all clusters using the labeling agent.
 
@@ -87,6 +88,7 @@ def generate_cluster_labels(
         trace_id=trace_id,
         session_id=session_id,
         clustering_run_id=clustering_run_id,
+        clustering_job_id=clustering_job_id,
         analysis_level=analysis_level,
     )
 

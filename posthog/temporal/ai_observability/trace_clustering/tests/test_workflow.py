@@ -214,6 +214,10 @@ class TestActivityInputOutputModels:
             centroid_coords_2d=[[-0.9, 0.55], [1.35, -0.4]],
             window_start="2025-01-01T00:00:00Z",
             window_end="2025-01-08T00:00:00Z",
+            trace_id="trace-run-1",
+            session_id="trace-run-1:session",
+            clustering_run_id="trace-run-1",
+            clustering_job_id="trace-job-1",
         )
 
         assert inputs.team_id == 1
@@ -223,6 +227,9 @@ class TestActivityInputOutputModels:
         assert inputs.item_metadata[0].rank == 1
         assert inputs.window_start == "2025-01-01T00:00:00Z"
         assert inputs.window_end == "2025-01-08T00:00:00Z"
+        assert inputs.trace_id == "trace-run-1"
+        assert inputs.session_id == "trace-run-1:session"
+        assert inputs.clustering_job_id == "trace-job-1"
 
     def test_generate_labels_activity_outputs(self):
         """Test GenerateLabelsActivityOutputs structure."""

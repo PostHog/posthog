@@ -75,20 +75,24 @@ class TestBuildOpenAIChatClient:
                 600.0,
                 ai_product="aio_clustering",
                 trace_id="clustering-run-1",
-                session_id="clustering-job-1",
-                properties={"analysis_level": "trace"},
+                session_id="clustering-run-1:session",
+                properties={"team_id": "42", "analysis_level": "trace", "clustering_job_id": "job-1"},
+                distinct_id="42",
             )
 
         headers = mock_chat.call_args.kwargs["default_headers"]
         assert headers == {
             "X-PostHog-Properties": json.dumps(
                 {
+                    "team_id": "42",
                     "analysis_level": "trace",
+                    "clustering_job_id": "job-1",
                     "ai_product": "aio_clustering",
                 }
             ),
             "X-PostHog-Trace-Id": "clustering-run-1",
-            "X-PostHog-Session-Id": "clustering-job-1",
+            "X-PostHog-Session-Id": "clustering-run-1:session",
+            "X-PostHog-Distinct-Id": "42",
         }
 
     @override_settings(DEBUG=True, AI_GATEWAY_URL=GATEWAY_URL, AI_GATEWAY_API_KEY=GATEWAY_KEY)
@@ -107,7 +111,7 @@ class TestBuildOpenAIChatClient:
         callbacks = build_langchain_callbacks(
             distinct_id="42",
             trace_id="clustering-run-1",
-            session_id="clustering-job-1",
+            session_id="clustering-run-1:session",
             ai_product="aio_clustering",
             properties={"analysis_level": "trace"},
         )
@@ -120,7 +124,7 @@ class TestBuildOpenAIChatClient:
             properties={
                 "analysis_level": "trace",
                 "ai_product": "aio_clustering",
-                "$ai_session_id": "clustering-job-1",
+                "$ai_session_id": "clustering-run-1:session",
             },
         )
 
@@ -133,7 +137,7 @@ class TestBuildOpenAIChatClient:
         callbacks = build_langchain_callbacks(
             distinct_id="42",
             trace_id="clustering-run-1",
-            session_id="clustering-job-1",
+            session_id="clustering-run-1:session",
             ai_product="aio_clustering",
         )
 

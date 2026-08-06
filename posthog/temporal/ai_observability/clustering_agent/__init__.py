@@ -24,6 +24,7 @@ def get_labeling_llm(
     trace_id: str,
     session_id: str,
     properties: Mapping[str, str],
+    distinct_id: str,
 ) -> ChatOpenAI:
     """Return a ChatOpenAI client for cluster labeling.
 
@@ -39,6 +40,7 @@ def get_labeling_llm(
         trace_id=trace_id,
         session_id=session_id,
         properties=properties,
+        distinct_id=distinct_id,
     )
 
 

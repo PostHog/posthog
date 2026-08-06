@@ -184,7 +184,10 @@ def valid_evaluation_summary_json():
 
 
 class TestSummarizeEvaluationRuns:
-    def test_routes_through_async_gateway_builder_and_passes_timeout(self, valid_evaluation_summary_json):
+    @pytest.mark.parametrize(("user_distinct_id", "expected_distinct_id"), [("user-1", "user-1"), ("", "1")])
+    def test_routes_through_async_gateway_builder_and_passes_timeout(
+        self, valid_evaluation_summary_json, user_distinct_id, expected_distinct_id
+    ):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = valid_evaluation_summary_json
@@ -202,14 +205,23 @@ class TestSummarizeEvaluationRuns:
                     team_id=1,
                     evaluation_id="evaluation-1",
                     model=OpenAIModel.GPT_4_1_MINI,
+                    user_distinct_id=user_distinct_id,
                 )
             )
 
         mock_builder.assert_called_once()
         builder_kwargs = mock_builder.call_args.kwargs
-        UUID(builder_kwargs["trace_id"])
-        assert builder_kwargs["session_id"] == "evaluation-1"
-        assert builder_kwargs["properties"] == {"filter_type": "all", "evaluation_id": "evaluation-1"}
+        trace_id = UUID(builder_kwargs["trace_id"])
+        session_id = UUID(builder_kwargs["session_id"])
+        assert session_id != trace_id
+        assert builder_kwargs["session_id"] != "evaluation-1"
+        assert builder_kwargs["distinct_id"] == expected_distinct_id
+        assert builder_kwargs["properties"] == {
+            "team_id": "1",
+            "filter_type": "all",
+            "evaluation_id": "evaluation-1",
+        }
+        assert mock_client.chat.completions.create.call_args.kwargs["user"] == expected_distinct_id
         assert mock_client.chat.completions.create.call_args.kwargs["timeout"] == SUMMARIZATION_TIMEOUT
         assert result.overall_assessment == "Mostly passing."
 

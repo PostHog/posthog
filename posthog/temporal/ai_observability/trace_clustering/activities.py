@@ -338,6 +338,7 @@ def _generate_cluster_labels(inputs: GenerateLabelsActivityInputs) -> GenerateLa
         trace_id=inputs.trace_id,
         session_id=inputs.session_id,
         clustering_run_id=inputs.clustering_run_id,
+        clustering_job_id=inputs.clustering_job_id,
     )
 
     return GenerateLabelsActivityOutputs(cluster_labels=cluster_labels)

@@ -32,6 +32,7 @@ def run_eval_labeling_agent(
     trace_id: str = "",
     session_id: str = "",
     clustering_run_id: str = "",
+    clustering_job_id: str = "",
 ) -> dict[int, ClusterLabel]:
     """Run the evaluation cluster labeling agent and return generated labels.
 
@@ -50,10 +51,12 @@ def run_eval_labeling_agent(
     )
 
     resolved_trace_id = trace_id or str(uuid.uuid4())
-    resolved_session_id = session_id or f"{team_id}:evaluation:clustering"
+    resolved_session_id = session_id or resolved_trace_id
     observability_properties = {
+        "team_id": str(team_id),
         "analysis_level": "evaluation",
         **({"clustering_run_id": clustering_run_id} if clustering_run_id else {}),
+        **({"clustering_job_id": clustering_job_id} if clustering_job_id else {}),
     }
     llm = get_labeling_llm(
         LABELING_AGENT_MODEL,
@@ -61,6 +64,7 @@ def run_eval_labeling_agent(
         trace_id=resolved_trace_id,
         session_id=resolved_session_id,
         properties=observability_properties,
+        distinct_id=str(team_id),
     )
 
     agent = create_react_agent(

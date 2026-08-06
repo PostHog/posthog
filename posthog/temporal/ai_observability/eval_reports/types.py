@@ -66,6 +66,7 @@ class PrepareReportContextOutput:
     report_prompt_guidance: str = ""
     output_type: str = "boolean"
     trace_id: str = ""
+    session_id: str = ""
 
 
 @dataclasses.dataclass
@@ -83,6 +84,7 @@ class RunEvalReportAgentInput:
     report_prompt_guidance: str = ""
     output_type: str = "boolean"
     trace_id: str = ""
+    session_id: str = ""
 
 
 @dataclasses.dataclass

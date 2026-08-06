@@ -218,6 +218,7 @@ def run_eval_report_agent(
     evaluation_target: str = "generation",
     report_id: str = "",
     trace_id: str = "",
+    session_id: str = "",
 ) -> EvalReportContent:
     """Run the evaluation report agent and return the generated content.
 
@@ -258,8 +259,9 @@ def run_eval_report_agent(
         return _metrics_unavailable_content(evaluation_target)
 
     resolved_trace_id = trace_id or str(uuid.uuid4())
-    resolved_session_id = report_id or evaluation_id
+    resolved_session_id = session_id or resolved_trace_id
     observability_properties = {
+        "team_id": str(team_id),
         "evaluation_id": evaluation_id,
         **({"report_id": report_id} if report_id else {}),
     }
@@ -270,6 +272,7 @@ def run_eval_report_agent(
         trace_id=resolved_trace_id,
         session_id=resolved_session_id,
         properties=observability_properties,
+        distinct_id=str(team_id),
     )
 
     system_prompt = build_eval_report_system_prompt(

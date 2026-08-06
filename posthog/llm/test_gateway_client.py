@@ -263,14 +263,17 @@ class TestBuildAsyncOpenAIClient:
             "llma_eval_summary",
             ai_product="aio_eval_summary",
             trace_id="a9f9e1dd-8332-4ad0-959b-36ea0a45734e",
-            session_id="evaluation-123",
-            properties={"evaluation_id": "evaluation-123"},
+            session_id="summary-session-1",
+            properties={"team_id": "42", "evaluation_id": "evaluation-123"},
+            distinct_id="user-123",
         )
 
         headers = mock_async_openai.call_args.kwargs["default_headers"]
         assert headers["X-PostHog-Trace-Id"] == "a9f9e1dd-8332-4ad0-959b-36ea0a45734e"
-        assert headers["X-PostHog-Session-Id"] == "evaluation-123"
+        assert headers["X-PostHog-Session-Id"] == "summary-session-1"
+        assert headers["X-PostHog-Distinct-Id"] == "user-123"
         assert json.loads(headers["X-PostHog-Properties"]) == {
+            "team_id": "42",
             "evaluation_id": "evaluation-123",
             "ai_product": "aio_eval_summary",
         }
@@ -290,13 +293,13 @@ class TestBuildAsyncOpenAIClient:
         build_async_openai_client(
             "llma_eval_summary",
             trace_id="a9f9e1dd-8332-4ad0-959b-36ea0a45734e",
-            session_id="evaluation-123",
+            session_id="summary-session-1",
             properties={"evaluation_id": "evaluation-123"},
         )
 
         headers = mock_get_async.call_args.kwargs["default_headers"]
         assert headers["traceparent"].startswith("00-a9f9e1dd83324ad0959b36ea0a45734e-")
-        assert headers["x-posthog-property-$ai_session_id"] == "evaluation-123"
+        assert headers["x-posthog-property-$ai_session_id"] == "summary-session-1"
         assert headers["x-posthog-property-evaluation_id"] == "evaluation-123"
 
 

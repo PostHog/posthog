@@ -30,6 +30,7 @@ def generate_evaluation_cluster_labels(
     trace_id: str = "",
     session_id: str = "",
     clustering_run_id: str = "",
+    clustering_job_id: str = "",
 ) -> dict[int, ClusterLabel]:
     """Build eval-agent inputs from compute outputs and run the labeling agent."""
     labels_array = np.array(labels)
@@ -55,6 +56,7 @@ def generate_evaluation_cluster_labels(
         trace_id=trace_id,
         session_id=session_id,
         clustering_run_id=clustering_run_id,
+        clustering_job_id=clustering_job_id,
     )
 
 
