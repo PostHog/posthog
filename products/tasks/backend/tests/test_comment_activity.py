@@ -187,6 +187,22 @@ class TestCommentActivity(CommentActivityTestCase):
         assert not any(row.latest_comment_id == comment.id for row in page.results)
         assert page.unread_count == unread_before
 
+    def test_retargeted_comments_are_hidden_from_activity(self):
+        comment = self._comment()
+        self._record_activity(comment, [self.author.id])
+        other_task = Task.objects.create(
+            team=self.team,
+            title="Private task",
+            created_by=self.peer,
+        )
+        comment.item_context = {"anchor": {"kind": "document"}, "taskId": str(other_task.id)}
+        comment.save(update_fields=["item_context"])
+
+        page = tasks_facade.list_task_activity(self.team.id, self.author.id)
+
+        assert not any(row.latest_comment_id == comment.id for row in page.results)
+        assert page.unread_count == 0
+
     @parameterized.expand(
         [
             ("unknown_task", {"anchor": {"kind": "document"}, "taskId": "3f1d4b7e-0000-4000-8000-000000000000"}),

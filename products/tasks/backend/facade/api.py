@@ -31,6 +31,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import CharField, Count, Exists, F, Func, Min, OuterRef, Q, QuerySet, Subquery
 from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Cast
 from django.utils import timezone as django_timezone
 
 import posthoganalytics
@@ -6226,8 +6227,22 @@ def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
 
 def _comment_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskCommentActivity]:
     visible_tasks = _visible_task_qs(team_id, user_id).filter(internal=False, archived=False)
-    return TaskCommentActivity.objects.for_team(team_id).filter(
-        user_id=user_id, task__in=visible_tasks, comment__deleted=False
+    return (
+        TaskCommentActivity.objects.for_team(team_id)
+        .annotate(
+            _activity_task_id=Cast("task_id", CharField()),
+            _comment_task_id=KeyTextTransform("taskId", "comment__item_context"),
+        )
+        .filter(
+            Q(comment__scope="task", comment__item_id=F("_activity_task_id"))
+            | Q(
+                comment__scope__in=("task_artifact", "desktop_canvas"),
+                _comment_task_id=F("_activity_task_id"),
+            ),
+            user_id=user_id,
+            task__in=visible_tasks,
+            comment__deleted=False,
+        )
     )
 
 
