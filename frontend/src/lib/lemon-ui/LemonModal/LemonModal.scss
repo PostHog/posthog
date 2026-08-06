@@ -1,8 +1,12 @@
-// react-modal adds this class to <body> while any modal is open. Without a scroll lock the page
+// react-modal adds this class to <body> while any modal is open — LemonModal and LemonDrawer
+// both use the default class, so this lock intentionally covers drawers too. Without it the page
 // behind the modal remains scrollable, so on touch devices swipe gestures scroll the page instead
-// of the modal's own scroll area.
+// of the modal's own scroll area. scrollbar-gutter keeps the scrollbar's space reserved on the
+// few surfaces where the body is the scroller (exported/shared pages, plain-layout scenes), so
+// locking doesn't shift the page sideways on classic-scrollbar systems.
 body.ReactModal__Body--open {
     overflow: hidden;
+    scrollbar-gutter: stable;
 }
 
 .LemonModal__overlay {
@@ -98,6 +102,10 @@ body.ReactModal__Body--open {
         flex: 1;
         flex-direction: column;
         overflow-y: hidden;
+
+        // `simple` modals render their own scroll containers here rather than in
+        // .LemonModal__content, so their edge-swipes must be contained at this level too.
+        overscroll-behavior: contain;
     }
 
     .LemonModal__content {

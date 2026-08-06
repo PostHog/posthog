@@ -46,7 +46,7 @@ export function TextCardModal({
             onOpenChange={(open) => !open && handleClose()}
             disablePointerDismissal={hasUnsavedInput}
             className={cn(
-                'w-[min(100vw-3rem,72rem)] min-w-full lg:min-w-6xl max-h-[calc(100vh-4rem)] top-8',
+                'w-[min(100vw-3rem,72rem)] min-w-full lg:min-w-6xl max-h-[calc(100vh-4rem)] supports-[max-height:1dvh]:max-h-[calc(100dvh-4rem)] top-8',
                 'bg-surface-primary',
                 // DialogPrimitive defaults to z above --z-popover; rich editor toolbars portal to body at
                 // --z-popover and would sit under the panel. Sit the dialog just below that layer instead.
