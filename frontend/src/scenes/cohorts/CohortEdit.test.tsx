@@ -617,7 +617,6 @@ describe('cohortEditLogic', () => {
         // resolve to an Object.prototype member are covered against getRowShape in cohortUtils.test,
         // since this scene render is the most expensive place to assert the same lookup.
         it('renders an empty, recoverable criteria row for an unmapped value', async () => {
-            const unmappedValue = 'legacy_unknown_value'
             const cohortId = 11
 
             useMocks({
@@ -637,7 +636,7 @@ describe('cohortEditLogic', () => {
                                         values: [
                                             {
                                                 type: BehavioralFilterKey.Behavioral,
-                                                value: unmappedValue,
+                                                value: 'legacy_unknown_value',
                                                 key: '$pageview',
                                             },
                                         ],
@@ -662,9 +661,14 @@ describe('cohortEditLogic', () => {
             // The type selector has no option to label itself with, so the placeholder is what
             // keeps it usable as the way back to a valid criterion.
             expect(screen.getByText('Choose criterion')).toBeInTheDocument()
-            // No fields render for an unmapped type: substituting another row's fields would let
-            // an edit merge into the criterion, which cleanCriteria then strips to undefined.
-            expect(screen.queryByText('Choose event or action')).not.toBeInTheDocument()
+            // The type selector is the only field: substituting another row's fields would let an
+            // edit merge into the criterion, which cleanCriteria then strips to undefined. Counting
+            // fields is what catches that, since the stored key would label an event picker rather
+            // than leave its placeholder visible.
+            expect(document.querySelectorAll('.CohortCriteriaRow__Criteria__Field')).toHaveLength(1)
+            expect(
+                screen.getByText('This criterion is no longer supported. Choose a new one to replace it.')
+            ).toBeInTheDocument()
         })
     })
 })

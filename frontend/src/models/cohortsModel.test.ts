@@ -314,5 +314,37 @@ describe('cohortsModel', () => {
                 value_property: '2024-01-01',
             })
         })
+
+        it('canonicalizes a behavioral value the backend only accepts as an alias', () => {
+            const cohort = {
+                id: 6,
+                name: 'Aliased criterion cohort',
+                count: 0,
+                groups: [],
+                is_calculating: false,
+                is_static: false,
+                filters: {
+                    properties: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: 'behavioral',
+                                key: 'purchase',
+                                value: 'performed_event_multiple_times',
+                                event_type: 'events',
+                                operator: 'gte',
+                                operator_value: 2,
+                            },
+                        ],
+                    },
+                },
+            } as unknown as CohortType
+
+            const result = processCohort(cohort)
+            const group = result.filters.properties.values[0]
+            // The alias has no ROWS entry, so leaving it verbatim renders the criterion as
+            // unsupported even though the backend resolves and queries it.
+            expect((group as any).values[0]).toMatchObject({ value: 'performed_event_multiple' })
+        })
     })
 })

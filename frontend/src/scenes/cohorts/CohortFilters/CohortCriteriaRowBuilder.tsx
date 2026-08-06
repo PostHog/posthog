@@ -37,10 +37,11 @@ export function CohortCriteriaRowBuilder({
     onChangeType,
 }: CohortCriteriaRowBuilderProps): JSX.Element {
     const { setCriteria, duplicateFilter, removeFilter } = useActions(cohortEditLogic)
-    // An unmapped behavioral value has no fields to render. Substituting another row's fields would
-    // let an edit merge into the unmapped criterion, which cleanCriteria then strips down to
-    // undefined, so leave the row empty and let the type selector be the recovery path.
-    const rowFields = getRowShape(type)?.fields ?? []
+    // Falling back to another row's fields would let an edit merge into the unmapped criterion,
+    // which cleanCriteria then strips to undefined. An empty row keeps the type selector as the
+    // recovery path.
+    const rowShape = getRowShape(type)
+    const rowFields = rowShape?.fields ?? []
 
     const renderFieldComponent = (_field: Field, i: number): JSX.Element => {
         return (
@@ -122,42 +123,50 @@ export function CohortCriteriaRowBuilder({
                             <LemonButton icon={<IconTrash />} onClick={() => removeFilter(groupIndex, index)} />
                         )}
                     </div>
-                    <div className="flex">
-                        <span className="CohortCriteriaRow__Criteria__arrow">&#8627;</span>
-                        <div className="flex flex-wrap items-center min-w-0">
-                            {rowFields.map((field, i) => {
-                                return (
-                                    !field.hide &&
-                                    (field.fieldKey ? (
-                                        <KeaField
-                                            key={i}
-                                            name={field.fieldKey}
-                                            template={({ error, kids }) => {
-                                                return (
-                                                    <>
-                                                        <div
-                                                            className={clsx(
-                                                                'CohortCriteriaRow__Criteria__Field',
-                                                                error && `CohortCriteriaRow__Criteria__Field--error`
-                                                            )}
-                                                        >
-                                                            {kids as React.ReactNode}
-                                                        </div>
-                                                    </>
-                                                )
-                                            }}
-                                        >
-                                            <>{renderFieldComponent(field, i)}</>
-                                        </KeaField>
-                                    ) : (
-                                        <div key={i} className="CohortCriteriaRow__Criteria__Field">
-                                            {renderFieldComponent(field, i)}
-                                        </div>
-                                    ))
-                                )
-                            })}
+                    {!rowShape && (
+                        <LemonBanner className="my-2" type="warning">
+                            This criterion is no longer supported. Choose a new one to replace it.
+                        </LemonBanner>
+                    )}
+                    {/* The arrow points at the fields, so it has nothing to point at on an empty row. */}
+                    {rowFields.length > 0 && (
+                        <div className="flex">
+                            <span className="CohortCriteriaRow__Criteria__arrow">&#8627;</span>
+                            <div className="flex flex-wrap items-center min-w-0">
+                                {rowFields.map((field, i) => {
+                                    return (
+                                        !field.hide &&
+                                        (field.fieldKey ? (
+                                            <KeaField
+                                                key={i}
+                                                name={field.fieldKey}
+                                                template={({ error, kids }) => {
+                                                    return (
+                                                        <>
+                                                            <div
+                                                                className={clsx(
+                                                                    'CohortCriteriaRow__Criteria__Field',
+                                                                    error && `CohortCriteriaRow__Criteria__Field--error`
+                                                                )}
+                                                            >
+                                                                {kids as React.ReactNode}
+                                                            </div>
+                                                        </>
+                                                    )
+                                                }}
+                                            >
+                                                <>{renderFieldComponent(field, i)}</>
+                                            </KeaField>
+                                        ) : (
+                                            <div key={i} className="CohortCriteriaRow__Criteria__Field">
+                                                {renderFieldComponent(field, i)}
+                                            </div>
+                                        ))
+                                    )
+                                })}
+                            </div>
                         </div>
-                    </div>
+                    )}
                 </>
             </KeaField>
         </div>
