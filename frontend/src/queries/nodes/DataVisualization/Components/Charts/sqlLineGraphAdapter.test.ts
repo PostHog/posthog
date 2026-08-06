@@ -594,6 +594,7 @@ describe('sqlLineGraphAdapter', () => {
         it('omits the tick formatter for non-date axes', () => {
             const config = buildLineChartConfig({ xData: stringXData, chartSettings: {}, timezone: 'UTC' })
             expect(config.xAxis?.tickFormatter).toBeUndefined()
+            expect(config.xAxis?.tickLabelRotation).toBeUndefined()
         })
 
         it('maps logarithmic scale and y-axis settings', () => {
@@ -770,6 +771,34 @@ describe('sqlLineGraphAdapter', () => {
             column: { name: 'day', type: { name: 'DATE', isNumerical: false }, label: 'day', dataIndex: 0 },
             data: ['2024-01-01', '2024-01-02'],
         }
+        const datetimeXData: AxisSeries<string> = {
+            column: {
+                name: 'timestamp',
+                type: { name: 'DATETIME', isNumerical: false },
+                label: 'timestamp',
+                dataIndex: 0,
+            },
+            data: ['2024-01-01T00:00:00Z', '2024-01-02T00:00:00Z'],
+        }
+        const stringXData: AxisSeries<string> = {
+            column: { name: 'path', type: { name: 'STRING', isNumerical: false }, label: 'path', dataIndex: 0 },
+            data: ['/api/projects/alpha', '/api/projects/beta'],
+        }
+
+        it.each([
+            ['non-date', stringXData, -45],
+            ['date', dateXData, undefined],
+            ['datetime', datetimeXData, undefined],
+        ])('sets fixed tick rotation only for %s category axes', (_name, xData, expected) => {
+            const config = buildBarChartConfig({
+                xData,
+                chartSettings: {},
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBar,
+            })
+
+            expect(config.xAxis?.tickLabelRotation).toBe(expected)
+        })
 
         it('forces a linear y-axis scale for percent-stacked bars', () => {
             const chartSettings: ChartSettings = {

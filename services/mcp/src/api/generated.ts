@@ -2269,6 +2269,8 @@ export namespace Schemas {
      * * `awaiting_input` - awaiting_input
      * * `completed` - completed
      * * `mention` - mention
+     * * `thread_reply` - thread_reply
+     * * `owned_item_comment` - owned_item_comment
      * * `message` - message
      * * `created` - created
      */
@@ -2279,6 +2281,8 @@ export namespace Schemas {
       AwaitingInput: 'awaiting_input',
       Completed: 'completed',
       Mention: 'mention',
+      ThreadReply: 'thread_reply',
+      OwnedItemComment: 'owned_item_comment',
       Message: 'message',
       Created: 'created',
     } as const;
@@ -15320,9 +15324,20 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface CommentSlackThreadRef {
+      /** Slack channel ID this discussion is mirrored to. */
+      channel_id: string;
+      /** Deep link that opens the mirrored Slack thread. */
+      url: string;
+    }
+
     export interface Comment {
       readonly id: string;
-      readonly created_by: UserBasic;
+      readonly created_by: UserBasic | null;
+      /** @maxLength 79 */
+      scope?: string;
+      /** Metadata for the comment target, anchor, thread state, and owning task. */
+      item_context?: unknown;
       /** @nullable */
       deleted?: boolean | null;
       mentions?: number[];
@@ -15331,6 +15346,8 @@ export namespace Schemas {
       is_task?: boolean;
       /** The user who marked this task complete. Null for open tasks and non-task comments. */
       readonly completed_by: UserBasic | null;
+      /** The Slack thread this comment's discussion is mirrored to, or null. Set only on a tracked thread-root comment; used to surface an 'Open in Slack' link and hide re-sending. */
+      readonly slack_thread: CommentSlackThreadRef | null;
       /** @nullable */
       content?: string | null;
       rich_content?: unknown;
@@ -15341,9 +15358,6 @@ export namespace Schemas {
          * @nullable
          */
       item_id?: string | null;
-      item_context?: unknown;
-      /** @maxLength 79 */
-      scope: string;
       /**
          * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
          * @nullable
@@ -15351,6 +15365,33 @@ export namespace Schemas {
       readonly completed_at: string | null;
       /** @nullable */
       source_comment?: string | null;
+    }
+
+    export interface CommentSlackThread {
+      readonly id: string;
+      /** Resource type of the mirrored discussion (e.g. Insight). */
+      readonly scope: string;
+      /**
+         * ID of the resource the discussion is attached to.
+         * @nullable
+         */
+      readonly item_id: string | null;
+      /** The thread-root comment whose replies mirror to the Slack thread. */
+      readonly source_comment: string;
+      /** Slack integration used to post to and read from the thread. */
+      readonly integration: number;
+      /** Slack channel the mirrored thread lives in. */
+      readonly slack_channel_id: string;
+      /** Slack thread timestamp anchoring the mirrored thread. */
+      readonly slack_thread_ts: string;
+      /**
+         * Slack workspace ID, used to route inbound replies back.
+         * @nullable
+         */
+      readonly slack_team_id: string | null;
+      readonly created_at: string;
+      /** User who mirrored the discussion. Null if since deleted. */
+      readonly created_by: UserBasic | null;
     }
 
     /**
@@ -51550,7 +51591,11 @@ export namespace Schemas {
 
     export interface PatchedComment {
       readonly id?: string;
-      readonly created_by?: UserBasic;
+      readonly created_by?: UserBasic | null;
+      /** @maxLength 79 */
+      scope?: string;
+      /** Metadata for the comment target, anchor, thread state, and owning task. */
+      item_context?: unknown;
       /** @nullable */
       deleted?: boolean | null;
       mentions?: number[];
@@ -51559,6 +51604,8 @@ export namespace Schemas {
       is_task?: boolean;
       /** The user who marked this task complete. Null for open tasks and non-task comments. */
       readonly completed_by?: UserBasic | null;
+      /** The Slack thread this comment's discussion is mirrored to, or null. Set only on a tracked thread-root comment; used to surface an 'Open in Slack' link and hide re-sending. */
+      readonly slack_thread?: CommentSlackThreadRef | null;
       /** @nullable */
       content?: string | null;
       rich_content?: unknown;
@@ -51569,9 +51616,6 @@ export namespace Schemas {
          * @nullable
          */
       item_id?: string | null;
-      item_context?: unknown;
-      /** @maxLength 79 */
-      scope?: string;
       /**
          * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
          * @nullable
@@ -56756,6 +56800,12 @@ export namespace Schemas {
        * * `trusted` - Trusted domains only
        * * `full` - Full */
       network_access?: ScoutConfigNetworkAccessEnum;
+      /**
+         * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
+         * @maxLength 200
+         * @nullable
+         */
+      model?: string | null;
       /** Exempt this scout from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. */
       auto_pause_exempt?: boolean;
       /**
@@ -66297,6 +66347,16 @@ export namespace Schemas {
       sdks: SdkAssessment[];
     }
 
+    export interface SendCommentToSlack {
+      /** ID of the Slack integration (kind='slack') whose bot posts the thread. */
+      integration_id: number;
+      /**
+         * Slack channel ID to create the mirrored thread in. The bot must be a member of the channel.
+         * @maxLength 255
+         */
+      channel_id: string;
+    }
+
     export interface SendInvitesRequest {
       /**
          * Override the email subject line for this send. Plain text only — URLs, angle brackets, and control characters are rejected. Falls back to the topic's saved subject, then a default.
@@ -66822,6 +66882,11 @@ export namespace Schemas {
        * * `full` - Full */
       readonly network_access: ScoutConfigNetworkAccessEnum;
       /**
+         * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
+         * @nullable
+         */
+      readonly model: string | null;
+      /**
          * When the coordinator last dispatched this scout. Null if it has never run.
          * @nullable
          */
@@ -66879,6 +66944,12 @@ export namespace Schemas {
          */
       run_cron_schedule?: string | null;
       /**
+         * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
+         * @maxLength 200
+         * @nullable
+         */
+      model?: string | null;
+      /**
          * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
          * @maxItems 10
          */
@@ -66930,6 +67001,12 @@ export namespace Schemas {
          * @nullable
          */
       run_cron_schedule?: string | null;
+      /**
+         * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
+         * @maxLength 200
+         * @nullable
+         */
+      model?: string | null;
       /**
          * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
          * @maxItems 10
@@ -72768,20 +72845,28 @@ export namespace Schemas {
       /** @nullable */
       channel_name: string | null;
       activity_at: string;
-      /** What the latest activity on this task was: an agent run waiting on the requester (awaiting_input), a completed run (completed), someone @-mentioning them (mention), a thread reply (message), or their creating the task (created).
+      /** What the latest activity on this task was: an agent run waiting on the requester (awaiting_input), a completed run (completed), someone @-mentioning them (mention), a comment-thread reply (thread_reply), a comment on their item (owned_item_comment), a task-thread reply (message), or their creating the task (created).
        *
        * * `awaiting_input` - awaiting_input
        * * `completed` - completed
        * * `mention` - mention
+       * * `thread_reply` - thread_reply
+       * * `owned_item_comment` - owned_item_comment
        * * `message` - message
        * * `created` - created */
       activity_kind: ActivityKindEnum;
-      /** Content of the thread message tied to the latest activity; empty for task-creation rows. */
+      /** Content of the thread message or resource comment tied to the latest activity. */
       snippet: string;
       /** Author of the thread message tied to the latest activity, when one applies. */
       latest_author?: TaskUserBasicInfo | null;
       /** @nullable */
       latest_message_id?: string | null;
+      /** @nullable */
+      latest_comment_id?: string | null;
+      /** @nullable */
+      latest_comment_scope?: string | null;
+      /** @nullable */
+      latest_comment_item_id?: string | null;
       /** Whether the requester has yet to see this activity. Activity they caused themselves is never unread. */
       is_unread: boolean;
     }
@@ -72789,6 +72874,11 @@ export namespace Schemas {
     export interface TaskActivityReadMarker {
       /** Task whose displayed activity should be marked read. */
       task_id: string;
+      /**
+         * Comment activity row to mark read. Omit for collapsed task activity.
+         * @nullable
+         */
+      activity_id?: string | null;
       /** Mark activity at or before this timestamp read without clearing newer activity. */
       seen_before: string;
     }
@@ -72831,6 +72921,15 @@ export namespace Schemas {
       next_before_id?: string | null;
     }
 
+    export interface TaskArtifact {
+      /** Stable artifact id used to filter task comments. */
+      id: string;
+      /** Artifact type: artifact or canvas. */
+      type: string;
+      /** Display name of the artifact. */
+      name: string;
+    }
+
     /**
      * * `active` - active
      * * `failed` - failed
@@ -72842,6 +72941,11 @@ export namespace Schemas {
       Active: 'active',
       Failed: 'failed',
     } as const;
+
+    export interface TaskArtifactsResponse {
+      /** Artifacts and canvases linked to this task. */
+      artifacts: TaskArtifact[];
+    }
 
     /**
      * Request body for creating or updating a task automation.
@@ -72882,6 +72986,136 @@ export namespace Schemas {
       template_id?: string | null;
       /** Whether the schedule is active; paused when false. */
       enabled?: boolean;
+    }
+
+    export interface TaskCommentAnchor {
+      /** Anchor kind. */
+      kind?: string;
+      /** Selected text. */
+      quote?: string;
+      /** Text immediately before the selection. */
+      prefix?: string;
+      /** Text immediately after the selection. */
+      suffix?: string;
+      /**
+         * Selection start offset.
+         * @minimum 0
+         */
+      start?: number;
+      /**
+         * Selection end offset.
+         * @minimum 1
+         */
+      end?: number;
+      /**
+         * Horizontal region position.
+         * @minimum 0
+         * @maximum 1
+         */
+      x?: number;
+      /**
+         * Vertical region position.
+         * @minimum 0
+         * @maximum 1
+         */
+      y?: number;
+      /**
+         * Region width.
+         * @minimum 0
+         * @maximum 1
+         */
+      width?: number;
+      /**
+         * Region height.
+         * @minimum 0
+         * @maximum 1
+         */
+      height?: number;
+    }
+
+    export interface TaskCommentTarget {
+      /** Stable target id. */
+      id: string;
+      /** Target type: task, artifact, or canvas. */
+      type: string;
+      /** Display name of the comment target. */
+      name: string;
+    }
+
+    export interface TaskCommentEntry {
+      /** Comment id. */
+      id: string;
+      /** Byte-bounded comment body chunk. */
+      content: string;
+      /** Whether this comment body has more content. */
+      content_truncated: boolean;
+      /**
+         * Byte offset for the next body chunk, or null when complete.
+         * @nullable
+         */
+      content_next_offset: number | null;
+      /**
+         * Comment author's display name.
+         * @nullable
+         */
+      author: string | null;
+      /** When the comment was created. */
+      created_at: string;
+      /** Normalized text or document anchor. */
+      anchor: TaskCommentAnchor | null;
+      /**
+         * Canvas version receiving the comment.
+         * @nullable
+         */
+      canvas_version_id: string | null;
+    }
+
+    export interface TaskCommentDetail {
+      /** Root comment id. */
+      id: string;
+      /** Task, artifact, or canvas receiving the comment. */
+      target: TaskCommentTarget;
+      /** Whether the comment is resolved. */
+      resolved: boolean;
+      /** Comments in this page, oldest first. */
+      comments: TaskCommentEntry[];
+      /**
+         * Opaque cursor for the next page, or null.
+         * @nullable
+         */
+      next: string | null;
+    }
+
+    export interface TaskCommentSummary {
+      /** Root comment id. */
+      id: string;
+      /** Task, artifact, or canvas receiving the comment. */
+      target: TaskCommentTarget;
+      /** Bounded excerpt of the root comment body. */
+      content: string;
+      /** Whether the root comment body has more content. */
+      content_truncated: boolean;
+      /**
+         * Text selected when the comment was created.
+         * @nullable
+         */
+      selected_text: string | null;
+      /** When the root comment was created. */
+      created_at: string;
+      /** Number of human replies. */
+      reply_count: number;
+      /** Whether the comment is resolved. */
+      resolved: boolean;
+    }
+
+    export interface TaskCommentsResponse {
+      /** Root comments, newest first. */
+      comments: TaskCommentSummary[];
+      /**
+         * Opaque cursor for the next page, or null.
+         * @nullable
+         */
+      next: string | null;
     }
 
     /**
@@ -79014,6 +79248,13 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type CanvasesBuildsRetrieveParams = {
+    /**
+     * Include the retained ready build for this historical source version.
+     */
+    version_id?: string;
+    };
+
     export type CanvasesSourceRetrieveParams = {
     /**
      * Read this historical source version instead of the head (for version browsing).
@@ -79148,6 +79389,10 @@ export namespace Schemas {
      * @minLength 1
      */
     source_comment?: string;
+    /**
+     * Owning task for task, task_artifact, and desktop_canvas comment scopes.
+     */
+    task_id?: string;
     };
 
     export type CommentsListCompleted = typeof CommentsListCompleted[keyof typeof CommentsListCompleted];
@@ -86239,6 +86484,55 @@ export namespace Schemas {
       Failed: 'failed',
       Cancelled: 'cancelled',
     } as const;
+
+    export type TasksCommentsListParams = {
+    /**
+     * Artifact id returned by the artifacts endpoint.
+     * @minLength 1
+     * @maxLength 72
+     */
+    artifact_id?: string;
+    /**
+     * Opaque cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 256
+     */
+    cursor?: string;
+    /**
+     * Whether to include resolved comment threads.
+     */
+    include_resolved?: boolean;
+    /**
+     * Maximum number of root comments to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
+
+    export type TasksCommentsRetrieveParams = {
+    /**
+     * Comment id whose truncated body should continue. Use with content_offset.
+     */
+    comment_id?: string;
+    /**
+     * Byte offset returned as content_next_offset for the selected comment.
+     * @minimum 0
+     */
+    content_offset?: number;
+    /**
+     * Opaque cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 256
+     */
+    cursor?: string;
+    /**
+     * Maximum number of comments in the thread to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
 
     export type TasksRunsListParams = {
     /**
