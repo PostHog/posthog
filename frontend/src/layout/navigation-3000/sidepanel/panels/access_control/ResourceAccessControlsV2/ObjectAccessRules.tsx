@@ -140,7 +140,7 @@ export function ObjectAccessRules({
                     size="small"
                     icon={<IconPlus />}
                     onClick={openModal}
-                    disabledReason={!canEdit ? (cannotEditReason ?? 'You cannot edit this') : undefined}
+                    disabledReason={editDisabledReason}
                 >
                     Add rule
                 </LemonButton>
@@ -231,12 +231,7 @@ function AddObjectRuleModal({
                     <LemonSelect
                         value={level}
                         onChange={setLevel}
-                        options={[
-                            { value: AccessControlLevel.None, label: 'No access' },
-                            { value: AccessControlLevel.Viewer, label: 'Viewer' },
-                            { value: AccessControlLevel.Editor, label: 'Editor' },
-                            { value: AccessControlLevel.Manager, label: 'Manager' },
-                        ]}
+                        options={OBJECT_LEVELS.map((l) => ({ value: l, label: humanizeAccessControlLevel(l) }))}
                         fullWidth
                     />
                 </div>

@@ -19,8 +19,25 @@ import type { AccessDetailSubjectScope } from './ResourceAccessControlsV2/access
  */
 export const SidePanelAccessDetail = (): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
-    const projectId = `${currentTeam?.id}`
 
+    // Mounting accessControlsLogic before the team loads would key it on "undefined" and fire
+    // requests at api/projects/undefined/...
+    if (!currentTeam) {
+        return (
+            <div className="flex flex-col overflow-hidden grow">
+                <SidePanelContentContainer>
+                    <SidePanelPaneHeader title="Access control" />
+                    <div className="px-3 py-2">
+                        <LemonSkeleton className="h-24 w-full" />
+                    </div>
+                </SidePanelContentContainer>
+            </div>
+        )
+    }
+    return <SidePanelAccessDetailForProject projectId={`${currentTeam.id}`} />
+}
+
+function SidePanelAccessDetailForProject({ projectId }: { projectId: string }): JSX.Element {
     const logic = accessControlsLogic({ projectId })
     const { panelEntry, panelEntryLoading, activePanelSubject } = useValues(logic)
 

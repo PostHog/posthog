@@ -10,16 +10,11 @@ import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ProfileBubbles, ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { PROPERTY_ACCESS_LEVEL_OPTIONS } from 'lib/utils/accessControlUtils'
 
 import type { AccessLevelEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 
 import { propertyAccessControlLogic, PropertyAccessControlLogicProps } from './propertyAccessControlLogic'
-
-export const PROPERTY_ACCESS_LEVEL_OPTIONS: LemonSelectOptionLeaf<AccessLevelEnumApi>[] = [
-    { value: 'read_write', label: 'Read & write' },
-    { value: 'read', label: 'Read only' },
-    { value: 'none', label: 'No access' },
-]
 
 const OVERRIDE_OPTIONS: LemonSelectOptionLeaf<AccessLevelEnumApi | null>[] = [
     ...PROPERTY_ACCESS_LEVEL_OPTIONS,

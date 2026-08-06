@@ -11,7 +11,7 @@ import {
     LemonTable,
 } from '@posthog/lemon-ui'
 
-import { PROPERTY_ACCESS_LEVEL_OPTIONS } from 'scenes/data-management/definition/PropertyAccessControl'
+import { PROPERTY_ACCESS_LEVEL_OPTIONS } from 'lib/utils/accessControlUtils'
 
 import { AccessLevelEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 
@@ -19,10 +19,6 @@ import { AccessPropertyRule, accessDetailLogic } from './accessDetailLogic'
 import { AccessDetailSection } from './AccessDetailSection'
 import { addPropertyRestrictionModalLogic } from './addPropertyRestrictionModalLogic'
 import type { ScopeType } from './types'
-
-// The same levels and labels as the property definition page. Read & write stays available:
-// an override can grant it over a more restrictive property default.
-const PROPERTY_LEVEL_OPTIONS = PROPERTY_ACCESS_LEVEL_OPTIONS
 
 function propertyLevelLabel(level: AccessLevelEnumApi): string | JSX.Element {
     return PROPERTY_ACCESS_LEVEL_OPTIONS.find((o) => o.value === level)?.label ?? level
@@ -99,7 +95,7 @@ export function PropertyAccessRules({
                                     dropdownPlacement="bottom-end"
                                     onChange={(level) => setPropertyRule(p.property_definition_id, level)}
                                     disabledReason={editDisabledReason}
-                                    options={PROPERTY_LEVEL_OPTIONS}
+                                    options={PROPERTY_ACCESS_LEVEL_OPTIONS}
                                 />
                             </div>
                         ),
@@ -209,7 +205,7 @@ function AddPropertyRuleModal({
                 </div>
                 <div>
                     <LemonLabel>Access</LemonLabel>
-                    <LemonSelect value={level} onChange={setLevel} options={PROPERTY_LEVEL_OPTIONS} fullWidth />
+                    <LemonSelect value={level} onChange={setLevel} options={PROPERTY_ACCESS_LEVEL_OPTIONS} fullWidth />
                 </div>
                 {existingRule ? (
                     <LemonBanner type="warning">

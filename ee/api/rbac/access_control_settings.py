@@ -166,7 +166,6 @@ class _DisplayModel:
     name_field: str
 
 
-@cache
 def _display_model(resource: str) -> _DisplayModel | None:
     """Resolve a resource to its model and display field. None means the settings UI cannot work
     with the resource's objects: search returns 400, rule writes return 400, existing rules show
@@ -177,12 +176,18 @@ def _display_model(resource: str) -> _DisplayModel | None:
     supplement for resources search doesn't index, and finally a resource whose routes expose
     exactly one model carrying a recognizable name field.
     """
+    # Gate before the cached resolver: resource is raw request input, and caching unknown values
+    # would grow the cache by one permanent entry per distinct garbage string
+    if resource not in resources_with_object_access_controls():
+        return None
+    return _display_model_for_known_resource(resource)
+
+
+@cache
+def _display_model_for_known_resource(resource: str) -> _DisplayModel | None:
     from posthog.api.search import (
         ENTITY_MAP,  # noqa: PLC0415 — imports every searchable product model, keep it off this module's import path
     )
-
-    if resource not in resources_with_object_access_controls():
-        return None
 
     model: type[Model] | None = None
     name_field: str | None = None

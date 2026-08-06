@@ -1,10 +1,22 @@
 import posthog from 'posthog-js'
 
+import type { LemonSelectOptionLeaf } from '@posthog/lemon-ui'
+
 import { getAppContext } from 'lib/utils/getAppContext'
 import { toSentenceCase } from 'lib/utils/strings'
 import { Scene, sceneToAccessControlResourceType } from 'scenes/sceneTypes'
 
 import { APIScopeObject, AccessControlLevel, AccessControlResourceType, AvailableFeature } from '~/types'
+
+import { AccessLevelEnumApi } from 'products/access_control/frontend/generated/api.schemas'
+
+/** Property access levels with their user-facing labels, shared by the property definition page
+ * and the access control settings panels. */
+export const PROPERTY_ACCESS_LEVEL_OPTIONS: LemonSelectOptionLeaf<AccessLevelEnumApi>[] = [
+    { value: AccessLevelEnumApi.ReadWrite, label: 'Read & write' },
+    { value: AccessLevelEnumApi.Read, label: 'Read only' },
+    { value: AccessLevelEnumApi.None, label: 'No access' },
+]
 
 /** Which iteration of the access control settings UI an interaction came from. */
 export type AccessControlUIVersion = 'v1' | 'v2'
