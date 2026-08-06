@@ -6,9 +6,10 @@ use dashmap::DashMap;
 use metrics::{counter, histogram};
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeader;
 use personhog_proto::personhog::types::v1::{
-    FencePersonRequest, FencePersonResponse, GetPersonRequest, GetPersonResponse, LifecycleOpType,
-    Person, ReleaseFenceRequest, ReleaseFenceResponse, ReleaseOutcome,
-    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    FencePersonRequest, FencePersonResponse, FoldPersonDocumentRequest, FoldPersonDocumentResponse,
+    GetPersonRequest, GetPersonResponse, LifecycleOpType, Person, ReleaseFenceRequest,
+    ReleaseFenceResponse, ReleaseOutcome, UpdatePersonPropertiesRequest,
+    UpdatePersonPropertiesResponse,
 };
 use rdkafka::producer::FutureProducer;
 use tokio::sync::Mutex;
@@ -748,6 +749,24 @@ fn cached_person_to_proto(p: &CachedPerson) -> Person {
     }
 }
 
+/// Parse a JSON-map wire field (empty bytes mean an empty map), refusing
+/// anything that is not a JSON object.
+// See `partition_from_metadata` for why `result_large_err` is allowed.
+#[allow(clippy::result_large_err)]
+fn parse_json_object_field(bytes: &[u8], field: &str) -> Result<serde_json::Value, Status> {
+    if bytes.is_empty() {
+        return Ok(serde_json::Value::Object(serde_json::Map::new()));
+    }
+    let value: serde_json::Value = serde_json::from_slice(bytes)
+        .map_err(|e| Status::invalid_argument(format!("invalid {field} JSON: {e}")))?;
+    if !value.is_object() {
+        return Err(Status::invalid_argument(format!(
+            "{field} must be a JSON object"
+        )));
+    }
+    Ok(value)
+}
+
 /// Extract the routing partition from the `x-partition` request-metadata
 /// header. The router stamps this on every leader call after hashing
 /// `(team_id, person_id)`; its absence means a misrouted or malformed
@@ -1102,6 +1121,211 @@ impl PersonHogLeader for PersonHogLeaderService {
         Ok(Response::new(UpdatePersonPropertiesResponse {
             person: Some(proto),
             updated: true,
+        }))
+    }
+
+    async fn fold_person_document(
+        &self,
+        request: Request<FoldPersonDocumentRequest>,
+    ) -> Result<Response<FoldPersonDocumentResponse>, Status> {
+        let partition = partition_from_metadata(&request)?;
+        let req = request.into_inner();
+        self.validate_partition(partition, req.team_id, req.person_id)?;
+        self.check_authority(partition)?;
+        let op_id = Uuid::parse_str(&req.op_id)
+            .map_err(|_| Status::invalid_argument("op_id must be a valid UUID"))?;
+        if req.sealed_snapshots.is_empty() {
+            return Err(Status::invalid_argument(
+                "sealed_snapshots must be non-empty: a merge with no sealed sources has nothing \
+                 to fold",
+            ));
+        }
+
+        let Some(_inflight_guard) = self.inflight.try_begin(partition) else {
+            return Err(Status::failed_precondition(format!(
+                "partition {partition} is fenced for handoff; writes are rejected"
+            )));
+        };
+
+        // Parse and sanitize every JSON input before taking the per-key
+        // lock. Snapshot properties were sanitized when the source's
+        // leader cached them, but they crossed the wire since; sanitizing
+        // again keeps the fold's admission guarantee self-contained.
+        let mut event_set = parse_json_object_field(&req.event_set, "event_set")?;
+        let mut event_set_once = parse_json_object_field(&req.event_set_once, "event_set_once")?;
+        sanitize_for_jsonb(&mut event_set);
+        sanitize_for_jsonb(&mut event_set_once);
+        let mut snapshots: Vec<(serde_json::Value, i64, i64)> =
+            Vec::with_capacity(req.sealed_snapshots.len());
+        for snapshot in &req.sealed_snapshots {
+            let mut properties =
+                parse_json_object_field(&snapshot.properties, "sealed snapshot properties")?;
+            sanitize_for_jsonb(&mut properties);
+            snapshots.push((properties, snapshot.version, snapshot.created_at));
+        }
+
+        let cache_key = PersonCacheKey {
+            team_id: req.team_id,
+            person_id: req.person_id,
+        };
+        let mutex = self
+            .locks
+            .entry(cache_key.clone())
+            .or_default()
+            .value()
+            .clone();
+        let lock_wait = std::time::Instant::now();
+        let _guard = mutex.lock().await;
+        histogram!("personhog_leader_person_lock_wait_ms")
+            .record(lock_wait.elapsed().as_secs_f64() * 1000.0);
+
+        if !self.dirty_index.can_admit(&cache_key) {
+            counter!("personhog_leader_writes_shed_total", "reason" => "dirty_index_full")
+                .increment(1);
+            return Err(Status::resource_exhausted(
+                "dirty index at capacity: the writer is behind and this fold cannot be tracked; \
+                 retry later",
+            ));
+        }
+
+        // The merge target is marked, never fenced, so a fence here is
+        // either a ghost from a settled op (the healer clears it and the
+        // saga's retry goes through) or a bug. Same-op tolerance mirrors
+        // FencePerson's re-seal semantics.
+        if let Some(fence) = self.check_fence(&cache_key) {
+            if fence.op_id != op_id {
+                counter!("personhog_leader_writes_fenced_total").increment(1);
+                if let Some(healer) = &self.fence_healer {
+                    healer.maybe_heal(cache_key.clone(), fence);
+                }
+                return Err(fenced_status(&fence));
+            }
+        }
+
+        let person = self.lookup_or_load_locked(partition, &cache_key).await?;
+        if person.is_deleted {
+            return Err(Status::not_found("person is destroyed"));
+        }
+
+        // The fold: the target wins every key it has; snapshots fill
+        // still-absent keys in request order; then the merge event's $set
+        // overrides and $set_once fills. All inputs are sanitized, so the
+        // merged document is measured in stored form.
+        let mut folded = person.properties.clone();
+        if !folded.is_object() {
+            folded = serde_json::Value::Object(serde_json::Map::new());
+        }
+        let folded_map = folded
+            .as_object_mut()
+            .expect("folded was just normalized to an object");
+        for (snapshot_properties, _, _) in &snapshots {
+            if let Some(map) = snapshot_properties.as_object() {
+                for (key, value) in map {
+                    if !folded_map.contains_key(key) {
+                        folded_map.insert(key.clone(), value.clone());
+                    }
+                }
+            }
+        }
+        if let Some(map) = event_set.as_object() {
+            for (key, value) in map {
+                folded_map.insert(key.clone(), value.clone());
+            }
+        }
+        if let Some(map) = event_set_once.as_object() {
+            for (key, value) in map {
+                if !folded_map.contains_key(key) {
+                    folded_map.insert(key.clone(), value.clone());
+                }
+            }
+        }
+
+        // Unlike a property update, a fold cannot be rejected for size:
+        // the saga would re-drive it forever. Deterministic trimming is
+        // the only completing behavior, so an oversized fold trims (same
+        // remediation the update path applies to already-oversized rows),
+        // and if protected keys alone exceed the target the fold keeps
+        // the target's stored properties — state admission already
+        // accepted — discarding the fold's property contribution.
+        let jsonb_size = jsonb_column_size(&folded);
+        if jsonb_size > self.size_limits.threshold {
+            match trim_properties_to_fit_size(&folded, self.size_limits.trim_target) {
+                TrimResult::Trimmed(trimmed) => {
+                    counter!("personhog_leader_properties_trimmed_total").increment(1);
+                    self.warnings.emit(&SizeViolationWarning {
+                        team_id: cache_key.team_id,
+                        person_uuid: person.uuid.clone(),
+                        message: "Merged person properties exceeded the size limit and were \
+                                  trimmed to fit"
+                            .to_string(),
+                    });
+                    folded = trimmed;
+                }
+                TrimResult::Fits => {}
+                TrimResult::CannotFit => {
+                    counter!("personhog_leader_folds_total", "outcome" => "unremediable")
+                        .increment(1);
+                    self.warnings.emit(&SizeViolationWarning {
+                        team_id: cache_key.team_id,
+                        person_uuid: person.uuid.clone(),
+                        message: "Merged person properties exceed the size limit and could not \
+                                  be trimmed; the merged-in properties were discarded"
+                            .to_string(),
+                    });
+                    folded = person.properties.clone();
+                }
+            }
+        }
+
+        // Scalars: created_at is the min over the target and every
+        // snapshot (ignoring non-positive values a malformed snapshot
+        // could carry); is_identified is unconditionally true — a merge
+        // is an identify.
+        let created_at = snapshots
+            .iter()
+            .map(|(_, _, snapshot_created_at)| *snapshot_created_at)
+            .filter(|ts| *ts > 0)
+            .chain(std::iter::once(person.created_at))
+            .min()
+            .unwrap_or(person.created_at);
+
+        // The version is a max-merge over the target's floor and every
+        // sealed version, plus one: it stays above every source's death
+        // document (produced at sealed + 1 alongside a fold that clears
+        // max(sealed) + 1), and re-applying the fold only bumps it again
+        // — convergent under at-least-once delivery.
+        let base_version = self
+            .emitted_versions
+            .floor_for(partition, &cache_key, person.version);
+        let max_sealed = snapshots
+            .iter()
+            .map(|(_, snapshot_version, _)| *snapshot_version)
+            .max()
+            .unwrap_or(0);
+        let version = base_version.max(max_sealed).checked_add(1).ok_or_else(|| {
+            Status::invalid_argument("sealed versions leave no room for the folded version")
+        })?;
+
+        let approx_bytes = approx_person_bytes(jsonb_column_size(&folded));
+        let folded_person = CachedPerson {
+            id: person.id,
+            uuid: person.uuid.clone(),
+            team_id: person.team_id,
+            properties: folded,
+            created_at,
+            version,
+            is_identified: true,
+            is_deleted: false,
+            approx_bytes,
+        };
+
+        let proto = self
+            .commit_document(partition, &cache_key, folded_person)
+            .await?;
+        counter!("personhog_leader_folds_total", "outcome" => "folded").increment(1);
+
+        Ok(Response::new(FoldPersonDocumentResponse {
+            person: Some(proto),
         }))
     }
 

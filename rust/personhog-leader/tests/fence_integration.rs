@@ -23,8 +23,8 @@ use personhog_leader::warnings::WarningsProducer;
 use personhog_proto::personhog::leader::v1::person_hog_leader_client::PersonHogLeaderClient;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
 use personhog_proto::personhog::types::v1::{
-    FencePersonRequest, GetPersonRequest, LifecycleOpType, Person, ReleaseFenceRequest,
-    ReleaseOutcome, UpdatePersonPropertiesRequest,
+    FencePersonRequest, FoldPersonDocumentRequest, GetPersonRequest, LifecycleOpType, Person,
+    ReleaseFenceRequest, ReleaseOutcome, UpdatePersonPropertiesRequest,
 };
 use prost::Message;
 use rdkafka::consumer::{BaseConsumer, Consumer};
@@ -1024,4 +1024,286 @@ async fn at_capacity_new_fences_shed_but_reseals_succeed() {
         .fence_person(fence(first_id, first_op))
         .await
         .expect("a re-seal of an already-fenced person is exempt from the cap");
+}
+
+// ============================================================
+// FoldPersonDocument: the merge saga's document write
+// ============================================================
+
+fn snapshot(properties: serde_json::Value, version: i64, created_at: i64) -> Person {
+    Person {
+        properties: serde_json::to_vec(&properties).unwrap(),
+        version,
+        created_at,
+        ..Default::default()
+    }
+}
+
+fn fold_request(
+    team_id: i64,
+    person_id: i64,
+    op_id: &Uuid,
+    snapshots: Vec<Person>,
+    event_set: serde_json::Value,
+    event_set_once: serde_json::Value,
+) -> FoldPersonDocumentRequest {
+    FoldPersonDocumentRequest {
+        team_id,
+        person_id,
+        sealed_snapshots: snapshots,
+        event_set: serde_json::to_vec(&event_set).unwrap(),
+        event_set_once: serde_json::to_vec(&event_set_once).unwrap(),
+        op_id: op_id.to_string(),
+    }
+}
+
+fn person_properties(person: &Person) -> serde_json::Value {
+    serde_json::from_slice(&person.properties).expect("changelog properties parse")
+}
+
+#[tokio::test]
+async fn a_fold_applies_precedence_and_scalars_and_lands_in_the_changelog() {
+    let mut harness = start_fence_harness(
+        CachedPerson {
+            properties: serde_json::json!({"a": "target", "b": "target"}),
+            created_at: 1_700_000_000,
+            version: 3,
+            is_identified: false,
+            ..test_cached_person()
+        },
+        None,
+    )
+    .await;
+    let op = Uuid::now_v7();
+
+    let folded = harness
+        .client
+        .fold_person_document(with_partition(
+            fold_request(
+                harness.team_id,
+                harness.person_id,
+                &op,
+                vec![
+                    // The first snapshot beats the second; both lose to the
+                    // target; sealed versions and created_at feed the fold.
+                    snapshot(
+                        serde_json::json!({"b": "s1", "c": "s1", "d": "s1"}),
+                        7,
+                        1_600_000_000,
+                    ),
+                    snapshot(serde_json::json!({"c": "s2", "e": "s2"}), 5, 1_650_000_000),
+                ],
+                serde_json::json!({"a": "event"}),
+                serde_json::json!({"b": "event-ignored", "f": "event"}),
+            ),
+            harness.partition,
+        ))
+        .await
+        .expect("fold succeeds")
+        .into_inner()
+        .person
+        .expect("fold returns the document");
+
+    assert_eq!(
+        person_properties(&folded),
+        serde_json::json!({
+            "a": "event",   // event $set overrides the target
+            "b": "target",  // target beats snapshots; $set_once cannot override
+            "c": "s1",      // earlier snapshot beats later
+            "d": "s1",
+            "e": "s2",
+            "f": "event",   // $set_once fills the absent key
+        })
+    );
+    assert_eq!(
+        folded.created_at, 1_600_000_000,
+        "min over target and snapshots"
+    );
+    assert!(folded.is_identified, "a merge is an identify");
+    assert_eq!(folded.version, 8, "max(target 3, sealed 7) + 1");
+
+    // The response is the changelog record, not just a view of the cache.
+    let records = changelog_records(&harness);
+    let produced = records.last().expect("the fold produced a record");
+    assert_eq!(person_properties(produced), person_properties(&folded));
+    assert_eq!(produced.version, folded.version);
+    assert!(produced.is_identified);
+}
+
+#[tokio::test]
+async fn refolding_changes_no_content_and_only_bumps_the_version() {
+    let mut harness = start_fence_harness(test_cached_person(), None).await;
+    let op = Uuid::now_v7();
+    let request = fold_request(
+        harness.team_id,
+        harness.person_id,
+        &op,
+        vec![snapshot(
+            serde_json::json!({"plan": "free"}),
+            4,
+            1_650_000_000,
+        )],
+        serde_json::json!({"source": "identify"}),
+        serde_json::json!({}),
+    );
+
+    let first = harness
+        .client
+        .fold_person_document(with_partition(request.clone(), harness.partition))
+        .await
+        .expect("first fold succeeds")
+        .into_inner()
+        .person
+        .unwrap();
+    let second = harness
+        .client
+        .fold_person_document(with_partition(request, harness.partition))
+        .await
+        .expect("a re-driven fold succeeds")
+        .into_inner()
+        .person
+        .unwrap();
+
+    assert_eq!(person_properties(&second), person_properties(&first));
+    assert_eq!(second.created_at, first.created_at);
+    assert_eq!(second.is_identified, first.is_identified);
+    assert_eq!(second.version, first.version + 1);
+}
+
+#[tokio::test]
+async fn a_fold_through_a_foreign_fence_is_rejected_until_released() {
+    let mut harness = start_fence_harness(test_cached_person(), None).await;
+    let delete_op = Uuid::now_v7();
+    let merge_op = Uuid::now_v7();
+
+    harness
+        .client
+        .fence_person(with_partition(
+            fence_request(harness.team_id, harness.person_id, &delete_op),
+            harness.partition,
+        ))
+        .await
+        .expect("the delete op fences the person");
+
+    let request = fold_request(
+        harness.team_id,
+        harness.person_id,
+        &merge_op,
+        vec![snapshot(serde_json::json!({"x": "1"}), 2, 1_650_000_000)],
+        serde_json::json!({}),
+        serde_json::json!({}),
+    );
+    let status = harness
+        .client
+        .fold_person_document(with_partition(request.clone(), harness.partition))
+        .await
+        .expect_err("a foreign fence blocks the fold");
+    assert_eq!(status.code(), Code::FailedPrecondition);
+    assert_eq!(
+        status.metadata().get(FENCED_METADATA_KEY).unwrap(),
+        "delete"
+    );
+
+    harness
+        .client
+        .release_fence(with_partition(
+            ReleaseFenceRequest {
+                team_id: harness.team_id,
+                person_id: harness.person_id,
+                person_uuid: String::new(),
+                op_id: delete_op.to_string(),
+                outcome: ReleaseOutcome::Aborted.into(),
+                sealed_version: None,
+                created_at: 0,
+            },
+            harness.partition,
+        ))
+        .await
+        .expect("the delete op releases its fence");
+
+    harness
+        .client
+        .fold_person_document(with_partition(request, harness.partition))
+        .await
+        .expect("the fold goes through once the fence is gone");
+}
+
+#[tokio::test]
+async fn a_destroyed_target_refuses_the_fold() {
+    let mut harness = start_fence_harness(
+        CachedPerson {
+            is_deleted: true,
+            ..test_cached_person()
+        },
+        None,
+    )
+    .await;
+
+    let status = harness
+        .client
+        .fold_person_document(with_partition(
+            fold_request(
+                harness.team_id,
+                harness.person_id,
+                &Uuid::now_v7(),
+                vec![snapshot(serde_json::json!({"x": "1"}), 2, 1_650_000_000)],
+                serde_json::json!({}),
+                serde_json::json!({}),
+            ),
+            harness.partition,
+        ))
+        .await
+        .expect_err("a death document cannot be folded into");
+    assert_eq!(status.code(), Code::NotFound);
+}
+
+#[tokio::test]
+async fn invalid_fold_requests_are_rejected_before_any_work() {
+    let mut harness = start_fence_harness(test_cached_person(), None).await;
+    let op = Uuid::now_v7();
+    let valid_snapshot = || vec![snapshot(serde_json::json!({"x": "1"}), 2, 1_650_000_000)];
+
+    let no_snapshots = fold_request(
+        harness.team_id,
+        harness.person_id,
+        &op,
+        vec![],
+        serde_json::json!({}),
+        serde_json::json!({}),
+    );
+    let bad_op_id = FoldPersonDocumentRequest {
+        op_id: "not-a-uuid".to_string(),
+        ..fold_request(
+            harness.team_id,
+            harness.person_id,
+            &op,
+            valid_snapshot(),
+            serde_json::json!({}),
+            serde_json::json!({}),
+        )
+    };
+    let non_object_event_set = FoldPersonDocumentRequest {
+        event_set: serde_json::to_vec(&serde_json::json!(["not", "a", "map"])).unwrap(),
+        ..fold_request(
+            harness.team_id,
+            harness.person_id,
+            &op,
+            valid_snapshot(),
+            serde_json::json!({}),
+            serde_json::json!({}),
+        )
+    };
+
+    for (label, request) in [
+        ("empty snapshots", no_snapshots),
+        ("malformed op_id", bad_op_id),
+        ("non-object event_set", non_object_event_set),
+    ] {
+        let status = harness
+            .client
+            .fold_person_document(with_partition(request, harness.partition))
+            .await
+            .expect_err(label);
+        assert_eq!(status.code(), Code::InvalidArgument, "{label}");
+    }
 }
