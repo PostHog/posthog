@@ -354,302 +354,6 @@ export interface EvaluationContextSuggestionResponseApi {
 }
 
 /**
- * * `person` - person
- * * `cohort` - cohort
- * * `group` - group
- * * `flag` - flag
- */
-export type FlagPropertyTypeEnumApi = (typeof FlagPropertyTypeEnumApi)[keyof typeof FlagPropertyTypeEnumApi]
-
-export const FlagPropertyTypeEnumApi = {
-    Person: 'person',
-    Cohort: 'cohort',
-    Group: 'group',
-    Flag: 'flag',
-} as const
-
-/**
- * * `exact` - exact
- * * `flag_evaluates_to` - flag_evaluates_to
- * * `gt` - gt
- * * `gte` - gte
- * * `icontains` - icontains
- * * `icontains_multi` - icontains_multi
- * * `in` - in
- * * `is_date_after` - is_date_after
- * * `is_date_before` - is_date_before
- * * `is_date_exact` - is_date_exact
- * * `is_not` - is_not
- * * `is_not_set` - is_not_set
- * * `is_set` - is_set
- * * `lt` - lt
- * * `lte` - lte
- * * `not_icontains` - not_icontains
- * * `not_icontains_multi` - not_icontains_multi
- * * `not_in` - not_in
- * * `not_regex` - not_regex
- * * `regex` - regex
- * * `semver_caret` - semver_caret
- * * `semver_eq` - semver_eq
- * * `semver_gt` - semver_gt
- * * `semver_gte` - semver_gte
- * * `semver_lt` - semver_lt
- * * `semver_lte` - semver_lte
- * * `semver_neq` - semver_neq
- * * `semver_tilde` - semver_tilde
- * * `semver_wildcard` - semver_wildcard
- */
-export type FlagPropertyOperatorEnumApi = (typeof FlagPropertyOperatorEnumApi)[keyof typeof FlagPropertyOperatorEnumApi]
-
-export const FlagPropertyOperatorEnumApi = {
-    Exact: 'exact',
-    FlagEvaluatesTo: 'flag_evaluates_to',
-    Gt: 'gt',
-    Gte: 'gte',
-    Icontains: 'icontains',
-    IcontainsMulti: 'icontains_multi',
-    In: 'in',
-    IsDateAfter: 'is_date_after',
-    IsDateBefore: 'is_date_before',
-    IsDateExact: 'is_date_exact',
-    IsNot: 'is_not',
-    IsNotSet: 'is_not_set',
-    IsSet: 'is_set',
-    Lt: 'lt',
-    Lte: 'lte',
-    NotIcontains: 'not_icontains',
-    NotIcontainsMulti: 'not_icontains_multi',
-    NotIn: 'not_in',
-    NotRegex: 'not_regex',
-    Regex: 'regex',
-    SemverCaret: 'semver_caret',
-    SemverEq: 'semver_eq',
-    SemverGt: 'semver_gt',
-    SemverGte: 'semver_gte',
-    SemverLt: 'semver_lt',
-    SemverLte: 'semver_lte',
-    SemverNeq: 'semver_neq',
-    SemverTilde: 'semver_tilde',
-    SemverWildcard: 'semver_wildcard',
-} as const
-
-/**
- * A property condition inside a release condition group.
- */
-export interface FlagPropertyApi {
-    /** Property key used in this feature flag condition. Numbers are normalized to strings. */
-    key: string
-    /** Comparison value for the property filter. Valid shapes depend on the operator. */
-    value?: unknown
-    /** Property filter type. One of 'person', 'cohort', 'group', or 'flag'.
-     *
-     * * `person` - person
-     * * `cohort` - cohort
-     * * `group` - group
-     * * `flag` - flag */
-    type: FlagPropertyTypeEnumApi
-    /** Operator used to compare the property value. Null means exact match.
-     *
-     * * `exact` - exact
-     * * `flag_evaluates_to` - flag_evaluates_to
-     * * `gt` - gt
-     * * `gte` - gte
-     * * `icontains` - icontains
-     * * `icontains_multi` - icontains_multi
-     * * `in` - in
-     * * `is_date_after` - is_date_after
-     * * `is_date_before` - is_date_before
-     * * `is_date_exact` - is_date_exact
-     * * `is_not` - is_not
-     * * `is_not_set` - is_not_set
-     * * `is_set` - is_set
-     * * `lt` - lt
-     * * `lte` - lte
-     * * `not_icontains` - not_icontains
-     * * `not_icontains_multi` - not_icontains_multi
-     * * `not_in` - not_in
-     * * `not_regex` - not_regex
-     * * `regex` - regex
-     * * `semver_caret` - semver_caret
-     * * `semver_eq` - semver_eq
-     * * `semver_gt` - semver_gt
-     * * `semver_gte` - semver_gte
-     * * `semver_lt` - semver_lt
-     * * `semver_lte` - semver_lte
-     * * `semver_neq` - semver_neq
-     * * `semver_tilde` - semver_tilde
-     * * `semver_wildcard` - semver_wildcard */
-    operator?: FlagPropertyOperatorEnumApi | null
-    /**
-     * Group type index when using group-based filters.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    group_type_index?: number | null
-    /**
-     * Whether the property condition is negated.
-     * @nullable
-     */
-    negation?: boolean | null
-    /**
-     * Display name of the referenced cohort. Injected on read and echoed back by clients.
-     * @nullable
-     */
-    cohort_name?: string | null
-    /** Display names for group keys, keyed by group key. Injected on read and echoed back by clients. */
-    group_key_names?: unknown
-    /**
-     * Display-only label for this property filter, shown in the UI.
-     * @nullable
-     */
-    label?: string | null
-}
-
-/**
- * A release condition group: who the flag rolls out to, at what percentage.
- */
-export interface FlagConditionGroupApi {
-    /**
-     * Property conditions for this release condition group.
-     * @nullable
-     */
-    properties?: FlagPropertyApi[] | null
-    /**
-     * Rollout percentage for this release condition group, between 0 and 100.
-     * @minimum 0
-     * @maximum 100
-     * @nullable
-     */
-    rollout_percentage?: number | null
-    /**
-     * Variant key override for multivariate flags.
-     * @nullable
-     */
-    variant?: string | null
-    /**
-     * Group type index for this condition set. Null means person-level aggregation; absent falls back to the flag-level value.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    aggregation_group_type_index?: number | null
-    /**
-     * Display-only description for this condition group, shown in the UI.
-     * @nullable
-     */
-    description?: string | null
-    /** Opaque UI ordering key for this condition group (string or number). Preserved as-is. */
-    sort_key?: unknown
-    /**
-     * Set when an experiment froze exposure by narrowing this group to a snapshot cohort.
-     * @nullable
-     */
-    exposure_frozen?: boolean | null
-    /**
-     * ID of the snapshot cohort this group was narrowed to when experiment exposure was frozen.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    exposure_frozen_cohort?: number | null
-}
-
-/**
- * A variant of a multivariate feature flag.
- */
-export interface FlagMultivariateVariantApi {
-    /**
-     * Unique key for this variant. Letters, numbers, hyphens, underscores, dots, and slashes; at most 400 characters.
-     * @maxLength 400
-     * @pattern ^[a-zA-Z0-9_./-]+$
-     */
-    key: string
-    /**
-     * Human-readable name for this variant.
-     * @nullable
-     */
-    name?: string | null
-    /**
-     * Variant rollout percentage, between 0 and 100.
-     * @minimum 0
-     * @maximum 100
-     */
-    rollout_percentage: number
-    /**
-     * Display-only description for this variant, shown in the UI.
-     * @nullable
-     */
-    description?: string | null
-}
-
-/**
- * Multivariate configuration for variant-based rollouts.
- */
-export interface FlagMultivariateApi {
-    /** Variant definitions for multivariate feature flags. */
-    variants: FlagMultivariateVariantApi[]
-}
-
-/**
- * Experiment holdout configuration for a feature flag.
- */
-export interface FlagHoldoutApi {
-    /**
-     * ID of the experiment holdout this flag belongs to.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
-    id: number
-    /**
-     * Percentage of users held out from the flag, between 0 and 100.
-     * @minimum 0
-     * @maximum 100
-     */
-    exclusion_percentage: number
-}
-
-/**
- * Payloads keyed by variant key (multivariate flags) or 'true' (boolean flags). Values are stored as JSON-encoded strings; non-string JSON values are normalized on write.
- * @nullable
- */
-export type FeatureFlagFiltersApiPayloads = { [key: string]: unknown } | null
-
-/**
- * Feature flag targeting configuration: release condition groups, multivariate variants, and payloads.
- */
-export interface FeatureFlagFiltersApi {
-    /** Release condition groups for the feature flag. */
-    groups?: FlagConditionGroupApi[]
-    /** Multivariate configuration for variant-based rollouts. */
-    multivariate?: FlagMultivariateApi | null
-    /**
-     * Group type index for group-based feature flags. Null means person-level aggregation.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    aggregation_group_type_index?: number | null
-    /**
-     * Payloads keyed by variant key (multivariate flags) or 'true' (boolean flags). Values are stored as JSON-encoded strings; non-string JSON values are normalized on write.
-     * @nullable
-     */
-    payloads?: FeatureFlagFiltersApiPayloads
-    /**
-     * Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.
-     * @nullable
-     */
-    feature_enrollment?: boolean | null
-    /** Experiment holdout configuration for this flag. */
-    holdout?: FlagHoldoutApi | null
-    /**
-     * When true, condition evaluation stops at the first matching condition set rather than continuing to evaluate subsequent groups.
-     * @nullable
-     */
-    early_exit?: boolean | null
-}
-
-/**
  * * `engineering` - Engineering
  * * `data` - Data
  * * `product` - Product Management
@@ -657,6 +361,7 @@ export interface FeatureFlagFiltersApi {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -669,6 +374,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -757,6 +463,8 @@ export const BucketingIdentifierEnumApi = {
     DeviceId: 'device_id',
 } as const
 
+export type FeatureFlagApiFilters = { [key: string]: unknown }
+
 export type FeatureFlagApiSurveys = { [key: string]: unknown }
 
 export type FeatureFlagApiFeatures = { [key: string]: unknown }
@@ -770,8 +478,7 @@ export interface FeatureFlagApi {
     name?: string
     /** @maxLength 400 */
     key: string
-    /** Feature flag targeting configuration: release condition groups, multivariate variants, and payloads. */
-    filters?: FeatureFlagFiltersApi
+    filters?: FeatureFlagApiFilters
     deleted?: boolean
     active?: boolean
     /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
@@ -847,13 +554,443 @@ export interface PaginatedFeatureFlagListApi {
     results: FeatureFlagApi[]
 }
 
+/**
+ * * `cohort` - cohort
+ * * `person` - person
+ * * `group` - group
+ */
+export type PropertyGroupTypeEnumApi = (typeof PropertyGroupTypeEnumApi)[keyof typeof PropertyGroupTypeEnumApi]
+
+export const PropertyGroupTypeEnumApi = {
+    Cohort: 'cohort',
+    Person: 'person',
+    Group: 'group',
+} as const
+
+/**
+ * * `exact` - exact
+ * * `is_not` - is_not
+ * * `icontains` - icontains
+ * * `not_icontains` - not_icontains
+ * * `starts_with` - starts_with
+ * * `not_starts_with` - not_starts_with
+ * * `ends_with` - ends_with
+ * * `not_ends_with` - not_ends_with
+ * * `regex` - regex
+ * * `not_regex` - not_regex
+ * * `gt` - gt
+ * * `gte` - gte
+ * * `lt` - lt
+ * * `lte` - lte
+ */
+export type FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi =
+    (typeof FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi)[keyof typeof FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi]
+
+export const FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+    Gt: 'gt',
+    Gte: 'gte',
+    Lt: 'lt',
+    Lte: 'lte',
+} as const
+
+export interface FeatureFlagFilterPropertyGenericSchemaApi {
+    /** Property key used in this feature flag condition. */
+    key: string
+    /** Property filter type. Common values are 'person' and 'cohort'.
+     *
+     * * `cohort` - cohort
+     * * `person` - person
+     * * `group` - group */
+    type?: PropertyGroupTypeEnumApi
+    /**
+     * Resolved cohort name for cohort-type filters.
+     * @nullable
+     */
+    cohort_name?: string | null
+    /**
+     * Group type index when using group-based filters.
+     * @nullable
+     */
+    group_type_index?: number | null
+    /** Comparison value for the property filter. Supports strings, numbers, booleans, and arrays. */
+    value: unknown
+    /** Operator used to compare the property value.
+     *
+     * * `exact` - exact
+     * * `is_not` - is_not
+     * * `icontains` - icontains
+     * * `not_icontains` - not_icontains
+     * * `starts_with` - starts_with
+     * * `not_starts_with` - not_starts_with
+     * * `ends_with` - ends_with
+     * * `not_ends_with` - not_ends_with
+     * * `regex` - regex
+     * * `not_regex` - not_regex
+     * * `gt` - gt
+     * * `gte` - gte
+     * * `lt` - lt
+     * * `lte` - lte */
+    operator: FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi
+}
+
+/**
+ * * `is_set` - is_set
+ * * `is_not_set` - is_not_set
+ */
+export type ExistenceOperatorEnumApi = (typeof ExistenceOperatorEnumApi)[keyof typeof ExistenceOperatorEnumApi]
+
+export const ExistenceOperatorEnumApi = {
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+} as const
+
+export interface FeatureFlagFilterPropertyExistsSchemaApi {
+    /** Property key used in this feature flag condition. */
+    key: string
+    /** Property filter type. Common values are 'person' and 'cohort'.
+     *
+     * * `cohort` - cohort
+     * * `person` - person
+     * * `group` - group */
+    type?: PropertyGroupTypeEnumApi
+    /**
+     * Resolved cohort name for cohort-type filters.
+     * @nullable
+     */
+    cohort_name?: string | null
+    /**
+     * Group type index when using group-based filters.
+     * @nullable
+     */
+    group_type_index?: number | null
+    /** Existence operator.
+     *
+     * * `is_set` - is_set
+     * * `is_not_set` - is_not_set */
+    operator: ExistenceOperatorEnumApi
+    /** Optional value. Runtime behavior determines whether this is ignored. */
+    value?: unknown
+}
+
+/**
+ * * `is_date_exact` - is_date_exact
+ * * `is_date_before` - is_date_before
+ * * `is_date_after` - is_date_after
+ */
+export type DateOperatorEnumApi = (typeof DateOperatorEnumApi)[keyof typeof DateOperatorEnumApi]
+
+export const DateOperatorEnumApi = {
+    IsDateExact: 'is_date_exact',
+    IsDateBefore: 'is_date_before',
+    IsDateAfter: 'is_date_after',
+} as const
+
+export interface FeatureFlagFilterPropertyDateSchemaApi {
+    /** Property key used in this feature flag condition. */
+    key: string
+    /** Property filter type. Common values are 'person' and 'cohort'.
+     *
+     * * `cohort` - cohort
+     * * `person` - person
+     * * `group` - group */
+    type?: PropertyGroupTypeEnumApi
+    /**
+     * Resolved cohort name for cohort-type filters.
+     * @nullable
+     */
+    cohort_name?: string | null
+    /**
+     * Group type index when using group-based filters.
+     * @nullable
+     */
+    group_type_index?: number | null
+    /** Date comparison operator.
+     *
+     * * `is_date_exact` - is_date_exact
+     * * `is_date_after` - is_date_after
+     * * `is_date_before` - is_date_before */
+    operator: DateOperatorEnumApi
+    /** Date value in ISO format or relative date expression. */
+    value: string
+}
+
+/**
+ * * `semver_gt` - semver_gt
+ * * `semver_gte` - semver_gte
+ * * `semver_lt` - semver_lt
+ * * `semver_lte` - semver_lte
+ * * `semver_eq` - semver_eq
+ * * `semver_neq` - semver_neq
+ * * `semver_tilde` - semver_tilde
+ * * `semver_caret` - semver_caret
+ * * `semver_wildcard` - semver_wildcard
+ */
+export type FeatureFlagFilterPropertySemverSchemaOperatorEnumApi =
+    (typeof FeatureFlagFilterPropertySemverSchemaOperatorEnumApi)[keyof typeof FeatureFlagFilterPropertySemverSchemaOperatorEnumApi]
+
+export const FeatureFlagFilterPropertySemverSchemaOperatorEnumApi = {
+    SemverGt: 'semver_gt',
+    SemverGte: 'semver_gte',
+    SemverLt: 'semver_lt',
+    SemverLte: 'semver_lte',
+    SemverEq: 'semver_eq',
+    SemverNeq: 'semver_neq',
+    SemverTilde: 'semver_tilde',
+    SemverCaret: 'semver_caret',
+    SemverWildcard: 'semver_wildcard',
+} as const
+
+export interface FeatureFlagFilterPropertySemverSchemaApi {
+    /** Property key used in this feature flag condition. */
+    key: string
+    /** Property filter type. Common values are 'person' and 'cohort'.
+     *
+     * * `cohort` - cohort
+     * * `person` - person
+     * * `group` - group */
+    type?: PropertyGroupTypeEnumApi
+    /**
+     * Resolved cohort name for cohort-type filters.
+     * @nullable
+     */
+    cohort_name?: string | null
+    /**
+     * Group type index when using group-based filters.
+     * @nullable
+     */
+    group_type_index?: number | null
+    /** Semantic version comparison operator.
+     *
+     * * `semver_gt` - semver_gt
+     * * `semver_gte` - semver_gte
+     * * `semver_lt` - semver_lt
+     * * `semver_lte` - semver_lte
+     * * `semver_eq` - semver_eq
+     * * `semver_neq` - semver_neq
+     * * `semver_tilde` - semver_tilde
+     * * `semver_caret` - semver_caret
+     * * `semver_wildcard` - semver_wildcard */
+    operator: FeatureFlagFilterPropertySemverSchemaOperatorEnumApi
+    /** Semantic version string. */
+    value: string
+}
+
+/**
+ * * `icontains_multi` - icontains_multi
+ * * `not_icontains_multi` - not_icontains_multi
+ */
+export type FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnumApi =
+    (typeof FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnumApi)[keyof typeof FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnumApi]
+
+export const FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnumApi = {
+    IcontainsMulti: 'icontains_multi',
+    NotIcontainsMulti: 'not_icontains_multi',
+} as const
+
+export interface FeatureFlagFilterPropertyMultiContainsSchemaApi {
+    /** Property key used in this feature flag condition. */
+    key: string
+    /** Property filter type. Common values are 'person' and 'cohort'.
+     *
+     * * `cohort` - cohort
+     * * `person` - person
+     * * `group` - group */
+    type?: PropertyGroupTypeEnumApi
+    /**
+     * Resolved cohort name for cohort-type filters.
+     * @nullable
+     */
+    cohort_name?: string | null
+    /**
+     * Group type index when using group-based filters.
+     * @nullable
+     */
+    group_type_index?: number | null
+    /** Multi-contains operator.
+     *
+     * * `icontains_multi` - icontains_multi
+     * * `not_icontains_multi` - not_icontains_multi */
+    operator: FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnumApi
+    /** List of strings to evaluate against. */
+    value: string[]
+}
+
+/**
+ * * `cohort` - cohort
+ */
+export type FeatureFlagFilterPropertyCohortInSchemaTypeEnumApi =
+    (typeof FeatureFlagFilterPropertyCohortInSchemaTypeEnumApi)[keyof typeof FeatureFlagFilterPropertyCohortInSchemaTypeEnumApi]
+
+export const FeatureFlagFilterPropertyCohortInSchemaTypeEnumApi = {
+    Cohort: 'cohort',
+} as const
+
+/**
+ * * `in` - in
+ * * `not_in` - not_in
+ */
+export type FeatureFlagFilterPropertyCohortInSchemaOperatorEnumApi =
+    (typeof FeatureFlagFilterPropertyCohortInSchemaOperatorEnumApi)[keyof typeof FeatureFlagFilterPropertyCohortInSchemaOperatorEnumApi]
+
+export const FeatureFlagFilterPropertyCohortInSchemaOperatorEnumApi = {
+    In: 'in',
+    NotIn: 'not_in',
+} as const
+
+export interface FeatureFlagFilterPropertyCohortInSchemaApi {
+    /** Property key used in this feature flag condition. */
+    key: string
+    /** Cohort property type required for in/not_in operators.
+     *
+     * * `cohort` - cohort */
+    type: FeatureFlagFilterPropertyCohortInSchemaTypeEnumApi
+    /**
+     * Resolved cohort name for cohort-type filters.
+     * @nullable
+     */
+    cohort_name?: string | null
+    /**
+     * Group type index when using group-based filters.
+     * @nullable
+     */
+    group_type_index?: number | null
+    /** Membership operator for cohort properties.
+     *
+     * * `in` - in
+     * * `not_in` - not_in */
+    operator: FeatureFlagFilterPropertyCohortInSchemaOperatorEnumApi
+    /** Cohort comparison value (single or list, depending on usage). */
+    value: unknown
+}
+
+/**
+ * * `flag` - flag
+ */
+export type FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnumApi =
+    (typeof FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnumApi)[keyof typeof FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnumApi]
+
+export const FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnumApi = {
+    Flag: 'flag',
+} as const
+
+/**
+ * * `flag_evaluates_to` - flag_evaluates_to
+ */
+export type FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnumApi =
+    (typeof FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnumApi)[keyof typeof FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnumApi]
+
+export const FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnumApi = {
+    FlagEvaluatesTo: 'flag_evaluates_to',
+} as const
+
+export interface FeatureFlagFilterPropertyFlagEvaluatesSchemaApi {
+    /** Property key used in this feature flag condition. */
+    key: string
+    /** Flag property type required for flag dependency checks.
+     *
+     * * `flag` - flag */
+    type: FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnumApi
+    /**
+     * Resolved cohort name for cohort-type filters.
+     * @nullable
+     */
+    cohort_name?: string | null
+    /**
+     * Group type index when using group-based filters.
+     * @nullable
+     */
+    group_type_index?: number | null
+    /** Operator for feature flag dependency evaluation.
+     *
+     * * `flag_evaluates_to` - flag_evaluates_to */
+    operator: FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnumApi
+    /** Value to compare flag evaluation against. */
+    value: unknown
+}
+
+export type FeatureFlagFilterPropertySchemaApi =
+    | FeatureFlagFilterPropertyGenericSchemaApi
+    | FeatureFlagFilterPropertyExistsSchemaApi
+    | FeatureFlagFilterPropertyDateSchemaApi
+    | FeatureFlagFilterPropertySemverSchemaApi
+    | FeatureFlagFilterPropertyMultiContainsSchemaApi
+    | FeatureFlagFilterPropertyCohortInSchemaApi
+    | FeatureFlagFilterPropertyFlagEvaluatesSchemaApi
+
+export interface FeatureFlagConditionGroupSchemaApi {
+    /** Property conditions for this release condition group. */
+    properties?: FeatureFlagFilterPropertySchemaApi[]
+    /** Rollout percentage for this release condition group. */
+    rollout_percentage?: number
+    /**
+     * Variant key override for multivariate flags.
+     * @nullable
+     */
+    variant?: string | null
+    /**
+     * Group type index for this condition set. None means person-level aggregation.
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+}
+
+export interface FeatureFlagMultivariateVariantSchemaApi {
+    /** Unique key for this variant. */
+    key: string
+    /** Human-readable name for this variant. */
+    name?: string
+    /** Variant rollout percentage. */
+    rollout_percentage: number
+}
+
+export interface FeatureFlagMultivariateSchemaApi {
+    /** Variant definitions for multivariate feature flags. */
+    variants: FeatureFlagMultivariateVariantSchemaApi[]
+}
+
+/**
+ * Optional payload values keyed by variant key.
+ */
+export type FeatureFlagFiltersSchemaApiPayloads = { [key: string]: string }
+
+export interface FeatureFlagFiltersSchemaApi {
+    /** Release condition groups for the feature flag. */
+    groups?: FeatureFlagConditionGroupSchemaApi[]
+    /** Multivariate configuration for variant-based rollouts. */
+    multivariate?: FeatureFlagMultivariateSchemaApi | null
+    /**
+     * Group type index for group-based feature flags.
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /** Optional payload values keyed by variant key. */
+    payloads?: FeatureFlagFiltersSchemaApiPayloads
+    /**
+     * Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.
+     * @nullable
+     */
+    feature_enrollment?: boolean | null
+    /** When true, condition evaluation stops at the first matching condition set rather than continuing to evaluate subsequent groups. */
+    early_exit?: boolean
+}
+
 export interface FeatureFlagCreateRequestSchemaApi {
     /** Feature flag key. */
     key?: string
     /** Feature flag description (stored in the `name` field for backwards compatibility). */
     name?: string
     /** Feature flag targeting configuration. */
-    filters?: FeatureFlagFiltersApi
+    filters?: FeatureFlagFiltersSchemaApi
     /** Whether the feature flag is active. */
     active?: boolean
     /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
@@ -891,7 +1028,7 @@ export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
     /** Feature flag description (stored in the `name` field for backwards compatibility). */
     name?: string
     /** Feature flag targeting configuration. */
-    filters?: FeatureFlagFiltersApi
+    filters?: FeatureFlagFiltersSchemaApi
     /** Whether the feature flag is active. */
     active?: boolean
     /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */

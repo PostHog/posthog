@@ -14051,7 +14051,7 @@ class TestFeatureFlagFiltersMetrics(APIBaseTest):
         accepted_before = self._write_count("create", "accepted")
         rejected_before = self._write_count("create", "rejected")
         violation_before = FLAG_FILTERS_VIOLATION_COUNTER.labels(
-            stage="incoming_structural", rule="structural.groups[].rollout_percentage.max_value", operation="create"
+            stage="merged_structural", rule="structural.groups[].rollout_percentage.max_value", operation="create"
         )._value.get()
 
         ok = self.client.post(
@@ -14072,7 +14072,7 @@ class TestFeatureFlagFiltersMetrics(APIBaseTest):
         self.assertEqual(self._write_count("create", "rejected"), rejected_before + 1)
         self.assertEqual(
             FLAG_FILTERS_VIOLATION_COUNTER.labels(
-                stage="incoming_structural", rule="structural.groups[].rollout_percentage.max_value", operation="create"
+                stage="merged_structural", rule="structural.groups[].rollout_percentage.max_value", operation="create"
             )._value.get(),
             violation_before + 1,
         )

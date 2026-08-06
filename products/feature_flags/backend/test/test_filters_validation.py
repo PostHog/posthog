@@ -6,6 +6,8 @@ from parameterized import parameterized
 from rest_framework import serializers
 from rest_framework.exceptions import ErrorDetail
 
+from products.feature_flags.backend.api.feature_flag import _reject_serde_unsafe_filters
+from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.filters_validation import (
     CROSS_FIELD_CHECKS,
     Violation,
@@ -259,3 +261,68 @@ class TestFiltersValidation(SimpleTestCase):
             "contextual.groups_empty_on_create"
         ]
         assert check_groups_non_empty_for_create({"groups": [{"properties": []}]}) == []
+
+
+class TestRejectSerdeUnsafeFilters(SimpleTestCase):
+    # The only cache-poisoning guard that runs while the enforcement switch is off, and the
+    # structural tier shadows it once the switch is on, so it needs its own coverage: nothing
+    # else in the suite exercises these rules.
+    @parameterized.expand(
+        [
+            ("filters_not_dict", "not a dict"),
+            ("agg_index_bool", {"aggregation_group_type_index": True}),
+            ("agg_index_string", {"aggregation_group_type_index": "0"}),
+            ("early_exit_int", {"early_exit": 1}),
+            ("groups_not_list", {"groups": {}}),
+            ("group_not_dict", {"groups": ["x"]}),
+            ("group_variant_int", {"groups": [{"variant": 1}]}),
+            ("group_rollout_string", {"groups": [{"rollout_percentage": "50"}]}),
+            ("group_rollout_bool", {"groups": [{"rollout_percentage": True}]}),
+            ("group_rollout_nan", {"groups": [{"rollout_percentage": float("nan")}]}),
+            ("group_rollout_over_100", {"groups": [{"rollout_percentage": 150}]}),
+            ("group_agg_index_bool", {"groups": [{"aggregation_group_type_index": False}]}),
+            ("properties_not_list", {"groups": [{"properties": {}}]}),
+            ("property_not_dict", {"groups": [{"properties": ["x"]}]}),
+            ("property_group_type_index_string", {"groups": [{"properties": [{"group_type_index": "1"}]}]}),
+            ("property_operator_unknown", {"groups": [{"properties": [{"operator": "does not equal"}]}]}),
+            ("property_operator_unhashable", {"groups": [{"properties": [{"operator": []}]}]}),
+            ("property_type_unknown", {"groups": [{"properties": [{"type": "banana"}]}]}),
+            ("property_type_not_string", {"groups": [{"properties": [{"type": 1}]}]}),
+            ("multivariate_not_dict", {"multivariate": []}),
+            ("variants_not_list", {"multivariate": {"variants": {}}}),
+            ("variant_not_dict", {"multivariate": {"variants": ["x"]}}),
+            ("variant_rollout_null", {"multivariate": {"variants": [{"key": "a", "rollout_percentage": None}]}}),
+            ("payloads_not_dict", {"payloads": []}),
+            ("payload_string_not_json", {"payloads": {"true": "not json"}}),
+        ]
+    )
+    def test_rejects_what_poisons_the_flag_cache(self, _name: str, filters: Any) -> None:
+        with self.assertRaises(serializers.ValidationError):
+            _reject_serde_unsafe_filters(filters)
+
+    @parameterized.expand(
+        [
+            ("empty", {}),
+            ("alias_operator", {"groups": [{"properties": [{"operator": "min"}]}]}),
+            ("event_property_type", {"groups": [{"properties": [{"type": "event"}]}]}),
+            ("operator_absent", {"groups": [{"properties": [{"key": "x"}]}]}),
+            ("payload_dict_value", {"payloads": {"true": {"a": 1}}}),
+            ("payload_nan_token", {"payloads": {"true": "NaN"}}),
+            ("redacted_payload_sentinel", {"payloads": {"true": REDACTED_PAYLOAD_VALUE}}),
+            (
+                "well_formed",
+                {
+                    "groups": [
+                        {
+                            "properties": [{"key": "email", "type": "person", "operator": "icontains", "value": "@x"}],
+                            "rollout_percentage": 50,
+                        }
+                    ],
+                    "multivariate": {"variants": [{"key": "a", "rollout_percentage": 100}]},
+                    "payloads": {"a": '"p"'},
+                },
+            ),
+        ]
+    )
+    def test_accepts_what_master_accepted(self, _name: str, filters: Any) -> None:
+        _reject_serde_unsafe_filters(filters)

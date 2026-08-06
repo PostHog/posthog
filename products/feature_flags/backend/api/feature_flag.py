@@ -9,7 +9,7 @@ import functools
 from collections.abc import Iterable, Iterator
 from dataclasses import asdict
 from datetime import datetime, timedelta
-from typing import Any, NoReturn, Optional, cast
+from typing import Any, NoReturn, Optional, cast, get_args
 
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
@@ -20,13 +20,7 @@ import grpc
 import requests
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import (
-    OpenApiExample,
-    OpenApiParameter,
-    OpenApiResponse,
-    extend_schema_field,
-    extend_schema_serializer,
-)
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema_field
 from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.exceptions import ErrorDetail
@@ -37,7 +31,7 @@ from rest_framework.response import Response
 from posthog.schema import ProductKey
 
 from posthog.api.cohort import CohortSerializer
-from posthog.api.documentation import extend_schema
+from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer, extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -69,6 +63,7 @@ from posthog.models.person.point_in_time_properties import (
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
+from posthog.models.property.property import PropertyType
 from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import (
@@ -90,11 +85,10 @@ from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.dashboards.backend.api.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment, flag_has_live_experiment
 from products.feature_flags.backend.api.filters_schema import (
-    FEATURE_FLAG_OPERATOR_ALIASES as FEATURE_FLAG_OPERATOR_ALIASES,  # re-exported: historical import location
-    FEATURE_FLAG_SUPPORTED_OPERATORS as FEATURE_FLAG_SUPPORTED_OPERATORS,  # re-exported: historical import location
+    FEATURE_FLAG_OPERATOR_ALIASES,
+    FEATURE_FLAG_SUPPORTED_OPERATORS,
     FLAG_ID_CONTEXT_KEY,
     FeatureFlagFiltersSerializer,
-    FlagConditionGroupSerializer,
 )
 from products.feature_flags.backend.api.remote_config_shadow import shadow_compare_remote_config
 from products.feature_flags.backend.encrypted_flag_payloads import (
@@ -136,6 +130,12 @@ scope_audit_logger = structlog.get_logger("posthog.feature_flag_scope_audit")
 # Dedicated name for the same startup-ordering reason as scope_audit_logger above. Emits
 # the violations that would have been 400s while the #50084 enforcement kill switch is off.
 filters_enforcement_logger = structlog.get_logger("posthog.feature_flag_filters_enforcement")
+
+# DRF error messages echo caller-controlled input (a ChoiceField repeats the rejected value)
+# and bodies up to 20MB reach validation before the filter-size check runs, so an unbounded
+# log line is one PATCH away. The bake depends on these logs staying countable.
+MAX_LOGGED_ENFORCEMENT_ERRORS = 20
+MAX_LOGGED_ENFORCEMENT_ERROR_CHARS = 300
 
 # Rollout observability for #50084 enforcement. Writes counted once per flag write that
 # carries `filters`; `bypassed` is the series to watch during the log-only window (would
@@ -828,17 +828,24 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
         return ret
 
 
-def _reject_serde_unsafe_filters(filters: dict[str, Any]) -> None:
+# Master constructed Property(**prop) on every write, so it accepted any type the Property
+# model knows; the narrower flags-only set belongs to the switch-gated structural tier.
+_KNOWN_PROPERTY_TYPES: frozenset[str] = frozenset(get_args(PropertyType))
+
+
+def _reject_serde_unsafe_filters(filters: Any) -> None:
     """Unconditional serde-fidelity guard on incoming filters, active regardless of the
     FEATURE_FLAG_FILTERS_ENFORCEMENT switch.
 
     These are the pre-#50084 procedural type/bounds checks: values that fail serde in the
     Rust flag service and poison the team's flag cache. While the enforcement switch is off,
     the structural tier only logs, so this keeps the poisoning class rejected exactly as it
-    was before enforcement shipped. With the switch on, the structural tier rejects all of
-    this first and these never fire. DELETE together with the switch in the follow-up PR
-    that defaults enforcement on.
+    was before enforcement shipped. Only called while the switch is off: with it on, the
+    structural tier covers all of this with better per-rule error codes. DELETE together with
+    the switch in the follow-up PR that defaults enforcement on.
     """
+    if not isinstance(filters, dict):
+        raise serializers.ValidationError(f"Filters must be a dictionary, got {type(filters).__name__}")
 
     def _validate_rollout_percentage(value: Any, path: str, *, allow_null: bool = True) -> None:
         if value is None:
@@ -881,7 +888,11 @@ def _reject_serde_unsafe_filters(filters: dict[str, Any]) -> None:
             group.get("aggregation_group_type_index"), f"groups[{group_index}].aggregation_group_type_index"
         )
 
-        properties = group.get("properties") or []
+        # `or []` would let a falsy non-list (an empty dict) skip the type check below, and
+        # Rust can't deserialize an object into Vec<PropertyFilter>. Null stays allowed:
+        # properties is Option<Vec<..>> there.
+        properties = group.get("properties")
+        properties = [] if properties is None else properties
         if not isinstance(properties, list):
             raise serializers.ValidationError(
                 f"groups[{group_index}].properties must be a list, got {type(properties).__name__}"
@@ -900,7 +911,8 @@ def _reject_serde_unsafe_filters(filters: dict[str, Any]) -> None:
         raise serializers.ValidationError(
             f"multivariate must be a dictionary or null, got {type(multivariate).__name__}"
         )
-    variants = (multivariate or {}).get("variants") or []
+    variants = (multivariate or {}).get("variants")
+    variants = [] if variants is None else variants
     if not isinstance(variants, list):
         raise serializers.ValidationError(f"multivariate.variants must be a list, got {type(variants).__name__}")
     for var_index, variant_item in enumerate(variants):
@@ -914,11 +926,39 @@ def _reject_serde_unsafe_filters(filters: dict[str, Any]) -> None:
             allow_null=False,
         )
 
+    # An operator or type string Rust doesn't know fails serde on the hypercache blob, which
+    # Django serializes whole — the per-flag skip in the Rust Postgres path never sees it, so
+    # one bad property takes out the team's cached flag set. Aliases count as known: master
+    # canonicalized them before checking.
+    for group_index, prop_index, prop in _iter_flag_filter_properties(filters.get("groups")):
+        operator = prop.get("operator")
+        if operator is not None and (
+            not isinstance(operator, str)
+            or (operator not in FEATURE_FLAG_SUPPORTED_OPERATORS and operator not in FEATURE_FLAG_OPERATOR_ALIASES)
+        ):
+            raise serializers.ValidationError(
+                f"groups[{group_index}].properties[{prop_index}].operator: unsupported operator for feature flags"
+            )
+        prop_type = prop.get("type")
+        if prop_type is not None and (not isinstance(prop_type, str) or prop_type not in _KNOWN_PROPERTY_TYPES):
+            raise serializers.ValidationError(
+                f"groups[{group_index}].properties[{prop_index}].type: invalid property type"
+            )
+
     # Explicit null is allowed (Rust reads payloads as an Option) even though the old check
     # rejected it — the structural tier owns that looser, serde-faithful contract.
     payloads = filters.get("payloads")
     if payloads is not None and not isinstance(payloads, dict):
         raise serializers.ValidationError("Payloads must be passed as a dictionary")
+    # A payload string that doesn't parse is one an SDK can't JSON.parse at evaluation time,
+    # and master rejected it. Plain json.loads on purpose: NaN tolerance matches master, while
+    # the stricter allow_nan=False contract belongs to the switch-gated structural tier.
+    for payload_key, payload_value in (payloads or {}).items():
+        if isinstance(payload_value, str):
+            try:
+                json.loads(payload_value)
+            except json.JSONDecodeError:
+                raise serializers.ValidationError(f"Payload for key '{payload_key}' is not valid JSON.")
 
 
 def _iter_flag_filter_properties(groups: Any) -> Iterator[tuple[int, int, dict[str, Any]]]:
@@ -940,52 +980,32 @@ def _iter_flag_filter_properties(groups: Any) -> Iterator[tuple[int, int, dict[s
                 yield group_index, prop_index, cast(dict[str, Any], prop)
 
 
-@extend_schema_serializer(component_name="FeatureFlagFilters")
+@extend_schema_field(FeatureFlagFiltersSchemaSerializer)
 class FeatureFlagFiltersField(FeatureFlagFiltersSerializer):
     """Feature flag targeting configuration: release condition groups, multivariate variants, and payloads."""
 
-    # Write-path `filters` field: strict structural validation on writes, raw passthrough on
-    # reads. Reads must return the stored JSON byte-identical to the DictField this replaced:
-    # stored filters legitimately carry unknown legacy keys, encrypted payload ciphertext, and
-    # (for the #50084 leave-and-block flags) data the schema rejects, none of which may be
-    # dropped or reshaped by serialization. The docstring above is user-facing: drf-spectacular
-    # publishes it as the OpenAPI component description.
-
-    # Redeclared without the base's `default=list`: under merged-state PATCH validation an
-    # absent "groups" must stay absent so the stored groups survive the merge, while an
-    # explicit `groups: []` stays an intentional clear-targeting request.
-    groups = FlagConditionGroupSerializer(
-        many=True,
-        required=False,
-        help_text="Release condition groups for the feature flag.",
-    )
+    # Raw passthrough in BOTH directions:
+    # - Reads must return the stored JSON byte-identical to the DictField this replaced:
+    #   stored filters legitimately carry unknown legacy keys, encrypted payload ciphertext,
+    #   and (for the #50084 leave-and-block flags) data the schema rejects.
+    # - Writes are validated exactly once, on the merged state in validate_filters. A
+    #   field-level pass would validate the same bytes twice (on create `merged` IS this
+    #   dict; on update incoming keys always win the merge) and double-log every violation
+    #   in log-only mode, which would corrupt the bake's per-rule counts.
+    #
+    # OpenAPI stays pinned to the pre-enforcement FeatureFlagFiltersSchemaSerializer via
+    # extend_schema_field: the generated MCP tool schemas hard-enforce their zod shape before
+    # a request reaches this API, so publishing the strict shape here would gate clients
+    # ahead of the server while enforcement is still off. The flip PR republishes it.
 
     def to_representation(self, value: Any) -> Any:
         return value
 
     def run_validation(self, data: Any = empty) -> Any:
-        try:
+        if data is empty or data is None:
             return super().run_validation(data)
-        except serializers.ValidationError as exc:
-            # Flatten DRF's nested error structure: exceptions_hog treats list-valued children
-            # of a nested dict as leaves, so the nested shape would surface str(dict) codes.
-            details = [
-                ErrorDetail(f"{violation.path}: {violation.message}", code=violation.rule_id)
-                for violation in flatten_structural_errors(exc.detail)
-            ]
-            operation = "create" if getattr(self.root, "instance", None) is None else "update"
-            request = self.context.get("request")
-            _count_filters_violations("incoming_structural", operation, [detail.code for detail in details])
-            if not settings.FEATURE_FLAG_FILTERS_ENFORCEMENT and isinstance(data, dict):
-                _count_filters_bypass_once(self, operation, request)
-                filters_enforcement_logger.warning(
-                    "feature_flag_filters_enforcement_bypassed",
-                    stage="incoming_structural",
-                    errors=[str(detail) for detail in details],
-                )
-                return copy.deepcopy(data)
-            _count_filters_write(operation, "rejected", request)
-            raise serializers.ValidationError(details) from exc
+        # deepcopy: validate_filters merges and normalizes in place; never mutate request.data.
+        return copy.deepcopy(data)
 
 
 class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
@@ -1441,18 +1461,20 @@ class FeatureFlagSerializer(
             raise
 
     def _validate_filters_inner(self, filters, operation: str):
-        # Incoming `filters` was already structurally validated by FeatureFlagFiltersField
-        # (types trusted, operator aliases canonical, payload values JSON-encoded strings),
-        # unless the enforcement kill switch is off, in which case it can be any raw dict.
+        # `filters` arrives as the raw request dict: the field is a passthrough, so the
+        # structural tier runs once below, on the merged state.
         enforcement: bool = settings.FEATURE_FLAG_FILTERS_ENFORCEMENT
 
-        # Cache-poisoning inputs are rejected regardless of the switch — log-only mode must
-        # never accept what the pre-enforcement validator rejected.
-        try:
-            _reject_serde_unsafe_filters(filters)
-        except serializers.ValidationError:
-            _count_filters_violations("serde_fidelity", operation, ["serde_fidelity"])
-            raise
+        # Log-only mode must never accept what the pre-enforcement validator rejected, so the
+        # cache-poisoning class stays rejected while the switch is off. With the switch on the
+        # structural tier covers every one of these rules and reports them with per-rule codes
+        # instead of this guard's flat messages, so it would only shadow the better errors.
+        if not enforcement:
+            try:
+                _reject_serde_unsafe_filters(filters)
+            except serializers.ValidationError:
+                _count_filters_violations("serde_fidelity", operation, ["serde_fidelity"])
+                raise
 
         # Updates validate and store the merged final state (#50084): incoming top-level keys
         # replace stored ones atomically, so `filters: {}` is a validated no-op and
@@ -1503,7 +1525,11 @@ class FeatureFlagSerializer(
                 "feature_flag_filters_enforcement_bypassed",
                 stage="merged_structural",
                 flag_id=getattr(self.instance, "id", None),
-                errors=[str(detail) for detail in details],
+                error_count=len(details),
+                errors=[
+                    str(detail)[:MAX_LOGGED_ENFORCEMENT_ERROR_CHARS]
+                    for detail in details[:MAX_LOGGED_ENFORCEMENT_ERRORS]
+                ],
             )
             merged.setdefault("groups", [])
 
@@ -1527,44 +1553,51 @@ class FeatureFlagSerializer(
         if early_exit and not previously_enabled and not self._is_early_exit_enabled():
             raise serializers.ValidationError("early_exit is not available for this organization.")
 
+        # The normalization and the two contextual checks below ran on every write before
+        # enforcement, junk shapes and all, so they stay outside the structurally_valid gate:
+        # a stored-violating flag in log-only mode must not slip a dependency cycle past them
+        # or persist an unnormalized aggregation index. The dict filter keeps them tolerant of
+        # the malformed groups the serde guard lets through.
+        well_formed_groups = [condition for condition in merged["groups"] if isinstance(condition, dict)]
+
+        # Normalize: distribute the flag-level aggregation_group_type_index to each
+        # condition set that doesn't already have one, so every condition set
+        # explicitly carries its aggregation mode (including None for person-aggregated).
+        flag_level_aggregation = merged.get("aggregation_group_type_index")
+        for condition in well_formed_groups:
+            if "aggregation_group_type_index" not in condition:
+                condition["aggregation_group_type_index"] = flag_level_aggregation
+
+        # Derive the flag-level field from condition sets for backward compatibility.
+        # If all condition sets share the same aggregation, use that; when mixed,
+        # set to None since the evaluation engine reads per-condition aggregation.
+        condition_aggregations = [c.get("aggregation_group_type_index") for c in well_formed_groups]
+        if condition_aggregations:
+            if all(a == condition_aggregations[0] for a in condition_aggregations):
+                merged["aggregation_group_type_index"] = condition_aggregations[0]
+            else:
+                merged["aggregation_group_type_index"] = None
+
+        # Check Early Access Feature constraint: no condition set can use group
+        # aggregation if the flag is linked to an Early Access Feature.
+        has_group_condition = any(c.get("aggregation_group_type_index") is not None for c in well_formed_groups)
+        if (
+            has_group_condition
+            and self.instance is not None
+            and hasattr(self.instance, "features")
+            and self.instance.features.exists()
+        ):
+            raise serializers.ValidationError(
+                "Cannot use group aggregation in any condition set when the flag is linked to an Early Access Feature."
+            )
+
+        # Circular dependency checks only apply to person-aggregated conditions
+        # since flag-based property filters only work with person aggregation
+        has_person_condition = any(c.get("aggregation_group_type_index") is None for c in well_formed_groups)
+        if has_person_condition:
+            self._check_flag_circular_dependencies(merged)
+
         if structurally_valid:
-            # Normalize: distribute the flag-level aggregation_group_type_index to each
-            # condition set that doesn't already have one, so every condition set
-            # explicitly carries its aggregation mode (including None for person-aggregated).
-            flag_level_aggregation = merged.get("aggregation_group_type_index")
-            for condition in merged["groups"]:
-                if "aggregation_group_type_index" not in condition:
-                    condition["aggregation_group_type_index"] = flag_level_aggregation
-
-            # Derive the flag-level field from condition sets for backward compatibility.
-            # If all condition sets share the same aggregation, use that; when mixed,
-            # set to None since the evaluation engine reads per-condition aggregation.
-            condition_aggregations = [c.get("aggregation_group_type_index") for c in merged["groups"]]
-            if condition_aggregations:
-                if all(a == condition_aggregations[0] for a in condition_aggregations):
-                    merged["aggregation_group_type_index"] = condition_aggregations[0]
-                else:
-                    merged["aggregation_group_type_index"] = None
-
-            # Check Early Access Feature constraint: no condition set can use group
-            # aggregation if the flag is linked to an Early Access Feature.
-            has_group_condition = any(c.get("aggregation_group_type_index") is not None for c in merged["groups"])
-            if (
-                has_group_condition
-                and self.instance is not None
-                and hasattr(self.instance, "features")
-                and self.instance.features.exists()
-            ):
-                raise serializers.ValidationError(
-                    "Cannot use group aggregation in any condition set when the flag is linked to an Early Access Feature."
-                )
-
-            # Circular dependency checks only apply to person-aggregated conditions
-            # since flag-based property filters only work with person aggregation
-            has_person_condition = any(c.get("aggregation_group_type_index") is None for c in merged["groups"])
-            if has_person_condition:
-                self._check_flag_circular_dependencies(merged)
-
             # Cross-field tier (#50084): variant sums, key uniqueness, payload/variant
             # agreement, operator/value compatibility — see filters_validation.py.
             cross_field_violations = collect_cross_field_violations(merged)
@@ -1584,7 +1617,11 @@ class FeatureFlagSerializer(
                     "feature_flag_filters_enforcement_bypassed",
                     stage="cross_field",
                     flag_id=getattr(self.instance, "id", None),
-                    errors=[f"{violation.path}: {violation.message}" for violation in cross_field_violations],
+                    error_count=len(cross_field_violations),
+                    errors=[
+                        f"{violation.path}: {violation.message}"[:MAX_LOGGED_ENFORCEMENT_ERROR_CHARS]
+                        for violation in cross_field_violations[:MAX_LOGGED_ENFORCEMENT_ERRORS]
+                    ],
                 )
 
         # Collect existing regex patterns so we don't reject unchanged patterns on
