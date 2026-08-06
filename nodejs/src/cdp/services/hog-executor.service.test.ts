@@ -697,6 +697,34 @@ describe('Hog Executor', () => {
             const result = await executor.execute(createTicketInvocation())
             expect(result.error).toContain('Team 1 not found')
         })
+
+        it('postHogGetTicket errors with a setting-aware message when no secret API key is configured', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: null,
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogGetTicket', [{ ticket_id: 'test-ticket-123' }])
+
+            const result = await executor.execute(createTicketInvocation())
+            expect(result.error).toContain('no secret API key configured')
+            expect(result.error).toContain('/project/1/support/settings')
+        })
+
+        it('postHogUpdateTicket errors with a setting-aware message when no secret API key is configured', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: null,
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogUpdateTicket', [
+                { ticket_id: 'test-ticket-456', updates: { status: 'resolved' } },
+            ])
+
+            const result = await executor.execute(createTicketInvocation())
+            expect(result.error).toContain('no secret API key configured')
+            expect(result.error).toContain('/project/1/support/settings')
+        })
     })
 
     describe('postHogGetAccount', () => {

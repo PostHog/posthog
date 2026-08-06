@@ -5,6 +5,17 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 
 import { registerAsyncFunction } from '../async-function-registry'
 
+// Ticket steps authenticate to the conversations API with the project's secret API token. That
+// setting is nullable with no default, so a project that never minted a key hits this at run time.
+// Name the setting and where to fix it rather than surfacing a bare team id.
+function missingSecretApiTokenError(siteUrl: string, teamId: number): Error {
+    return new Error(
+        `This workflow reads or updates a support ticket, but this project has no secret API key configured, ` +
+            `so the request can't be authenticated. Generate one under Support settings ` +
+            `(${siteUrl}/project/${teamId}/support/settings), then replay this invocation.`
+    )
+}
+
 registerAsyncFunction('postHogGetTicket', {
     execute: async (args, context, result) => {
         const [opts] = args as [Record<string, any> | undefined]
@@ -19,7 +30,7 @@ registerAsyncFunction('postHogGetTicket', {
             throw new Error(`Team ${context.invocation.teamId} not found`)
         }
         if (!team.secret_api_token) {
-            throw new Error(`Team ${context.invocation.teamId} has no secret API token configured`)
+            throw missingSecretApiTokenError(context.siteUrl, context.invocation.teamId)
         }
 
         result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
@@ -89,7 +100,7 @@ registerAsyncFunction('postHogUpdateTicket', {
             throw new Error(`Team ${context.invocation.teamId} not found`)
         }
         if (!updateTeam.secret_api_token) {
-            throw new Error(`Team ${context.invocation.teamId} has no secret API token configured`)
+            throw missingSecretApiTokenError(context.siteUrl, context.invocation.teamId)
         }
 
         const headers: Record<string, string> = {

@@ -18,10 +18,11 @@ import { LiquidRenderer } from 'lib/utils/liquid'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
 import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AccessControlLevel, HogFunctionTemplateType } from '~/types'
+import { AccessControlLevel, HogFunctionTemplateType, TeamPublicType, TeamType } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
@@ -109,6 +110,12 @@ export const NEW_WORKFLOW: HogFlow = {
 // Step types that depend on person data and so cannot run for person-less (row-scoped)
 // data-warehouse-table triggers. Module-scoped to avoid reallocating on every selector recompute.
 export const PERSON_DEPENDENT_ACTION_TYPES = new Set(['wait_until_condition', 'random_cohort_branch'])
+
+// Function templates that read or update a conversation ticket. At runtime these call the
+// PostHog conversations API with the project's secret API token, so a project that never minted
+// one (secret_api_token is nullable with no default) sees the workflow save and enable fine, then
+// fail on first trigger. We surface a pre-flight warning so it's caught in the editor instead.
+export const TICKET_ACTION_TEMPLATE_IDS = new Set(['template-posthog-get-ticket', 'template-posthog-update-ticket'])
 
 function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): string | undefined {
     if (templating === 'liquid' && typeof value === 'string') {
@@ -2684,7 +2691,7 @@ export const workflowLogic = kea<workflowLogicType>([
         (props) => `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}`
     ),
     connect(() => ({
-        values: [userLogic, ['user'], projectLogic, ['currentProjectId']],
+        values: [userLogic, ['user'], projectLogic, ['currentProjectId'], teamLogic, ['currentTeam']],
         actions: [workflowsLogic, ['archiveWorkflow'], resourceEditedLogic, ['resourceEdited']],
     })),
     actions({
@@ -3053,12 +3060,19 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
 
         actionValidationErrorsById: [
-            (s) => [s.workflow, s.hogFunctionTemplatesById, s.hogFunctionTemplatesByIdLoading, s.scheduleStartsAt],
+            (s) => [
+                s.workflow,
+                s.hogFunctionTemplatesById,
+                s.hogFunctionTemplatesByIdLoading,
+                s.scheduleStartsAt,
+                s.currentTeam,
+            ],
             (
                 workflow: HogFlow,
                 hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>,
                 hogFunctionTemplatesByIdLoading: boolean,
-                scheduleStartsAt: string | null
+                scheduleStartsAt: string | null,
+                currentTeam: TeamPublicType | TeamType | null
             ): Record<string, HogFlowActionValidationResult | null> => {
                 // Warehouse-triggered workflows are person-less ("row-scoped"). Person-dependent
                 // step types make no sense without a person, so we block them at save time.
@@ -3137,6 +3151,21 @@ export const workflowLogic = kea<workflowLogicType>([
                                     ...result.errors,
                                     channels: 'Select at least one channel to send this notification',
                                 }
+                            }
+                        } else if (
+                            isFunctionAction(action) &&
+                            TICKET_ACTION_TEMPLATE_IDS.has(action.config.template_id) &&
+                            !currentTeam?.secret_api_token
+                        ) {
+                            // Get/update-ticket steps authenticate to the conversations API with the
+                            // project's secret API token. Without one they save clean and then throw on the
+                            // first trigger, so warn here rather than let it fail at run time. Non-blocking
+                            // (a warning, not an error) — the fix lives on another settings page, and the
+                            // token may be minted before the workflow ever runs.
+                            result.warnings = {
+                                ...result.warnings,
+                                _action:
+                                    'This step reads or updates a ticket, which needs a support API key. This project has none, so the workflow will fail when it runs. Generate one in Support settings.',
                             }
                         }
 

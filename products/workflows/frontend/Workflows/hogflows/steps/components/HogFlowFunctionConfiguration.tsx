@@ -113,6 +113,10 @@ export function HogFlowFunctionConfiguration({
     const template = hogFunctionTemplatesById[templateId]
     const isEmailStep = templateId === 'template-email'
     const isPushStep = templateId === 'template-native-push'
+    const isTicketStep = templateId === 'template-posthog-get-ticket' || templateId === 'template-posthog-update-ticket'
+    // Ticket steps call the conversations API with the project's secret API token. If the project
+    // never minted one this workflow saves fine and then fails on its first trigger, so warn up front.
+    const missingSupportApiKey = isTicketStep && !currentTeam?.secret_api_token
     const engagementEventsEnabled = !!currentTeam?.workflows_config?.capture_workflows_engagement_events
     useEffect(() => {
         // oxlint-disable-next-line exhaustive-deps
@@ -164,6 +168,13 @@ export function HogFlowFunctionConfiguration({
 
     return (
         <>
+            {missingSupportApiKey && (
+                <LemonBanner type="warning" className="mb-2">
+                    This step reads or updates a support ticket, which requires a secret API key. This project doesn't
+                    have one yet, so the workflow will fail when it runs.{' '}
+                    <Link to={urls.supportSettings()}>Generate a key in Support settings</Link> to fix this.
+                </LemonBanner>
+            )}
             {renderInputs(coreInputsSchema)}
             {isPushStep && (androidInputsSchema.length > 0 || iosInputsSchema.length > 0) && (
                 <LemonCollapse
