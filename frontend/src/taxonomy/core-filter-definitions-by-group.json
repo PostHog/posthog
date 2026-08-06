@@ -151,6 +151,22 @@
             "label": "AI billable (LLM)",
             "system": true
         },
+        "$ai_blob_bytes": {
+            "description": "Total decoded size in bytes of the large binary payloads in this call.",
+            "examples": [
+                245760
+            ],
+            "label": "AI binary payload size (LLM)",
+            "type": "Numeric"
+        },
+        "$ai_blob_count": {
+            "description": "Number of large binary payloads (images, audio, documents, or other base64 content) in this call.",
+            "examples": [
+                2
+            ],
+            "label": "AI binary payload count (LLM)",
+            "type": "Numeric"
+        },
         "$ai_cache_creation_1h_input_tokens": {
             "description": "The number of tokens created in the 1-hour prompt cache (Anthropic only).",
             "examples": [
@@ -858,10 +874,11 @@
             "label": "AI Target ID (LLM)"
         },
         "$ai_target_type": {
-            "description": "ID space of $ai_target_id. `generation_uuid` resolves against `events.uuid`; `trace_id` resolves against the `$ai_trace_id` property.",
+            "description": "ID space of $ai_target_id. `generation_uuid` resolves against `events.uuid`, `trace_id` resolves against the `$ai_trace_id` property, and `session_id` resolves against the `$ai_session_id` property.",
             "examples": [
                 "generation_uuid",
-                "trace_id"
+                "trace_id",
+                "session_id"
             ],
             "label": "AI Target Type (LLM)"
         },
@@ -4573,6 +4590,22 @@
             "label": "AI billable (LLM)",
             "system": true
         },
+        "$ai_blob_bytes": {
+            "description": "Total decoded size in bytes of the large binary payloads in this call.",
+            "examples": [
+                245760
+            ],
+            "label": "AI binary payload size (LLM)",
+            "type": "Numeric"
+        },
+        "$ai_blob_count": {
+            "description": "Number of large binary payloads (images, audio, documents, or other base64 content) in this call.",
+            "examples": [
+                2
+            ],
+            "label": "AI binary payload count (LLM)",
+            "type": "Numeric"
+        },
         "$ai_cache_creation_1h_input_tokens": {
             "description": "The number of tokens created in the 1-hour prompt cache (Anthropic only).",
             "examples": [
@@ -5280,10 +5313,11 @@
             "label": "AI Target ID (LLM)"
         },
         "$ai_target_type": {
-            "description": "ID space of $ai_target_id. `generation_uuid` resolves against `events.uuid`; `trace_id` resolves against the `$ai_trace_id` property.",
+            "description": "ID space of $ai_target_id. `generation_uuid` resolves against `events.uuid`, `trace_id` resolves against the `$ai_trace_id` property, and `session_id` resolves against the `$ai_session_id` property.",
             "examples": [
                 "generation_uuid",
-                "trace_id"
+                "trace_id",
+                "session_id"
             ],
             "label": "AI Target Type (LLM)"
         },

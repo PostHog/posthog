@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use common_kafka::config::KafkaConfig;
 use envconfig::Envconfig;
+use personhog_coordination::authority::AuthorityClock;
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
@@ -293,6 +294,13 @@ pub struct Config {
     #[envconfig(default = "")]
     pub k8s_namespace: String,
 
+    /// Refuse strong reads and fence acquisition once this pod's lease
+    /// may have expired, instead of serving until the keepalive notices.
+    /// Trades availability during an etcd outage for never answering as
+    /// an owner the protocol may already have replaced.
+    #[envconfig(default = "false")]
+    pub lease_gated_authority: bool,
+
     #[envconfig(default = "30")]
     pub lease_ttl: i64,
 
@@ -331,13 +339,13 @@ pub const FENCING_COMMIT_ATTEMPTS: u32 = 2;
 /// How many times a window's abort is attempted in total.
 ///
 /// One, deliberately. An abort that does not land leaves the producer in
-/// a state it cannot begin another transaction from — which is a
-/// condemned fence, given up on the next write and re-taken by a fresh
-/// acquisition, whose `init_transactions` aborts the pending transaction
-/// at the broker as a side effect. Retrying the abort is therefore a
-/// slower, less reliable version of a recovery that already exists, and
-/// it is not free: every attempt is bounded by the transaction timeout
-/// and has to fit the same runway.
+/// a state it cannot begin another transaction from — which is now a
+/// condemned fence, given up on the next write and re-taken by the
+/// healing pass, whose `init_transactions` aborts the pending
+/// transaction at the broker as a side effect. Retrying the abort is
+/// therefore a slower, less reliable version of a recovery that already
+/// exists, and it is not free: every attempt is bounded by the
+/// transaction timeout and has to fit the same runway.
 pub const FENCING_ABORT_ATTEMPTS: u32 = 1;
 
 /// Every call bounded by the transaction timeout that one window can
@@ -517,12 +525,63 @@ impl Config {
         lifetime + lifetime / 2
     }
 
+    /// The lease relations that hold whether or not fencing is on.
+    ///
+    /// `PodHandle::new` asserts that the heartbeat fits inside the
+    /// keepalive's renewal margin, but it does so several hundred lines
+    /// into startup — after etcd, Kafka and the Postgres pool are
+    /// established — and its message names the heartbeat rather than the
+    /// TTL that decides the margin. Checking it here turns a late panic
+    /// into an early refusal that names both.
+    pub fn validate_lease_timescales(&self) -> Result<(), String> {
+        let margin = AuthorityClock::renewal_margin(self.lease_ttl);
+        let heartbeat = self.heartbeat_interval();
+        // Zero is under every margin, so the comparison below waves it
+        // through — but the keepalive uses this interval as the *timeout*
+        // for each renewal round, so a zero one times out instantly,
+        // exhausts the margin through its retry pace, and ends the
+        // session. The pod then releases every partition and starts over,
+        // for as long as it runs, without ever serving or crashing.
+        if heartbeat.is_zero() {
+            return Err(
+                "HEARTBEAT_INTERVAL_SECS must be greater than zero: the keepalive uses it as \
+                 the timeout for each renewal round, so a zero interval fences the pod against \
+                 healthy etcd in a loop it cannot leave"
+                    .to_string(),
+            );
+        }
+        if heartbeat >= margin {
+            return Err(format!(
+                "HEARTBEAT_INTERVAL_SECS ({heartbeat:?}) must be well under the keepalive \
+                 renewal margin ({margin:?} = 2/3 of LEASE_TTL {}s): the sleep between \
+                 renewals would exhaust the margin on its own, and the pod would fence \
+                 itself against healthy etcd",
+                self.lease_ttl,
+            ));
+        }
+        Ok(())
+    }
+
     /// Every relation the fenced produce path depends on, checked at
     /// startup: the derivation satisfies them wherever the lease TTL
     /// leaves room, and an operator can override either knob.
     pub fn validate_fencing_timescales(&self) -> Result<(), String> {
         if !self.kafka_transactional_fencing {
             return Ok(());
+        }
+        // Fencing without the lease gate is the combination the e2e
+        // zombie scenario breaks: acquisition takes the partition's epoch
+        // from whoever holds it, so a pod waking inside its lease window
+        // fences the legitimate owner on its way to noticing it is dead.
+        // The gate is what gives acquisition the standing to be safe, so
+        // the dependency is refused at startup rather than documented.
+        if !self.lease_gated_authority {
+            return Err(
+                "KAFKA_TRANSACTIONAL_FENCING requires LEASE_GATED_AUTHORITY: unless \
+                 acquisition is gated on holding the lease, a pod whose lease has lapsed \
+                 can take the changelog fence away from the partition's real owner"
+                    .to_string(),
+            );
         }
         let (message, txn, runway, window) = (
             self.fencing_message_timeout(),
@@ -697,6 +756,7 @@ mod fencing_timescale_tests {
     fn fenced(lease_ttl: i64) -> Config {
         let mut config = Config::init_from_env().expect("defaults");
         config.kafka_transactional_fencing = true;
+        config.lease_gated_authority = true;
         config.lease_ttl = lease_ttl;
         config.fencing_txn_timeout_ms = 0;
         config.fencing_message_timeout_ms = 0;
@@ -762,6 +822,62 @@ mod fencing_timescale_tests {
             "the shares leave room for more attempts than are configured; raise \
              the attempt counts or the shares rather than leaving runway unused"
         );
+    }
+
+    /// The gap that made the fencing check misleading: a TTL it accepts
+    /// can still be one the pod refuses to start on, and that refusal
+    /// arrived hundreds of lines later, blamed the heartbeat, and never
+    /// mentioned the TTL that actually decides the margin.
+    ///
+    /// The fencing floor and the heartbeat happen not to overlap at the
+    /// default heartbeat today, so the pairs below raise it — which is
+    /// the point: the two checks constrain different things, and nothing
+    /// keeps a future change to the timeout shares from moving the
+    /// fencing floor back under the heartbeat.
+    #[test]
+    fn a_lease_ttl_the_heartbeat_cannot_fit_is_refused_up_front() {
+        for (lease_ttl, heartbeat_secs) in [(27, 18), (30, 20), (60, 40)] {
+            let mut config = fenced(lease_ttl);
+            config.heartbeat_interval_secs = heartbeat_secs;
+            assert!(
+                config.validate_fencing_timescales().is_ok(),
+                "LEASE_TTL={lease_ttl} is meant to pass the fencing check"
+            );
+            let err = config
+                .validate_lease_timescales()
+                .expect_err("but must not pass the lease check");
+            assert!(
+                err.contains("LEASE_TTL"),
+                "the refusal must name the knob to change, got: {err}"
+            );
+        }
+    }
+
+    /// Zero passes the margin comparison — it is under every margin — but
+    /// the keepalive uses the interval as each round's timeout, so it
+    /// fences the pod against healthy etcd forever.
+    #[test]
+    fn a_zero_heartbeat_is_refused() {
+        let mut config = fenced(30);
+        config.heartbeat_interval_secs = 0;
+        let err = config
+            .validate_lease_timescales()
+            .expect_err("a zero heartbeat must not start");
+        assert!(
+            err.contains("greater than zero"),
+            "the refusal must name the constraint, got: {err}"
+        );
+    }
+
+    /// And the production pairing must survive it, or the check would
+    /// refuse the fleet it was written to protect.
+    #[test]
+    fn the_production_lease_and_heartbeat_agree() {
+        let mut config = fenced(30);
+        config.heartbeat_interval_secs = 10;
+        config
+            .validate_lease_timescales()
+            .expect("LEASE_TTL=30 with a 10s heartbeat must start");
     }
 
     /// The broker's patience has to cover the whole window, not the first
@@ -993,5 +1109,18 @@ mod fencing_timescale_tests {
             .validate_fencing_timescales()
             .expect_err("must reject");
         assert!(err.contains("librdkafka"), "got: {err}");
+    }
+
+    /// The dependency is a startup failure, not a comment: fencing on a
+    /// pod that will acquire without checking its lease is the shape the
+    /// zombie gate reproduces.
+    #[test]
+    fn fencing_without_the_lease_gate_is_refused() {
+        let mut config = fenced(30);
+        config.lease_gated_authority = false;
+        let err = config
+            .validate_fencing_timescales()
+            .expect_err("fencing must require the gate");
+        assert!(err.contains("LEASE_GATED_AUTHORITY"), "got: {err}");
     }
 }

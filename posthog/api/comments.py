@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 from django.core import exceptions as django_exceptions
@@ -5,33 +6,58 @@ from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
-from drf_spectacular.utils import extend_schema
+import structlog
+import posthoganalytics
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import exceptions, pagination, serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
+from slack_sdk.errors import SlackApiError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
+from posthog.exceptions import Conflict
+from posthog.helpers.slack_thread_mirror import post_comment_to_slack_thread, slack_author_from_user
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_was_impersonated
-from posthog.models.comment import Comment
-from posthog.models.comment.comment import activity_log_scope_for
-from posthog.models.comment.utils import produce_discussion_mention_events, send_mention_notifications
+from posthog.models.comment import Comment, CommentSlackThread
+from posthog.models.comment.comment import TICKET_COMMENT_SCOPES, activity_log_scope_for
+from posthog.models.comment.slack_thread import DISCUSSIONS_SLACK_SYNC_FLAG
+from posthog.models.comment.utils import (
+    build_comment_item_url,
+    comment_scope_display_name,
+    produce_discussion_mention_events,
+    send_mention_notifications,
+)
+from posthog.models.integration import Integration, SlackIntegration
+from posthog.tasks.comment_slack_sync import backfill_comment_slack_thread
 from posthog.tasks.email import send_discussions_mentioned
 
 if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
 
+logger = structlog.get_logger(__name__)
+
+
+def _normalize_scope(scope: Any) -> Any:
+    """Match how the serializer will store a submitted scope.
+
+    `scope` is a CharField, so DRF trims surrounding whitespace before saving — comparing the
+    raw value here would let " Ticket " read as non-ticket while persisting as "Ticket".
+    """
+    return scope.strip() if isinstance(scope, str) else scope
+
 
 def _require_ticket_editor_access(
     *, team_id: int, item_id: str | None, user_access_control: "UserAccessControl"
 ) -> None:
-    """Comments with scope=conversations_ticket are ticket messages (see TicketViewSet.reply) —
-    enforce the same object-level RBAC here, since the generic comments API is the write path the
-    Support UI actually uses and isn't gated by TicketViewSet's own access control."""
+    """Ticket-carrying comments (customer messages and internal ticket discussions) are ticket
+    content (see TicketViewSet.reply) — enforce the same object-level RBAC here, since the generic
+    comments API is the write path the Support UI actually uses and isn't gated by TicketViewSet's
+    own access control."""
     if not item_id:
         return
 
@@ -46,6 +72,40 @@ def _require_ticket_editor_access(
 
     if not user_access_control.check_access_level_for_object(ticket, required_level="editor"):
         raise exceptions.PermissionDenied("You do not have access to this ticket")
+
+
+# A reservation with no posted root older than this is a crashed send — safe to retry.
+STALE_SLACK_RESERVATION_GRACE = timedelta(minutes=2)
+
+# item_context keys the Slack mirror sync stamps server-side. Stripped from client input so a
+# caller can't forge sync state (suppress mirroring of a reply, or spoof Slack attribution).
+RESERVED_ITEM_CONTEXT_KEYS = frozenset({"from_slack", "slack_synced_ts"})
+
+
+def _release_slack_reservation(slack_thread: "CommentSlackThread") -> None:
+    """Best-effort release so a later send can retry; must not mask the Slack error being raised."""
+    try:
+        slack_thread.delete()
+    except Exception:
+        # The stale-reservation grace period will unblock a retry even if this row lingers.
+        logger.exception("comment_slack_reservation_release_failed", slack_thread_id=str(slack_thread.id))
+
+
+def _slack_thread_url(thread: CommentSlackThread) -> str:
+    """Permalink that opens the mirrored Slack thread.
+
+    Uses the standard `/archives/<channel>/p<ts>` permalink form (ts with the dot removed); Slack
+    resolves the workspace from the channel. Falls back to the channel if the root isn't posted yet.
+    """
+    base = f"https://app.slack.com/archives/{thread.slack_channel_id}"
+    if not thread.slack_thread_ts:
+        return base
+    return f"{base}/p{thread.slack_thread_ts.replace('.', '')}"
+
+
+class CommentSlackThreadRefSerializer(serializers.Serializer):
+    channel_id = serializers.CharField(help_text="Slack channel ID this discussion is mirrored to.")
+    url = serializers.CharField(help_text="Deep link that opens the mirrored Slack thread.")
 
 
 class CommentSerializer(serializers.ModelSerializer):
@@ -89,6 +149,22 @@ class CommentSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="The user who marked this task complete. Null for open tasks and non-task comments.",
     )
+    slack_thread = serializers.SerializerMethodField(
+        help_text=(
+            "The Slack thread this comment's discussion is mirrored to, or null. Set only on a "
+            "tracked thread-root comment; used to surface an 'Open in Slack' link and hide re-sending."
+        )
+    )
+
+    @extend_schema_field(CommentSlackThreadRefSerializer(allow_null=True))
+    def get_slack_thread(self, comment: Comment) -> dict | None:
+        by_comment = self.context.get("slack_thread_by_comment") or {}
+        thread = by_comment.get(str(comment.id))
+        # A reservation with no posted root isn't a live mirror — report null so the UI
+        # keeps offering "send to Slack" rather than a dead "Open in Slack" link.
+        if thread is None or not thread.slack_thread_ts:
+            return None
+        return {"channel_id": thread.slack_channel_id, "url": _slack_thread_url(thread)}
 
     class Meta:
         model = Comment
@@ -128,22 +204,42 @@ class CommentSerializer(serializers.ModelSerializer):
             if "is_task" in data and bool(data["is_task"]) != bool(instance.is_task):
                 raise exceptions.ValidationError({"is_task": "Cannot change task state after creation."})
 
-        # Check both the comment's persisted (scope, item_id) and the submitted target — so losing
-        # ticket editor access after creation, and re-scoping a comment into or out of a ticket,
-        # are all caught, not just fresh ticket-message creation.
-        scopes_and_items = {
-            (
-                data.get("scope", instance.scope if instance else None),
-                data.get("item_id", instance.item_id if instance else None),
-            )
-        }
+        # A reply lives in its parent's thread: a scope mismatch would let content cross the
+        # authorization boundary between ticket and non-ticket discussions in either direction.
+        source_comment = (
+            data["source_comment"] if "source_comment" in data else getattr(instance, "source_comment", None)
+        )
+        scope = data["scope"] if "scope" in data else getattr(instance, "scope", None)
+        item_id = data["item_id"] if "item_id" in data else getattr(instance, "item_id", None)
+        if source_comment is not None:
+            if source_comment.team_id != self.context["team_id"]:
+                raise exceptions.ValidationError({"source_comment": "Comment not found."})
+            if source_comment.scope != scope:
+                raise exceptions.ValidationError(
+                    {"scope": "A reply must use the same scope as the comment it replies to."}
+                )
+            # /thread selects replies by source_comment_id alone, so a ticket reply carrying a
+            # different item_id would render in a thread on a ticket its author never had to pass
+            # the editor check for.
+            if scope in TICKET_COMMENT_SCOPES and source_comment.item_id != item_id:
+                raise exceptions.ValidationError(
+                    {"item_id": "A reply must belong to the same ticket as the comment it replies to."}
+                )
+
+        # Check the comment's persisted (scope, item_id), the submitted target, and a reply's
+        # parent — so losing ticket editor access after creation, re-scoping a comment into or out
+        # of a ticket, and replying into a thread on another ticket are all caught, not just fresh
+        # ticket-message creation.
+        scopes_and_items = {(scope, item_id)}
         if instance:
             scopes_and_items.add((instance.scope, instance.item_id))
-        for scope, item_id in scopes_and_items:
-            if scope == "conversations_ticket":
+        if source_comment is not None:
+            scopes_and_items.add((source_comment.scope, source_comment.item_id))
+        for target_scope, target_item_id in scopes_and_items:
+            if target_scope in TICKET_COMMENT_SCOPES:
                 _require_ticket_editor_access(
                     team_id=self.context["get_team"]().id,
-                    item_id=item_id,
+                    item_id=target_item_id,
                     user_access_control=self.context["get_user_access_control"](),
                 )
 
@@ -155,6 +251,11 @@ class CommentSerializer(serializers.ModelSerializer):
 
             if not content.strip() and (not rich_content or self.has_empty_paragraph(rich_content)):
                 raise exceptions.ValidationError("A comment must have content")
+
+        if isinstance(data.get("item_context"), dict):
+            data["item_context"] = {
+                k: v for k, v in data["item_context"].items() if k not in RESERVED_ITEM_CONTEXT_KEYS
+            }
 
         if not instance:
             data["created_by"] = request.user
@@ -238,7 +339,10 @@ class CommentPagination(pagination.CursorPagination):
 class CommentListQueryParamsSerializer(serializers.Serializer):
     scope = serializers.CharField(
         required=False,
-        help_text="Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay).",
+        help_text=(
+            "Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay). "
+            "Support-ticket scopes (Ticket, conversations_ticket) additionally require ticket API scope access."
+        ),
     )
     item_id = serializers.CharField(required=False, help_text="Filter by the ID of the resource being commented on.")
     search = serializers.CharField(required=False, help_text="Full-text search within comment content.")
@@ -261,6 +365,47 @@ class CommentListQueryParamsSerializer(serializers.Serializer):
     )
 
 
+class CommentSlackThreadSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(
+        read_only=True, allow_null=True, help_text="User who mirrored the discussion. Null if since deleted."
+    )
+
+    class Meta:
+        model = CommentSlackThread
+        fields = [
+            "id",
+            "scope",
+            "item_id",
+            "source_comment",
+            "integration",
+            "slack_channel_id",
+            "slack_thread_ts",
+            "slack_team_id",
+            "created_at",
+            "created_by",
+        ]
+        read_only_fields = fields
+        extra_kwargs = {
+            "scope": {"help_text": "Resource type of the mirrored discussion (e.g. Insight)."},
+            "item_id": {"help_text": "ID of the resource the discussion is attached to."},
+            "source_comment": {"help_text": "The thread-root comment whose replies mirror to the Slack thread."},
+            "integration": {"help_text": "Slack integration used to post to and read from the thread."},
+            "slack_channel_id": {"help_text": "Slack channel the mirrored thread lives in."},
+            "slack_thread_ts": {"help_text": "Slack thread timestamp anchoring the mirrored thread."},
+            "slack_team_id": {"help_text": "Slack workspace ID, used to route inbound replies back."},
+        }
+
+
+class SendCommentToSlackSerializer(serializers.Serializer):
+    integration_id = serializers.IntegerField(
+        help_text="ID of the Slack integration (kind='slack') whose bot posts the thread."
+    )
+    channel_id = serializers.CharField(
+        max_length=255,
+        help_text="Slack channel ID to create the mirrored thread in. The bot must be a member of the channel.",
+    )
+
+
 @extend_schema(extensions={"x-product": "platform_features"})
 class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Comment.objects.all()
@@ -269,18 +414,133 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
     scope_object = "comment"
     scope_object_read_actions = ["list", "retrieve", "thread", "count"]
 
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        """Ticket-scoped comments require ticket API scope access instead of comment access.
+
+        Candidate scopes are the union of every scope that determines what the request can
+        read or write: the query-param scope (the queryset always filters by it, including for
+        detail lookups and /thread), the stored scope of the pk target (authoritative — a
+        mismatched body scope can't sidestep it), and the body scope on writes only (what
+        create writes and update can rewrite; a body on a GET selects nothing). If any
+        candidate is ticket-carrying the request needs ticket access, and any non-ticket
+        candidate keeps the default comment requirement alongside it (the scopes are ANDed).
+        """
+        candidate_scopes: set[Any] = set()
+        if query_scope := request.GET.get("scope"):
+            candidate_scopes.add(_normalize_scope(query_scope))
+        if pk := self.kwargs.get("pk"):
+            try:
+                candidate_scopes.add(
+                    Comment.objects.filter(team_id=self.team_id, pk=pk).values_list("scope", flat=True).first()
+                )
+            except (ValueError, django_exceptions.ValidationError):
+                return None
+        if request.method not in ("GET", "HEAD", "OPTIONS") and isinstance(request.data, dict):
+            if body_scope := request.data.get("scope"):
+                candidate_scopes.add(_normalize_scope(body_scope))
+            # A reply is read back through its parent's thread, so the parent's stored scope
+            # gates the write too — a non-ticket body scope must not attach a reply to a
+            # ticket thread (nor a ticket reply to a non-ticket parent).
+            if source_comment := request.data.get("source_comment"):
+                try:
+                    candidate_scopes.add(
+                        Comment.objects.filter(team_id=self.team_id, pk=source_comment)
+                        .values_list("scope", flat=True)
+                        .first()
+                    )
+                except (ValueError, django_exceptions.ValidationError):
+                    return None
+        candidate_scopes.discard(None)
+        if not candidate_scopes & TICKET_COMMENT_SCOPES:
+            return None
+        access = "read" if self.action in self.scope_object_read_actions else "write"
+        required: list[str] = [f"ticket:{access}"]
+        if candidate_scopes - TICKET_COMMENT_SCOPES:
+            required.append(f"comment:{access}")
+        return required
+
     @extend_schema(parameters=[CommentListQueryParamsSerializer])
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
 
+    def _slack_mirror_flag_enabled(self) -> bool:
+        """Whether discussions↔Slack sync is on for this user/team.
+
+        Keyed on the requesting user (plus org/project groups) so the gate agrees with the
+        frontend's per-user flag evaluation during partial rollouts.
+        """
+        team = self.team
+        flag_distinct_id = str(getattr(self.request.user, "distinct_id", None) or team.uuid)
+        try:
+            return bool(
+                posthoganalytics.feature_enabled(
+                    DISCUSSIONS_SLACK_SYNC_FLAG,
+                    flag_distinct_id,
+                    groups={"organization": str(team.organization_id), "project": str(team.id)},
+                )
+            )
+        except Exception:
+            return False
+
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["get_user_access_control"] = lambda: self.user_access_control
+        # Prefetch the discussion's Slack mirrors once (keyed by thread-root comment, 1:1) so the
+        # serializer's slack_thread field doesn't do a query per comment. Skipped entirely while
+        # the feature flag is off, so unflagged teams don't pay the lookup on a hot endpoint.
+        scope = self.request.GET.get("scope")
+        item_id = self.request.GET.get("item_id")
+        pk = self.kwargs.get("pk")
+        thread_by_comment: dict[str, CommentSlackThread] = {}
+        if ((scope and item_id) or pk) and self._slack_mirror_flag_enabled():
+            if scope and item_id:
+                for thread in CommentSlackThread.objects.for_team(self.team.id).filter(scope=scope, item_id=item_id):
+                    if thread.source_comment_id:
+                        thread_by_comment[str(thread.source_comment_id)] = thread
+            else:
+                # Detail responses (retrieve/update/complete/reopen) have no scope/item_id params; fetch
+                # the one possible mirror so slack_thread doesn't silently null out — the frontend
+                # replaces list entries with these responses, which would drop the Slack state.
+                for thread in CommentSlackThread.objects.for_team(self.team.id).filter(source_comment_id=pk):
+                    thread_by_comment[str(thread.source_comment_id)] = thread
+        context["slack_thread_by_comment"] = thread_by_comment
         return context
 
+    def _require_ticket_viewer_access_for_pk(self) -> None:
+        """Gate a detail action on the ticket its target comment belongs to.
+
+        Detail actions carry no scope param, so the queryset-level ticket filter never runs for
+        them — and API scope access doesn't help a session caller denied the ticket. An item_id
+        that resolves to no ticket is left alone: the write path rejects those, so only fixtures
+        have them and there is no ticket content to protect.
+        """
+        from products.conversations.backend.models.ticket import (  # noqa: PLC0415 — keeps the generic comments API decoupled from the conversations product, only imported for ticket-scoped reads
+            Ticket,
+        )
+
+        pk = self.kwargs.get("pk")
+        if not pk:
+            return
+        try:
+            target = Comment.objects.filter(team_id=self.team_id, pk=pk).values_list("scope", "item_id").first()
+        except (ValueError, django_exceptions.ValidationError):
+            return
+        if not target:
+            return
+        scope, item_id = target
+        if scope not in TICKET_COMMENT_SCOPES or not item_id:
+            return
+        try:
+            ticket = Ticket.objects.get(team_id=self.team_id, id=item_id)
+        except (Ticket.DoesNotExist, ValueError, django_exceptions.ValidationError):
+            return
+        if not self.user_access_control.check_access_level_for_object(ticket, required_level="viewer"):
+            # Match the list path, where a denied ticket's comments are simply absent.
+            raise exceptions.NotFound()
+
     def _filter_ticket_scoped_queryset(self, queryset: QuerySet, item_id: str | None) -> QuerySet:
-        """conversations_ticket comments are ticket messages — restrict them to tickets the
-        caller has viewer access to, mirroring TicketViewSet's own object-level filtering."""
+        """Ticket-carrying comments are ticket content — restrict them to tickets the caller has
+        viewer access to, mirroring TicketViewSet's own object-level filtering."""
         from products.conversations.backend.models.ticket import (  # noqa: PLC0415 — keeps the generic comments API decoupled from the conversations product, only imported for ticket-scoped reads
             Ticket,
         )
@@ -319,12 +579,17 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         scope = params.get("scope")
         if scope:
             queryset = queryset.filter(scope=scope)
-            if scope == "conversations_ticket":
+            if scope in TICKET_COMMENT_SCOPES:
                 queryset = self._filter_ticket_scoped_queryset(queryset, params.get("item_id"))
+        elif self.action in ("list", "count"):
+            # Ticket-carrying comments (customer messages and internal ticket discussions) never
+            # appear in unscoped enumeration — only when explicitly requested by scope.
+            queryset = queryset.exclude(scope__in=TICKET_COMMENT_SCOPES)
         else:
-            # Exclude conversations_ticket comments by default - they use rich content
-            # from SupportEditor and should only be viewed in the conversations product
-            queryset = queryset.exclude(scope="conversations_ticket")
+            # Detail actions (retrieve, thread, send_to_slack, ...) carry no scope param, so the
+            # branch above never gates them — and API scope access doesn't cover session callers
+            # denied the ticket. Check the pk target's own ticket instead.
+            self._require_ticket_viewer_access_for_pk()
 
         if params.get("item_id"):
             queryset = queryset.filter(item_id=params.get("item_id"))
@@ -382,7 +647,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         comment = self.get_object()
         if not comment.is_task:
             raise exceptions.ValidationError("Only tasks can be marked complete")
-        if comment.scope == "conversations_ticket":
+        if comment.scope in TICKET_COMMENT_SCOPES:
             _require_ticket_editor_access(
                 team_id=self.team_id, item_id=comment.item_id, user_access_control=self.user_access_control
             )
@@ -408,7 +673,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         comment = self.get_object()
         if not comment.is_task:
             raise exceptions.ValidationError("Only tasks can be reopened")
-        if comment.scope == "conversations_ticket":
+        if comment.scope in TICKET_COMMENT_SCOPES:
             _require_ticket_editor_access(
                 team_id=self.team_id, item_id=comment.item_id, user_access_control=self.user_access_control
             )
@@ -422,6 +687,115 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             self._log_task_state_change(comment, request, completed=False)
         serializer = CommentSerializer(comment, context=self.get_serializer_context())
         return Response(serializer.data)
+
+    @extend_schema(
+        request=SendCommentToSlackSerializer,
+        responses=CommentSlackThreadSerializer,
+        description=(
+            "Mirror this discussion thread to a Slack channel. Posts the comment (and its existing "
+            "replies) as a new Slack thread; later replies on either side sync across. A discussion "
+            "mirrors to exactly one Slack thread: re-calling with the same channel returns the "
+            "existing mirror; a different channel is a 400 naming the existing one. 409 while a "
+            "concurrent send is in flight. 404 when the feature is not enabled for the team."
+        ),
+    )
+    @action(methods=["POST"], detail=True)
+    def send_to_slack(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        team = self.team
+        if not self._slack_mirror_flag_enabled():
+            raise exceptions.NotFound()
+
+        comment = self.get_object()
+        if comment.source_comment_id is not None:
+            raise exceptions.ValidationError("Only a top-level comment (a thread root) can be sent to Slack")
+        if comment.scope == "conversations_ticket":
+            raise exceptions.ValidationError("Conversations tickets sync to Slack through the support product")
+
+        params = SendCommentToSlackSerializer(data=request.data)
+        params.is_valid(raise_exception=True)
+        integration_id = params.validated_data["integration_id"]
+        channel_id = params.validated_data["channel_id"]
+
+        integration = Integration.objects.filter(team=team, id=integration_id, kind="slack").first()
+        if integration is None:
+            raise exceptions.ValidationError("Slack integration not found")
+
+        # Reserve the mapping before posting: a discussion mirrors to exactly one Slack thread (1:1),
+        # and the source_comment OneToOne makes this get_or_create race-safe — a double-click can't
+        # post two root messages.
+        slack_thread, created = CommentSlackThread.objects.for_team(team.id).get_or_create(
+            team=team,
+            source_comment=comment,
+            defaults={
+                "scope": comment.scope,
+                "item_id": comment.item_id,
+                "integration": integration,
+                "slack_channel_id": channel_id,
+                "slack_team_id": integration.integration_id,
+                "created_by": cast(User, request.user),
+            },
+        )
+        if not created:
+            if slack_thread.slack_thread_ts:
+                if slack_thread.slack_channel_id != channel_id:
+                    raise exceptions.ValidationError(
+                        "This discussion is already mirrored to Slack channel "
+                        f"{slack_thread.slack_channel_id} — a discussion can only sync to one thread"
+                    )
+                # Idempotent: already mirrored to this channel — return the mapping, no re-post.
+                return Response(CommentSlackThreadSerializer(slack_thread).data)
+            if timezone.now() - slack_thread.created_at < STALE_SLACK_RESERVATION_GRACE:
+                # Another request holds the reservation and its root post is still in flight.
+                raise Conflict("This discussion is already being sent to Slack — try again shortly")
+            # A reservation this old with no root message is a crashed send that would otherwise
+            # block the discussion forever. Adopt it and retry the post; resetting created_at
+            # re-bounds the reply backfill to this attempt.
+            slack_thread.integration = integration
+            slack_thread.slack_channel_id = channel_id
+            slack_thread.slack_team_id = integration.integration_id
+            slack_thread.created_by = cast(User, request.user)
+            slack_thread.created_at = timezone.now()
+            slack_thread.save(
+                update_fields=["integration", "slack_channel_id", "slack_team_id", "created_by", "created_at"]
+            )
+
+        author_name, author_email = slack_author_from_user(comment.created_by)
+        client = SlackIntegration(integration).client
+        client.timeout = 10  # keep a slow Slack workspace from pinning the request worker
+        try:
+            thread_ts = post_comment_to_slack_thread(
+                client=client,
+                channel=channel_id,
+                content=comment.content or "",
+                rich_content=comment.rich_content,
+                author_name=author_name,
+                author_email=author_email,
+                item_url=build_comment_item_url(comment.scope, comment.item_id),
+                item_label=comment_scope_display_name(comment.scope),
+                organization_id=self.team.organization_id,
+            )
+        except Exception as e:
+            _release_slack_reservation(slack_thread)
+            # Surface Slack's error code (not_in_channel, channel_not_found, ...) — it's the
+            # actionable part for the user; the full exception is chained for error tracking.
+            slack_error = e.response.get("error") if isinstance(e, SlackApiError) and e.response else None
+            detail = (
+                f"Failed to post the discussion to Slack ({slack_error})"
+                if slack_error
+                else ("Failed to post the discussion to Slack")
+            )
+            raise exceptions.ValidationError(detail) from e
+        if not thread_ts:
+            _release_slack_reservation(slack_thread)
+            raise exceptions.ValidationError("Cannot send an empty comment to Slack")
+
+        slack_thread.slack_thread_ts = thread_ts
+        slack_thread.save(update_fields=["slack_thread_ts"])
+
+        # Backfill existing replies asynchronously so the request isn't blocked on N Slack posts.
+        backfill_comment_slack_thread.delay(comment_slack_thread_id=str(slack_thread.id))
+
+        return Response(CommentSlackThreadSerializer(slack_thread).data)
 
     @staticmethod
     def _log_task_state_change(comment: Comment, request: Request, *, completed: bool) -> None:
