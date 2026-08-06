@@ -3669,6 +3669,12 @@ class TestExperimentService(APIBaseTest):
         assert frozen.is_running is True
         assert frozen.is_exposure_frozen is True
 
+        # The freeze shows up in the experiment's History tab, not only under the flag's scope.
+        log = ActivityLog.objects.get(scope="Experiment", item_id=str(experiment.pk), activity="exposure_frozen")
+        assert log.user == self.user
+        assert log.detail is not None
+        assert log.detail["name"] == "Freeze Exposure"
+
     def test_freeze_exposure_multi_group_flag(self):
         experiment = self._create_running_experiment(name="Freeze Multi", feature_flag_key="freeze-multi-flag")
         flag = experiment.feature_flag
@@ -4186,6 +4192,12 @@ class TestExperimentService(APIBaseTest):
         # The snapshot cohort is soft-deleted, not left as clutter.
         cohort.refresh_from_db()
         assert cohort.deleted is True
+
+        # The unfreeze shows up in the experiment's History tab, not only under the flag's scope.
+        log = ActivityLog.objects.get(scope="Experiment", item_id=str(experiment.pk), activity="exposure_unfrozen")
+        assert log.user == self.user
+        assert log.detail is not None
+        assert log.detail["name"] == "Unfreeze Test"
 
     def test_unfreeze_exposure_keeps_user_edits_made_while_frozen(self) -> None:
         experiment = self._create_running_experiment(name="Unfreeze Edits", feature_flag_key="unfreeze-edits-flag")
