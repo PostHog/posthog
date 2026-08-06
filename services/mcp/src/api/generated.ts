@@ -17443,7 +17443,10 @@ export namespace Schemas {
          * @maxLength 255
          */
       display_name?: string;
-      /** What the metric means and how to interpret it. */
+      /**
+         * What the metric means and what it serves, in 1-3 short sentences: the business meaning plus any load-bearing inclusions/exclusions or grain. Never narrate or restate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
+         * @maxLength 1000
+         */
       description: string;
       /**
          * Unit of the result, e.g. usd, percent, cents.
@@ -51904,7 +51907,10 @@ export namespace Schemas {
          * @maxLength 255
          */
       display_name?: string;
-      /** What the metric means and how to interpret it. */
+      /**
+         * What the metric means and what it serves, in 1-3 short sentences: the business meaning plus any load-bearing inclusions/exclusions or grain. Never narrate or restate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
+         * @maxLength 1000
+         */
       description?: string;
       /**
          * Unit of the result, e.g. usd, percent, cents.
