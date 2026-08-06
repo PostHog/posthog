@@ -42,7 +42,10 @@ SELECT_FROM_SESSIONS_HOGQL = ast.SelectQuery(
         parse_expr("$exit_current_url as exit_current_url"),
         parse_expr("$exit_pathname as exit_pathname"),
         parse_expr("$vitals_lcp as vitals_lcp"),
-        parse_expr("$end_timestamp as _inserted_at"),
+        # max_inserted_at is only available since around end of 2025. Before
+        # that, it is the zero value (unix epoch). We use greatest to pick
+        # $end_timestamp for backfills from before max_inserted_at was available.
+        parse_expr("greatest(max_inserted_at, $end_timestamp) as _inserted_at"),
         parse_expr("$entry_gclsrc as entry_gclsrc"),
         parse_expr("$entry_dclid as entry_dclid"),
         parse_expr("$entry_gbraid as entry_gbraid"),

@@ -185,12 +185,6 @@ class SessionsRecordBatchModel(RecordBatchModel):
                         left=ast.Field(chain=["_inserted_at"]),
                         right=ast.Constant(value=data_interval_start),
                     ),
-                    # include $end_timestamp because hogql uses this to add a where clause to the inner query
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.GtEq,
-                        left=ast.Field(chain=["$end_timestamp"]),
-                        right=ast.Constant(value=data_interval_start),
-                    ),
                 ]
             )
 
@@ -238,7 +232,7 @@ class SessionsRecordBatchModel(RecordBatchModel):
 
         return ast.SelectQuery(
             select=[
-                parse_expr("toTimeZone(min($end_timestamp), 'UTC') as min_timestamp"),
+                parse_expr("toTimeZone(min(greatest(max_inserted_at, $end_timestamp)), 'UTC') as min_timestamp"),
                 parse_expr("count() as record_count"),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["sessions"])),
