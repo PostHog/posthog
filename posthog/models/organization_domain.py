@@ -208,7 +208,9 @@ class OrganizationDomainManager(models.Manager):
                 return False
         else:
             sso_providers = get_instance_available_sso_providers()
-            if not sso_providers[candidate_sso_enforcement]:
+            # An unrecognized value (a provider we no longer support, say) counts as not configured.
+            # Subscripting would raise instead, and this now runs per member-list request.
+            if not sso_providers.get(candidate_sso_enforcement, False):
                 logger.warning(
                     f"SSO is enforced for domain {domain} but the SSO provider ({candidate_sso_enforcement}) is not properly configured.",
                     domain=domain,
