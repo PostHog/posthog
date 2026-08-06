@@ -3,12 +3,12 @@ from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID
 
-from django.db.models import Count, Q, QuerySet
+from django.db.models import Count, OuterRef, Q, QuerySet, Subquery
 
 from posthog.models import Comment
 
 from products.tasks.backend.facade import contracts
-from products.tasks.backend.models import TaskArtifact, TaskRun, TaskThreadMessage
+from products.tasks.backend.models import TaskArtifact, TaskArtifactVersion, TaskRun, TaskThreadMessage
 
 COMMENT_STATES = frozenset({"open", "resolved"})
 LEGACY_TASK_RUN_LIMIT = 100
@@ -181,29 +181,83 @@ def _target_names_for_roots(*, team_id: int, task_id: UUID, roots: Sequence[Comm
 
 
 def list_artifacts(*, team_id: int, task_id: UUID) -> list[contracts.TaskArtifactDTO]:
+    from products.tasks.backend.logic.services.artifact_versions import (  # noqa: PLC0415 - avoids loading object storage during module import
+        is_editable_text_artifact,
+    )
+
     artifacts: dict[tuple[str, str], contracts.TaskArtifactDTO] = {}
-    relational_artifacts = (
+    current_versions = TaskArtifactVersion.objects.for_team(team_id).filter(
+        artifact_id=OuterRef("pk"), version=OuterRef("current_version")
+    )
+    relational_artifacts = list(
         TaskArtifact.objects.for_team(team_id)
         .filter(task_id=task_id)
-        .order_by("-updated_at", "-id")
-        .values_list("id", "name")[:TASK_ARTIFACT_LIMIT]
+        .annotate(
+            stored_version_count=Count("stored_versions"),
+            current_stored_version_id=Subquery(current_versions.values("id")[:1]),
+            current_stored_run_id=Subquery(current_versions.values("task_run_id")[:1]),
+            current_stored_run_artifact_id=Subquery(current_versions.values("run_artifact_id")[:1]),
+        )
+        .order_by("-updated_at", "-id")[:TASK_ARTIFACT_LIMIT]
     )
-    for artifact_id, name in relational_artifacts:
-        relational_id = str(artifact_id)
-        artifacts[("artifact", relational_id)] = contracts.TaskArtifactDTO(id=relational_id, type="artifact", name=name)
-    for manifest in (
+
+    for artifact in relational_artifacts:
+        relational_id = str(artifact.id)
+        version_count = int(getattr(artifact, "stored_version_count", 0))
+        current_version_id = getattr(artifact, "current_stored_version_id", None)
+        current_run_id = getattr(artifact, "current_stored_run_id", None)
+        current_run_artifact_id = getattr(artifact, "current_stored_run_artifact_id", None)
+        metadata = artifact.metadata if isinstance(artifact.metadata, dict) else {}
+        current_entry = {
+            "name": artifact.name,
+            "content_type": metadata.get("content_type"),
+            "size": metadata.get("size"),
+        }
+        artifacts[("artifact", relational_id)] = contracts.TaskArtifactDTO(
+            id=relational_id,
+            type="artifact",
+            name=artifact.name,
+            run_id=str(current_run_id) if current_run_id is not None else None,
+            run_artifact_id=str(current_run_artifact_id) if current_run_artifact_id is not None else None,
+            current_version_id=str(current_version_id) if current_version_id is not None else None,
+            current_version=artifact.current_version if current_version_id is not None else None,
+            version_count=version_count,
+            content_type=str(metadata.get("content_type") or "") or None,
+            size=metadata.get("size") if isinstance(metadata.get("size"), int) else None,
+            editable=current_version_id is not None and is_editable_text_artifact(current_entry),
+        )
+
+    run_manifests = (
         TaskRun.objects.filter(team_id=team_id, task_id=task_id)
         .order_by("-created_at", "-id")
-        .values_list("artifacts", flat=True)[:LEGACY_TASK_RUN_LIMIT]
-    ):
+        .values_list("id", "artifacts")[:LEGACY_TASK_RUN_LIMIT]
+    )
+    for run_id, manifest in run_manifests:
         for artifact in manifest or []:
             if not isinstance(artifact, dict):
                 continue
             artifact_id = str(artifact.get("id") or "")
             artifact_name = artifact.get("name")
             artifact_key = ("artifact", artifact_id)
-            if artifact_id and artifact_key not in artifacts and isinstance(artifact_name, str) and artifact_name:
-                artifacts[artifact_key] = contracts.TaskArtifactDTO(id=artifact_id, type="artifact", name=artifact_name)
+            if (
+                artifact_id
+                and not (
+                    artifact.get("logical_artifact_id")
+                    and ("artifact", str(artifact["logical_artifact_id"])) in artifacts
+                )
+                and artifact_key not in artifacts
+                and isinstance(artifact_name, str)
+                and artifact_name
+            ):
+                artifacts[artifact_key] = contracts.TaskArtifactDTO(
+                    id=artifact_id,
+                    type="artifact",
+                    name=artifact_name,
+                    run_id=str(run_id),
+                    run_artifact_id=artifact_id,
+                    content_type=str(artifact.get("content_type") or "") or None,
+                    size=artifact.get("size") if isinstance(artifact.get("size"), int) else None,
+                )
     for payload in (
         TaskThreadMessage.objects.for_team(team_id)
         .filter(task_id=task_id, event="canvas_created")
@@ -313,6 +367,7 @@ def _entry(comment: Comment, *, content_budget: int, content_offset: int = 0) ->
         created_at=comment.created_at,
         anchor=_bounded_anchor(comment),
         canvas_version_id=_item_context(comment).get("canvasVersionId"),
+        artifact_version_id=_item_context(comment).get("artifactVersionId"),
     )
 
 

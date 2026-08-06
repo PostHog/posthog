@@ -69,6 +69,7 @@ from products.tasks.backend.models import (
     SandboxSession,
     Task,
     TaskArtifact,
+    TaskArtifactVersion,
     TaskAutomation,
     TaskClientProvenance,
     TaskPin,
@@ -5924,6 +5925,38 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @patch("posthog.storage.object_storage.write")
     @patch("posthog.storage.object_storage.tag")
+    def test_upload_output_artifact_registers_its_first_version(self, mock_tag, mock_write):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/",
+            {
+                "artifacts": [
+                    {
+                        "name": "report.md",
+                        "type": "output",
+                        "source": "agent_output",
+                        "content": "# Report",
+                        "content_type": "text/markdown",
+                    }
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        entry = response.json()["artifacts"][0]
+        self.assertEqual(entry["artifact_version"], 1)
+        self.assertEqual(entry["logical_artifact_id"], str(uuid.UUID(entry["id"])))
+        artifact = TaskArtifact.objects.for_team(self.team.id).get(id=entry["logical_artifact_id"])
+        version = TaskArtifactVersion.objects.for_team(self.team.id).get(artifact=artifact)
+        self.assertEqual(version.run_artifact_id, entry["id"])
+        mock_write.assert_called_once()
+        mock_tag.assert_called_once_with(entry["storage_path"], {"team_id": str(self.team.id)})
+
+    @patch("posthog.storage.object_storage.write")
+    @patch("posthog.storage.object_storage.tag")
     def test_upload_artifacts_accepts_base64_content(self, mock_tag, mock_write):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
@@ -6595,6 +6628,168 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(artifact["size"], 4096)
         self.assertEqual(artifact["content_type"], "application/pdf")
         self.assertEqual(artifact["storage_path"], storage_path)
+
+    @patch("posthog.storage.object_storage.tag")
+    @patch("posthog.storage.object_storage.head_object")
+    def test_finalize_output_upload_creates_and_advances_version_history(self, mock_head_object, mock_tag):
+        mock_head_object.return_value = {"ContentLength": 12, "ContentType": "text/markdown"}
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        first_physical_id = uuid.uuid4().hex
+        first_storage_path = f"{run.get_artifact_s3_prefix()}/{first_physical_id[:8]}_report.md"
+
+        first = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/finalize_upload/",
+            {
+                "artifacts": [
+                    {
+                        "id": first_physical_id,
+                        "name": "report.md",
+                        "type": "output",
+                        "source": "agent_output",
+                        "storage_path": first_storage_path,
+                        "content_type": "text/markdown",
+                    }
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        first_entry = first.json()["artifacts"][0]
+        logical_artifact_id = first_entry["logical_artifact_id"]
+        first_version_id = first_entry["artifact_version_id"]
+        self.assertEqual(logical_artifact_id, str(uuid.UUID(first_physical_id)))
+        self.assertEqual(first_entry["artifact_version"], 1)
+        self.assertTrue(TaskArtifact.objects.for_team(self.team.id).filter(id=logical_artifact_id, task=task).exists())
+
+        second_physical_id = uuid.uuid4().hex
+        second_storage_path = f"{run.get_artifact_s3_prefix()}/{second_physical_id[:8]}_report.md"
+        second = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/finalize_upload/",
+            {
+                "artifacts": [
+                    {
+                        "id": second_physical_id,
+                        "name": "report.md",
+                        "type": "output",
+                        "source": "agent_output",
+                        "storage_path": second_storage_path,
+                        "content_type": "text/markdown",
+                        "logical_artifact_id": logical_artifact_id,
+                        "expected_current_version_id": first_version_id,
+                        "request_id": str(uuid.uuid4()),
+                    }
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(second.status_code, status.HTTP_200_OK)
+        second_entry = second.json()["artifacts"][0]
+        self.assertEqual(second_entry["logical_artifact_id"], logical_artifact_id)
+        self.assertEqual(second_entry["artifact_version"], 2)
+        self.assertEqual(
+            TaskArtifactVersion.objects.for_team(self.team.id).filter(artifact_id=logical_artifact_id).count(),
+            2,
+        )
+        artifact = TaskArtifact.objects.for_team(self.team.id).get(id=logical_artifact_id)
+        self.assertEqual(artifact.current_version, 2)
+        mock_tag.assert_any_call(first_storage_path, {"team_id": str(self.team.id)})
+        mock_tag.assert_any_call(second_storage_path, {"team_id": str(self.team.id)})
+
+        stale_physical_id = uuid.uuid4().hex
+        stale_storage_path = f"{run.get_artifact_s3_prefix()}/{stale_physical_id[:8]}_report.md"
+        stale = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/finalize_upload/",
+            {
+                "artifacts": [
+                    {
+                        "id": stale_physical_id,
+                        "name": "report.md",
+                        "type": "output",
+                        "source": "agent_output",
+                        "storage_path": stale_storage_path,
+                        "content_type": "text/markdown",
+                        "logical_artifact_id": logical_artifact_id,
+                        "expected_current_version_id": first_version_id,
+                        "request_id": str(uuid.uuid4()),
+                    }
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(stale.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(stale.json()["code"], "version_conflict")
+        self.assertEqual(stale.json()["current_version_id"], second_entry["artifact_version_id"])
+        run.refresh_from_db()
+        self.assertEqual(len(run.artifacts), 2)
+        mock_tag.assert_any_call(stale_storage_path, {"ttl_days": "1", "team_id": str(self.team.id)})
+
+    @patch("posthog.storage.object_storage.read_bytes")
+    def test_artifact_version_endpoints_return_only_the_requested_task_content(self, mock_read_bytes):
+        mock_read_bytes.return_value = b"# Report\n\nReady"
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+        physical_id = uuid.uuid4().hex
+        storage_path = f"{run.get_artifact_s3_prefix()}/{physical_id[:8]}_report.md"
+        run.artifacts = [
+            {
+                "id": physical_id,
+                "name": "report.md",
+                "type": "output",
+                "source": "agent_output",
+                "size": 16,
+                "content_type": "text/markdown",
+                "storage_path": storage_path,
+                "uploaded_at": django_timezone.now().isoformat(),
+            }
+        ]
+        run.save(update_fields=["artifacts", "updated_at"])
+        artifact = TaskArtifact.objects.for_team(self.team.id).create(
+            id=uuid.UUID(physical_id),
+            team=self.team,
+            task=task,
+            task_run=run,
+            created_by=self.user,
+            name="report.md",
+            artifact_type=TaskArtifact.ArtifactType.FILE,
+            adapter=TaskArtifact.Adapter.OBJECT_STORAGE,
+            location={},
+            metadata={"content_type": "text/markdown", "size": 16},
+            versions=[],
+            current_version=1,
+        )
+        version = TaskArtifactVersion.objects.for_team(self.team.id).create(
+            team=self.team,
+            artifact=artifact,
+            task_run=run,
+            run_artifact_id=physical_id,
+            version=1,
+            created_by=self.user,
+        )
+
+        artifacts = self.client.get(f"/api/projects/@current/tasks/{task.id}/artifacts/")
+        versions = self.client.get(f"/api/projects/@current/tasks/{task.id}/artifacts/{artifact.id}/versions/")
+        content = self.client.get(f"/api/projects/@current/tasks/{task.id}/artifacts/{artifact.id}/versions/current/")
+        other_task = self.create_task()
+        inaccessible = self.client.get(
+            f"/api/projects/@current/tasks/{other_task.id}/artifacts/{artifact.id}/versions/{version.id}/"
+        )
+
+        self.assertEqual(artifacts.status_code, status.HTTP_200_OK)
+        listed = next(item for item in artifacts.json()["artifacts"] if item["id"] == str(artifact.id))
+        self.assertEqual(listed["current_version_id"], str(version.id))
+        self.assertEqual(listed["run_artifact_id"], physical_id)
+        self.assertTrue(listed["editable"])
+        self.assertEqual(versions.status_code, status.HTTP_200_OK)
+        self.assertEqual(versions.json()["versions"][0]["id"], str(version.id))
+        self.assertEqual(content.status_code, status.HTTP_200_OK)
+        self.assertEqual(content.json()["content"], "# Report\n\nReady")
+        self.assertEqual(content.json()["version"]["run_artifact_id"], physical_id)
+        self.assertEqual(inaccessible.status_code, status.HTTP_404_NOT_FOUND)
+        mock_read_bytes.assert_called_once_with(storage_path, missing_ok=True)
 
     @patch("posthog.storage.object_storage.head_object")
     def test_finalize_artifact_uploads_rejects_invalid_storage_path(self, mock_head_object):

@@ -83,6 +83,11 @@ export function TabContentRenderer({
           taskId={taskId}
           runId={data.runId}
           artifactId={data.artifactId}
+          runArtifactId={data.runArtifactId ?? data.artifactId}
+          initialVersionId={data.versionId ?? null}
+          initialVersion={data.version ?? null}
+          editable={data.editable ?? false}
+          contentType={data.contentType ?? "application/octet-stream"}
           name={tab.label}
         />
       );

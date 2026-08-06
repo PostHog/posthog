@@ -169,6 +169,11 @@ describe("panelLayoutStore", () => {
         type: "artifact",
         runId: "run-1",
         artifactId: "output-1",
+        runArtifactId: "output-1",
+        versionId: null,
+        version: null,
+        editable: false,
+        contentType: "application/octet-stream",
       });
     });
 

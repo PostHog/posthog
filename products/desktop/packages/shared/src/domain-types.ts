@@ -259,6 +259,29 @@ export interface TaskRunArtifact {
   metadata?: TaskRunArtifactMetadata;
   storage_path?: string;
   uploaded_at?: string;
+  logical_artifact_id?: string;
+  artifact_version_id?: string;
+  artifact_version?: number;
+}
+
+export interface TaskArtifactVersion {
+  id: string;
+  artifact_id: string;
+  version: number;
+  run_id: string;
+  run_artifact_id: string;
+  name: string;
+  content_type: string;
+  size: number | null;
+  created_at: string;
+  created_by?: UserBasic | null;
+}
+
+export interface TaskArtifactVersionContent {
+  version: TaskArtifactVersion;
+  content: string;
+  content_truncated: boolean;
+  content_next_offset: number | null;
 }
 
 export const TERMINAL_STATUSES = ["completed", "failed", "cancelled"] as const;

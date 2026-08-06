@@ -53,6 +53,7 @@ interface CodeMirrorEditorProps {
   enrichment?: SerializedEnrichment | null;
   /** Fires on every selection (or doc) change with the current selection. */
   onSelectionChange?: (selection: EditorSelection) => void;
+  onContentChange?: (content: string) => void;
   /** Highlight the active selection as full lines (code-review style). */
   highlightSelectedLines?: boolean;
 }
@@ -64,6 +65,7 @@ export function CodeMirrorEditor({
   readOnly = false,
   enrichment,
   onSelectionChange,
+  onContentChange,
   highlightSelectedLines = false,
 }: CodeMirrorEditorProps) {
   const enrichmentEnabled = enrichment !== undefined;
@@ -76,9 +78,14 @@ export function CodeMirrorEditor({
   // Ref-stable listener: a changing extension would tear down the editor.
   const onSelectionChangeRef = useRef(onSelectionChange);
   onSelectionChangeRef.current = onSelectionChange;
+  const onContentChangeRef = useRef(onContentChange);
+  onContentChangeRef.current = onContentChange;
   const selectionExtension = useMemo(
     () =>
       EditorView.updateListener.of((update) => {
+        if (update.docChanged) {
+          onContentChangeRef.current?.(update.state.doc.toString());
+        }
         const cb = onSelectionChangeRef.current;
         if (!cb) return;
         const changed = update.selectionSet || update.docChanged;

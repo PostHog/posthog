@@ -95,6 +95,11 @@ from products.tasks.backend.presentation.serializers import (
     SlackThreadContextResponseSerializer,
     StreamReadTokenResponseSerializer,
     TaskArtifactsResponseSerializer,
+    TaskArtifactVersionConflictSerializer,
+    TaskArtifactVersionContentQuerySerializer,
+    TaskArtifactVersionContentSerializer,
+    TaskArtifactVersionsQuerySerializer,
+    TaskArtifactVersionsResponseSerializer,
     TaskAutomationSerializer,
     TaskAutomationWriteSerializer,
     TaskCommentDetailQuerySerializer,
@@ -309,6 +314,17 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         return parsed_task_id
 
+    def _task_resource_id(self, request, task_id: str) -> UUID:
+        if isinstance(request.successful_authenticator, OAuthAccessTokenAuthentication):
+            return self._sandbox_bound_task_id(request, task_id)
+        try:
+            parsed_task_id = UUID(task_id)
+        except ValueError:
+            raise NotFound() from None
+        if not tasks_facade.task_accessible_for_run_view(parsed_task_id, self.team_id, self._user_id()):
+            raise NotFound()
+        return parsed_task_id
+
     def _write_serializer(
         self,
         data,
@@ -365,11 +381,96 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(operation_id="tasks_artifacts_list", responses=TaskArtifactsResponseSerializer)
     @action(detail=True, methods=["get"], url_path="artifacts", required_scopes=["task:read"])
     def artifacts(self, request, pk=None, **kwargs):
-        task_id = self._sandbox_bound_task_id(request, pk)
+        task_id = self._task_resource_id(request, pk)
         data = TaskArtifactsResponseSerializer(
             {"artifacts": tasks_facade.list_task_artifacts(team_id=self.team_id, task_id=task_id)}
         ).data
         return Response(data)
+
+    @validated_request(
+        query_serializer=TaskArtifactVersionsQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskArtifactVersionsResponseSerializer,
+                description="Artifact version history",
+            ),
+            404: OpenApiResponse(description="Artifact not found"),
+        },
+        summary="List task artifact versions",
+        description="Returns immutable uploaded versions of one task artifact, newest first.",
+        strict_request_validation=True,
+        operation_id="tasks_artifact_versions_list",
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"artifacts/(?P<artifact_id>[^/.]+)/versions",
+        required_scopes=["task:read"],
+    )
+    def artifact_versions(self, request, pk=None, artifact_id=None, **kwargs):
+        task_id = self._task_resource_id(request, pk)
+        try:
+            parsed_artifact_id = UUID(str(artifact_id))
+        except ValueError:
+            raise NotFound() from None
+        params = request.validated_query_data
+        versions = tasks_facade.list_task_artifact_versions(
+            team_id=self.team_id,
+            task_id=task_id,
+            artifact_id=parsed_artifact_id,
+            limit=params["limit"],
+            before_version=params.get("before_version"),
+        )
+        if versions is None:
+            raise NotFound()
+        return Response(TaskArtifactVersionsResponseSerializer(versions).data)
+
+    @validated_request(
+        query_serializer=TaskArtifactVersionContentQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskArtifactVersionContentSerializer,
+                description="Artifact version content",
+            ),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Artifact is not editable text"),
+            404: OpenApiResponse(description="Artifact version not found"),
+        },
+        summary="Retrieve a task artifact version",
+        description="Returns metadata and a bounded UTF-8 content chunk for one uploaded artifact version.",
+        strict_request_validation=True,
+        operation_id="tasks_artifact_versions_retrieve",
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"artifacts/(?P<artifact_id>[^/.]+)/versions/(?P<version_id>[^/.]+)",
+        required_scopes=["task:read"],
+    )
+    def artifact_version(self, request, pk=None, artifact_id=None, version_id=None, **kwargs):
+        task_id = self._task_resource_id(request, pk)
+        try:
+            parsed_artifact_id = UUID(str(artifact_id))
+            parsed_version_id = None if version_id == "current" else UUID(str(version_id))
+        except ValueError:
+            raise NotFound() from None
+        params = request.validated_query_data
+        try:
+            version = tasks_facade.retrieve_task_artifact_version(
+                team_id=self.team_id,
+                task_id=task_id,
+                artifact_id=parsed_artifact_id,
+                version_id=parsed_version_id,
+                content_offset=params["content_offset"],
+                content_limit=params["content_limit"],
+            )
+        except ValueError as error:
+            return Response(
+                TaskRunErrorResponseSerializer({"error": str(error)}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if version is None:
+            raise NotFound()
+        return Response(TaskArtifactVersionContentSerializer(version).data)
 
     @extend_schema(
         operation_id="tasks_comments_list",
@@ -1081,6 +1182,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound("Task not found")
         return task_id
 
+    def _ensure_sandbox_artifact_task(self, task_id: str) -> None:
+        authenticator = self.request.successful_authenticator
+        if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+            return
+        application = authenticator.access_token.application
+        if application is None or application.client_id not in POSTHOG_CODE_OAUTH_APP_CLIENT_IDS:
+            return
+        bound_task_id = authenticator.access_token.sandbox_task_id
+        if bound_task_id is not None and bound_task_id != UUID(task_id):
+            raise NotFound("Task not found")
+
     def _get_run_or_404(self, pk) -> tasks_contracts.TaskRunDetailDTO:
         task_id = self._ensure_task_accessible()
         run = tasks_facade.get_task_run_detail(pk, task_id, self.team_id)
@@ -1527,6 +1639,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid artifact payload"),
             404: OpenApiResponse(description="Run not found"),
+            409: OpenApiResponse(
+                response=TaskArtifactVersionConflictSerializer,
+                description="Artifact moved past the expected current version",
+            ),
         },
         summary="Upload artifacts for a task run",
         description="Persist task artifacts to S3 and attach them to the run manifest.",
@@ -1540,9 +1656,31 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def artifacts(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
-        result = tasks_facade.upload_task_run_artifacts(
-            pk, task_id, self.team_id, artifacts=request.validated_data["artifacts"]
-        )
+        self._ensure_sandbox_artifact_task(task_id)
+        try:
+            result = tasks_facade.upload_task_run_artifacts(
+                pk,
+                task_id,
+                self.team_id,
+                artifacts=request.validated_data["artifacts"],
+                created_by_id=getattr(request.user, "id", None),
+            )
+        except tasks_contracts.TaskArtifactVersionConflict as error:
+            return Response(
+                TaskArtifactVersionConflictSerializer(
+                    {
+                        "code": "version_conflict",
+                        "detail": "A newer artifact version was saved. Load it before saving again.",
+                        "current_version_id": error.current_version_id,
+                    }
+                ).data,
+                status=status.HTTP_409_CONFLICT,
+            )
+        except ValueError as upload_error:
+            return Response(
+                TaskRunErrorResponseSerializer({"error": str(upload_error)}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if result is None:
             raise NotFound()
         _uploaded, manifest = result
@@ -1571,6 +1709,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def artifacts_prepare_upload(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
+        self._ensure_sandbox_artifact_task(task_id)
         prepared, ok = tasks_facade.prepare_task_run_artifact_uploads(
             pk,
             task_id,
@@ -1598,6 +1737,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid artifact payload"),
             404: OpenApiResponse(description="Run not found"),
+            409: OpenApiResponse(
+                response=TaskArtifactVersionConflictSerializer,
+                description="Artifact moved past the expected current version",
+            ),
         },
         summary="Finalize direct uploads for task run artifacts",
         description="Verify directly uploaded S3 objects and attach them to the run artifact manifest.",
@@ -1611,9 +1754,26 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def artifacts_finalize_upload(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
-        finalized_entries, error = tasks_facade.finalize_task_run_artifact_uploads(
-            pk, task_id, self.team_id, artifacts=request.validated_data["artifacts"]
-        )
+        self._ensure_sandbox_artifact_task(task_id)
+        try:
+            finalized_entries, error = tasks_facade.finalize_task_run_artifact_uploads(
+                pk,
+                task_id,
+                self.team_id,
+                artifacts=request.validated_data["artifacts"],
+                created_by_id=getattr(request.user, "id", None),
+            )
+        except tasks_contracts.TaskArtifactVersionConflict as version_error:
+            return Response(
+                TaskArtifactVersionConflictSerializer(
+                    {
+                        "code": "version_conflict",
+                        "detail": "A newer artifact version was saved. Load it before saving again.",
+                        "current_version_id": version_error.current_version_id,
+                    }
+                ).data,
+                status=status.HTTP_409_CONFLICT,
+            )
         if finalized_entries is None and error is None:
             raise NotFound()
         if error is not None:

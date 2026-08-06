@@ -1,0 +1,26 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "artifact_id": {
+            "description": "Stable artifact id returned by tasks-artifacts-list.",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "type": "string"
+        },
+        "before_version": {
+            "description": "Cursor returned by the previous page.",
+            "maximum": 9007199254740991,
+            "minimum": 2,
+            "type": "integer"
+        },
+        "limit": {
+            "default": 100,
+            "description": "Maximum versions to return.",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+        }
+    },
+    "required": ["artifact_id"],
+    "type": "object"
+}

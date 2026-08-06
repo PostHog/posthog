@@ -11,6 +11,7 @@ import type {
 } from "@agentclientprotocol/sdk";
 import type {
   CreateResourceCommentRequest,
+  PreparedTaskArtifactUpload,
   ResourceComment,
 } from "@posthog/api-client/posthog-client";
 import {
@@ -40,6 +41,7 @@ import {
   type StoredLogEntry,
   sendableQueuePrefixLength,
   sessionSupportsNativeSteer,
+  type TaskArtifactVersion,
   type TaskRunArtifact,
   type TaskRunStatus,
 } from "@posthog/shared";
@@ -7498,6 +7500,78 @@ export class SessionService {
       });
       return null;
     }
+  }
+
+  async getCloudArtifactVersions(
+    taskId: string,
+    artifactId: string,
+  ): Promise<TaskArtifactVersion[]> {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready") return [];
+    return authStatus.auth.client.listTaskArtifactVersions(taskId, artifactId);
+  }
+
+  async saveCloudArtifactVersion(input: {
+    taskId: string;
+    runId: string;
+    artifactId: string;
+    expectedVersionId: string;
+    name: string;
+    contentType: string;
+    content: string;
+  }): Promise<TaskRunArtifact> {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready") {
+      throw new Error("Sign in to save this artifact");
+    }
+    const bytes = new TextEncoder().encode(input.content);
+    const preparedUploads: PreparedTaskArtifactUpload[] =
+      await authStatus.auth.client.prepareTaskRunArtifactUploads(
+        input.taskId,
+        input.runId,
+        [
+          {
+            name: input.name,
+            type: "output",
+            source: "agent_output",
+            size: bytes.byteLength,
+            content_type: input.contentType,
+          },
+        ],
+      );
+    const prepared = preparedUploads[0];
+    if (!prepared) throw new Error("Unable to prepare the artifact upload");
+
+    const formData = new FormData();
+    for (const [key, value] of Object.entries(prepared.presigned_post.fields)) {
+      formData.append(key, value);
+    }
+    formData.append(
+      "file",
+      new Blob([bytes], { type: input.contentType }),
+      input.name,
+    );
+    const upload = await fetch(prepared.presigned_post.url, {
+      method: "POST",
+      body: formData,
+    });
+    if (!upload.ok) throw new Error("Unable to upload the artifact version");
+
+    const [finalized] =
+      await authStatus.auth.client.finalizeTaskRunArtifactUploads(
+        input.taskId,
+        input.runId,
+        [
+          {
+            ...prepared,
+            logical_artifact_id: input.artifactId,
+            expected_current_version_id: input.expectedVersionId,
+            request_id: globalThis.crypto.randomUUID(),
+          },
+        ],
+      );
+    if (!finalized) throw new Error("Unable to save the artifact version");
+    return finalized;
   }
 
   async getResourceComments(

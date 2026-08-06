@@ -13,7 +13,12 @@ type TaskRunResponseDTO = Partial<
 > & {
   id: string;
   artifacts?: Array<
-    Schemas.TaskRunArtifactResponse & { metadata?: unknown }
+    Schemas.TaskRunArtifactResponse & {
+      metadata?: unknown;
+      logical_artifact_id?: string;
+      artifact_version_id?: string;
+      artifact_version?: number;
+    }
   > | null;
   status?: Schemas.StatusA35Enum | "started" | null;
   team?: number | null;
@@ -126,6 +131,15 @@ function normalizeTaskRunArtifact(
     ...(artifact.uploaded_at === undefined
       ? {}
       : { uploaded_at: artifact.uploaded_at }),
+    ...(artifact.logical_artifact_id === undefined
+      ? {}
+      : { logical_artifact_id: artifact.logical_artifact_id }),
+    ...(artifact.artifact_version_id === undefined
+      ? {}
+      : { artifact_version_id: artifact.artifact_version_id }),
+    ...(artifact.artifact_version === undefined
+      ? {}
+      : { artifact_version: artifact.artifact_version }),
   };
 }
 

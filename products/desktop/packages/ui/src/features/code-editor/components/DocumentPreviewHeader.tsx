@@ -12,12 +12,14 @@ export function DocumentPreviewHeader({
   content,
   showRendered,
   onToggleRendered,
+  canToggleRendered = true,
   actions,
 }: {
   label: string;
   content: string;
   showRendered: boolean;
   onToggleRendered: () => void;
+  canToggleRendered?: boolean;
   actions?: ReactNode;
 }) {
   const [copied, setCopied] = useState(false);
@@ -35,23 +37,25 @@ export function DocumentPreviewHeader({
       </span>
       <div className="flex items-center gap-1">
         {actions}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                size="icon"
-                variant="default"
-                onClick={onToggleRendered}
-                aria-label={showRendered ? "View source" : "View preview"}
-              >
-                {showRendered ? <Code size={14} /> : <Eye size={14} />}
-              </Button>
-            }
-          />
-          <TooltipContent>
-            {showRendered ? "View source" : "View preview"}
-          </TooltipContent>
-        </Tooltip>
+        {canToggleRendered && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="icon"
+                  variant="default"
+                  onClick={onToggleRendered}
+                  aria-label={showRendered ? "View source" : "View preview"}
+                >
+                  {showRendered ? <Code /> : <Eye />}
+                </Button>
+              }
+            />
+            <TooltipContent>
+              {showRendered ? "View source" : "View preview"}
+            </TooltipContent>
+          </Tooltip>
+        )}
         <Tooltip>
           <TooltipTrigger
             render={
@@ -61,7 +65,7 @@ export function DocumentPreviewHeader({
                 onClick={handleCopySource}
                 aria-label="Copy source"
               >
-                {copied ? <Check size={14} /> : <Copy size={14} />}
+                {copied ? <Check /> : <Copy />}
               </Button>
             }
           />

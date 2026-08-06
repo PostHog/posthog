@@ -385,13 +385,56 @@ describe("TaskCommentsList", () => {
     expect(mocks.openArtifactTab).toHaveBeenCalledWith("task-1", {
       runId: "run-1",
       artifactId: "a",
+      runArtifactId: "a",
       name: "report.md",
+      versionId: null,
+      version: null,
+      editable: false,
+      contentType: "application/octet-stream",
     });
     expect(useCommentNavigationStore.getState().focusByTask["task-1"]).toEqual({
       target: { scope: "task_artifact", itemId: "a" },
       threadId: "comment-1",
       nonce: expect.any(Number),
       openCommentsTab: true,
+    });
+  });
+
+  it("opens the artifact version that received the comment", () => {
+    mocks.runs = [
+      run([
+        outputFile({
+          id: "physical-2",
+          name: "report.md",
+          logical_artifact_id: "a",
+          artifact_version_id: "version-2",
+          artifact_version: 2,
+          size: 100,
+          content_type: "text/markdown",
+        }),
+      ]),
+    ];
+    mocks.comments = [
+      comment({
+        item_context: {
+          anchor: { kind: "document" },
+          artifactVersionId: "version-1",
+        },
+      }),
+    ];
+
+    render(<TaskCommentsList task={task} timeline={[]} />);
+    openThread("Tighten this summary");
+
+    expect(mocks.openArtifactTab).toHaveBeenCalledWith("task-1", {
+      runId: "run-1",
+      artifactId: "a",
+      runArtifactId: "physical-2",
+      name: "report.md",
+      versionId: "version-1",
+      version: 2,
+      editable: true,
+      contentType: "text/markdown",
     });
   });
 
@@ -411,7 +454,12 @@ describe("TaskCommentsList", () => {
     expect(mocks.openArtifactTab).toHaveBeenCalledWith("task-1", {
       runId: "run-1",
       artifactId: "a",
+      runArtifactId: "a",
       name: "report.md",
+      versionId: null,
+      version: null,
+      editable: false,
+      contentType: "application/octet-stream",
     });
   });
 

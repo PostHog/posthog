@@ -5,7 +5,9 @@ import { tasksContextToolsToExclude } from '@/hono/request-state-resolver'
 import { getToolDefinitions } from '@/tools/toolDefinitions'
 import {
     TASKS_CONTEXT_TOOL_NAMES,
+    tasksArtifactRetrieve,
     tasksArtifactsList,
+    tasksArtifactVersionsList,
     tasksCommentsList,
     tasksCommentsRetrieve,
 } from '@/tools/tasksContext'
@@ -29,6 +31,8 @@ describe('task artifacts and comments tools', () => {
     it('uses the resource scopes required by the backing endpoints', () => {
         const definitions = getToolDefinitions()
         expect(definitions['tasks-artifacts-list']?.required_scopes).toEqual(['task:read'])
+        expect(definitions['tasks-artifacts-versions-list']?.required_scopes).toEqual(['task:read'])
+        expect(definitions['tasks-artifacts-retrieve']?.required_scopes).toEqual(['task:read'])
         expect(definitions['tasks-comments-list']?.required_scopes).toEqual(['comment:read'])
         expect(definitions['tasks-comments-retrieve']?.required_scopes).toEqual(['comment:read'])
     })
@@ -46,6 +50,15 @@ describe('task artifacts and comments tools', () => {
         const { context: toolContext, request } = context('task-host-stamped')
 
         await tasksArtifactsList().handler(toolContext, {})
+        await tasksArtifactVersionsList().handler(toolContext, {
+            artifact_id: '019fcdb5-2e5b-7ab1-bdab-b77fafd3c96a',
+            limit: 100,
+        })
+        await tasksArtifactRetrieve().handler(toolContext, {
+            artifact_id: '019fcdb5-2e5b-7ab1-bdab-b77fafd3c96a',
+            version_id: '019fcdb5-2e5b-7ab1-bdab-b77fafd3c96b',
+            content_offset: 64,
+        })
         await tasksCommentsList().handler(toolContext, {
             artifact_id: 'artifact-a',
             include_resolved: true,
@@ -64,6 +77,20 @@ describe('task artifacts and comments tools', () => {
                     method: 'GET',
                     path: '/api/projects/42/tasks/task-host-stamped/artifacts/',
                     query: undefined,
+                },
+            ],
+            [
+                {
+                    method: 'GET',
+                    path: '/api/projects/42/tasks/task-host-stamped/artifacts/019fcdb5-2e5b-7ab1-bdab-b77fafd3c96a/versions/',
+                    query: { limit: 100, before_version: undefined },
+                },
+            ],
+            [
+                {
+                    method: 'GET',
+                    path: '/api/projects/42/tasks/task-host-stamped/artifacts/019fcdb5-2e5b-7ab1-bdab-b77fafd3c96a/versions/019fcdb5-2e5b-7ab1-bdab-b77fafd3c96b/',
+                    query: { content_offset: 64 },
                 },
             ],
             [

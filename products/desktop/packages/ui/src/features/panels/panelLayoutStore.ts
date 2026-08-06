@@ -69,7 +69,16 @@ export interface PanelLayoutStore {
   openAutoresearchTab: (taskId: string) => void;
   openArtifactTab: (
     taskId: string,
-    artifact: { runId: string; artifactId: string; name: string },
+    artifact: {
+      runId: string;
+      artifactId: string;
+      runArtifactId?: string;
+      name: string;
+      versionId?: string | null;
+      version?: number | null;
+      editable?: boolean;
+      contentType?: string;
+    },
   ) => void;
   keepTab: (taskId: string, panelId: string, tabId: string) => void;
   closeTab: (taskId: string, panelId: string, tabId: string) => void;
@@ -308,6 +317,12 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
                   type: "artifact",
                   runId: artifact.runId,
                   artifactId: artifact.artifactId,
+                  runArtifactId: artifact.runArtifactId ?? artifact.artifactId,
+                  versionId: artifact.versionId ?? null,
+                  version: artifact.version ?? null,
+                  editable: artifact.editable ?? false,
+                  contentType:
+                    artifact.contentType ?? "application/octet-stream",
                 },
                 "main",
               ) as Partial<TaskLayout>,

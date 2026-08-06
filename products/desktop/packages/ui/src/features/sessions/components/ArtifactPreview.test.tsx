@@ -33,6 +33,8 @@ const artifactComments = vi.hoisted(() => ({
 }));
 const createComment = vi.hoisted(() => vi.fn());
 const useQuery = vi.hoisted(() => vi.fn());
+const artifactVersions = vi.hoisted(() => ({ data: [] as unknown[] }));
+const saveVersion = vi.hoisted(() => vi.fn());
 
 vi.mock("@posthog/core/sessions/sessionService", () => ({
   SESSION_SERVICE: Symbol("SESSION_SERVICE"),
@@ -83,6 +85,17 @@ vi.mock("@tanstack/react-query", () => ({
   useQuery,
 }));
 
+vi.mock("./useArtifactVersions", () => ({
+  useArtifactVersions: () => ({ data: artifactVersions.data }),
+}));
+
+vi.mock("./useSaveArtifactVersion", () => ({
+  useSaveArtifactVersion: () => ({
+    mutateAsync: saveVersion,
+    isPending: false,
+  }),
+}));
+
 vi.mock("./useComments", () => ({
   useCommentsQuery: () => ({
     data: artifactComments.data,
@@ -92,9 +105,22 @@ vi.mock("./useComments", () => ({
 }));
 
 vi.mock("../../code-editor/components/CodeMirrorEditor", () => ({
-  CodeMirrorEditor: ({ content }: { content: string }) => (
-    <div data-testid="source-view">{content}</div>
-  ),
+  CodeMirrorEditor: ({
+    content,
+    onContentChange,
+  }: {
+    content: string;
+    onContentChange?: (content: string) => void;
+  }) =>
+    onContentChange ? (
+      <textarea
+        data-testid="source-view"
+        value={content}
+        onChange={(event) => onContentChange(event.target.value)}
+      />
+    ) : (
+      <div data-testid="source-view">{content}</div>
+    ),
 }));
 
 function textComment(): ResourceComment {
@@ -130,6 +156,8 @@ describe("ArtifactPreview", () => {
     artifactComments.data = [];
     createComment.mockReset();
     createComment.mockResolvedValue({ id: "created-comment" });
+    artifactVersions.data = [];
+    saveVersion.mockReset();
     useQuery.mockReset();
     useQuery.mockReturnValue({
       data: previewBlob,
@@ -397,6 +425,61 @@ describe("ArtifactPreview", () => {
     expect(
       screen.getByRole("button", { name: "View preview" }),
     ).toBeInTheDocument();
+  });
+
+  it("uploads edited text as the next artifact version", async () => {
+    artifactVersions.data = [
+      {
+        id: "019fcdb5-2e5b-7ab1-bdab-b77fafd3c96b",
+        artifact_id: "019fcdb5-2e5b-7ab1-bdab-b77fafd3c96a",
+        version: 1,
+        run_id: "run-1",
+        run_artifact_id: "physical-1",
+        name: "report.md",
+        content_type: "text/markdown",
+        size: 8,
+        created_at: "2026-01-01T00:00:00Z",
+      },
+    ];
+    useQuery.mockReturnValue({
+      data: { kind: "text", content: "# Report", format: "markdown" },
+      isLoading: false,
+      isError: false,
+    });
+    saveVersion.mockResolvedValue({
+      logical_artifact_id: "019fcdb5-2e5b-7ab1-bdab-b77fafd3c96a",
+      artifact_version_id: "019fcdb5-2e5b-7ab1-bdab-b77fafd3c96c",
+      artifact_version: 2,
+    });
+    render(
+      <ArtifactPreview
+        taskId="task-1"
+        runId="run-1"
+        artifactId="019fcdb5-2e5b-7ab1-bdab-b77fafd3c96a"
+        runArtifactId="physical-1"
+        initialVersionId="019fcdb5-2e5b-7ab1-bdab-b77fafd3c96b"
+        initialVersion={1}
+        editable
+        contentType="text/markdown"
+        name="report.md"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByTestId("source-view"), {
+      target: { value: "# Updated report" },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    });
+
+    expect(saveVersion).toHaveBeenCalledWith({
+      runId: "run-1",
+      expectedVersionId: "019fcdb5-2e5b-7ab1-bdab-b77fafd3c96b",
+      name: "report.md",
+      contentType: "text/markdown",
+      content: "# Updated report",
+    });
   });
 
   it("creates an anchored comment from rendered Markdown text", async () => {

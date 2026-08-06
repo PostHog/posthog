@@ -2463,6 +2463,7 @@ class TaskArtifact(TeamScopedRootMixin, UUIDModel):
         SLACK_FILE = "slack_file", "Slack file"
         DOCUMENT_CONNECTOR = "document_connector", "Document connector"
         GITHUB_PR = "github_pr", "GitHub PR"
+        OBJECT_STORAGE = "object_storage", "Object storage"
 
     class Status(models.TextChoices):
         ACTIVE = "active", "Active"
@@ -2506,6 +2507,37 @@ class TaskArtifact(TeamScopedRootMixin, UUIDModel):
 
     def __str__(self):
         return f"{self.name} ({self.artifact_type})"
+
+
+class TaskArtifactVersion(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    artifact = models.ForeignKey(TaskArtifact, on_delete=models.CASCADE, related_name="stored_versions")
+    task_run = models.ForeignKey(TaskRun, on_delete=models.CASCADE, related_name="artifact_versions")
+    run_artifact_id = models.CharField(max_length=64)
+    version = models.PositiveIntegerField()
+    request_id = models.UUIDField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    created_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_artifact_version"
+        indexes = [
+            models.Index(fields=["team", "artifact", "-version"], name="task_artifact_version_idx"),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["artifact", "version"], name="task_artifact_version_unique"),
+            models.UniqueConstraint(fields=["task_run", "run_artifact_id"], name="task_artifact_run_entry_unique"),
+            models.UniqueConstraint(
+                fields=["artifact", "request_id"],
+                condition=models.Q(request_id__isnull=False),
+                name="task_artifact_request_unique",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.artifact.name} v{self.version}"
 
 
 class SandboxSession(TeamScopedRootMixin, UUIDModel):

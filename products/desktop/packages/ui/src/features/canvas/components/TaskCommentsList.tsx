@@ -490,7 +490,13 @@ export function TaskCommentsList({
       openArtifactTab(task.id, {
         runId: source.runId,
         artifactId: source.target.itemId,
+        runArtifactId: source.runArtifactId ?? source.target.itemId,
         name: source.name,
+        versionId:
+          readCommentContext(root)?.artifactVersionId ?? source.versionId,
+        version: source.version,
+        editable: source.editable,
+        contentType: source.contentType,
       });
       if (requestThreadFocus) {
         requestCommentFocus(task.id, source.target, root.id);

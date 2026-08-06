@@ -73,6 +73,7 @@ from products.tasks.backend.models import (
     SandboxSnapshot,
     Task,
     TaskActivity,
+    TaskArtifactVersion,
     TaskAutomation,
     TaskClientProvenance,
     TaskCommentActivity,
@@ -234,7 +235,9 @@ __all__ = [
     "task_visible",
     "task_comment_mentions_allowed",
     "list_task_artifacts",
+    "list_task_artifact_versions",
     "list_task_comments",
+    "retrieve_task_artifact_version",
     "retrieve_task_comment",
     "update_sandbox_environment",
     "update_task",
@@ -2651,7 +2654,12 @@ def _save_artifact_manifest(run: TaskRun, manifest: list[dict]) -> None:
 
 
 def upload_task_run_artifacts(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifacts: list[dict]
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    artifacts: list[dict],
+    created_by_id: int | None = None,
 ) -> tuple[list[dict], list[dict]] | None:
     """Write artifact bytes to S3 and append them to the run manifest.
 
@@ -2683,7 +2691,6 @@ def upload_task_run_artifacts(
             extras["ContentType"] = content_type
 
         object_storage.write(storage_path, content_bytes, extras or None)
-        _tag_artifact_object(run, storage_path)
 
         uploaded.append(
             _build_artifact_manifest_entry(
@@ -2708,14 +2715,46 @@ def upload_task_run_artifacts(
             },
         )
 
-    with transaction.atomic():
-        run = TaskRun.objects.select_for_update().get(pk=run.pk)
-        uploaded_ids = {entry["id"] for entry in uploaded}
-        manifest = [entry for entry in (run.artifacts or []) if entry.get("id") not in uploaded_ids]
-        manifest.extend(uploaded)
-        _save_artifact_manifest(run, manifest)
+    from products.tasks.backend.logic.services.artifact_versions import (  # noqa: PLC0415 - keeps object storage versioning off the facade import path
+        attach_version_metadata,
+        expire_uncommitted_object,
+        preserve_version_object,
+        register_uploaded_artifact_version,
+    )
 
-    return uploaded, manifest
+    versioned_storage_paths: set[str] = set()
+    try:
+        with transaction.atomic():
+            run = TaskRun.objects.select_for_update().get(pk=run.pk)
+            uploaded_with_versions: list[dict] = []
+            for entry, request_artifact in zip(uploaded, artifacts, strict=True):
+                version = register_uploaded_artifact_version(
+                    run=run,
+                    entry=entry,
+                    logical_artifact_id=request_artifact.get("logical_artifact_id"),
+                    expected_current_version_id=request_artifact.get("expected_current_version_id"),
+                    request_id=request_artifact.get("request_id"),
+                    created_by_id=created_by_id,
+                )
+                enriched = attach_version_metadata(entry, version)
+                uploaded_with_versions.append(enriched)
+                if version is not None:
+                    versioned_storage_paths.add(entry["storage_path"])
+            uploaded_ids = {entry["id"] for entry in uploaded_with_versions}
+            manifest = [entry for entry in (run.artifacts or []) if entry.get("id") not in uploaded_ids]
+            manifest.extend(uploaded_with_versions)
+            _save_artifact_manifest(run, manifest)
+    except Exception:
+        for entry in uploaded:
+            expire_uncommitted_object(team_id=run.team_id, storage_path=entry["storage_path"])
+        raise
+
+    for entry in uploaded:
+        if entry["storage_path"] in versioned_storage_paths:
+            preserve_version_object(team_id=run.team_id, storage_path=entry["storage_path"])
+        else:
+            _tag_artifact_object(run, entry["storage_path"])
+    return uploaded_with_versions, manifest
 
 
 def prepare_task_run_artifact_uploads(
@@ -2771,7 +2810,12 @@ def prepare_task_run_artifact_uploads(
 
 
 def finalize_task_run_artifact_uploads(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifacts: list[dict]
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    artifacts: list[dict],
+    created_by_id: int | None = None,
 ) -> tuple[list[dict] | None, str | None]:
     """Verify directly-uploaded S3 objects and attach them to the run manifest.
 
@@ -2792,64 +2836,105 @@ def finalize_task_run_artifact_uploads(
     if run is None:
         return None, None
 
-    manifest = list(run.artifacts or [])
-    artifact_prefix = f"{run.get_artifact_s3_prefix()}/"
-    finalized_entries: list[dict] = []
-    new_storage_paths: list[str] = []
+    from products.tasks.backend.logic.services.artifact_versions import (  # noqa: PLC0415 - keeps object storage versioning off the facade import path
+        attach_version_metadata,
+        expire_uncommitted_object,
+        preserve_version_object,
+        register_uploaded_artifact_version,
+    )
 
+    artifact_prefix = f"{run.get_artifact_s3_prefix()}/"
+    candidate_entries: list[tuple[dict, dict, bool]] = []
     for artifact in artifacts:
         artifact_id = artifact["id"]
         storage_path = artifact["storage_path"]
-
         if not storage_path.startswith(artifact_prefix) or f"/{artifact_id[:8]}_" not in storage_path:
             return None, "Artifact storage path is invalid for this run"
 
-        existing_entry = _find_artifact_manifest_entry(manifest, artifact_id, storage_path)
+        existing_entry = _find_artifact_manifest_entry(list(run.artifacts or []), artifact_id, storage_path)
         if existing_entry is not None:
-            finalized_entries.append(existing_entry)
+            candidate_entries.append((existing_entry, artifact, False))
             continue
 
         s3_object = object_storage.head_object(storage_path)
         if not s3_object:
             return None, "Artifact upload not found in object storage"
-
         safe_name = get_safe_artifact_name(artifact["name"])
         content_type = artifact.get("content_type") or s3_object.get("ContentType") or ""
         content_length = s3_object.get("ContentLength")
         if not isinstance(content_length, int):
             return None, "Artifact upload metadata is unavailable"
-
         max_size_bytes = get_task_run_artifact_max_size_bytes(safe_name, content_type, artifact.get("type"))
         if content_length > max_size_bytes:
             return None, build_task_run_artifact_size_error(safe_name, max_size_bytes)
-
-        entry = _build_artifact_manifest_entry(
-            artifact_id=artifact_id,
-            name=safe_name,
-            artifact_type=artifact["type"],
-            source=artifact.get("source") or "",
-            size=content_length,
-            content_type=content_type,
-            storage_path=storage_path,
-            uploaded_at=django_timezone.now().isoformat(),
-            metadata=artifact.get("metadata"),
+        candidate_entries.append(
+            (
+                _build_artifact_manifest_entry(
+                    artifact_id=artifact_id,
+                    name=safe_name,
+                    artifact_type=artifact["type"],
+                    source=artifact.get("source") or "",
+                    size=content_length,
+                    content_type=content_type,
+                    storage_path=storage_path,
+                    uploaded_at=django_timezone.now().isoformat(),
+                    metadata=artifact.get("metadata"),
+                ),
+                artifact,
+                True,
+            )
         )
-        manifest.append(entry)
-        finalized_entries.append(entry)
-        new_storage_paths.append(storage_path)
 
-    _save_artifact_manifest(run, manifest)
+    versioned_storage_paths: set[str] = set()
+    new_storage_paths = [entry["storage_path"] for entry, _artifact, is_new in candidate_entries if is_new]
+    try:
+        with transaction.atomic():
+            run = TaskRun.objects.select_for_update().get(pk=run.pk)
+            manifest = list(run.artifacts or [])
+            finalized_entries: list[dict] = []
+            for entry, request_artifact, is_new in candidate_entries:
+                persisted_entry = _find_artifact_manifest_entry(manifest, entry["id"], entry["storage_path"])
+                source_entry = persisted_entry or entry
+                version = register_uploaded_artifact_version(
+                    run=run,
+                    entry=source_entry,
+                    logical_artifact_id=request_artifact.get("logical_artifact_id"),
+                    expected_current_version_id=request_artifact.get("expected_current_version_id"),
+                    request_id=request_artifact.get("request_id"),
+                    created_by_id=created_by_id,
+                )
+                enriched = attach_version_metadata(source_entry, version)
+                if persisted_entry is not None:
+                    manifest = [enriched if item.get("id") == persisted_entry.get("id") else item for item in manifest]
+                elif is_new:
+                    manifest.append(enriched)
+                finalized_entries.append(enriched)
+                if version is not None:
+                    versioned_storage_paths.add(source_entry["storage_path"])
+            _save_artifact_manifest(run, manifest)
+    except contracts.TaskArtifactVersionConflict:
+        for storage_path in new_storage_paths:
+            expire_uncommitted_object(team_id=run.team_id, storage_path=storage_path)
+        raise
+    except ValueError as error:
+        for storage_path in new_storage_paths:
+            expire_uncommitted_object(team_id=run.team_id, storage_path=storage_path)
+        return None, str(error)
+    except Exception:
+        for storage_path in new_storage_paths:
+            expire_uncommitted_object(team_id=run.team_id, storage_path=storage_path)
+        raise
+
     for storage_path in new_storage_paths:
-        _tag_artifact_object(run, storage_path)
+        if storage_path in versioned_storage_paths:
+            preserve_version_object(team_id=run.team_id, storage_path=storage_path)
+        else:
+            _tag_artifact_object(run, storage_path)
 
-    # Mint a fresh presigned download URL per response entry so the caller (e.g. the
-    # upload_artifact tool) can surface a link to the file. Presigned URLs expire, so
-    # they are attached to the response only and never written back to the manifest.
     response_entries: list[dict] = []
     for entry in finalized_entries:
         presigned_url = object_storage.get_presigned_url(entry["storage_path"])
         response_entries.append({**entry, "url": presigned_url} if presigned_url else dict(entry))
-
     return response_entries, None
 
 
@@ -6081,6 +6166,78 @@ def list_task_artifacts(*, team_id: int, task_id: UUID) -> list[contracts.TaskAr
     from products.tasks.backend.logic.services.task_comments import list_artifacts
 
     return list_artifacts(team_id=team_id, task_id=task_id)
+
+
+def list_task_artifact_versions(
+    *,
+    team_id: int,
+    task_id: UUID,
+    artifact_id: UUID,
+    limit: int,
+    before_version: int | None,
+) -> contracts.TaskArtifactVersionPageDTO | None:
+    from products.tasks.backend.logic.services.artifact_versions import get_artifact, list_versions
+
+    artifact = get_artifact(team_id=team_id, task_id=task_id, artifact_id=artifact_id)
+    if artifact is None:
+        return None
+    versions, next_before_version = list_versions(
+        artifact=artifact,
+        limit=limit,
+        before_version=before_version,
+    )
+    return contracts.TaskArtifactVersionPageDTO(
+        versions=[_task_artifact_version_to_dto(version) for version in versions],
+        next_before_version=next_before_version,
+    )
+
+
+def retrieve_task_artifact_version(
+    *,
+    team_id: int,
+    task_id: UUID,
+    artifact_id: UUID,
+    version_id: UUID | None,
+    content_offset: int,
+    content_limit: int,
+) -> contracts.TaskArtifactVersionContentDTO | None:
+    from products.tasks.backend.logic.services.artifact_versions import get_artifact, get_version, read_version_content
+
+    artifact = get_artifact(team_id=team_id, task_id=task_id, artifact_id=artifact_id)
+    if artifact is None:
+        return None
+    version = get_version(artifact=artifact, version_id=version_id)
+    if version is None:
+        return None
+    content, truncated, next_offset = read_version_content(
+        version=version,
+        content_offset=content_offset,
+        content_limit=content_limit,
+    )
+    return contracts.TaskArtifactVersionContentDTO(
+        version=_task_artifact_version_to_dto(version),
+        content=content,
+        content_truncated=truncated,
+        content_next_offset=next_offset,
+    )
+
+
+def _task_artifact_version_to_dto(version: "TaskArtifactVersion") -> contracts.TaskArtifactVersionDTO:
+    from products.tasks.backend.logic.services.artifact_versions import manifest_entry_for_version
+
+    entry = manifest_entry_for_version(version) or {}
+    return contracts.TaskArtifactVersionDTO(
+        id=version.id,
+        artifact_id=version.artifact_id,
+        version=version.version,
+        run_id=version.task_run_id,
+        run_artifact_id=version.run_artifact_id,
+        name=str(entry.get("name") or version.artifact.name),
+        content_type=str(entry.get("content_type") or ""),
+        size=entry.get("size") if isinstance(entry.get("size"), int) else None,
+        created_at=version.created_at,
+        created_by=_user_basic_info(version.created_by),
+    )
 
 
 def list_task_comments(

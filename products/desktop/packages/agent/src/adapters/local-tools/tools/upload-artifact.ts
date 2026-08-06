@@ -12,7 +12,8 @@ export const uploadArtifactTool = defineLocalTool({
     "Deliver a file you created to the user as a downloadable task artifact. " +
     "Call this for every non-code deliverable (reports, images, archives, data files, and similar output) " +
     "before your final response. The file must be inside the session workspace. Repository changes belong in git and should not be uploaded. " +
-    "On success the result includes a download URL for the uploaded file, which you can reference in your final response.",
+    "To revise an existing artifact, pass its stable artifactId and expectedVersionId; every revision uploads a new immutable version. " +
+    "On success the result includes a download URL and version identifiers, which you can reference in your final response.",
   schema: {
     path: z
       .string()
@@ -30,6 +31,20 @@ export const uploadArtifactTool = defineLocalTool({
       .min(1)
       .optional()
       .describe("MIME type. Defaults to application/octet-stream."),
+    artifactId: z
+      .string()
+      .uuid()
+      .optional()
+      .describe(
+        "Stable artifact id to revise. Omit when creating a new artifact.",
+      ),
+    expectedVersionId: z
+      .string()
+      .uuid()
+      .optional()
+      .describe(
+        "Current version id returned by the artifact tools. Required with artifactId.",
+      ),
   },
   alwaysLoad: true,
   isEnabled: (ctx, meta) =>
@@ -37,6 +52,12 @@ export const uploadArtifactTool = defineLocalTool({
   handler: async (ctx, args): Promise<LocalToolResult> => {
     if (!ctx.taskId || !ctx.taskRunId) {
       return errorResult("Artifact upload is not available in this session.");
+    }
+
+    if (!!args.artifactId !== !!args.expectedVersionId) {
+      return errorResult(
+        "artifactId and expectedVersionId must be provided together.",
+      );
     }
 
     try {
@@ -115,6 +136,13 @@ export const uploadArtifactTool = defineLocalTool({
             source: "agent_output",
             storage_path: upload.storage_path,
             content_type: contentType,
+            ...(args.artifactId && args.expectedVersionId
+              ? {
+                  logical_artifact_id: args.artifactId,
+                  expected_current_version_id: args.expectedVersionId,
+                  request_id: crypto.randomUUID(),
+                }
+              : {}),
           },
         ],
       );
@@ -131,12 +159,15 @@ export const uploadArtifactTool = defineLocalTool({
       // backends simply omit it.
       const downloadUrl = (finalizedEntry as { url?: string }).url;
       const linkText = downloadUrl ? ` Download URL: ${downloadUrl}` : "";
+      const versionText = finalizedEntry.logical_artifact_id
+        ? ` Artifact ID: ${finalizedEntry.logical_artifact_id}. Version ${finalizedEntry.artifact_version} (${finalizedEntry.artifact_version_id}).`
+        : "";
 
       return {
         content: [
           {
             type: "text",
-            text: `Uploaded ${name} as a downloadable task artifact.${linkText} Mention it in your final response.`,
+            text: `Uploaded ${name} as a downloadable task artifact.${versionText}${linkText} Mention it in your final response.`,
           },
         ],
       };

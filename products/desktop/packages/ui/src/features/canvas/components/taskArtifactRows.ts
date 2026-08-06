@@ -1,4 +1,5 @@
 import {
+  isEditableTextRunArtifact,
   OUTPUT_ARTIFACT_TYPES,
   parseRunArtifacts,
   type RunArtifact,
@@ -30,8 +31,13 @@ export type ArtifactRow =
       kind: "file";
       key: string;
       artifactId: string | null;
+      runArtifactId: string | null;
       name: string;
       runId: string | null;
+      versionId: string | null;
+      version: number | null;
+      editable: boolean;
+      contentType: string;
     }
   | { kind: "slack"; key: string; url: string };
 
@@ -41,7 +47,17 @@ export type ArtifactRow =
  * to the work rather than to any single deliverable.
  */
 export type CommentSource =
-  | { kind: "file"; target: CommentTarget; name: string; runId: string | null }
+  | {
+      kind: "file";
+      target: CommentTarget;
+      name: string;
+      runId: string | null;
+      runArtifactId?: string | null;
+      versionId?: string | null;
+      version?: number | null;
+      editable?: boolean;
+      contentType?: string;
+    }
   | { kind: "canvas"; target: CommentTarget; name: string; url: string | null }
   | { kind: "task"; target: CommentTarget; name: string };
 
@@ -62,7 +78,17 @@ export function commentSources(
     if (!target || seen.has(commentTargetKey(target))) continue;
     seen.add(commentTargetKey(target));
     if (row.kind === "file") {
-      sources.push({ kind: "file", target, name: row.name, runId: row.runId });
+      sources.push({
+        kind: "file",
+        target,
+        name: row.name,
+        runId: row.runId,
+        runArtifactId: row.runArtifactId,
+        versionId: row.versionId,
+        version: row.version,
+        editable: row.editable,
+        contentType: row.contentType,
+      });
     } else if (row.kind === "canvas") {
       sources.push({ kind: "canvas", target, name: row.name, url: row.url });
     }
@@ -163,30 +189,73 @@ export function buildRows(
   const allRuns =
     runs.length > 0 ? runs : task.latest_run ? [task.latest_run] : [];
 
-  // Re-uploading a file replaces it rather than adding a second one: agents
-  // revise a deliverable and upload it again under the same name, so keeping
-  // every copy would bury the current one under its own drafts.
-  const newestByName = new Map<string, { file: RunArtifact; runId: string }>();
+  const currentVersionByArtifact = new Map<
+    string,
+    { file: RunArtifact; runId: string }
+  >();
+  const newestLegacyByName = new Map<
+    string,
+    { file: RunArtifact; runId: string }
+  >();
   for (const run of allRuns) {
     for (const outputPr of readPrUrls(run.output)) {
       addPr(outputPr, `output-pr:${outputPr}`);
     }
     for (const file of readRunOutputs(run)) {
       if (!file.name) continue;
-      const previous = newestByName.get(file.name);
+      if (file.logical_artifact_id && file.artifact_version_id) {
+        const previous = currentVersionByArtifact.get(file.logical_artifact_id);
+        const isNewer =
+          !previous ||
+          (file.artifact_version ?? 0) > (previous.file.artifact_version ?? 0);
+        if (isNewer) {
+          currentVersionByArtifact.set(file.logical_artifact_id, {
+            file,
+            runId: run.id,
+          });
+        }
+        continue;
+      }
+      const previous = newestLegacyByName.get(file.name);
       const isNewer =
         !previous ||
         (file.uploaded_at ?? "") >= (previous.file.uploaded_at ?? "");
-      if (isNewer) newestByName.set(file.name, { file, runId: run.id });
+      if (isNewer) newestLegacyByName.set(file.name, { file, runId: run.id });
     }
   }
-  for (const [name, { file, runId }] of newestByName) {
+  for (const [artifactId, { file, runId }] of currentVersionByArtifact) {
+    rows.push({
+      kind: "file",
+      key: `file:${artifactId}`,
+      artifactId,
+      runArtifactId: file.id ?? null,
+      name: file.name ?? "Artifact",
+      runId,
+      versionId: file.artifact_version_id ?? null,
+      version: file.artifact_version ?? null,
+      editable: isEditableTextRunArtifact(file),
+      contentType: file.content_type ?? "application/octet-stream",
+    });
+  }
+  for (const [name, { file, runId }] of newestLegacyByName) {
+    if (
+      [...currentVersionByArtifact.values()].some(
+        (current) => current.file.name === name,
+      )
+    ) {
+      continue;
+    }
     rows.push({
       kind: "file",
       key: `file:${file.id ?? file.storage_path ?? name}`,
       artifactId: file.id ?? null,
+      runArtifactId: file.id ?? null,
       name,
       runId,
+      versionId: null,
+      version: null,
+      editable: false,
+      contentType: file.content_type ?? "application/octet-stream",
     });
   }
 

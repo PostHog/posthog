@@ -2492,6 +2492,17 @@ export const TasksRunsArtifactsCreateBody = /* @__PURE__ */ zod.object({
                     })
                     .optional()
                     .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
+                logical_artifact_id: zod
+                    .uuid()
+                    .optional()
+                    .describe('Stable task artifact id to revise. Omit when creating a new deliverable.'),
+                expected_current_version_id: zod
+                    .uuid()
+                    .nullish()
+                    .describe(
+                        'Current version id the edit is based on. Required when logical_artifact_id is provided.'
+                    ),
+                request_id: zod.uuid().optional().describe('Idempotency key for retrying an artifact version upload.'),
             })
         )
         .describe('Array of artifacts to upload'),
@@ -2600,6 +2611,17 @@ export const TasksRunsArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.ob
                     })
                     .optional()
                     .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
+                logical_artifact_id: zod
+                    .uuid()
+                    .optional()
+                    .describe('Stable task artifact id to revise. Omit when creating a new deliverable.'),
+                expected_current_version_id: zod
+                    .uuid()
+                    .nullish()
+                    .describe(
+                        'Current version id the edit is based on. Required when logical_artifact_id is provided.'
+                    ),
+                request_id: zod.uuid().optional().describe('Idempotency key for retrying an artifact version upload.'),
             })
         )
         .describe('Array of uploaded artifacts to finalize'),
@@ -2840,13 +2862,13 @@ export const TasksRunsLivingArtifactsCreateBody = /* @__PURE__ */ zod.object({
             'Artifact format or delivery surface to create, such as document, spreadsheet, slack_canvas, or file.\n\n\* `slack_message` - slack_message\n\* `slack_canvas` - slack_canvas\n\* `document` - document\n\* `spreadsheet` - spreadsheet\n\* `dashboard` - dashboard\n\* `file` - file\n\* `github_pr` - github_pr'
         ),
     adapter: zod
-        .enum(['slack_message', 'slack_canvas', 'slack_file', 'document_connector', 'github_pr'])
+        .enum(['slack_message', 'slack_canvas', 'slack_file', 'document_connector', 'github_pr', 'object_storage'])
         .describe(
-            '\* `slack_message` - slack_message\n\* `slack_canvas` - slack_canvas\n\* `slack_file` - slack_file\n\* `document_connector` - document_connector\n\* `github_pr` - github_pr'
+            '\* `slack_message` - slack_message\n\* `slack_canvas` - slack_canvas\n\* `slack_file` - slack_file\n\* `document_connector` - document_connector\n\* `github_pr` - github_pr\n\* `object_storage` - object_storage'
         )
         .optional()
         .describe(
-            'Optional preferred external storage or delivery adapter. Slack adapters deliver into the mapped Slack thread; omitted Slack-run documents use Slack canvas, omitted Slack-run files and spreadsheets use Slack file upload, and document_connector uses a connected external document provider.\n\n\* `slack_message` - slack_message\n\* `slack_canvas` - slack_canvas\n\* `slack_file` - slack_file\n\* `document_connector` - document_connector\n\* `github_pr` - github_pr'
+            'Optional preferred external storage or delivery adapter. Slack adapters deliver into the mapped Slack thread; omitted Slack-run documents use Slack canvas, omitted Slack-run files and spreadsheets use Slack file upload, and document_connector uses a connected external document provider.\n\n\* `slack_message` - slack_message\n\* `slack_canvas` - slack_canvas\n\* `slack_file` - slack_file\n\* `document_connector` - document_connector\n\* `github_pr` - github_pr\n\* `object_storage` - object_storage'
         ),
     content: zod
         .string()

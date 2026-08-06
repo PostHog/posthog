@@ -213,7 +213,51 @@ describe("TaskArtifactsList", () => {
     expect(mocks.openArtifactTab).toHaveBeenCalledWith("task-1", {
       runId: "run-2",
       artifactId: "b",
+      runArtifactId: "b",
       name: "new.md",
+      versionId: null,
+      version: null,
+      editable: false,
+      contentType: "application/octet-stream",
+    });
+  });
+
+  it("opens the latest physical upload under the stable artifact id", () => {
+    mocks.runs = [
+      run("run-1", {
+        artifacts: [
+          outputFile({
+            id: "physical-1",
+            logical_artifact_id: "artifact-stable",
+            artifact_version_id: "version-1",
+            artifact_version: 1,
+            size: 100,
+            content_type: "text/markdown",
+          }),
+          outputFile({
+            id: "physical-2",
+            logical_artifact_id: "artifact-stable",
+            artifact_version_id: "version-2",
+            artifact_version: 2,
+            size: 120,
+            content_type: "text/markdown",
+          }),
+        ],
+      }),
+    ];
+
+    render(<TaskArtifactsList task={task} timeline={[]} />);
+    fireEvent.click(screen.getByText("report.md"));
+
+    expect(mocks.openArtifactTab).toHaveBeenCalledWith("task-1", {
+      runId: "run-1",
+      artifactId: "artifact-stable",
+      runArtifactId: "physical-2",
+      name: "report.md",
+      versionId: "version-2",
+      version: 2,
+      editable: true,
+      contentType: "text/markdown",
     });
   });
 

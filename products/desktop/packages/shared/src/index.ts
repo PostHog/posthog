@@ -135,6 +135,8 @@ export {
   isTerminalStatus,
   type SignalReportPriority,
   type Task,
+  type TaskArtifactVersion,
+  type TaskArtifactVersionContent,
   type TaskRun,
   type TaskRunArtifact,
   type TaskRunArtifactMetadata,

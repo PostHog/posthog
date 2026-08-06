@@ -96,6 +96,44 @@ describe("uploadArtifactTool", () => {
     );
   });
 
+  it("uploads a revision against the expected current version", async () => {
+    await writeFile(path.join(cwd, "report.csv"), "a,b\n2,3");
+    finalizeTaskArtifactUploads.mockResolvedValueOnce([
+      {
+        id: "physical-version-2",
+        name: "report.csv",
+        type: "output",
+        storage_path: "tasks/artifacts/report.csv",
+        logical_artifact_id: "019fcdb5-2e5b-7ab1-bdab-b77fafd3c96a",
+        artifact_version_id: "019fcdb5-2e5b-7ab1-bdab-b77fafd3c96c",
+        artifact_version: 2,
+      },
+    ]);
+
+    const result = await uploadArtifactTool.handler(
+      { cwd, taskId: "task-1", taskRunId: "run-1" },
+      {
+        path: "report.csv",
+        contentType: "text/csv",
+        artifactId: "019fcdb5-2e5b-7ab1-bdab-b77fafd3c96a",
+        expectedVersionId: "019fcdb5-2e5b-7ab1-bdab-b77fafd3c96b",
+      },
+    );
+
+    expect(finalizeTaskArtifactUploads).toHaveBeenCalledWith(
+      "task-1",
+      "run-1",
+      [
+        expect.objectContaining({
+          logical_artifact_id: "019fcdb5-2e5b-7ab1-bdab-b77fafd3c96a",
+          expected_current_version_id: "019fcdb5-2e5b-7ab1-bdab-b77fafd3c96b",
+          request_id: expect.any(String),
+        }),
+      ],
+    );
+    expect(result.content[0]?.text).toContain("Version 2");
+  });
+
   it("rejects files outside the session workspace", async () => {
     const outside = await mkdtemp(path.join(os.tmpdir(), "outside-artifact-"));
     const outsideFile = path.join(outside, "secret.txt");

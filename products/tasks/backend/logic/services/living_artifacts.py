@@ -348,11 +348,21 @@ def _with_xlsx_extension(name: str) -> str:
 # run, and the agent in that run must still see and edit deliverables produced by earlier
 # runs. Lookups are therefore task-scoped, not run-scoped.
 def get_task_artifacts_for_run(run: TaskRun) -> list[TaskArtifact]:
-    return list(TaskArtifact.objects.for_team(run.team_id).filter(task_id=run.task_id).order_by("-updated_at"))
+    return list(
+        TaskArtifact.objects.for_team(run.team_id)
+        .filter(task_id=run.task_id)
+        .exclude(adapter=TaskArtifact.Adapter.OBJECT_STORAGE)
+        .order_by("-updated_at")
+    )
 
 
 def get_task_artifact_for_run(run: TaskRun, artifact_id: str | UUID) -> TaskArtifact | None:
-    return TaskArtifact.objects.for_team(run.team_id).filter(task_id=run.task_id, id=artifact_id).first()
+    return (
+        TaskArtifact.objects.for_team(run.team_id)
+        .filter(task_id=run.task_id, id=artifact_id)
+        .exclude(adapter=TaskArtifact.Adapter.OBJECT_STORAGE)
+        .first()
+    )
 
 
 def open_task_artifact(artifact: TaskArtifact) -> str | None:

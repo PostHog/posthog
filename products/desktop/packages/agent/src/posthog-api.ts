@@ -63,6 +63,9 @@ export interface TaskArtifactFinalizeUploadPayload {
   source?: ArtifactSource;
   storage_path: string;
   content_type?: string;
+  logical_artifact_id?: string;
+  expected_current_version_id?: string | null;
+  request_id?: string;
 }
 
 export type TaskRunUpdate = Partial<

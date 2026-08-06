@@ -10,6 +10,8 @@ import type {
   SourceProduct,
   SourceType,
   StoredLogEntry,
+  TaskArtifactVersion,
+  TaskArtifactVersionContent,
   TaskAutomation,
   TaskRunArtifactMetadata,
   UpdateTaskAutomationOptions,
@@ -694,7 +696,7 @@ export class FolderInstructionsConflictError extends Error {
 
 export interface TaskArtifactUploadRequest {
   name: string;
-  type: "user_attachment" | "skill_bundle";
+  type: "output" | "user_attachment" | "skill_bundle";
   size: number;
   content_type?: string;
   source?: string;
@@ -704,6 +706,12 @@ export interface TaskArtifactUploadRequest {
 export interface DirectUploadPresignedPost {
   url: string;
   fields: Record<string, string>;
+}
+
+export interface ArtifactVersionUpload {
+  logical_artifact_id: string;
+  expected_current_version_id: string | null;
+  request_id: string;
 }
 
 export interface PreparedTaskArtifactUpload extends TaskArtifactUploadRequest {
@@ -723,6 +731,19 @@ export interface FinalizedTaskArtifactUpload {
   metadata?: TaskArtifactUploadRequest["metadata"];
   storage_path: string;
   uploaded_at?: string;
+  url?: string;
+  logical_artifact_id?: string;
+  artifact_version_id?: string;
+  artifact_version?: number;
+}
+
+export class ArtifactVersionConflictError extends Error {
+  status = 409;
+
+  constructor(public readonly currentVersionId: string | null) {
+    super("A newer artifact version was saved");
+    this.name = "ArtifactVersionConflictError";
+  }
 }
 
 export interface CloudRunOptions {
@@ -3205,7 +3226,7 @@ export class PostHogAPIClient {
   async finalizeTaskRunArtifactUploads(
     taskId: string,
     runId: string,
-    artifacts: PreparedTaskArtifactUpload[],
+    artifacts: (PreparedTaskArtifactUpload & Partial<ArtifactVersionUpload>)[],
   ): Promise<FinalizedTaskArtifactUpload[]> {
     if (!artifacts.length) {
       return [];
@@ -3229,11 +3250,22 @@ export class PostHogAPIClient {
             content_type: artifact.content_type,
             metadata: artifact.metadata,
             storage_path: artifact.storage_path,
+            logical_artifact_id: artifact.logical_artifact_id,
+            expected_current_version_id: artifact.expected_current_version_id,
+            request_id: artifact.request_id,
           })),
         }),
       },
     });
 
+    if (response.status === 409) {
+      const conflict = (await response.json()) as {
+        current_version_id?: string | null;
+      };
+      throw new ArtifactVersionConflictError(
+        conflict.current_version_id ?? null,
+      );
+    }
     if (!response.ok) {
       throw new Error(`Failed to finalize uploads: ${response.statusText}`);
     }
@@ -3242,6 +3274,59 @@ export class PostHogAPIClient {
       artifacts?: FinalizedTaskArtifactUpload[];
     };
     return data.artifacts ?? [];
+  }
+
+  async listTaskArtifactVersions(
+    taskId: string,
+    artifactId: string,
+  ): Promise<TaskArtifactVersion[]> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${taskId}/artifacts/${artifactId}/versions/`;
+    const versions: TaskArtifactVersion[] = [];
+    let beforeVersion: number | null = null;
+    do {
+      const url = new URL(`${this.api.baseUrl}${path}`);
+      url.searchParams.set("limit", "100");
+      if (beforeVersion !== null) {
+        url.searchParams.set("before_version", String(beforeVersion));
+      }
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url,
+        path,
+      });
+      if (!response.ok) {
+        throw new Error(
+          `Failed to load artifact versions: ${response.statusText}`,
+        );
+      }
+      const data = (await response.json()) as {
+        versions?: TaskArtifactVersion[];
+        next_before_version?: number | null;
+      };
+      versions.push(...(data.versions ?? []));
+      beforeVersion = data.next_before_version ?? null;
+    } while (beforeVersion !== null);
+    return versions;
+  }
+
+  async retrieveTaskArtifactVersion(
+    taskId: string,
+    artifactId: string,
+    versionId: string,
+    contentOffset = 0,
+  ): Promise<TaskArtifactVersionContent> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${taskId}/artifacts/${artifactId}/versions/${versionId}/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    url.searchParams.set("content_offset", String(contentOffset));
+    const response = await this.api.fetcher.fetch({ method: "get", url, path });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to load artifact version: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as TaskArtifactVersionContent;
   }
 
   async presignTaskRunArtifact(

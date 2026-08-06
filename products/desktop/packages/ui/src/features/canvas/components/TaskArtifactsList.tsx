@@ -173,24 +173,39 @@ function FileRow({
   taskId,
   runId,
   artifactId,
+  runArtifactId,
   name,
+  versionId,
+  version,
+  editable,
+  contentType,
   commentCount,
 }: {
   taskId: string;
   runId: string | null;
   artifactId: string | null;
+  runArtifactId: string | null;
   name: string;
+  versionId: string | null;
+  version: number | null;
+  editable: boolean;
+  contentType: string;
   /** Supplied by the pane's single comments query so each row doesn't fetch. */
   commentCount: number;
 }) {
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
-  const canOpen = !!runId && !!artifactId;
+  const canOpen = !!runId && !!artifactId && !!runArtifactId;
   const onOpen = canOpen
     ? () => {
         openArtifactTab(taskId, {
           runId: runId as string,
           artifactId: artifactId as string,
+          runArtifactId: runArtifactId as string,
           name,
+          versionId,
+          version,
+          editable,
+          contentType,
         });
       }
     : undefined;
@@ -204,6 +219,8 @@ function FileRow({
             <ChatCircleIcon />
             {commentCount}
           </Badge>
+        ) : version ? (
+          `Version ${version}`
         ) : (
           "File"
         )
@@ -301,7 +318,12 @@ export function TaskArtifactsList({
             taskId={task.id}
             runId={row.runId}
             artifactId={row.artifactId}
+            runArtifactId={row.runArtifactId}
             name={row.name}
+            versionId={row.versionId}
+            version={row.version}
+            editable={row.editable}
+            contentType={row.contentType}
             commentCount={
               row.artifactId ? (openCountByItem.get(row.artifactId) ?? 0) : 0
             }

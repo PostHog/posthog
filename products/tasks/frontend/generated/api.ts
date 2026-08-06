@@ -67,6 +67,8 @@ import type {
     TaskActivityMarkReadApi,
     TaskActivityMarkReadResponseApi,
     TaskActivityPageDTOApi,
+    TaskArtifactVersionContentApi,
+    TaskArtifactVersionsResponseApi,
     TaskArtifactsResponseApi,
     TaskAutomationDTOApi,
     TaskAutomationWriteApi,
@@ -117,6 +119,8 @@ import type {
     TaskThreadMessageDTOApi,
     TaskThreadMessageWriteApi,
     TaskWriteApi,
+    TasksArtifactVersionsListParams,
+    TasksArtifactVersionsRetrieveParams,
     TasksCommentsListParams,
     TasksCommentsRetrieveParams,
     TasksListParams,
@@ -1344,6 +1348,90 @@ export const tasksArtifactsList = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getTasksArtifactVersionsListUrl = (
+    projectId: string,
+    id: string,
+    artifactId: string,
+    params?: TasksArtifactVersionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${id}/artifacts/${artifactId}/versions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${id}/artifacts/${artifactId}/versions/`
+}
+
+/**
+ * Returns immutable uploaded versions of one task artifact, newest first.
+ * @summary List task artifact versions
+ */
+export const tasksArtifactVersionsList = async (
+    projectId: string,
+    id: string,
+    artifactId: string,
+    params?: TasksArtifactVersionsListParams,
+    options?: RequestInit
+): Promise<TaskArtifactVersionsResponseApi> => {
+    return apiMutator<TaskArtifactVersionsResponseApi>(
+        getTasksArtifactVersionsListUrl(projectId, id, artifactId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getTasksArtifactVersionsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    artifactId: string,
+    versionId: string,
+    params?: TasksArtifactVersionsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${id}/artifacts/${artifactId}/versions/${versionId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${id}/artifacts/${artifactId}/versions/${versionId}/`
+}
+
+/**
+ * Returns metadata and a bounded UTF-8 content chunk for one uploaded artifact version.
+ * @summary Retrieve a task artifact version
+ */
+export const tasksArtifactVersionsRetrieve = async (
+    projectId: string,
+    id: string,
+    artifactId: string,
+    versionId: string,
+    params?: TasksArtifactVersionsRetrieveParams,
+    options?: RequestInit
+): Promise<TaskArtifactVersionContentApi> => {
+    return apiMutator<TaskArtifactVersionContentApi>(
+        getTasksArtifactVersionsRetrieveUrl(projectId, id, artifactId, versionId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getTasksCommentsListUrl = (projectId: string, id: string, params?: TasksCommentsListParams) => {

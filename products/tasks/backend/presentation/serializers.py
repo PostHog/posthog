@@ -263,6 +263,22 @@ def validate_task_run_artifact_metadata(attrs: dict[str, Any]) -> dict[str, Any]
     return attrs
 
 
+def validate_task_artifact_version_request(attrs: dict[str, Any]) -> dict[str, Any]:
+    logical_artifact_id = attrs.get("logical_artifact_id")
+    has_expected_version = "expected_current_version_id" in attrs
+    if logical_artifact_id is not None and not has_expected_version:
+        raise serializers.ValidationError(
+            {"expected_current_version_id": "This field is required when revising an artifact."}
+        )
+    if logical_artifact_id is None and (has_expected_version or attrs.get("request_id") is not None):
+        raise serializers.ValidationError({"logical_artifact_id": "This field is required with version metadata."})
+    if logical_artifact_id is not None and (attrs.get("type") != "output" or attrs.get("source") != "agent_output"):
+        raise serializers.ValidationError(
+            {"logical_artifact_id": "Only agent output artifacts can create a new version."}
+        )
+    return attrs
+
+
 class TaskRunArtifactResponseSerializer(serializers.Serializer):
     id = serializers.CharField(required=False, help_text="Stable identifier for the artifact within this run")
     name = serializers.CharField(help_text="Artifact file name")
@@ -286,6 +302,19 @@ class TaskRunArtifactResponseSerializer(serializers.Serializer):
             "Presigned download URL for the artifact. Populated on the finalize-upload response so "
             "the caller can link to the file directly; it is time-limited and not persisted on the manifest."
         ),
+    )
+    logical_artifact_id = serializers.UUIDField(
+        required=False,
+        help_text="Stable task artifact id shared by every uploaded version of this deliverable.",
+    )
+    artifact_version_id = serializers.UUIDField(
+        required=False,
+        help_text="Immutable id of the version backed by this uploaded artifact.",
+    )
+    artifact_version = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Monotonically increasing display number for this artifact version.",
     )
 
 
@@ -867,9 +896,23 @@ class TaskRunArtifactUploadSerializer(serializers.Serializer):
         required=False,
         help_text="Optional structured metadata for special artifact types, such as skill bundles.",
     )
+    logical_artifact_id = serializers.UUIDField(
+        required=False,
+        help_text="Stable task artifact id to revise. Omit when creating a new deliverable.",
+    )
+    expected_current_version_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Current version id the edit is based on. Required when logical_artifact_id is provided.",
+    )
+    request_id = serializers.UUIDField(
+        required=False,
+        help_text="Idempotency key for retrying an artifact version upload.",
+    )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs = validate_task_run_artifact_metadata(attrs)
+        attrs = validate_task_artifact_version_request(attrs)
         content = attrs["content"]
         content_encoding = attrs.get("content_encoding", "utf-8")
 
@@ -1234,9 +1277,23 @@ class TaskRunArtifactFinalizeUploadSerializer(serializers.Serializer):
         required=False,
         help_text="Optional structured metadata for special artifact types, such as skill bundles.",
     )
+    logical_artifact_id = serializers.UUIDField(
+        required=False,
+        help_text="Stable task artifact id to revise. Omit when creating a new deliverable.",
+    )
+    expected_current_version_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Current version id the edit is based on. Required when logical_artifact_id is provided.",
+    )
+    request_id = serializers.UUIDField(
+        required=False,
+        help_text="Idempotency key for retrying an artifact version upload.",
+    )
 
     def validate(self, attrs):
-        return validate_task_run_artifact_metadata(attrs)
+        attrs = validate_task_run_artifact_metadata(attrs)
+        return validate_task_artifact_version_request(attrs)
 
 
 class TaskRunArtifactsFinalizeUploadRequestSerializer(serializers.Serializer):
@@ -1842,10 +1899,112 @@ class TaskArtifactSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Stable artifact id used to filter task comments.")
     type = serializers.CharField(help_text="Artifact type: artifact or canvas.")
     name = serializers.CharField(help_text="Display name of the artifact.")
+    run_id = serializers.CharField(
+        allow_null=True,
+        help_text="Task run containing the current uploaded version, or null for non-file artifacts.",
+    )
+    run_artifact_id = serializers.CharField(
+        allow_null=True,
+        help_text="Physical run artifact id backing the current version, or null when unavailable.",
+    )
+    current_version_id = serializers.UUIDField(
+        allow_null=True,
+        help_text="Immutable id of the current version, or null for legacy and non-file artifacts.",
+    )
+    current_version = serializers.IntegerField(
+        allow_null=True,
+        help_text="Current display version number, or null when the artifact has no version history.",
+    )
+    version_count = serializers.IntegerField(help_text="Number of immutable uploaded versions.")
+    content_type = serializers.CharField(
+        allow_null=True,
+        help_text="MIME type of the current uploaded version, when available.",
+    )
+    size = serializers.IntegerField(
+        allow_null=True,
+        help_text="Size of the current uploaded version in bytes, when available.",
+    )
+    editable = serializers.BooleanField(
+        help_text="Whether the current version's size, MIME type, and file extension allow text editing."
+    )
 
 
 class TaskArtifactsResponseSerializer(serializers.Serializer):
     artifacts = TaskArtifactSerializer(many=True, help_text="Artifacts and canvases linked to this task.")
+
+
+class TaskArtifactVersionSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Immutable artifact version id.")
+    artifact_id = serializers.UUIDField(help_text="Stable logical artifact id.")
+    version = serializers.IntegerField(help_text="Monotonically increasing display version number.")
+    run_id = serializers.UUIDField(help_text="Task run containing this uploaded version.")
+    run_artifact_id = serializers.CharField(help_text="Physical run artifact id backing this version.")
+    name = serializers.CharField(help_text="File name shared by this artifact's versions.")
+    content_type = serializers.CharField(help_text="MIME type recorded for this uploaded version.")
+    size = serializers.IntegerField(allow_null=True, help_text="Uploaded version size in bytes.")
+    created_at = serializers.DateTimeField(help_text="When this version was saved.")
+    created_by = TaskUserBasicInfoSerializer(
+        allow_null=True,
+        help_text="User whose authenticated request saved this version.",
+    )
+
+
+class TaskArtifactVersionsQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=100,
+        help_text="Maximum versions to return.",
+    )
+    before_version = serializers.IntegerField(
+        required=False,
+        min_value=2,
+        help_text="Return versions with a display number lower than this cursor.",
+    )
+
+
+class TaskArtifactVersionsResponseSerializer(serializers.Serializer):
+    versions = TaskArtifactVersionSerializer(many=True, help_text="Artifact versions, newest first.")
+    next_before_version = serializers.IntegerField(
+        allow_null=True,
+        help_text="Cursor for the next older page, or null when this is the last page.",
+    )
+
+
+class TaskArtifactVersionContentQuerySerializer(serializers.Serializer):
+    content_offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="UTF-8 byte offset at which to start this content chunk.",
+    )
+    content_limit = serializers.IntegerField(
+        required=False,
+        default=64 * 1024,
+        min_value=1,
+        max_value=64 * 1024,
+        help_text="Maximum UTF-8 bytes to return in this content chunk.",
+    )
+
+
+class TaskArtifactVersionContentSerializer(serializers.Serializer):
+    version = TaskArtifactVersionSerializer(help_text="Metadata for the selected artifact version.")
+    content = serializers.CharField(help_text="Bounded UTF-8 content chunk.")
+    content_truncated = serializers.BooleanField(help_text="Whether more content remains after this chunk.")
+    content_next_offset = serializers.IntegerField(
+        allow_null=True,
+        help_text="Byte offset for the next content chunk, or null when complete.",
+    )
+
+
+class TaskArtifactVersionConflictSerializer(serializers.Serializer):
+    code = serializers.CharField(help_text='Always "version_conflict".')
+    detail = serializers.CharField(help_text="Explanation of why the upload was rejected.")
+    current_version_id = serializers.UUIDField(
+        allow_null=True,
+        help_text="Current artifact version id at the time of the conflict.",
+    )
 
 
 class TaskCommentsQuerySerializer(serializers.Serializer):
@@ -1946,6 +2105,10 @@ class TaskCommentEntrySerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(help_text="When the comment was created.")
     anchor = TaskCommentAnchorSerializer(allow_null=True, help_text="Normalized text or document anchor.")
     canvas_version_id = serializers.CharField(allow_null=True, help_text="Canvas version receiving the comment.")
+    artifact_version_id = serializers.CharField(
+        allow_null=True,
+        help_text="Artifact version receiving the comment.",
+    )
 
 
 class TaskCommentDetailSerializer(serializers.Serializer):

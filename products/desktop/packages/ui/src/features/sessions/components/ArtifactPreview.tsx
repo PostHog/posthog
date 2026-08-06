@@ -1,5 +1,13 @@
-import { CrosshairSimpleIcon, XIcon } from "@phosphor-icons/react";
-import type { ResourceComment } from "@posthog/api-client/posthog-client";
+import {
+  CrosshairSimpleIcon,
+  FloppyDiskIcon,
+  PencilSimpleIcon,
+  XIcon,
+} from "@phosphor-icons/react";
+import {
+  ArtifactVersionConflictError,
+  type ResourceComment,
+} from "@posthog/api-client/posthog-client";
 import {
   type CommentAnchor,
   type CommentTarget,
@@ -10,15 +18,26 @@ import {
   type SessionService,
 } from "@posthog/core/sessions/sessionService";
 import { useService } from "@posthog/di/react";
-import { Button, Spinner } from "@posthog/quill";
+import {
+  Button,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Spinner,
+} from "@posthog/quill";
 import { isAllowedImageMimeType } from "@posthog/shared";
+import type { TaskArtifactVersion } from "@posthog/shared/domain-types";
 import {
   getAuthIdentity,
   useAuthStateValue,
 } from "@posthog/ui/features/auth/store";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
+import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import { toast } from "@posthog/ui/primitives/toast";
 import { useQuery } from "@tanstack/react-query";
 import {
   type ReactNode,
@@ -41,21 +60,83 @@ import {
   type CommentLocateRequest,
   type HighlightResolution,
 } from "./commentViewTypes";
+import { useArtifactVersions } from "./useArtifactVersions";
 import { useCommentsQuery, useCreateComment } from "./useComments";
+import { useSaveArtifactVersion } from "./useSaveArtifactVersion";
 
 const MARKDOWN_EXTENSIONS = new Set(["md", "mdx", "markdown"]);
 const HTML_EXTENSIONS = new Set(["html", "htm"]);
+const TEXT_EXTENSIONS = new Set([
+  "c",
+  "cc",
+  "conf",
+  "cpp",
+  "css",
+  "csv",
+  "go",
+  "h",
+  "ini",
+  "java",
+  "js",
+  "json",
+  "jsx",
+  "log",
+  "py",
+  "rb",
+  "rs",
+  "sh",
+  "sql",
+  "toml",
+  "ts",
+  "tsv",
+  "tsx",
+  "txt",
+  "xml",
+  "yaml",
+  "yml",
+]);
+const TEXT_APPLICATION_TYPES = new Set([
+  "application/javascript",
+  "application/json",
+  "application/sql",
+  "application/toml",
+  "application/xml",
+  "application/x-yaml",
+  "application/yaml",
+]);
 /** SVG is excluded from the shared image allowlist because its scripts can run
  *  when it comes from a data URL. An <img> renders SVG in a secure static mode
  *  that never runs scripts, so the zoom-and-annotate surface is safe for it. */
 const SVG_MIME_TYPE = "image/svg+xml";
 const EMPTY_COMMENTS: ResourceComment[] = [];
 
-type HtmlPreview = { kind: "html"; html: string };
-type PreviewData = string | Blob | HtmlPreview;
+type TextFormat = "html" | "markdown" | "plain";
+type TextPreview = { kind: "text"; content: string; format: TextFormat };
+type LegacyHtmlPreview = { kind: "html"; html: string };
+type PreviewData = string | Blob | TextPreview | LegacyHtmlPreview;
 
 function extension(filename: string): string {
   return filename.split(".").pop()?.toLowerCase() ?? "";
+}
+
+function textFormat(filename: string): TextFormat {
+  const fileExtension = extension(filename);
+  if (MARKDOWN_EXTENSIONS.has(fileExtension)) return "markdown";
+  if (HTML_EXTENSIONS.has(fileExtension)) return "html";
+  return "plain";
+}
+
+function isTextArtifact(filename: string, contentType: string): boolean {
+  const normalizedContentType =
+    contentType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+  const fileExtension = extension(filename);
+  return (
+    normalizedContentType.startsWith("text/") ||
+    TEXT_APPLICATION_TYPES.has(normalizedContentType) ||
+    MARKDOWN_EXTENSIONS.has(fileExtension) ||
+    HTML_EXTENSIONS.has(fileExtension) ||
+    TEXT_EXTENSIONS.has(fileExtension)
+  );
 }
 
 function ArtifactPreviewError() {
@@ -63,6 +144,39 @@ function ArtifactPreviewError() {
     <div className="flex h-full items-center justify-center text-muted-foreground">
       This artifact can’t be previewed.
     </div>
+  );
+}
+
+function ArtifactVersionSelect({
+  versions,
+  value,
+  disabled,
+  onChange,
+}: {
+  versions: TaskArtifactVersion[];
+  value: string | null;
+  disabled: boolean;
+  onChange: (versionId: string) => void;
+}) {
+  if (versions.length === 0 || !value) return null;
+  return (
+    <Select
+      value={value}
+      disabled={disabled}
+      onValueChange={(nextValue) => nextValue && onChange(nextValue)}
+    >
+      <SelectTrigger size="sm" aria-label="Artifact version">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {versions.map((version, index) => (
+          <SelectItem key={version.id} value={version.id}>
+            Version {version.version}
+            {index === 0 ? " (current)" : ""}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -78,7 +192,7 @@ function GenericArtifactHeader({
       <span className="truncate font-[var(--code-font-family)] text-[13px] text-muted-foreground">
         {name}
       </span>
-      {actions}
+      <div className="flex items-center gap-1">{actions}</div>
     </header>
   );
 }
@@ -89,15 +203,62 @@ export function ArtifactPreview({
   taskId,
   runId,
   artifactId,
+  runArtifactId = artifactId,
+  initialVersionId = null,
+  initialVersion = null,
+  editable = false,
+  contentType = "application/octet-stream",
   name,
 }: {
   taskId: string;
   runId: string;
   artifactId: string;
+  runArtifactId?: string;
+  initialVersionId?: string | null;
+  initialVersion?: number | null;
+  editable?: boolean;
+  contentType?: string;
   name: string;
 }) {
   const sessionService = useService<SessionService>(SESSION_SERVICE);
+  const versionsQuery = useArtifactVersions(
+    taskId,
+    artifactId,
+    initialVersionId !== null,
+  );
+  const saveVersion = useSaveArtifactVersion(taskId, artifactId);
+  const updateTabMetadata = usePanelLayoutStore(
+    (state) => state.updateTabMetadata,
+  );
+  const versions = versionsQuery.data ?? [];
+  const currentVersion = versions[0] ?? null;
+  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(
+    initialVersionId,
+  );
+  const selectedVersion = selectedVersionId
+    ? (versions.find((version) => version.id === selectedVersionId) ?? null)
+    : currentVersion;
+  const displayedRunId = selectedVersion?.run_id ?? runId;
+  const displayedRunArtifactId =
+    selectedVersion?.run_artifact_id ?? runArtifactId;
+  const displayedVersionId =
+    selectedVersion?.id ?? initialVersionId ?? currentVersion?.id ?? null;
+  const displayedVersionNumber =
+    selectedVersion?.version ??
+    initialVersion ??
+    currentVersion?.version ??
+    null;
+  const displayedContentType = selectedVersion?.content_type || contentType;
+  const displayedEditable = selectedVersion
+    ? (selectedVersion.size ?? Number.POSITIVE_INFINITY) <= 500_000 &&
+      isTextArtifact(name, displayedContentType)
+    : editable;
+  const expectedVersionId = currentVersion?.id ?? initialVersionId;
+  const saveRunId = currentVersion?.run_id ?? runId;
   const [showRendered, setShowRendered] = useState(true);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+  const draftRef = useRef("");
   const markdownRootRef = useRef<HTMLDivElement>(null);
   const markdownContainerRef = useRef<HTMLDivElement>(null);
   const [imageError, setImageError] = useState(false);
@@ -118,21 +279,29 @@ export function ArtifactPreview({
   );
   const focus = useCommentNavigationStore((state) => state.focusByTask[taskId]);
   const { data, isLoading, isError } = useQuery<PreviewData>({
-    queryKey: ["artifactPreview", authIdentity, taskId, runId, artifactId],
+    queryKey: [
+      "artifactPreview",
+      authIdentity,
+      taskId,
+      displayedRunId,
+      displayedRunArtifactId,
+    ],
     queryFn: async () => {
       const url = await sessionService.getCloudAttachmentPreviewUrl(
         taskId,
-        runId,
-        artifactId,
+        displayedRunId,
+        displayedRunArtifactId,
       );
       if (!url) throw new Error("Artifact is unavailable");
       const response = await fetch(url);
       if (!response.ok) throw new Error("Artifact preview failed");
       const blob = await response.blob();
-      const fileExtension = extension(name);
-      if (MARKDOWN_EXTENSIONS.has(fileExtension)) return blob.text();
-      if (HTML_EXTENSIONS.has(fileExtension)) {
-        return { kind: "html", html: await blob.text() };
+      if (isTextArtifact(name, blob.type || displayedContentType)) {
+        const content = new TextDecoder("utf-8", { fatal: true }).decode(
+          await blob.arrayBuffer(),
+        );
+        if (content.includes("\0")) throw new Error("Artifact is not text");
+        return { kind: "text", content, format: textFormat(name) };
       }
       return artifactPreviewBlob(blob, name);
     },
@@ -157,6 +326,38 @@ export function ArtifactPreview({
       if (previewUrl) URL.revokeObjectURL(previewUrl);
     };
   }, [previewUrl]);
+
+  useEffect(() => {
+    if (
+      selectedVersionId &&
+      versions.length > 0 &&
+      !versions.some((version) => version.id === selectedVersionId)
+    ) {
+      setSelectedVersionId(null);
+    }
+  }, [selectedVersionId, versions]);
+
+  useEffect(() => {
+    const tabId = `artifact-${artifactId}`;
+    updateTabMetadata(taskId, tabId, { hasUnsavedChanges: isDirty });
+    return () => updateTabMetadata(taskId, tabId, { hasUnsavedChanges: false });
+  }, [artifactId, isDirty, taskId, updateTabMetadata]);
+
+  useEffect(() => {
+    if (!isDirty) return;
+    const beforeUnload = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, [isDirty]);
+
+  const previousDisplayedVersionId = useRef(displayedVersionId);
+  useEffect(() => {
+    if (previousDisplayedVersionId.current === displayedVersionId) return;
+    previousDisplayedVersionId.current = displayedVersionId;
+    setIsEditing(false);
+    setIsDirty(false);
+    setImageError(false);
+  }, [displayedVersionId]);
 
   /** This artifact's share of the task's focus, if the focus is on it at all. */
   const focusedThreadId =
@@ -201,13 +402,141 @@ export function ArtifactPreview({
     async (anchor: CommentAnchor, content: string, mentions: number[] = []) => {
       const created = await createComment.mutateAsync({
         content,
-        context: { anchor },
+        context: {
+          anchor,
+          ...(displayedVersionId
+            ? { artifactVersionId: displayedVersionId }
+            : {}),
+        },
         mentions,
       });
       activateThread(created.id);
     },
-    [createComment, activateThread],
+    [createComment, activateThread, displayedVersionId],
   );
+
+  const textPreview: TextPreview | null =
+    typeof data === "string"
+      ? { kind: "text", content: data, format: "markdown" }
+      : data && !(data instanceof Blob) && data.kind === "html"
+        ? { kind: "text", content: data.html, format: "html" }
+        : data && !(data instanceof Blob) && data.kind === "text"
+          ? data
+          : null;
+
+  const startEditing = useCallback(() => {
+    if (!textPreview) return;
+    draftRef.current = textPreview.content;
+    setIsDirty(false);
+    setIsEditing(true);
+    setShowRendered(false);
+  }, [textPreview]);
+
+  const save = useCallback(async () => {
+    if (!expectedVersionId || !textPreview || !isDirty) return;
+    try {
+      await saveVersion.mutateAsync({
+        runId: saveRunId,
+        expectedVersionId,
+        name,
+        contentType: displayedContentType,
+        content: draftRef.current,
+      });
+      setSelectedVersionId(null);
+      setIsEditing(false);
+      setIsDirty(false);
+      toast.success("Saved artifact version");
+    } catch (error) {
+      if (error instanceof ArtifactVersionConflictError) {
+        toast.error("A newer version is available", {
+          description:
+            "Your draft is still open. Load the latest version before saving again.",
+        });
+        return;
+      }
+      toast.error("Couldn't save artifact", {
+        description: "Try again.",
+      });
+    }
+  }, [
+    displayedContentType,
+    expectedVersionId,
+    isDirty,
+    name,
+    saveRunId,
+    saveVersion,
+    textPreview,
+  ]);
+
+  useEffect(() => {
+    if (!isEditing) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        !(event.metaKey || event.ctrlKey) ||
+        event.key.toLowerCase() !== "s"
+      ) {
+        return;
+      }
+      event.preventDefault();
+      void save();
+    };
+    document.addEventListener("keydown", onKeyDown, { capture: true });
+    return () =>
+      document.removeEventListener("keydown", onKeyDown, { capture: true });
+  }, [isEditing, save]);
+
+  const versionSelect = (
+    <ArtifactVersionSelect
+      versions={versions}
+      value={displayedVersionId}
+      disabled={isEditing}
+      onChange={(versionId) =>
+        setSelectedVersionId(
+          versionId === currentVersion?.id ? null : versionId,
+        )
+      }
+    />
+  );
+  const commentAction = (
+    <ArtifactDocumentCommentAction
+      target={commentTarget}
+      taskId={taskId}
+      artifactVersionId={displayedVersionId}
+    />
+  );
+  const editActions =
+    textPreview && displayedEditable && expectedVersionId ? (
+      isEditing ? (
+        <>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setIsEditing(false);
+              setIsDirty(false);
+            }}
+          >
+            <XIcon />
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            variant="primary"
+            loading={saveVersion.isPending}
+            disabled={!isDirty}
+            onClick={() => void save()}
+          >
+            <FloppyDiskIcon />
+            Save
+          </Button>
+        </>
+      ) : (
+        <Button size="sm" variant="outline" onClick={startEditing}>
+          <PencilSimpleIcon />
+          Edit
+        </Button>
+      )
+    ) : null;
 
   if (isLoading) {
     return (
@@ -218,29 +547,48 @@ export function ArtifactPreview({
   }
   if (isError || imageError) return <ArtifactPreviewError />;
 
-  if (typeof data === "string") {
+  if (textPreview) {
+    const canRender = textPreview.format !== "plain";
     return (
       <div className="flex h-full flex-col overflow-hidden">
         <DocumentPreviewHeader
-          label={name}
-          content={data}
-          showRendered={showRendered}
+          label={
+            displayedVersionNumber
+              ? `${name} · Version ${displayedVersionNumber}`
+              : name
+          }
+          content={isEditing ? draftRef.current : textPreview.content}
+          showRendered={showRendered && !isEditing}
+          canToggleRendered={canRender && !isEditing}
           onToggleRendered={() => setShowRendered((rendered) => !rendered)}
           actions={
-            <ArtifactDocumentCommentAction
-              target={commentTarget}
-              taskId={taskId}
-            />
+            <>
+              {versionSelect}
+              {!isEditing && commentAction}
+              {editActions}
+            </>
           }
         />
-        {showRendered ? (
+        {isEditing ? (
+          <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+            <CodeMirrorEditor
+              key={`edit:${displayedVersionId}`}
+              content={textPreview.content}
+              filePath={name}
+              onContentChange={(content) => {
+                draftRef.current = content;
+                setIsDirty(content !== textPreview.content);
+              }}
+            />
+          </div>
+        ) : showRendered && textPreview.format === "markdown" ? (
           <div
             ref={markdownContainerRef}
             className="relative min-h-0 min-w-0 flex-1 overflow-auto"
           >
             <div ref={markdownRootRef}>
               <MarkdownDocumentPreview
-                content={data}
+                content={textPreview.content}
                 components={{ img: () => null }}
               />
             </div>
@@ -257,40 +605,30 @@ export function ArtifactPreview({
               onResolutionsChange={onResolutionsChange}
             />
           </div>
+        ) : showRendered && textPreview.format === "html" ? (
+          <div className="min-h-0 min-w-0 flex-1">
+            <AnnotatedArtifactHtml
+              html={textPreview.content}
+              name={name}
+              comments={annotationComments}
+              activeThreadId={focusedThreadId}
+              locateRequest={locateRequest}
+              members={members}
+              onActivateThread={activateThread}
+              onCreate={createAnchoredComment}
+              onResolutionsChange={onResolutionsChange}
+            />
+          </div>
         ) : (
           <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-            <CodeMirrorEditor content={data} filePath={name} readOnly />
+            <CodeMirrorEditor
+              key={`source:${displayedVersionId}`}
+              content={textPreview.content}
+              filePath={name}
+              readOnly
+            />
           </div>
         )}
-      </div>
-    );
-  }
-
-  if (data && !(data instanceof Blob) && data.kind === "html") {
-    return (
-      <div className="flex h-full flex-col overflow-hidden">
-        <GenericArtifactHeader
-          name={name}
-          actions={
-            <ArtifactDocumentCommentAction
-              target={commentTarget}
-              taskId={taskId}
-            />
-          }
-        />
-        <div className="min-h-0 min-w-0 flex-1">
-          <AnnotatedArtifactHtml
-            html={data.html}
-            name={name}
-            comments={annotationComments}
-            activeThreadId={focusedThreadId}
-            locateRequest={locateRequest}
-            members={members}
-            onActivateThread={activateThread}
-            onCreate={createAnchoredComment}
-            onResolutionsChange={onResolutionsChange}
-          />
-        </div>
       </div>
     );
   }
@@ -302,8 +640,9 @@ export function ArtifactPreview({
     (isAllowedImageMimeType(data.type) || data.type === SVG_MIME_TYPE)
   ) {
     const imageActions = (
-      <div className="flex items-center gap-1">
-        <ArtifactDocumentCommentAction target={commentTarget} taskId={taskId} />
+      <>
+        {versionSelect}
+        {commentAction}
         <Button
           size="sm"
           variant={imageCommenting ? "primary" : "outline"}
@@ -312,7 +651,7 @@ export function ArtifactPreview({
           {imageCommenting ? <XIcon /> : <CrosshairSimpleIcon />}
           {imageCommenting ? "Cancel" : "Pin comment…"}
         </Button>
-      </div>
+      </>
     );
     return (
       <div className="flex h-full flex-col overflow-hidden">
@@ -341,10 +680,10 @@ export function ArtifactPreview({
       <GenericArtifactHeader
         name={name}
         actions={
-          <ArtifactDocumentCommentAction
-            target={commentTarget}
-            taskId={taskId}
-          />
+          <>
+            {versionSelect}
+            {commentAction}
+          </>
         }
       />
       <div className="min-h-0 min-w-0 flex-1">

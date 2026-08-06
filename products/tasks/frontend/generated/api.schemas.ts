@@ -1436,6 +1436,15 @@ export interface TaskRunArtifactResponseApi {
     uploaded_at: string
     /** Presigned download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file directly; it is time-limited and not persisted on the manifest. */
     url?: string
+    /** Stable task artifact id shared by every uploaded version of this deliverable. */
+    logical_artifact_id?: string
+    /** Immutable id of the version backed by this uploaded artifact. */
+    artifact_version_id?: string
+    /**
+     * Monotonically increasing display number for this artifact version.
+     * @minimum 1
+     */
+    artifact_version?: number
 }
 
 /**
@@ -2020,11 +2029,95 @@ export interface TaskArtifactApi {
     type: string
     /** Display name of the artifact. */
     name: string
+    /**
+     * Task run containing the current uploaded version, or null for non-file artifacts.
+     * @nullable
+     */
+    run_id: string | null
+    /**
+     * Physical run artifact id backing the current version, or null when unavailable.
+     * @nullable
+     */
+    run_artifact_id: string | null
+    /**
+     * Immutable id of the current version, or null for legacy and non-file artifacts.
+     * @nullable
+     */
+    current_version_id: string | null
+    /**
+     * Current display version number, or null when the artifact has no version history.
+     * @nullable
+     */
+    current_version: number | null
+    /** Number of immutable uploaded versions. */
+    version_count: number
+    /**
+     * MIME type of the current uploaded version, when available.
+     * @nullable
+     */
+    content_type: string | null
+    /**
+     * Size of the current uploaded version in bytes, when available.
+     * @nullable
+     */
+    size: number | null
+    /** Whether the current version's size, MIME type, and file extension allow text editing. */
+    editable: boolean
 }
 
 export interface TaskArtifactsResponseApi {
     /** Artifacts and canvases linked to this task. */
     artifacts: TaskArtifactApi[]
+}
+
+export interface TaskArtifactVersionApi {
+    /** Immutable artifact version id. */
+    id: string
+    /** Stable logical artifact id. */
+    artifact_id: string
+    /** Monotonically increasing display version number. */
+    version: number
+    /** Task run containing this uploaded version. */
+    run_id: string
+    /** Physical run artifact id backing this version. */
+    run_artifact_id: string
+    /** File name shared by this artifact's versions. */
+    name: string
+    /** MIME type recorded for this uploaded version. */
+    content_type: string
+    /**
+     * Uploaded version size in bytes.
+     * @nullable
+     */
+    size: number | null
+    /** When this version was saved. */
+    created_at: string
+    /** User whose authenticated request saved this version. */
+    created_by: TaskUserBasicInfoApi | null
+}
+
+export interface TaskArtifactVersionsResponseApi {
+    /** Artifact versions, newest first. */
+    versions: TaskArtifactVersionApi[]
+    /**
+     * Cursor for the next older page, or null when this is the last page.
+     * @nullable
+     */
+    next_before_version: number | null
+}
+
+export interface TaskArtifactVersionContentApi {
+    /** Metadata for the selected artifact version. */
+    version: TaskArtifactVersionApi
+    /** Bounded UTF-8 content chunk. */
+    content: string
+    /** Whether more content remains after this chunk. */
+    content_truncated: boolean
+    /**
+     * Byte offset for the next content chunk, or null when complete.
+     * @nullable
+     */
+    content_next_offset: number | null
 }
 
 export interface TaskCommentTargetApi {
@@ -2139,6 +2232,11 @@ export interface TaskCommentEntryApi {
      * @nullable
      */
     canvas_version_id: string | null
+    /**
+     * Artifact version receiving the comment.
+     * @nullable
+     */
+    artifact_version_id: string | null
 }
 
 export interface TaskCommentDetailApi {
@@ -2967,6 +3065,15 @@ export interface TaskRunArtifactUploadApi {
     content_type?: string
     /** Optional structured metadata for special artifact types, such as skill bundles. */
     metadata?: TaskRunArtifactMetadataApi
+    /** Stable task artifact id to revise. Omit when creating a new deliverable. */
+    logical_artifact_id?: string
+    /**
+     * Current version id the edit is based on. Required when logical_artifact_id is provided.
+     * @nullable
+     */
+    expected_current_version_id?: string | null
+    /** Idempotency key for retrying an artifact version upload. */
+    request_id?: string
 }
 
 export interface TaskRunArtifactsUploadRequestApi {
@@ -2977,6 +3084,18 @@ export interface TaskRunArtifactsUploadRequestApi {
 export interface TaskRunArtifactsUploadResponseApi {
     /** Updated list of artifacts on the run */
     artifacts: TaskRunArtifactResponseApi[]
+}
+
+export interface TaskArtifactVersionConflictApi {
+    /** Always "version_conflict". */
+    code: string
+    /** Explanation of why the upload was rejected. */
+    detail: string
+    /**
+     * Current artifact version id at the time of the conflict.
+     * @nullable
+     */
+    current_version_id: string | null
 }
 
 export interface TaskRunArtifactPresignRequestApi {
@@ -3023,6 +3142,15 @@ export interface TaskRunArtifactFinalizeUploadApi {
     content_type?: string
     /** Optional structured metadata for special artifact types, such as skill bundles. */
     metadata?: TaskRunArtifactMetadataApi
+    /** Stable task artifact id to revise. Omit when creating a new deliverable. */
+    logical_artifact_id?: string
+    /**
+     * Current version id the edit is based on. Required when logical_artifact_id is provided.
+     * @nullable
+     */
+    expected_current_version_id?: string | null
+    /** Idempotency key for retrying an artifact version upload. */
+    request_id?: string
 }
 
 export interface TaskRunArtifactsFinalizeUploadRequestApi {
@@ -3317,6 +3445,7 @@ export const ArtifactTypeEnumApi = {
  * * `slack_file` - slack_file
  * * `document_connector` - document_connector
  * * `github_pr` - github_pr
+ * * `object_storage` - object_storage
  */
 export type AdapterEnumApi = (typeof AdapterEnumApi)[keyof typeof AdapterEnumApi]
 
@@ -3326,6 +3455,7 @@ export const AdapterEnumApi = {
     SlackFile: 'slack_file',
     DocumentConnector: 'document_connector',
     GithubPr: 'github_pr',
+    ObjectStorage: 'object_storage',
 } as const
 
 /**
@@ -3368,7 +3498,8 @@ export interface TaskRunLivingArtifactResponseApi {
      * * `slack_canvas` - slack_canvas
      * * `slack_file` - slack_file
      * * `document_connector` - document_connector
-     * * `github_pr` - github_pr */
+     * * `github_pr` - github_pr
+     * * `object_storage` - object_storage */
     adapter: AdapterEnumApi
     /** Current registry status for the artifact.
      *
@@ -3427,7 +3558,8 @@ export interface TaskRunLivingArtifactCreateRequestApi {
      * * `slack_canvas` - slack_canvas
      * * `slack_file` - slack_file
      * * `document_connector` - document_connector
-     * * `github_pr` - github_pr */
+     * * `github_pr` - github_pr
+     * * `object_storage` - object_storage */
     adapter?: AdapterEnumApi
     /**
      * Markdown or text content for the initial artifact version.
@@ -3478,7 +3610,8 @@ export interface TaskRunLivingArtifactOpenResponseApi {
      * * `slack_canvas` - slack_canvas
      * * `slack_file` - slack_file
      * * `document_connector` - document_connector
-     * * `github_pr` - github_pr */
+     * * `github_pr` - github_pr
+     * * `object_storage` - object_storage */
     adapter: AdapterEnumApi
     /** Current registry status for the artifact.
      *
@@ -4226,6 +4359,34 @@ export const TasksListStatus = {
     Failed: 'failed',
     Cancelled: 'cancelled',
 } as const
+
+export type TasksArtifactVersionsListParams = {
+    /**
+     * Return versions with a display number lower than this cursor.
+     * @minimum 2
+     */
+    before_version?: number
+    /**
+     * Maximum versions to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+}
+
+export type TasksArtifactVersionsRetrieveParams = {
+    /**
+     * Maximum UTF-8 bytes to return in this content chunk.
+     * @minimum 1
+     * @maximum 65536
+     */
+    content_limit?: number
+    /**
+     * UTF-8 byte offset at which to start this content chunk.
+     * @minimum 0
+     */
+    content_offset?: number
+}
 
 export type TasksCommentsListParams = {
     /**

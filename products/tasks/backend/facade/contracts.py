@@ -275,11 +275,53 @@ class TaskActivityPageDTO:
     next_before_id: UUID | None = None
 
 
+class TaskArtifactVersionConflict(Exception):
+    def __init__(self, current_version_id: UUID | None) -> None:
+        self.current_version_id = current_version_id
+        super().__init__("The artifact changed since it was opened")
+
+
 @dataclass(frozen=True)
 class TaskArtifactDTO:
     id: str
     type: str
     name: str
+    run_id: str | None = None
+    run_artifact_id: str | None = None
+    current_version_id: str | None = None
+    current_version: int | None = None
+    version_count: int = 0
+    content_type: str | None = None
+    size: int | None = None
+    editable: bool = False
+
+
+@dataclass(frozen=True)
+class TaskArtifactVersionDTO:
+    id: UUID
+    artifact_id: UUID
+    version: int
+    run_id: UUID
+    run_artifact_id: str
+    name: str
+    content_type: str
+    size: int | None
+    created_at: datetime
+    created_by: "TaskUserBasicInfo | None" = None
+
+
+@dataclass(frozen=True)
+class TaskArtifactVersionPageDTO:
+    versions: list[TaskArtifactVersionDTO]
+    next_before_version: int | None
+
+
+@dataclass(frozen=True)
+class TaskArtifactVersionContentDTO:
+    version: TaskArtifactVersionDTO
+    content: str
+    content_truncated: bool
+    content_next_offset: int | None
 
 
 @dataclass(frozen=True)
@@ -317,6 +359,7 @@ class TaskCommentEntryDTO:
     created_at: datetime
     anchor: dict | None
     canvas_version_id: str | None
+    artifact_version_id: str | None
 
 
 @dataclass(frozen=True)

@@ -14,10 +14,12 @@ import { useCreateComment } from "./useComments";
 export function ArtifactDocumentCommentAction({
   target,
   taskId,
+  artifactVersionId,
   onCreated,
 }: {
   target: CommentTarget;
   taskId: string;
+  artifactVersionId?: string | null;
   onCreated?: (commentId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -42,7 +44,10 @@ export function ArtifactDocumentCommentAction({
           onSubmit={async (content, mentions) => {
             const comment = await createComment.mutateAsync({
               content,
-              context: { anchor: { kind: "document" } },
+              context: {
+                anchor: { kind: "document" },
+                ...(artifactVersionId ? { artifactVersionId } : {}),
+              },
               mentions,
             });
             onCreated?.(comment.id);

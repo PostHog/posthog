@@ -48,6 +48,11 @@ export type TabData =
       type: "artifact";
       runId: string;
       artifactId: string;
+      runArtifactId?: string;
+      versionId?: string | null;
+      version?: number | null;
+      editable?: boolean;
+      contentType?: string;
     }
   | {
       type: "other";
