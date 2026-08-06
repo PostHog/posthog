@@ -113,7 +113,6 @@ function omitQuery(scanner: ReplayScanner): Omit<ReplayScanner, 'query'> {
     return rest
 }
 
-/** `newScanner()` restamps these, so a restored draft never deep-equals a freshly built baseline. */
 function omitStamps(scanner: ReplayScanner): Omit<ReplayScanner, 'created_at' | 'updated_at' | 'last_swept_at'> {
     const { created_at: _created, updated_at: _updated, last_swept_at: _swept, ...rest } = scanner
     return rest
@@ -1162,8 +1161,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             actions.loadObservationStats()
         }
         const persistDraft = (): void => {
-            // Restoring dispatches the same form actions a user edit does; persisting it would
-            // restamp `savedAt` and count as a touch.
             if (props.id !== 'new' || cache.restoringDraft) {
                 return
             }
@@ -1306,8 +1303,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 actions.resetScanner(newScanner(templateKey))
             },
             discardScannerDraft: () => {
-                clearScannerDraft()
-                actions.setScannerDraftSavedAt(null)
+                // Storage holds one draft, and it belongs to the new-scanner wizard.
+                if (props.id === 'new') {
+                    clearScannerDraft()
+                    actions.setScannerDraftSavedAt(null)
+                }
                 actions.resetScanner(values.originalScanner ?? newScanner(null))
             },
             scannerSaved: () => {
@@ -1662,7 +1662,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     }),
 
     beforeUnmount(({ values, props, cache }) => {
-        // Only announce a draft this visit wrote: opening the wizard would otherwise claim a save.
         if (props.id === 'new' && cache.draftTouched && values.scannerDraftSavedAt !== null) {
             lemonToast.info('Draft saved', {
                 button: {

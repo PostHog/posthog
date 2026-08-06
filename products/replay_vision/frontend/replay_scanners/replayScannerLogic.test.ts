@@ -316,7 +316,6 @@ describe('replayScannerLogic', () => {
         })
 
         it('discards back to the loaded baseline, so the leave guard stays disarmed', async () => {
-            // A template baseline, so resetting to a blank scanner instead would be visible.
             router.actions.push(urls.replayVisionScannerTemplate('new'), { template: 'dead_end' })
             logic.unmount()
             logic = replayScannerLogic({ id: 'new' })
@@ -750,7 +749,6 @@ describe('replayScannerLogic', () => {
             // Nothing to lose, or the editor is mid-submit (save / step advance redirects itself).
             ['no unsaved changes', { ...base, hasUnsavedChanges: false, nextPathname: '/insights' }, false],
             ['mid-submit redirect to detail', { ...base, isSubmitting: true, nextPathname: detail }, false],
-            // A stored draft survives the exit, so the prompt would be asking about nothing.
             ['edits already saved as a draft', { ...base, hasSavedDraft: true, nextPathname: '/insights' }, false],
             // Moving between the wizard's own steps keeps the same draft mounted.
             ['forward to triggers step', { ...base, nextPathname: triggers }, false],

@@ -16,7 +16,6 @@ export interface ScannerDraft {
     savedAt: number
 }
 
-/** The stored `savedAt`, or null when storage refused the write. */
 export function writeScannerDraft(teamId: number, scanner: ReplayScanner): number | null {
     const savedAt = Date.now()
     const draft: StoredScannerDraft = { version: DRAFT_VERSION, teamId, savedAt, scanner }

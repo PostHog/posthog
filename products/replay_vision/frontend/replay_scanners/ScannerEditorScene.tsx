@@ -356,7 +356,8 @@ function EditorFooter({
     onAdvance: () => void
     onSave: () => void
 }): JSX.Element {
-    const { scanner, durationValidationError } = useValues(replayScannerLogic({ id: scannerId }))
+    const { scanner, durationValidationError, hasUnsavedChanges } = useValues(replayScannerLogic({ id: scannerId }))
+    const { discardScannerDraft } = useActions(replayScannerLogic({ id: scannerId }))
     const stepIndex = visibleSteps.indexOf(step)
     const prevStep = stepIndex > 0 ? visibleSteps[stepIndex - 1] : null
     const nextStep = stepIndex < visibleSteps.length - 1 ? visibleSteps[stepIndex + 1] : null
@@ -366,6 +367,26 @@ function EditorFooter({
     const ownsDurationFilter = step === 'triggers' || step === 'self_driving'
     const durationError = ownsDurationFilter ? durationValidationError : null
     const saveDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level) ?? durationError
+
+    const cancel = (): void => {
+        // Resetting first leaves nothing unsaved, so the leave guard can't prompt on top of this.
+        discardScannerDraft()
+        router.actions.push(isNew ? urls.replayVision() : urls.replayVision(scannerId))
+    }
+    const handleCancel = (): void => {
+        if (!hasUnsavedChanges) {
+            cancel()
+            return
+        }
+        LemonDialog.open({
+            title: isNew ? 'Discard this scanner?' : 'Discard your changes?',
+            description: isNew
+                ? "The scanner you've been setting up won't be saved."
+                : "The changes you made won't be saved.",
+            primaryButton: { children: 'Discard', status: 'danger', onClick: cancel },
+            secondaryButton: { children: 'Keep editing' },
+        })
+    }
 
     return (
         <div className="flex flex-col gap-2">
@@ -389,30 +410,33 @@ function EditorFooter({
                         Back
                     </LemonButton>
                 ) : null}
-                {nextStep ? (
-                    <LemonButton
-                        type="primary"
-                        loading={isSubmitting}
-                        disabledReason={saveDisabledReason}
-                        onClick={onAdvance}
-                        className="ml-auto"
-                        data-attr="vision-editor-next"
-                    >
-                        Next: {STEP_LABELS[nextStep]}
+                <div className="flex flex-wrap items-center gap-2 ml-auto">
+                    <LemonButton type="tertiary" onClick={handleCancel} data-attr="vision-editor-cancel">
+                        Cancel
                     </LemonButton>
-                ) : (
-                    <LemonButton
-                        type="primary"
-                        loading={isSubmitting}
-                        disabledReason={saveDisabledReason}
-                        onClick={onSave}
-                        className="ml-auto"
-                        data-attr="vision-editor-save"
-                        data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
-                    >
-                        {isNew ? 'Create scanner' : 'Save changes'}
-                    </LemonButton>
-                )}
+                    {nextStep ? (
+                        <LemonButton
+                            type="primary"
+                            loading={isSubmitting}
+                            disabledReason={saveDisabledReason}
+                            onClick={onAdvance}
+                            data-attr="vision-editor-next"
+                        >
+                            Next: {STEP_LABELS[nextStep]}
+                        </LemonButton>
+                    ) : (
+                        <LemonButton
+                            type="primary"
+                            loading={isSubmitting}
+                            disabledReason={saveDisabledReason}
+                            onClick={onSave}
+                            data-attr="vision-editor-save"
+                            data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
+                        >
+                            {isNew ? 'Create scanner' : 'Save changes'}
+                        </LemonButton>
+                    )}
+                </div>
             </div>
         </div>
     )
