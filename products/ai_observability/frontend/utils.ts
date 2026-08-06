@@ -1144,7 +1144,7 @@ export function normalizeEvaluationResultProperties({
         sentiment_label: sentimentLabel,
         sentiment_score: normalizeOptionalNumber(rawSentimentScore),
         applicable: normalizeEvaluationApplicable(rawApplicable),
-        result_format: rawResultFormat === 'zero_one' ? 'zero_one' : undefined,
+        result_format: rawResultFormat === 'zero_one' ? 'zero_one' : null,
     }
 }
 

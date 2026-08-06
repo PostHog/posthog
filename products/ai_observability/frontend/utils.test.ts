@@ -137,8 +137,8 @@ describe('mapEvaluationRunRow', () => {
         expect(mapEvaluationRunRow(makeEvaluationRunRow({ resultFormat: 'zero_one' })).result_format).toBe('zero_one')
     })
 
-    it('leaves result_format undefined when the row is not stamped', () => {
-        expect(mapEvaluationRunRow(makeEvaluationRunRow()).result_format).toBeUndefined()
+    it('maps unstamped rows to a null result_format', () => {
+        expect(mapEvaluationRunRow(makeEvaluationRunRow()).result_format).toBeNull()
     })
 
     it('maps explicitly non-applicable rows to null', () => {

@@ -135,7 +135,7 @@ export interface EvaluationRun {
     result_type?: EvaluationOutputType
     result: boolean | null
     // Stamped on the event at emit time; absent means true_false, including every historical run.
-    result_format?: EvaluationResultFormat
+    result_format?: EvaluationResultFormat | null
     sentiment_label?: string | null
     sentiment_score?: number | null
     applicable?: boolean
