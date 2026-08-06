@@ -133,6 +133,10 @@ services:
         extends:
             file: docker-compose.base.yml
             service: capture
+        # A hardcoded :master tag would run master's binary even on a PR that changes the Rust
+        # capture code, so tests covering the capture hop could pass against the wrong build.
+        # CI resolves this to the PR's own image when one was published.
+        image: ghcr.io/posthog/posthog/capture:${POSTHOG_CAPTURE_TAG:-master}
         restart: on-failure
         ports:
             - '3307:3000'
@@ -154,6 +158,8 @@ services:
         extends:
             file: docker-compose.base.yml
             service: capture-ai
+        # Same binary as `capture`, so it needs the same tag resolution — see the comment there.
+        image: ghcr.io/posthog/posthog/capture:${POSTHOG_CAPTURE_TAG:-master}
         restart: on-failure
         ports:
             - '3309:3000'
