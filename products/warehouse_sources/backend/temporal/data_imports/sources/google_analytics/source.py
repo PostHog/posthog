@@ -237,7 +237,8 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
                         placeholder="123456789",
                         caption=(
                             "The numeric GA4 property ID, found in Google Analytics under "
-                            "Admin → Property settings → Property details."
+                            "Admin → Property settings → Property details. This is not the "
+                            "'G-XXXXXXX' Measurement ID from your website tag."
                         ),
                         secret=False,
                     ),
