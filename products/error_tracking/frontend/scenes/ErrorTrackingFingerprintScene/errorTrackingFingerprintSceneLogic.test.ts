@@ -48,4 +48,21 @@ describe('errorTrackingFingerprintSceneLogic', () => {
         )
         expect(rawFingerprintPathSegment('/project/1/error_tracking/issue-id')).toBeNull()
     })
+
+    it('handles a missing fingerprint as a retryable lookup miss', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/error_tracking/fingerprints/resolve/': () => [
+                    404,
+                    { detail: 'Fingerprint not found' },
+                ],
+            },
+        })
+        logic = errorTrackingFingerprintSceneLogic({ fingerprint: 'missing-fingerprint' })
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['fingerprintNotFound', 'resolveFingerprintSuccess'])
+            .toMatchValues({ retries: 1, resolvedFingerprint: null })
+    })
 })
