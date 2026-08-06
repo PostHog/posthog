@@ -9663,3 +9663,49 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(duplicate.status_code, status.HTTP_200_OK, duplicate.json())
         self.assertEqual(duplicate.json()["description"], "the same edit")
         self.assertEqual(duplicate.json()["version"], snapshot["version"] + 1)
+
+    def test_stale_running_time_config_edit_merges_over_estimate_churn(self) -> None:
+        # The calculator auto-save rewrites recommended_* on every results load, so a tab is
+        # routinely several versions behind holding a stale estimate echo. Editing the MDE from
+        # that tab must not read as a double-edit of running_time_calculation.
+        created = self._create_experiment("rtc-churn", metrics=[self._metric("base")])
+        seeded = self._patch(
+            created["id"],
+            {
+                "running_time_calculation": {
+                    "minimum_detectable_effect": 5,
+                    "recommended_running_time": 9,
+                    "recommended_sample_size": 800,
+                }
+            },
+        )
+        self.assertEqual(seeded.status_code, status.HTTP_200_OK)
+        snapshot = seeded.json()
+
+        churn = self._patch(
+            snapshot["id"],
+            {
+                "running_time_calculation": {
+                    "minimum_detectable_effect": 5,
+                    "recommended_running_time": 30,
+                    "recommended_sample_size": 4000,
+                }
+            },
+        )
+        self.assertEqual(churn.status_code, status.HTTP_200_OK)
+
+        stale_config_edit = self._patch(
+            snapshot["id"],
+            {
+                "running_time_calculation": {
+                    "minimum_detectable_effect": 10,
+                    "recommended_running_time": 9,
+                    "recommended_sample_size": 800,
+                },
+                "version": snapshot["version"],
+                "original_experiment": self._original_with_scalars(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_config_edit.status_code, status.HTTP_200_OK, stale_config_edit.json())
+        self.assertEqual(stale_config_edit.json()["running_time_calculation"]["minimum_detectable_effect"], 10)

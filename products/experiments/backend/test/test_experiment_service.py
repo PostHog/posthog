@@ -7164,6 +7164,40 @@ class TestScalarConcurrencyResolution(SimpleTestCase):
                 {"parameters": {"variant_notes": {"control": "mine"}}},
                 ["parameters"],
             ),
+            (
+                # The calculator auto-save rewrites the recommended_* estimates on every results
+                # load, so a stale tab's echo of older estimates is machine churn, not a user edit.
+                "running_time_estimate_churn_is_not_a_conflict",
+                {"running_time_calculation": {"minimum_detectable_effect": 5, "recommended_running_time": 12}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5, "recommended_running_time": 9}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5, "recommended_running_time": 30}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5, "recommended_running_time": 12}},
+                [],
+            ),
+            (
+                "running_time_config_edit_survives_estimate_churn",
+                {"running_time_calculation": {"minimum_detectable_effect": 10, "recommended_running_time": 9}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5, "recommended_running_time": 9}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5, "recommended_running_time": 30}},
+                {"running_time_calculation": {"minimum_detectable_effect": 10, "recommended_running_time": 9}},
+                [],
+            ),
+            (
+                "running_time_config_double_edit_still_conflicts",
+                {"running_time_calculation": {"minimum_detectable_effect": 10}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5}},
+                {"running_time_calculation": {"minimum_detectable_effect": 20, "recommended_running_time": 30}},
+                {"running_time_calculation": {"minimum_detectable_effect": 10}},
+                ["running_time_calculation"],
+            ),
+            (
+                "running_time_null_base_vs_machine_only_current_is_not_a_conflict",
+                {"running_time_calculation": {"minimum_detectable_effect": 5}},
+                {"running_time_calculation": None},
+                {"running_time_calculation": {"recommended_running_time": 30, "recommended_sample_size": 100}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5}},
+                [],
+            ),
         ]
     )
     def test_resolve_scalar_updates(

@@ -2077,7 +2077,18 @@ export const experimentLogic = kea<experimentLogicType>([
         unmodifiedExperiment: [
             null as Experiment | null,
             {
-                setUnmodifiedExperiment: (_, { experiment }) => experiment,
+                // Every write path (user saves, the running-time auto-save, reorders) absorbs its
+                // response here, and responses can land out of order. An older response arriving
+                // after a newer one must not move this concurrency base backwards: a poisoned base
+                // makes every following save from this tab stale, so it 409s as a false conflict
+                // against the user's own earlier write.
+                setUnmodifiedExperiment: (state, { experiment }) =>
+                    state &&
+                    typeof state.version === 'number' &&
+                    typeof experiment?.version === 'number' &&
+                    experiment.version < state.version
+                        ? state
+                        : experiment,
             },
         ],
         // PRIMARY METRICS

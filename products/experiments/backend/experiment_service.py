@@ -450,6 +450,14 @@ def _concurrency_value_view(value: Any, depth: int = 0) -> Any:
     return value
 
 
+# Estimate keys the running-time calculator auto-saves on every results load of a launched
+# experiment, silently bumping the version. Comparing them would make that machine churn read
+# as a concurrent user edit and 409 any stale tab's save that carries the field, so concurrency
+# resolution only compares the user-set configuration around them (mirroring how metric
+# ``fingerprint`` churn is stripped by ``_metric_merge_view``).
+_RUNNING_TIME_MACHINE_KEYS = frozenset({"recommended_running_time", "recommended_sample_size"})
+
+
 def _scalar_merge_view(field: str, value: Any) -> Any:
     """The value of one scalar payload field as compared for concurrency resolution.
 
@@ -457,12 +465,19 @@ def _scalar_merge_view(field: str, value: Any) -> Any:
     the linked flag's config into it (``ExperimentBaseSerializer._project_feature_flag_config``)
     while writes strip that config before storage, so a client-echoed base only matches the
     stored column when all sides are compared flag-stripped, with empty and null collapsed.
+    ``running_time_calculation`` is compared with its machine-recomputed estimate keys
+    stripped for the same reason (see ``_RUNNING_TIME_MACHINE_KEYS``).
     """
     if field == "parameters":
         if value is None:
             return {}
         if isinstance(value, dict):
             value = ExperimentService._strip_feature_flag_config(value)
+    if field == "running_time_calculation":
+        if value is None:
+            return {}
+        if isinstance(value, dict):
+            value = {key: item for key, item in value.items() if key not in _RUNNING_TIME_MACHINE_KEYS}
     return _concurrency_value_view(value)
 
 
