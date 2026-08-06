@@ -121,6 +121,17 @@ TWILIO_ENDPOINTS: dict[str, TwilioEndpointConfig] = {
 
 ENDPOINTS = tuple(TWILIO_ENDPOINTS.keys())
 
+# Twilio grants the Keys resource (/Accounts/{SID}/Keys) only to the Auth Token and to Main API keys.
+# Standard and Restricted API keys get a 401 with error 20003 on it, so the table has to be reported
+# as unreachable for those credentials instead of read as a failed credential check.
+# https://www.twilio.com/docs/iam/api-keys
+MAIN_KEY_ONLY_ENDPOINTS = frozenset({"keys"})
+
+# `get_endpoint_permissions` only runs on the schema-picker path, so one-shot setup would otherwise
+# enable a table it has no way to check. Defaulting these off covers both paths, since the picker and
+# `build_default_schemas` honor it, and the recommended credential is a Standard key.
+SHOULD_SYNC_DEFAULT: dict[str, bool] = {name: name not in MAIN_KEY_ONLY_ENDPOINTS for name in ENDPOINTS}
+
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in TWILIO_ENDPOINTS.items()
 }
