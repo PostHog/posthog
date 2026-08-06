@@ -676,6 +676,20 @@ def test_validate_credentials_maps_api_error_to_friendly_message(api_message, ex
     assert "APIError" not in (error_message or "")
 
 
+def test_validate_credentials_rejects_non_sheets_url_with_actionable_message():
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.google_sheets_client"
+    ) as mock_client:
+        # gspread raises this (with an empty str()) when the value has no spreadsheet key.
+        mock_client.return_value.open_by_url.side_effect = gspread.exceptions.NoValidUrlKeyFound()
+        config = GoogleSheetsSourceConfig(spreadsheet_url="https://example.com/not-a-sheet")
+        is_valid, error_message = GoogleSheetsSource().validate_credentials(config, team_id=1)
+
+    assert is_valid is False
+    # The empty str() would otherwise surface as a bare "Invalid credentials"; point at the URL.
+    assert "Google Sheets URL" in (error_message or "")
+
+
 def test_validate_credentials_permission_denied_names_service_account(settings):
     settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL = "svc@posthog.iam.gserviceaccount.com"
     with mock.patch(

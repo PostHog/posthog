@@ -8,6 +8,7 @@ import { ChartDisplayType } from '~/types'
 
 import { sqlEditorLogic } from '../sqlEditorLogic'
 import type { QueryTab } from '../sqlEditorLogic'
+import { captureBIEditorModeSelected } from './biEditorAnalytics'
 import {
     BIAggregation,
     BIConfig,
@@ -488,6 +489,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
             actions.syncUrlWithQuery()
         },
         setEditorView: ({ editorView }) => {
+            captureBIEditorModeSelected(editorView, values.config)
             actions.persistState(editorView, values.config)
             if (editorView === BIEditorView.BI) {
                 actions.syncGeneratedQuery()
