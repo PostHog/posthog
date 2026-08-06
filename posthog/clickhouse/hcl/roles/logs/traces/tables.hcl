@@ -1,7 +1,6 @@
 # The trace-spans suite, hosted by the local logs node and both prod logs envs
-# (dev has no traces). Env deltas are patch_table blocks in the env layers; the
-# ingest MV (kafka_trace_spans_avro_mv) stays per-env until hclexp supports
-# overriding materialized views.
+# (dev has no traces). Env deltas are patch_table / patch_materialized_view
+# blocks in the env layers, never second definitions.
 database "posthog" {
   table "trace_attributes" {
     order_by     = ["team_id", "attribute_type", "time_bucket", "resource_fingerprint", "attribute_key", "attribute_value"]
@@ -565,6 +564,77 @@ database "posthog" {
     }
     column "attribute_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+  }
+
+  materialized_view "kafka_trace_spans_avro_mv" {
+    to_table = "posthog.trace_spans"
+    query = file("sql/kafka_trace_spans_avro_mv.sql")
+    column "uuid" {
+      type = "String"
+    }
+    column "trace_id" {
+      type = "String"
+    }
+    column "span_id" {
+      type = "String"
+    }
+    column "parent_span_id" {
+      type = "String"
+    }
+    column "trace_state" {
+      type = "String"
+    }
+    column "name" {
+      type = "String"
+    }
+    column "kind" {
+      type = "Int8"
+    }
+    column "flags" {
+      type = "UInt32"
+    }
+    column "timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "end_time" {
+      type = "DateTime64(6)"
+    }
+    column "observed_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "service_name" {
+      type = "String"
+    }
+    column "resource_attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "instrumentation_scope" {
+      type = "String"
+    }
+    column "attributes_map_str" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "dropped_attributes_count" {
+      type = "UInt32"
+    }
+    column "events" {
+      type = "Array(String)"
+    }
+    column "dropped_events_count" {
+      type = "UInt32"
+    }
+    column "links" {
+      type = "Array(String)"
+    }
+    column "dropped_links_count" {
+      type = "UInt32"
+    }
+    column "status_code" {
+      type = "Int16"
+    }
+    column "team_id" {
+      type = "Int32"
     }
   }
 }
