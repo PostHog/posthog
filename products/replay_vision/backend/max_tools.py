@@ -20,6 +20,8 @@ from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 
+from products.replay_vision.backend.api.scanners import ReplayScannerSerializer
+from products.replay_vision.backend.api.vision_actions import VisionActionSerializer
 from products.replay_vision.backend.billing import CREDITS_PER_DOLLAR, observation_credits_for_model
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.embeddings import (
@@ -30,7 +32,7 @@ from products.replay_vision.backend.embeddings import (
 from products.replay_vision.backend.feature_flag import is_replay_vision_enabled
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
-from products.replay_vision.backend.models.vision_action import ActionMode, TriggerType, VisionAction
+from products.replay_vision.backend.models.vision_action import ActionMode
 from products.replay_vision.backend.observation_formatting import EVENT_ID_CITATION_RE, format_line, read_output
 from products.replay_vision.backend.quota import compute_quota_snapshot
 from products.replay_vision.backend.scanner_access import (
@@ -975,6 +977,16 @@ class RetryReplayVisionObservationTool(ReplayVisionGatesMixin, MaxTool):
         )
 
 
+def _first_error(errors: Any) -> str:
+    """The first message out of a DRF error tree, for a chat that has no field to attach it to."""
+    if isinstance(errors, dict):
+        for value in errors.values():
+            return _first_error(value)
+    if isinstance(errors, list) and errors:
+        return _first_error(errors[0])
+    return str(errors)
+
+
 def _scanner_config_for(
     scanner_type: ScannerType,
     prompt: str,
@@ -1136,28 +1148,31 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         scale_max: float | None,
         length: str | None,
     ) -> tuple[str, dict[str, Any]]:
-        if not 0.0 <= sampling_rate <= 1.0:
-            return "Sampling rate has to be between 0 and 1.", {"error": "invalid_sampling_rate"}
         resolved_type = scanner_type if scanner_type in VALID_SCANNER_TYPES else ScannerType.MONITOR
-        config = _scanner_config_for(
-            ScannerType(resolved_type), prompt, tags=tags, scale_min=scale_min, scale_max=scale_max, length=length
+        # Through the serializer, not ReplayScanner.objects.create: it owns the sampling-rate floor below
+        # which a scanner silently never scans, the unique-name race, the estimate refresh, the built-in
+        # daily digest, and the lifecycle event. A scanner Max makes should be the same object the UI makes.
+        serializer = ReplayScannerSerializer(
+            data={
+                "name": name.strip(),
+                "scanner_type": resolved_type,
+                "scanner_config": _scanner_config_for(
+                    ScannerType(resolved_type),
+                    prompt,
+                    tags=tags,
+                    scale_min=scale_min,
+                    scale_max=scale_max,
+                    length=length,
+                ),
+                "model": DEFAULT_SCAN_MODEL,
+                "sampling_rate": sampling_rate,
+                "enabled": enabled,
+            },
+            context={"get_team": lambda: self._team, "user": self._user},
         )
-        # One validator for both callers, so a config Max builds is held to what the API would accept.
-        message = scanner_config_error(ScannerType(resolved_type), config)
-        if message is not None:
-            return message, {"error": "invalid_config"}
-        if ReplayScanner.objects.filter(team=self._team, name=name.strip()).exists():
-            return f"This project already has a scanner called '{name}'. Pick another name.", {"error": "duplicate"}
-        scanner = ReplayScanner.objects.create(
-            team=self._team,
-            created_by=self._user,
-            name=name.strip(),
-            scanner_type=ScannerType(resolved_type),
-            scanner_config=config,
-            model=DEFAULT_SCAN_MODEL,
-            sampling_rate=sampling_rate,
-            enabled=enabled,
-        )
+        if not serializer.is_valid():
+            return _first_error(serializer.errors), {"error": "invalid_config"}
+        scanner = serializer.save()
         state = (
             "It's running and will scan new recordings as they arrive."
             if enabled
@@ -1230,24 +1245,27 @@ class CreateReplayVisionActionTool(ReplayVisionGatesMixin, MaxTool):
         if rrule is None:
             return "Cadence has to be 'daily' or 'weekly'.", {"error": "invalid_cadence"}
         # Configured scanners only: a summary is a standing job, and an inline scan's scanner is a
-        # throwaway that the reaper may collect.
+        # throwaway the reaper may collect.
         scanner = (
             ReplayScanner.objects.filter(team_id=self._team.id, id=scanner_id).first() if is_uuid(scanner_id) else None
         )
         if scanner is None or not self.user_access_control.check_access_level_for_object(scanner, "viewer"):
             return f"Scanner {scanner_id} not found.", {"error": "not_found"}
-        if VisionAction.objects.filter(team=self._team, name=name.strip()).exists():
-            return f"This project already has an action called '{name}'. Pick another name.", {"error": "duplicate"}
-        action = VisionAction.objects.create(
-            team=self._team,
-            created_by=self._user,
-            scanner=scanner,
-            name=name.strip(),
-            mode=ActionMode.GROUP_SUMMARY,
-            trigger_type=TriggerType.SCHEDULE,
-            trigger_config={"rrule": rrule, "timezone": self._team.timezone or "UTC"},
-            synthesis_config={"prompt_guide": focus.strip()} if focus and focus.strip() else {},
+        # Through the serializer so the rrule and timezone are validated and the unique-name race is
+        # handled, rather than writing a trigger_config the scheduler later chokes on.
+        serializer = VisionActionSerializer(
+            data={
+                "name": name.strip(),
+                "scanner": str(scanner.id),
+                "mode": ActionMode.GROUP_SUMMARY,
+                "trigger_config": {"rrule": rrule, "timezone": self._team.timezone or "UTC"},
+                "synthesis_config": {"prompt_guide": focus.strip()} if focus and focus.strip() else {},
+            },
+            context={"get_team": lambda: self._team, "user": self._user},
         )
+        if not serializer.is_valid():
+            return _first_error(serializer.errors), {"error": "invalid_config"}
+        action = serializer.save()
         return (
             f"Created a {cadence} summary of that scanner's observations. It appears on the scanner's "
             "'Summaries and alerts' tab, and you can add Slack or webhook delivery there.",

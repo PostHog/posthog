@@ -559,7 +559,9 @@ class VisionActionSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: dict[str, Any]) -> VisionAction:
         team = self.context["get_team"]()
-        user = cast(User, self.context["request"].user)
+        # Max has no DRF request, so it passes `user` in the context directly.
+        request = self.context.get("request")
+        user = cast(User, self.context.get("user") or (request.user if request is not None else None))
         if validated_data.get("is_scanner_digest"):
             self._demote_existing_digest(validated_data["scanner"])
             if self._has_derived_digest_name(validated_data):

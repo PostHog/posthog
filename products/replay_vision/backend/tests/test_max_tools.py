@@ -637,3 +637,33 @@ class TestCreateReplayVisionScannerTool(BaseTest):
         assert artifact["error"] == "invalid_config"
         assert content
         assert not await sync_to_async(ReplayScanner.objects.filter(name="incomplete").exists)()
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_scanner_gets_everything_the_api_gives_it(self):
+        # Going direct to ReplayScanner.objects.create skipped the estimate refresh, the built-in daily
+        # digest and the lifecycle event, so a Max-made scanner was a second-class one. Routing through
+        # the serializer is what keeps them the same object.
+        with (
+            patch(_FLAG_PATH, return_value=True),
+            patch("products.replay_vision.backend.api.scanners._refresh_estimate_fail_soft") as refresh,
+            patch("products.replay_vision.backend.api.scanners.report_user_action") as report,
+        ):
+            _, artifact = await self._tool()._arun_impl(name="from-max", prompt="Did checkout fail?")
+
+        assert "error" not in artifact, artifact
+        refresh.assert_called_once()
+        assert report.call_args.args[1] == "replay_vision_scanner_created"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_rejects_a_sampling_rate_that_would_never_scan(self):
+        # Below one modulo bucket the candidate query matches nothing, so the serializer floors it. The
+        # tool used to accept any 0..1 value and could create a scanner that silently never ran.
+        with patch(_FLAG_PATH, return_value=True):
+            _, artifact = await self._tool()._arun_impl(
+                name="too-sparse", prompt="Did checkout fail?", sampling_rate=0.000001
+            )
+
+        assert artifact["error"] == "invalid_config"
+        assert not await sync_to_async(ReplayScanner.objects.filter(name="too-sparse").exists)()

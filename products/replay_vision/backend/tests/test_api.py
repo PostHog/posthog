@@ -1598,6 +1598,24 @@ class TestObserveAction(_VisionAPITestCase):
     def observe_url(self, scanner_id: str) -> str:
         return f"{self.scanners_url}{scanner_id}/observe/"
 
+    def test_bulk_observe_stops_when_the_organization_has_not_allowed_ai(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # observe, inline_scan and retry all gate consent; bulk_observe did not, so a batch was accepted
+        # and then scanned nothing, because create_observation fails closed once the workflow is running.
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        resp = self.client.post(
+            f"{self.scanners_url}{self.scanner.id}/bulk_observe/", data={"session_ids": ["s1"]}, format="json"
+        )
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+        start_workflow.assert_not_called()
+
     def test_a_settled_session_returns_the_existing_observation_and_starts_nothing(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:

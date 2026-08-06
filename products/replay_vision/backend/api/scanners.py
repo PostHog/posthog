@@ -47,6 +47,7 @@ from products.replay_vision.backend.api.trigger import (
     start_apply_scanner_workflow,
 )
 from products.replay_vision.backend.billing import observation_credits_case, observation_credits_for_model
+from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.digest import provision_scanner_digest
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission, is_replay_vision_actions_enabled
 from products.replay_vision.backend.feedback_themes import cached_feedback_themes
@@ -423,9 +424,19 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
                 data["query"] = None
         return data
 
+    def _acting_user(self) -> User:
+        """Who this write is on behalf of.
+
+        Max has no DRF request, so it passes `user` in the context directly. Everything else that reads
+        the request stays optional, since `report_user_action` treats a missing one as "no request-derived
+        properties" rather than an error.
+        """
+        request = self.context.get("request")
+        return cast(User, self.context.get("user") or (request.user if request is not None else None))
+
     def create(self, validated_data: dict[str, Any]) -> ReplayScanner:
         team = self.context["get_team"]()
-        user = cast(User, self.context["request"].user)
+        user = self._acting_user()
         if not team.organization.is_ai_data_processing_approved:
             raise serializers.ValidationError(
                 "Your organization needs to allow AI analysis before you can create a Replay Vision scanner."
@@ -445,7 +456,7 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             "replay_vision_scanner_created",
             _scanner_lifecycle_properties(scanner),
             team=team,
-            request=self.context["request"],
+            request=self.context.get("request"),
         )
         return scanner
 
@@ -465,8 +476,8 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         if needs_refresh:
             _refresh_estimate_fail_soft(scanner)
         changed_fields = sorted(field for field, value in before.items() if getattr(scanner, field) != value)
-        request = self.context["request"]
-        user = cast(User, request.user)
+        request = self.context.get("request")
+        user = self._acting_user()
         team = self.context["get_team"]()
         if scanner.enabled != was_enabled:
             report_user_action(
@@ -1262,6 +1273,13 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # Observation output exposes recording contents, so this requires session_recording read.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Triggering on-demand observations requires session_recording read access.")
+        # The scan sends recordings to an LLM, the same reason observe, inline_scan and retry gate on
+        # this. Without it a batch was accepted and then silently scanned nothing, because
+        # create_observation fails closed on consent once the workflow is already running.
+        if not is_ai_data_processing_approved(self.team.id):
+            raise ValidationError(
+                "Your organization needs to allow AI analysis before you can run a Replay Vision scan."
+            )
 
         body = BulkObserveRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
@@ -1317,7 +1335,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Running an inline scan requires session_recording read access.")
         # The scan sends recordings to an LLM, the same reason saving a scanner gates on this.
-        if not self.team.organization.is_ai_data_processing_approved:
+        if not is_ai_data_processing_approved(self.team.id):
             raise ValidationError(
                 "Your organization needs to allow AI analysis before you can run a Replay Vision scan."
             )
