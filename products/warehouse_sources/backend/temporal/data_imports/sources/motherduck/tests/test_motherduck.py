@@ -182,6 +182,15 @@ class TestMotherDuck:
         assert "table_schema NOT IN (?, ?)" in sql
         assert params == ["information_schema", "pg_catalog"]
 
+    def test_get_columns_excludes_views(self, impl):
+        # A view's definition runs inside this worker at query time — e.g. over a locally-executed
+        # DuckDB table function reading the filesystem — so only `BASE TABLE` entries are ever
+        # offered for discovery/sync.
+        conn = _conn()
+        impl.get_columns(conn, _make_config(), names=None)
+        sql = conn.execute.call_args.args[0]
+        assert "t.table_type = 'BASE TABLE'" in sql
+
     def test_get_columns_filters_by_names(self, impl):
         conn = _conn()
         conn.fetchall.return_value = [

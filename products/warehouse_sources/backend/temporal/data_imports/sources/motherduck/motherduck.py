@@ -176,19 +176,29 @@ class MotherDuckImplementation(SQLSourceImplementation[MotherduckSourceConfig, A
         selected_schema = normalize_namespace(config.schema)
         qualify = selected_schema is None
 
+        # Joined against `information_schema.tables` and restricted to `BASE TABLE`: a view's
+        # columns are otherwise indistinguishable here from a real table's, but its definition
+        # runs inside this Temporal worker at query time. A source owner could define a view over
+        # a locally-executed DuckDB table function (e.g. reading the worker's filesystem) and have
+        # it synced like any other table, so views are never offered for discovery.
         select = (
-            "SELECT table_schema, table_name, column_name, data_type, is_nullable"
-            " FROM information_schema.columns"
-            " WHERE table_catalog = current_database()"
+            "SELECT c.table_schema, c.table_name, c.column_name, c.data_type, c.is_nullable"
+            " FROM information_schema.columns c"
+            " JOIN information_schema.tables t"
+            "   ON t.table_catalog = c.table_catalog"
+            "  AND t.table_schema = c.table_schema"
+            "  AND t.table_name = c.table_name"
+            " WHERE c.table_catalog = current_database()"
+            "   AND t.table_type = 'BASE TABLE'"
         )
-        order = " ORDER BY table_schema ASC, table_name ASC, ordinal_position ASC"
+        order = " ORDER BY c.table_schema ASC, c.table_name ASC, c.ordinal_position ASC"
 
         if selected_schema is not None:
-            result = conn.execute(f"{select} AND table_schema = ?{order}", [selected_schema]).fetchall()
+            result = conn.execute(f"{select} AND c.table_schema = ?{order}", [selected_schema]).fetchall()
         else:
             placeholders = ", ".join("?" for _ in MOTHERDUCK_SYSTEM_SCHEMAS)
             result = conn.execute(
-                f"{select} AND table_schema NOT IN ({placeholders}){order}",
+                f"{select} AND c.table_schema NOT IN ({placeholders}){order}",
                 list(MOTHERDUCK_SYSTEM_SCHEMAS),
             ).fetchall()
 
