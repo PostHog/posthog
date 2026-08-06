@@ -168,8 +168,8 @@ class UpdateExternalDataJobStatusInputs:
     # Run id stamped on the job row by the create-job activity, so finalization can resolve this
     # run's own job when job_id never made it back. Optional for mixed-version workers mid-rollout.
     workflow_run_id: str | None = None
-    # Set when the run was cut short by something on our side (a worker shutdown). Acted on only
-    # when the run loaded nothing the customer can query.
+    # Set when the run was cut short by something on our side (a worker shutdown), so finalization
+    # can decide whether its charge must drop — see _shutdown_run_charge_should_drop.
     mark_non_billable: bool = False
 
     @property
@@ -181,22 +181,32 @@ class UpdateExternalDataJobStatusInputs:
             "source_id": self.source_id,
             "status": self.status,
             "workflow_run_id": self.workflow_run_id,
+            "mark_non_billable": self.mark_non_billable,
         }
 
 
-def _run_loaded_nothing(job_id: str, team_id: int) -> bool:
-    """Whether this run left the customer with nothing they can query, so its rows aren't billable.
+def _shutdown_run_charge_should_drop(job_id: str, team_id: int) -> bool:
+    """Whether a run cut short by a worker shutdown must lose its charge.
 
-    Loading is progressive once a table exists: the loader overwrites it on the first batch of a
-    full refresh and merges every batch after that, so a run cut off mid-stream still delivered the
-    rows it got through and stays billable. Registering that table is post-load's job, and an
-    extraction that never finishes never reaches post-load — so until one run has completed, every
-    row extracted is invisible to the customer and charging for it charges for nothing.
+    The customer pays once for rows that become queryable. Queries read the table's
+    `queryable_folder`, which only post-load repoints, and an interrupted extraction never reaches
+    post-load — so the cut-short run itself delivered nothing visible. Its rows are still worth
+    their charge only when the retriggered run picks up where this one stopped, which happens in
+    exactly one shape: a v2 sync whose watermark advances per batch (incremental/append/webhook,
+    plus cdc/xmin). Everything else re-extracts and re-bills the same rows — a full refresh starts
+    over by definition (read as the inverse of the cumulative sync types, since many live schemas
+    carry no sync_type at all), and v3 stages its watermark until the loader sees the final batch,
+    which a cut-short run never sends. A schema that never completed a first sync has no queryable
+    table at all, so there the charge drops regardless of sync type or pipeline.
     """
     job = ExternalDataJob.objects.filter(id=job_id, team_id=team_id).select_related("schema").first()
     if job is None or job.schema is None:
         return False
-    return job.schema.table_id is None or not job.schema.initial_sync_complete
+    never_loaded = job.schema.table_id is None or not job.schema.initial_sync_complete
+    re_extracted = (
+        job.pipeline_version == ExternalDataJob.PipelineVersion.V3 or not job.schema.table_row_count_is_cumulative
+    )
+    return never_loaded or re_extracted
 
 
 @activity.defn
@@ -293,11 +303,11 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 logger.exception(friendly_errors[0])
                 inputs.latest_error = friendly_errors[0]
 
-    # A run cut short keeps its charge for the rows it did load, and loses it only when the customer
-    # got nothing out of it.
-    drop_charge = inputs.mark_non_billable and await database_sync_to_async_pool(_run_loaded_nothing)(
+    drop_charge = inputs.mark_non_billable and await database_sync_to_async_pool(_shutdown_run_charge_should_drop)(
         job_id=job_id, team_id=inputs.team_id
     )
+    if drop_charge:
+        logger.info(f"Marking job {job_id} non-billable: cut short by a worker shutdown")
 
     await database_sync_to_async_pool(update_external_job_status)(
         job_id=job_id,
@@ -843,6 +853,13 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
         except exceptions.ActivityError as e:
             if isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "WorkerShuttingDownError":
+                # This branch neither fails the run nor re-raises, so `update_inputs` keeps the
+                # COMPLETED it was built with and the finally block records the run as a success.
+                # The extraction was cut off mid-stream, so flag it for the finalize activity,
+                # which decides whether the charge drops (_shutdown_run_charge_should_drop).
+                # Set before the trigger below so a raise there can't skip it.
+                update_inputs.mark_non_billable = True
+
                 # Check if this is a WorkerShuttingDownError - implement Buffer One retry
                 schedule_id = str(inputs.external_data_schema_id)
                 await workflow.execute_activity(
@@ -851,11 +868,6 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     start_to_close_timeout=dt.timedelta(minutes=10),
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
-                # This branch neither fails the run nor re-raises, so `update_inputs` keeps the
-                # COMPLETED it was built with and the finally block records the run as a success.
-                # The extraction was cut off mid-stream, so flag it for the finalize activity, which
-                # decides from the sync type whether the retriggered run will re-extract these rows.
-                update_inputs.mark_non_billable = True
             elif (
                 isinstance(e.cause, exceptions.ApplicationError)
                 and e.cause.type == "BillingLimitsWillBeReachedException"

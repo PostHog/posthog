@@ -64,22 +64,30 @@ class TestTriggerScheduleBufferOneActivity(BaseTest):
 
 
 @pytest.mark.parametrize(
-    "sync_type, has_loaded_before, expected_billable",
+    "pipeline_version, sync_type, has_loaded_before, expected_billable",
     [
-        # The rows this run got through land in the table that is already there
-        (ExternalDataSchema.SyncType.FULL_REFRESH, True, True),
-        (ExternalDataSchema.SyncType.INCREMENTAL, True, True),
-        # No table has ever been registered, so nothing this run extracted is queryable
-        (ExternalDataSchema.SyncType.FULL_REFRESH, False, False),
+        # The only shape that keeps its charge: the retrigger resumes from a per-batch watermark
+        (ExternalDataJob.PipelineVersion.V2, ExternalDataSchema.SyncType.INCREMENTAL, True, True),
+        (ExternalDataJob.PipelineVersion.V2, ExternalDataSchema.SyncType.APPEND, True, True),
+        # A full refresh restarts, so the retrigger re-extracts and re-bills these rows
+        (ExternalDataJob.PipelineVersion.V2, ExternalDataSchema.SyncType.FULL_REFRESH, True, False),
+        # Thousands of live schemas carry no sync_type and replace their table every run
+        (ExternalDataJob.PipelineVersion.V2, None, True, False),
+        # v3 stages its watermark until the final batch, which a cut-short run never sends
+        (ExternalDataJob.PipelineVersion.V3, ExternalDataSchema.SyncType.INCREMENTAL, True, False),
+        # A first sync that never completed has no queryable table, whatever the sync type
+        (ExternalDataJob.PipelineVersion.V2, ExternalDataSchema.SyncType.INCREMENTAL, False, False),
+        (ExternalDataJob.PipelineVersion.V2, ExternalDataSchema.SyncType.FULL_REFRESH, False, False),
     ],
 )
 # transaction=True: the activity writes through database_sync_to_async_pool, which runs off this
 # thread on its own connection and so only sees committed rows.
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_shutdown_run_drops_its_charge_only_when_it_loaded_nothing(
+async def test_a_shutdown_runs_charge_drops_unless_the_retrigger_resumes(
     team,
-    sync_type: ExternalDataSchema.SyncType,
+    pipeline_version: ExternalDataJob.PipelineVersion,
+    sync_type: ExternalDataSchema.SyncType | None,
     has_loaded_before: bool,
     expected_billable: bool,
 ):
@@ -104,6 +112,7 @@ async def test_a_shutdown_run_drops_its_charge_only_when_it_loaded_nothing(
         status=ExternalDataJob.Status.RUNNING,
         rows_synced=100,
         billable=True,
+        pipeline_version=pipeline_version,
     )
 
     await ActivityEnvironment().run(
