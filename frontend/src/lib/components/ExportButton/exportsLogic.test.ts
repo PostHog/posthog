@@ -119,7 +119,6 @@ describe('exportsLogic', () => {
             settles: { resolved: string } | { rejected: string }
             expectsDownload: boolean
             freshIds: number[]
-            expectsViewExportsButton: boolean
             expectsPanelOpen: boolean
         }[] = [
             {
@@ -129,19 +128,15 @@ describe('exportsLogic', () => {
                 settles: { resolved: 'Export started' },
                 expectsDownload: false,
                 freshIds: [11],
-                expectsViewExportsButton: true,
                 expectsPanelOpen: true,
             },
             {
-                // Resolves with no message of its own so the toast falls back to the success
-                // element, which carries the "can't find the download?" link.
-                label: 'blocking export with content is downloaded and resolves with no message',
+                label: 'blocking export with content is downloaded and resolves to "Export complete!"',
                 response: asset({ id: 12, export_format: ExporterFormat.CSV, has_content: true }),
                 format: ExporterFormat.CSV,
-                settles: { resolved: '' },
+                settles: { resolved: 'Export complete!' },
                 expectsDownload: true,
                 freshIds: [],
-                expectsViewExportsButton: false,
                 expectsPanelOpen: false,
             },
             {
@@ -151,7 +146,6 @@ describe('exportsLogic', () => {
                 settles: { rejected: 'Export failed: boom' },
                 expectsDownload: false,
                 freshIds: [],
-                expectsViewExportsButton: true,
                 expectsPanelOpen: false,
             },
             {
@@ -161,23 +155,13 @@ describe('exportsLogic', () => {
                 settles: { rejected: 'Export failed: network down' },
                 expectsDownload: false,
                 freshIds: [],
-                expectsViewExportsButton: true,
                 expectsPanelOpen: false,
             },
         ]
 
         it.each(createCases)(
             '$label',
-            async ({
-                response,
-                rejectWith,
-                format,
-                settles,
-                expectsDownload,
-                freshIds,
-                expectsViewExportsButton,
-                expectsPanelOpen,
-            }) => {
+            async ({ response, rejectWith, format, settles, expectsDownload, freshIds, expectsPanelOpen }) => {
                 const createSpy = jest.spyOn(api.exports, 'create')
                 if (rejectWith) {
                     createSpy.mockRejectedValue(rejectWith)
@@ -194,9 +178,10 @@ describe('exportsLogic', () => {
                     expect.objectContaining({ pending: 'Preparing export…' }),
                     expect.objectContaining({ toastId: expect.any(String) })
                 )
-                // Video renders finish out of band, so their kickoff toast must link to the exports panel.
+                // Every export lands in the exports panel, including a synchronous one that already
+                // downloaded itself, so no completion toast may dead-end without a way back to it.
                 const toastOptions = jest.mocked(lemonToast.promise).mock.calls[0][2]
-                expect(toastOptions?.button?.label).toEqual(expectsViewExportsButton ? 'View exports' : undefined)
+                expect(toastOptions?.button?.label).toEqual('View exports')
                 const runPromise = jest.mocked(lemonToast.promise).mock.calls[0][0]
                 if ('resolved' in settles) {
                     await expect(runPromise).resolves.toBe(settles.resolved)
@@ -212,20 +197,6 @@ describe('exportsLogic', () => {
                 ).toBe(expectsPanelOpen)
             }
         )
-
-        it('points a completed export back at the exports panel', async () => {
-            // A synchronous export downloads itself, which is easy to miss in the browser's own
-            // download UI — the completion message has to offer a way to reach the file.
-            jest.spyOn(api.exports, 'create').mockResolvedValue(
-                asset({ id: 16, export_format: ExporterFormat.CSV, has_content: true })
-            )
-
-            logic.actions.createExport({ exportData: { export_format: ExporterFormat.CSV } })
-            await flush()
-
-            const messages = jest.mocked(lemonToast.promise).mock.calls[0][1]
-            expect(typeof messages.success).not.toBe('string')
-        })
 
         it.each([
             ['a dashboard export', 7, [[7]]],

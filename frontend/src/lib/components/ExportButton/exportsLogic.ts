@@ -3,7 +3,6 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
-import { exportCompleteToastMessage } from 'lib/components/ExportButton/ExportCompleteToastMessage'
 import { TriggerExportProps, downloadBlob, downloadExportedAsset } from 'lib/components/ExportButton/exporter'
 import { isLongRunningExportFormat } from 'lib/components/ExportButton/exportStatus'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -475,8 +474,7 @@ export const exportsLogic = kea<exportsLogicType>([
                             // Download button whose click is a fresh gesture.
                             if (isUserActivationLive()) {
                                 downloadExportedAsset(response)
-                                // Empty so the toast falls back to the richer success message below.
-                                return ''
+                                return 'Export complete!'
                             }
                             actions.addFresh(response)
                             throw new ExportAwaitingDownload(response)
@@ -498,23 +496,18 @@ export const exportsLogic = kea<exportsLogicType>([
                                 runExport(),
                                 {
                                     pending: 'Preparing export…',
-                                    success: exportCompleteToastMessage(() =>
-                                        actions.openSidePanel(SidePanelTab.Exports)
-                                    ),
+                                    success: 'Export complete!',
                                     error: 'Export failed',
                                 },
                                 {
                                     toastId: exportToastId,
-                                    // Video renders finish minutes later in the exports panel, so the
-                                    // kickoff toast must point somewhere instead of dead-ending.
-                                    ...(isLongRunningExportFormat(exportData.export_format)
-                                        ? {
-                                              button: {
-                                                  label: 'View exports',
-                                                  action: () => actions.openSidePanel(SidePanelTab.Exports),
-                                              },
-                                          }
-                                        : {}),
+                                    // Every export lands in the exports panel: a video render minutes
+                                    // later, a synchronous download that is easy to miss in the
+                                    // browser's own download UI. So the toast always points there.
+                                    button: {
+                                        label: 'View exports',
+                                        action: () => actions.openSidePanel(SidePanelTab.Exports),
+                                    },
                                 }
                             )
                         } catch (error) {
