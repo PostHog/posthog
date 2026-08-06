@@ -400,15 +400,22 @@ class _LogsFacetValuesBodySerializer(serializers.Serializer):
         choices=["severity_text", "service_name"],
         required=False,
         allow_null=True,
-        help_text="Top-level column to facet on. Provide exactly one of facetField or facetResourceAttribute. "
-        "Its own filter is excluded so counts reflect the other active filters.",
+        help_text="Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or "
+        "facetAttribute. Its own filter is excluded so counts reflect the other active filters.",
     )
     facetResourceAttribute = serializers.CharField(
         required=False,
         allow_null=True,
         help_text="Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of "
-        "facetField or facetResourceAttribute. Its own log_resource_attribute filter is excluded so counts "
-        "reflect the other active filters.",
+        "facetField, facetResourceAttribute or facetAttribute. Its own log_resource_attribute filter is excluded "
+        "so counts reflect the other active filters.",
+    )
+    facetAttribute = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Log attribute key to facet on (e.g. 'log.iostream'). Provide exactly one of facetField, "
+        "facetResourceAttribute or facetAttribute. Counts honour severity, service and resource-attribute "
+        "filters, but not body search, other log-attribute filters, or this facet's own filter.",
     )
     dateRange = _DateRangeSerializer(required=False, help_text="Date range. Defaults to last hour.")
     severityLevels = serializers.ListField(
@@ -1339,8 +1346,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         facet_field = query_data.get("facetField")
         facet_resource_attribute = query_data.get("facetResourceAttribute")
-        if bool(facet_field) == bool(facet_resource_attribute):
-            raise ParseError("Provide exactly one of facetField or facetResourceAttribute")
+        facet_attribute = query_data.get("facetAttribute")
+        if sum(1 for target in (facet_field, facet_resource_attribute, facet_attribute) if target) != 1:
+            raise ParseError("Provide exactly one of facetField, facetResourceAttribute or facetAttribute")
         if facet_field and facet_field not in FACET_FIELDS:
             raise ParseError(f"facetField must be one of {sorted(FACET_FIELDS)}")
 
@@ -1361,6 +1369,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             query=query,
             facet_field=facet_field or None,
             facet_resource_attribute=facet_resource_attribute or None,
+            facet_attribute=facet_attribute or None,
             facet_search=query_data.get("facetSearch"),
         )
         response = runner.run(
