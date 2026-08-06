@@ -1,3 +1,4 @@
+import math
 from datetime import datetime
 from typing import Literal, Optional
 
@@ -169,6 +170,7 @@ class PropertySwapper(CloningVisitor):
         self._inside_call_depth = 0
         self._inside_where_depth = 0
         self._suppress_numeric_conversion = False
+        self._suppress_float_conversion = False
 
     def visit_select_query(self, node: ast.SelectQuery):
         # We need to track when we're inside WHERE/PREWHERE so that the
@@ -239,7 +241,15 @@ class PropertySwapper(CloningVisitor):
         # string. Re-evaluated per call, so nested non-parsing calls (e.g.
         # toFloatOrZero(toString(prop))) correctly reset the flag.
         saved_suppress = self._suppress_numeric_conversion
+        saved_suppress_float = self._suppress_float_conversion
         self._suppress_numeric_conversion = node.name in self._STRING_INPUT_CONVERSIONS
+        # toString renders the value as a string, so a Numeric property nested directly
+        # inside it must keep its raw string value instead of round-tripping through
+        # Float64. The cast mangles identifier-shaped values (precision loss past 2**53,
+        # dropped leading zeros, NULL on non-numeric), which silently breaks the string
+        # match property filters compile to — icontains/regex/starts_with all wrap the
+        # property in toString(). Re-evaluated per call like the flag above.
+        self._suppress_float_conversion = node.name == "toString"
 
         self._inside_call_depth += 1
         try:
@@ -247,6 +257,7 @@ class PropertySwapper(CloningVisitor):
         finally:
             self._inside_call_depth -= 1
             self._suppress_numeric_conversion = saved_suppress
+            self._suppress_float_conversion = saved_suppress_float
 
         return self._maybe_extract_exception_string_array(result)
 
@@ -514,8 +525,56 @@ class PropertySwapper(CloningVisitor):
         materialized_type = normalized_runtime_type(parse_sql_runtime_type(mat_col.type))
         return requested_type.family != "unknown" and requested_type == materialized_type
 
+    # Comparisons that treat a Numeric property as a string. Equality against an
+    # identifier-shaped literal must not force a Float64 cast on the property.
+    _STRING_SHAPED_EQUALITY_OPS: set[str] = {ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq}
+
+    @staticmethod
+    def _is_float_safe_literal(value: str) -> bool:
+        """Whether a string literal survives a Float64 round-trip unchanged.
+
+        Numeric equality casts the property to Float64, which is only safe when the
+        literal itself round-trips. Long numeric IDs lose precision past 2**53 (so two
+        distinct IDs collapse to one), leading zeros vanish, and non-numeric identifiers
+        become NULL. Those literals are compared as raw strings instead.
+        """
+        try:
+            parsed = float(value)
+        except (ValueError, TypeError):
+            return False
+        if not math.isfinite(parsed):
+            return False
+        stripped = value.lstrip("+-")
+        if stripped.isdigit():
+            # Plain integer: safe only within Float64's exact-integer range and without the
+            # leading-zero padding the cast would silently drop.
+            return abs(int(value)) < 2**53 and (stripped == "0" or not stripped.startswith("0"))
+        return repr(parsed) == value.lstrip("+")
+
+    def _compares_numeric_property_as_string(self, node: ast.CompareOperation) -> bool:
+        if node.op not in self._STRING_SHAPED_EQUALITY_OPS:
+            return False
+        for operand in (node.left, node.right):
+            const = operand.expr if isinstance(operand, ast.Alias) else operand
+            if isinstance(const, ast.Constant) and isinstance(const.value, str):
+                if not self._is_float_safe_literal(const.value):
+                    return True
+        return False
+
     def visit_compare_operation(self, node: ast.CompareOperation):
-        result = super().visit_compare_operation(node)
+        # Suppress only the Float64 cast on a Numeric property when it's compared for
+        # (in)equality against an identifier-shaped literal, so the raw string value is
+        # compared directly. The field is a direct operand of the comparison, so the flag
+        # reaches visit_field before any intervening call resets it.
+        if self._compares_numeric_property_as_string(node):
+            saved_suppress_float = self._suppress_float_conversion
+            self._suppress_float_conversion = True
+            try:
+                result = super().visit_compare_operation(node)
+            finally:
+                self._suppress_float_conversion = saved_suppress_float
+        else:
+            result = super().visit_compare_operation(node)
 
         if (
             not self.setTimeZones
@@ -731,6 +790,13 @@ class PropertySwapper(CloningVisitor):
         # toFloatOrDefault). Those ClickHouse functions require a String argument, so
         # leave the raw materialized-column/JSON value in place rather than casting it.
         if self._suppress_numeric_conversion:
+            return node
+
+        # A Numeric property compared or rendered as a string keeps its raw value: casting
+        # to Float64 loses precision on long numeric IDs, drops leading zeros, and nulls out
+        # non-numeric identifiers, so an ID-shaped filter silently returns no matches. Only
+        # the Float cast is suppressed here — DateTime/Boolean coercion still applies.
+        if field_type == "Float" and self._suppress_float_conversion:
             return node
 
         # Both paths fall through to the wrapper: dmat columns are `Nullable(String)` (the

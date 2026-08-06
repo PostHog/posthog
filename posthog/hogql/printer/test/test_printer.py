@@ -4254,7 +4254,10 @@ class TestPrinter(BaseTest):
         assert result.clickhouse is not None
         # Both branches of coalesce should return String type (via JSONExtractString)
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            self.assertIn("toString(accurateCastOrNull", result.clickhouse)
+            # A Numeric-typed response keeps its raw value under toString rather than being
+            # cast to Float64, which avoids the String/Float64 supertype error entirely.
+            self.assertIn("toString(", result.clickhouse)
+            self.assertNotIn("accurateCastOrNull", result.clickhouse)
             # The dynamic id-based key arm reads the whole reconstructed properties blob.
             self.assertIn("toJSONString(events.properties)", result.clickhouse)
         else:
@@ -6025,11 +6028,12 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 {"hogql_val_1": "%123%"},
             )
 
-            # With toString() wrapper: same behavior, optimization not applied
+            # With toString() wrapper: the property keeps its raw string value instead of
+            # round-tripping through Float64, so the ILIKE matches the stored digits.
             self._test_materialized_column_comparison(
                 "ilike(toString(properties.test_numeric_prop), '%123%')",
-                f"ifNull(ilike(toString(accurateCastOrNull(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_0)s)), %(hogql_val_1)s), 0)",
-                {"hogql_val_1": "%123%"},
+                f"ifNull(ilike(toString(nullIf(nullIf(events.{mat_col.name}, ''), 'null')), %(hogql_val_0)s), 0)",
+                {"hogql_val_0": "%123%"},
             )
 
     def test_materialized_column_not_ilike_uses_raw_column_for_non_nullable(self) -> None:

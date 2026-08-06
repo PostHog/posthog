@@ -224,6 +224,70 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
         assert f"toJSONString(events.properties.`{property_name}`)" not in printed, printed
 
 
+class TestNumericPropertyStringComparison(SimpleTestCase):
+    """A Numeric-typed property must not be cast to Float64 when it's compared or rendered as
+    a string. The cast mangles identifier-shaped values — precision loss past 2**53, dropped
+    leading zeros, NULL on non-numeric — which made ID filters silently return no matches."""
+
+    def _render(self, select: str) -> str:
+        team = Team(id=1, project_id=1)
+        context = HogQLContext(team_id=team.id, team=team, enable_select_queries=True)
+        context.database = Database()
+        context.restricted_properties = set()
+        context.use_new_events_schema = False
+        context.property_swapper = PropertySwapper("UTC", {"customerId": {"type": "Numeric"}}, {}, {}, context, True)
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            query, _ = prepare_and_print_ast(parse_select(select), context, "clickhouse")
+        return pretty_print_in_tests(query, team.id)
+
+    @parameterized.expand(
+        [
+            # contains / starts_with / regex all compile to a toString() wrapper
+            ("icontains", "ilike(toString(properties.customerId), '%12345678901234567%')"),
+            ("regex", "match(toString(properties.customerId), 'ABC-')"),
+            # (in)equality against an identifier-shaped literal
+            ("exact_non_numeric", "properties.customerId = 'ABC-123'"),
+            ("exact_precision_loss", "properties.customerId = '12345678901234567'"),
+            ("exact_leading_zero", "properties.customerId = '0042'"),
+            ("not_equals_non_numeric", "properties.customerId != 'ABC-123'"),
+        ]
+    )
+    def test_numeric_property_compared_as_string_keeps_raw_value(self, _name: str, select: str) -> None:
+        printed = self._render(f"select 1 from events where {select}")
+        assert "accurateCastOrNull" not in printed, printed
+
+    @parameterized.expand(
+        [
+            # a clean numeric literal still casts, so a stored "42.0" matches a filter of "42"
+            ("exact_clean_numeric", "select 1 from events where properties.customerId = '42'"),
+            # ordering comparisons genuinely need the numeric value
+            ("range", "select 1 from events where properties.customerId > '42'"),
+            # a bare read is not a string comparison
+            ("bare_select", "select properties.customerId from events"),
+        ]
+    )
+    def test_numeric_property_still_cast_when_compared_numerically(self, _name: str, select: str) -> None:
+        printed = self._render(select)
+        assert "accurateCastOrNull" in printed, printed
+
+    @parameterized.expand(
+        [
+            ("small_int", "42", True),
+            ("zero", "0", True),
+            ("negative", "-3", True),
+            ("decimal", "10.5", True),
+            ("leading_zero", "0042", False),
+            ("precision_loss", "12345678901234567", False),
+            ("non_numeric", "ABC-123", False),
+            ("uuid", "550e8400-e29b-41d4-a716-446655440000", False),
+            ("scientific", "1e5", False),
+            ("not_a_number", "nan", False),
+        ]
+    )
+    def test_is_float_safe_literal(self, _name: str, value: str, expected: bool) -> None:
+        assert PropertySwapper._is_float_safe_literal(value) is expected
+
+
 class TestPropertyTypes(BaseTest):
     snapshot: Any
     maxDiff = None
@@ -713,10 +777,12 @@ class TestPropertyTypes(BaseTest):
         printed = self._print_select("select properties.$screen_width from events")
         assert "accurateCastOrNull" in printed
 
-    def test_numeric_property_cast_when_explicitly_stringified_inside_parser(self):
-        # toString resets the suppression, so the inner Numeric property is cast again.
+    def test_numeric_property_kept_raw_when_stringified_inside_parser(self):
+        # toString keeps the Numeric property's raw string value instead of casting it to
+        # Float, so the parser sees the original digits rather than a mangled float.
         printed = self._print_select("select toFloatOrZero(toString(properties.$screen_width)) from events")
-        assert "toFloat64OrZero(toString(accurateCastOrNull" in printed
+        assert "toFloat64OrZero(toString(" in printed
+        assert "accurateCastOrNull" not in printed
 
     @parameterized.expand(
         [
