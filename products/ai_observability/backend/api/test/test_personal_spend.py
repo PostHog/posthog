@@ -232,7 +232,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         self,
         *,
         ai_product: str = "posthog_code",
-        model: str = "claude-opus-4-8",
+        model: str | None = "claude-opus-4-8",
         tool: str | None = "Bash",
         trace_id: str = "trace-1",
         cost: float | None = 1.5,
@@ -550,10 +550,27 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-15&date_to=2026-06-16")
         rows = {row["model"]: row for row in response.json()["by_day_model"]}
 
-        assert len(rows) == 11
-        assert "model-10" not in rows
-        assert rows["Other"]["cost_usd"] == 1.0
-        assert rows["Other"]["generation_count"] == 1
+        assert len(rows) == 7
+        assert rows["Other"]["generation_count"] == 5
+
+    def test_by_day_model_keeps_named_top_models_when_unmodeled_events_exist(self) -> None:
+        timestamp = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
+        for index in range(6):
+            for occurrence in range(2):
+                self._create_generation(
+                    cost=1.0,
+                    model=f"model-{index}",
+                    timestamp=timestamp,
+                    trace_id=f"model-{index}-{occurrence}",
+                )
+        self._create_generation(cost=100.0, model=None, timestamp=timestamp, trace_id="unmodeled")
+        flush_persons_and_events()
+
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-15&date_to=2026-06-16")
+        rows = {row["model"]: row for row in response.json()["by_day_model"]}
+
+        assert {f"model-{index}" for index in range(6)} <= rows.keys()
+        assert rows["Other"]["cost_usd"] == 100.0
 
     def test_by_day_ignores_request_limit(self) -> None:
         self._create_generation(cost=1.0, trace_id="a", timestamp=datetime(2026, 6, 12, 12, 0, tzinfo=UTC))

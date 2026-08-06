@@ -50,9 +50,11 @@ export function spendSeriesForDays(
 function SpendTooltip({
   context,
   day,
+  modelColors,
 }: {
   context: TooltipContext;
   day: SpendAnalysisFilledDay | undefined;
+  modelColors: ReadonlyMap<string, string>;
 }) {
   const dailySpend = context.seriesData.find(
     (series) => series.series.key === "daily-spend",
@@ -73,15 +75,26 @@ function SpendTooltip({
         </div>
         <div className="opacity-60">Daily breakdown</div>
       </div>
+      {day?.models.length ? (
+        <div className="flex items-center gap-2 px-1.5 pb-0.5 text-xs opacity-60">
+          <span className="flex-1">Model</span>
+          <span className="w-10 text-right">Cost</span>
+          <span className="w-8 text-right">Tokens</span>
+        </div>
+      ) : null}
       {day?.models.map((model) => (
         <div
           key={model.model}
           className="flex min-w-0 items-center gap-2 px-1.5 py-0.5"
         >
-          <TooltipSwatch color={modelColor(model.model)} />
+          <TooltipSwatch
+            color={modelColors.get(model.model) ?? "var(--data-color-1)"}
+          />
           <span className="flex-1 truncate">{model.model}</span>
-          <strong className="tabular-nums">{formatUsd(model.cost_usd)}</strong>
-          <span className="tabular-nums opacity-60">
+          <strong className="w-10 text-right tabular-nums">
+            {formatUsd(model.cost_usd)}
+          </strong>
+          <span className="w-8 text-right tabular-nums opacity-60">
             {formatTokens(model.input_tokens + model.output_tokens)}
           </span>
         </div>
@@ -102,19 +115,24 @@ function SpendTooltip({
   );
 }
 
-function modelColor(model: string): string {
-  let hash = 0;
+export function modelColorsForDays(
+  filledDays: SpendAnalysisFilledDay[],
+): ReadonlyMap<string, string> {
+  const models = [
+    ...new Set(
+      filledDays.flatMap((day) => day.models.map((model) => model.model)),
+    ),
+  ].sort();
 
-  for (const character of model) {
-    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
-  }
-
-  return `var(--data-color-${(hash % 15) + 1})`;
+  return new Map(
+    models.map((model, index) => [model, `var(--data-color-${index + 1})`]),
+  );
 }
 
 export function SpendOverTimeCard({ filledDays }: SpendOverTimeCardProps) {
   const theme = useChartTheme();
   const series = spendSeriesForDays(filledDays);
+  const modelColors = modelColorsForDays(filledDays);
 
   return (
     <UsageCard
@@ -145,6 +163,7 @@ export function SpendOverTimeCard({ filledDays }: SpendOverTimeCardProps) {
             <SpendTooltip
               context={context}
               day={filledDays[context.dataIndex]}
+              modelColors={modelColors}
             />
           )}
         />

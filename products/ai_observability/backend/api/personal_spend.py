@@ -63,7 +63,7 @@ DEFAULT_DATE_FROM = "-30d"
 MAX_WINDOW_DAYS = 90
 # The most calendar days a MAX_WINDOW_DAYS window can touch: partial days at both edges.
 BY_DAY_MAX_ROWS = MAX_WINDOW_DAYS + 1
-BY_DAY_MODEL_TOP_MODELS = 10
+BY_DAY_MODEL_TOP_MODELS = 6
 BY_DAY_MODEL_MAX_ROWS = BY_DAY_MAX_ROWS * (BY_DAY_MODEL_TOP_MODELS + 1)
 # Sub-day series are only useful (and cheap) over short windows; a "last 24h"
 # view is the intended consumer. The cap bounds the series length regardless of
@@ -796,16 +796,14 @@ def _fetch_by_day_model(
     product: str,
 ) -> list[dict[str, Any]]:
     top_models_query = parse_select(
-        """
-        SELECT properties.$ai_model AS model
+        f"""
+        SELECT arrayJoin(topK({BY_DAY_MODEL_TOP_MODELS})(properties.$ai_model)) AS model
         FROM events
-        WHERE {event_in}
-            AND {product_filter}
-            AND {email_filter}
-            AND {timestamp_filter}
-        GROUP BY model
-        ORDER BY sum(toFloat(properties.$ai_total_cost_usd)) DESC
-        LIMIT {limit}
+        WHERE {{event_in}}
+            AND {{product_filter}}
+            AND {{email_filter}}
+            AND {{timestamp_filter}}
+            AND isNotNull(properties.$ai_model)
         """
     )
     top_models_result = execute_hogql_query(
@@ -815,7 +813,6 @@ def _fetch_by_day_model(
             "product_filter": _product_filter(product),
             "email_filter": _email_filter(email),
             "timestamp_filter": _timestamp_filter(from_dt, to_dt),
-            "limit": ast.Constant(value=BY_DAY_MODEL_TOP_MODELS),
         },
         team=team,
         query_type="PersonalSpendByDayModelTopModels",

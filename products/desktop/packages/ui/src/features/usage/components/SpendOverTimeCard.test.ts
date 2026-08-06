@@ -7,7 +7,7 @@ vi.mock("@posthog/quill-charts", () => ({
   useChartTheme: () => ({}),
 }));
 
-import { spendSeriesForDays } from "./SpendOverTimeCard";
+import { modelColorsForDays, spendSeriesForDays } from "./SpendOverTimeCard";
 
 describe("spendSeriesForDays", () => {
   it("keeps daily spend separate from the cumulative total", () => {
@@ -42,5 +42,39 @@ describe("spendSeriesForDays", () => {
       { key: "daily-spend", type: "bar", data: [1.25, 0, 2.75] },
       { key: "cumulative-spend", type: "line", data: [1.25, 1.25, 4] },
     ]);
+  });
+
+  it("assigns distinct colors to each model", () => {
+    const days: SpendAnalysisFilledDay[] = [
+      {
+        day: "2026-08-01",
+        cost_usd: 0,
+        event_count: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        models: [
+          {
+            day: "2026-08-01",
+            model: "gpt-5",
+            cost_usd: 1,
+            input_tokens: 1,
+            output_tokens: 1,
+            generation_count: 1,
+          },
+          {
+            day: "2026-08-01",
+            model: "claude-opus-4-8",
+            cost_usd: 1,
+            input_tokens: 1,
+            output_tokens: 1,
+            generation_count: 1,
+          },
+        ],
+      },
+    ];
+
+    const colors = modelColorsForDays(days);
+
+    expect(colors.get("gpt-5")).not.toBe(colors.get("claude-opus-4-8"));
   });
 });
