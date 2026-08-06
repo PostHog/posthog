@@ -62,6 +62,21 @@ pub struct WarmState {
     pub accepted: u8,
 }
 
+/// A warm caught between its two steps, under the rejected read-first
+/// ordering: the changelog read is taken while the fence — and with it
+/// the rejection of a stale owner's write — does not exist yet, so a
+/// write can be acked into the gap and sit above the cutoff forever.
+///
+/// Fence-first needs no such state. Its epoch bump precedes the read and
+/// an append requires an installed warm carrying the current epoch, so
+/// nothing can append between the two steps and the model installs the
+/// warm atomically.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PendingWarm {
+    /// The changelog length captured before the fence existed.
+    pub cutoff: u8,
+}
+
 /// One leader pod. `registered` is the etcd lease-bound registration key;
 /// everything else is process memory and dies with the process.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -73,6 +88,10 @@ pub struct Pod {
     /// Partitions warmed by this process incarnation (production:
     /// `warmed_partitions` on the pod handle).
     pub warmed: BTreeMap<Partition, WarmState>,
+    /// Warms mid-flight under `EpochFenced` — one step of
+    /// `warm_partition` done, the other not (empty under `Current`,
+    /// whose warm has no broker step to separate from the read).
+    pub pending_warm: BTreeMap<Partition, PendingWarm>,
     /// Write-fenced partitions (production: `InflightTracker` fences +
     /// the pod handle's `fenced_partitions`).
     pub fenced: BTreeSet<Partition>,
@@ -80,6 +99,15 @@ pub struct Pod {
     /// its keepalive notices and the process self-fences (production: the
     /// bounded zombie window; fix 1 bounds it to ~one heartbeat tick).
     pub zombie_writes_left: u8,
+    /// Whether this pod still claims the right to serve (production: the
+    /// `AuthorityClock` the keepalive stamps and the data plane reads).
+    ///
+    /// Deliberately not the same fact as `registered`. A lease can be
+    /// revoked out from under a pod, leaving it claiming a partition it
+    /// no longer holds until something tells it otherwise — which is the
+    /// window the read gate is trying to close, and cannot be expressed
+    /// if the two are one flag.
+    pub claims_authority: bool,
 }
 
 /// One router. A clean router restart is indistinguishable from a
@@ -266,6 +294,20 @@ pub enum Action {
     /// The zombie's keepalive notices the dead lease and the process
     /// exits (production fix 1).
     SelfFence(PodId),
+    /// A pod notices its lease is gone and stops claiming the partitions
+    /// it holds (production: the keepalive's next round, or the
+    /// registration watch firing). Only reachable under delayed
+    /// detection; prompt detection drops the claim with the lease.
+    NoticeLeaseLoss(PodId),
+    /// A pod's published claim ages past the renewal margin while its
+    /// registration still stands (production: the keepalive stops
+    /// confirming, but etcd holds the lease until the full TTL). The pod
+    /// refuses to serve and the coordinator, seeing a live registration,
+    /// reassigns nothing.
+    AuthorityLapse(PodId),
+    /// A renewal lands and the claim comes back, without the session ever
+    /// having ended.
+    AuthorityRenew(PodId),
     /// A previously-dead pod rejoins under its old name: fresh
     /// registration, fresh lease, empty memory (production: normal pod
     /// startup; its partitions come back via Warming handoffs from the

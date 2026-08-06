@@ -1,5 +1,4 @@
 import { LemonTag, type LemonTagType } from 'lib/lemon-ui/LemonTag'
-import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import type { ZendeskTicketSignalExtraApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -101,7 +100,6 @@ export function ZendeskTicketSignalCard({ signal }: SignalCardProps): JSX.Elemen
             signal={signal}
             statePill={statePill}
             metaChips={metaChips}
-            footerLeft={<span>Created {humanFriendlyDetailedTime(extra.created_at)}</span>}
             link={{ to: cleanZendeskUrl(extra.url), label: 'Open in Zendesk' }}
         >
             {signal.content}

@@ -10,7 +10,9 @@ import { IntegrationType } from '~/types'
 
 import {
     PushIdentityVerificationMode,
+    pushIdentityPublicKeysPayload,
     pushIdentityVerificationPayload,
+    resolvePushIdentityPublicKey,
     resolvePushIdentityVerification,
 } from '../PushIdentityVerificationField'
 
@@ -27,6 +29,7 @@ export interface APNSFormType {
     bundleId: string
     environment: 'production' | 'sandbox'
     identityVerification: PushIdentityVerificationMode
+    identityPublicKey: string
 }
 
 // Apple hands out the signing key as a .p8 file, so accepting an upload saves opening it in an
@@ -38,6 +41,7 @@ export interface apnsSetupModalLogicValues {
     apnsIntegration: {
         bundleId: string
         environment: 'production'
+        identityPublicKey: string
         identityVerification: PushIdentityVerificationMode
         keyId: string
         signingKey: string
@@ -49,6 +53,7 @@ export interface apnsSetupModalLogicValues {
         {
             bundleId: string
             environment: 'production'
+            identityPublicKey: string
             identityVerification: PushIdentityVerificationMode
             keyId: string
             signingKey: string
@@ -64,6 +69,7 @@ export interface apnsSetupModalLogicValues {
         {
             bundleId: string
             environment: 'production'
+            identityPublicKey: string
             identityVerification: PushIdentityVerificationMode
             keyId: string
             signingKey: string
@@ -83,6 +89,7 @@ export interface apnsSetupModalLogicActions {
     resetApnsIntegration: (values?: {
         bundleId: string
         environment: 'production'
+        identityPublicKey: string
         identityVerification: PushIdentityVerificationMode
         keyId: string
         signingKey: string
@@ -91,6 +98,7 @@ export interface apnsSetupModalLogicActions {
         values?: {
             bundleId: string
             environment: 'production'
+            identityPublicKey: string
             identityVerification: PushIdentityVerificationMode
             keyId: string
             signingKey: string
@@ -111,6 +119,7 @@ export interface apnsSetupModalLogicActions {
         values: DeepPartial<{
             bundleId: string
             environment: 'production'
+            identityPublicKey: string
             identityVerification: PushIdentityVerificationMode
             keyId: string
             signingKey: string
@@ -120,6 +129,7 @@ export interface apnsSetupModalLogicActions {
         values: DeepPartial<{
             bundleId: string
             environment: 'production'
+            identityPublicKey: string
             identityVerification: PushIdentityVerificationMode
             keyId: string
             signingKey: string
@@ -145,6 +155,7 @@ export interface apnsSetupModalLogicActions {
     submitApnsIntegrationRequest: (apnsIntegration: {
         bundleId: string
         environment: 'production'
+        identityPublicKey: string
         identityVerification: PushIdentityVerificationMode
         keyId: string
         signingKey: string
@@ -153,6 +164,7 @@ export interface apnsSetupModalLogicActions {
         apnsIntegration: {
             bundleId: string
             environment: 'production'
+            identityPublicKey: string
             identityVerification: PushIdentityVerificationMode
             keyId: string
             signingKey: string
@@ -162,6 +174,7 @@ export interface apnsSetupModalLogicActions {
     submitApnsIntegrationSuccess: (apnsIntegration: {
         bundleId: string
         environment: 'production'
+        identityPublicKey: string
         identityVerification: PushIdentityVerificationMode
         keyId: string
         signingKey: string
@@ -170,6 +183,7 @@ export interface apnsSetupModalLogicActions {
         apnsIntegration: {
             bundleId: string
             environment: 'production'
+            identityPublicKey: string
             identityVerification: PushIdentityVerificationMode
             keyId: string
             signingKey: string
@@ -241,6 +255,7 @@ export const apnsSetupModalLogic = kea<apnsSetupModalLogicType>([
                 bundleId: '',
                 environment: 'production' as const,
                 identityVerification: resolvePushIdentityVerification(props.integration),
+                identityPublicKey: resolvePushIdentityPublicKey(props.integration),
             },
             errors: ({ signingKey, keyId, teamId, bundleId }) => ({
                 signingKey: signingKey.trim() ? undefined : 'Signing key is required',
@@ -260,6 +275,10 @@ export const apnsSetupModalLogic = kea<apnsSetupModalLogicType>([
                             environment: values.apnsIntegration.environment,
                             ...pushIdentityVerificationPayload(
                                 values.apnsIntegration.identityVerification,
+                                props.integration
+                            ),
+                            ...pushIdentityPublicKeysPayload(
+                                values.apnsIntegration.identityPublicKey,
                                 props.integration
                             ),
                         },

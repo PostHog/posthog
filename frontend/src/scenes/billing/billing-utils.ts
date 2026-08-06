@@ -14,7 +14,7 @@ import { Params } from 'scenes/sceneTypes'
 
 import { BillingPeriod, BillingProductV2AddonType, BillingProductV2Type, BillingTierType, BillingType } from '~/types'
 
-import { USAGE_TYPES } from './constants'
+import { SPEND_TYPES, USAGE_TYPES } from './constants'
 import type { BillingFilters, BillingSeriesForCsv, BillingUsageInteractionProps, BuildBillingCsvOptions } from './types'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
@@ -489,7 +489,8 @@ export function buildTrackingProperties(
         dateTo: string
         excludeEmptySeries: boolean
         teamOptions: { key: string; label: string }[]
-    }
+    },
+    usageTypesTotal: number = USAGE_TYPES.length
 ): BillingUsageInteractionProps {
     return {
         action,
@@ -498,7 +499,7 @@ export function buildTrackingProperties(
         date_to: values.dateTo,
         exclude_empty: values.excludeEmptySeries,
         usage_types_count: values.filters.usage_types?.length || 0,
-        usage_types_total: USAGE_TYPES.length,
+        usage_types_total: usageTypesTotal,
         teams_count: values.filters.team_ids?.length || 0,
         teams_total: values.teamOptions.length,
         has_team_breakdown: (values.filters.breakdowns || []).includes('team'),
@@ -506,11 +507,27 @@ export function buildTrackingProperties(
     }
 }
 
+export const buildSpendTrackingProperties = (
+    action: BillingUsageInteractionProps['action'],
+    values: Parameters<typeof buildTrackingProperties>[1],
+    featureFlags: FeatureFlagsSet
+): BillingUsageInteractionProps => buildTrackingProperties(action, values, getSpendTypeOptions(featureFlags).length)
+
 // The Replay vision entry stays hidden until the replay-vision flag rolls out with the pricing launch
 export const getUsageTypeOptions = (featureFlags: FeatureFlagsSet): { key: string; label: string }[] =>
     USAGE_TYPES.filter(
         (opt) => opt.value !== 'replay_vision_credits_used_in_period' || featureFlags[FEATURE_FLAGS.REPLAY_VISION]
     ).map((opt) => ({ key: opt.value, label: opt.label }))
+
+export const getSpendTypeOptions = (featureFlags: FeatureFlagsSet): { key: string; label: string }[] =>
+    SPEND_TYPES.filter(
+        (opt) => opt.value !== 'replay_vision_credits_used_in_period' || featureFlags[FEATURE_FLAGS.REPLAY_VISION]
+    ).map((opt) => ({ key: opt.value, label: opt.label }))
+
+const SPEND_TYPE_VALUES = new Set<string>(SPEND_TYPES.map((option) => option.value))
+
+export const filterSpendUsageTypes = (usageTypes: string[] | undefined): string[] =>
+    usageTypes?.filter((usageType) => SPEND_TYPE_VALUES.has(usageType)) ?? []
 
 export const isAddonVisible = (
     product: BillingProductV2Type,

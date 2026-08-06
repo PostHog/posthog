@@ -3,6 +3,7 @@ import json
 import uuid
 import random
 import asyncio
+import dataclasses
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
@@ -13,6 +14,7 @@ from django.conf import settings
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
+from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 from temporalio.testing import WorkflowEnvironment
@@ -291,17 +293,28 @@ class TestProcessTaskWorkflow:
                 activity_executor=ThreadPoolExecutor(max_workers=10),
             ),
         ):
-            result = await env.client.execute_workflow(
-                ProcessTaskWorkflow.run,
-                workflow_input,
-                id=workflow_id,
-                task_queue=settings.TASKS_TASK_QUEUE,
-                retry_policy=RetryPolicy(maximum_attempts=1),
-                execution_timeout=timedelta(minutes=60),
-            )
+            # The run row does not exist, so the terminal status write raises
+            # TaskRunDeletedError and the workflow fails rather than returning a result. A
+            # workflow with no row left to update has nowhere to record an outcome, so
+            # failing is the only way its end is visible.
+            with pytest.raises(WorkflowFailureError) as failure:
+                await env.client.execute_workflow(
+                    ProcessTaskWorkflow.run,
+                    workflow_input,
+                    id=workflow_id,
+                    task_queue=settings.TASKS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=timedelta(minutes=60),
+                )
 
-        assert result.success is False
-        assert result.error is not None
+        # `WorkflowFailureError` carries only a generic message; the reason is in the cause
+        # chain, so assert there rather than on `str(failure.value)`.
+        causes = []
+        error: BaseException | None = failure.value
+        while error is not None:
+            causes.append(str(error))
+            error = error.__cause__
+        assert any("no longer exists" in cause or "not found" in cause for cause in causes), causes
 
 
 class TestProcessTaskFollowupDispatch:
@@ -554,6 +567,16 @@ class TestProcessTaskFollowupDispatch:
 
 @pytest.mark.django_db
 class TestProcessTaskWorkflowUnit:
+    def test_quota_recheck_not_scheduled_for_non_pr_runs(self):
+        # Research / repo-selection sessions run as SIGNAL_REPORT-origin tasks with
+        # create_pr=False; scheduling the recheck for them would let the quota gate cancel
+        # in-flight research.
+        wf = ProcessTaskWorkflow()
+        wf._context = dataclasses.replace(
+            _build_context(github_integration_id=None), origin_product="signal_report", create_pr=False
+        )
+        assert wf._self_driving_quota_recheck_scheduled() is False
+
     async def test_final_sandbox_cleanup_completes_the_run_stream(self, monkeypatch):
         cleanup_inputs: list[CleanupSandboxInput] = []
 
@@ -1389,6 +1412,52 @@ class TestProcessTaskWorkflowUnit:
         await workflow._get_sandbox_for_repository()
 
         assert inject_fresh_tokens_on_resume not in activity_calls
+
+    async def test_get_sandbox_for_repository_clones_every_repository(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(
+            github_integration_id=123,
+            state={"repositories": ["posthog/posthog", "posthog/code"]},
+        )
+        prepared = PrepareSandboxForRepositoryOutput(
+            sandbox_name="sandbox-name",
+            repository="posthog/posthog",
+            github_token="ghs_token",
+            branch=None,
+            environment_variables={},
+            snapshot_id=None,
+            snapshot_external_id=None,
+            used_snapshot=False,
+            should_create_snapshot=True,
+            shallow_clone=True,
+            image_source="base_image",
+            image_source_label="published sandbox base image",
+        )
+        created = CreateSandboxForRepositoryOutput(
+            sandbox_id="sandbox-123",
+            sandbox_url="https://sandbox.example",
+            connect_token="connect-token",
+        )
+        cloned: list[str] = []
+
+        async def fake_execute_activity(activity_fn, *args, **kwargs):
+            if activity_fn is prepare_sandbox_for_repository:
+                return prepared
+            if activity_fn is create_sandbox_for_repository:
+                return created
+            if activity_fn is clone_repository_in_sandbox:
+                cloned.append(args[0].repository)
+                return None
+            if activity_fn is emit_progress_activity:
+                return None
+            raise AssertionError(f"Unexpected activity call: {activity_fn}")
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+
+        result = await workflow._get_sandbox_for_repository()
+
+        assert cloned == ["posthog/posthog", "posthog/code"]
+        assert result.clone_ms is None
 
     @pytest.mark.parametrize(
         "custom_image_name, expected_image_source, expected_image_source_label",
