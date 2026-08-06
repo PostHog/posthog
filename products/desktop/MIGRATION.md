@@ -282,7 +282,9 @@ ports from source using these rules.
   feed-only. This dual-publish retires once app-version telemetry shows the old feed is
   quiet. PostHog/code#3490 (S3 feed) simplifies this on its next resync into this import.
 - `desktop-cleanup-draft-releases.yml` cleans PostHog/code draft releases for the same
-  reason.
+  reason. Both cross-repository release workflows explicitly scope their releaser app
+  tokens to the PostHog organization; otherwise the token action can select a different
+  installation and GitHub rejects access to PostHog/code.
 - `products/desktop/packages/agent/package.json` still declares
   `"repository": "https://github.com/PostHog/code"` (apps/code/package.json has no
   repository field). Fix it alongside the npm trusted-publisher re-registration, ideally
