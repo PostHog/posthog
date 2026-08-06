@@ -114,7 +114,7 @@ import {
     isLaunched,
     isSingleVariantShipped,
 } from './experimentsLogic'
-import { featureFlagVariantProperty } from './exposureContract'
+import { featureFlagVariantProperty, resolvedExposureEvent } from './exposureContract'
 import { holdoutsLogic } from './holdoutsLogic'
 import {
     legacyExpectedRunningTime,
@@ -590,6 +590,7 @@ export interface experimentLogicValues {
     props: any
     recommendedRunningTime: number
     recommendedSampleSize: number
+    resolvedExposureEvent: string
     secondaryMetricsLengthWithSharedMetrics: number
     secondaryMetricsResults: CachedNewExperimentQueryResponse[]
     secondaryMetricsResultsErrors: any[]
@@ -771,16 +772,10 @@ export interface experimentLogicActions {
     closePrimaryMetricModal: () => {
         value: true
     } // modalsLogic
-    closePrimaryMetricsReorderModal: () => {
-        value: true
-    } // modalsLogic
     closeResumeExperimentModal: () => {
         value: true
     } // modalsLogic
     closeSecondaryMetricModal: () => {
-        value: true
-    } // modalsLogic
-    closeSecondaryMetricsReorderModal: () => {
         value: true
     } // modalsLogic
     openPrimaryMetricModal: (uuid: string) => {
@@ -870,33 +865,40 @@ export interface experimentLogicActions {
     }
     endExperiment: (
         openCleanupPr?: boolean,
-        repository?: string | null
+        repository?: string | null,
+        setRepositoryAsTeamDefault?: boolean
     ) => {
         openCleanupPr: boolean
         repository: string | null
+        setRepositoryAsTeamDefault: boolean
     }
     endExperimentWithoutShipping: (
         openCleanupPr?: boolean,
-        repository?: string | null
+        repository?: string | null,
+        setRepositoryAsTeamDefault?: boolean
     ) => {
         openCleanupPr: boolean
         repository: string | null
+        setRepositoryAsTeamDefault: boolean
     }
     finishExperiment: ({
         selectedVariantKey,
         releaseToEveryone,
         openCleanupPr,
         repository,
+        setRepositoryAsTeamDefault,
     }: {
         openCleanupPr?: boolean
         releaseToEveryone: boolean
         repository?: string | null
         selectedVariantKey: string
+        setRepositoryAsTeamDefault?: boolean
     }) => {
         openCleanupPr: boolean
         releaseToEveryone: boolean
         repository: string | null
         selectedVariantKey: string
+        setRepositoryAsTeamDefault: boolean
     }
     freezeExposure: () => {
         value: true
@@ -968,6 +970,17 @@ export interface experimentLogicActions {
         refreshId: string
         triggeredBy: ExperimentTriggeredBy
     }
+    moveMetricsBetweenSections: (
+        isSecondary: boolean,
+        orderedUuids: string[],
+        removedUuids: string[],
+        movedUuids: string[]
+    ) => {
+        isSecondary: boolean
+        movedUuids: string[]
+        orderedUuids: string[]
+        removedUuids: string[]
+    }
     pauseExperiment: () => {
         value: true
     }
@@ -1002,6 +1015,13 @@ export interface experimentLogicActions {
     removeSharedMetricFromExperiment: (sharedMetricId: SharedMetric['id']) => {
         sharedMetricId: number
     }
+    reorderMetrics: (
+        isSecondary: boolean,
+        orderedUuids: string[]
+    ) => {
+        isSecondary: boolean
+        orderedUuids: string[]
+    }
     resetAutoRefreshInterval: () => {
         value: true
     }
@@ -1022,17 +1042,6 @@ export interface experimentLogicActions {
     }
     retrySecondaryMetric: (index: number) => {
         index: number
-    }
-    saveMetricsReorder: (
-        isSecondary: boolean,
-        orderedUuids: string[],
-        removedUuids: string[],
-        movedUuids: string[]
-    ) => {
-        isSecondary: boolean
-        movedUuids: string[]
-        orderedUuids: string[]
-        removedUuids: string[]
     }
     setAutoRefresh: (
         enabled: boolean,
@@ -1318,6 +1327,7 @@ export interface experimentLogicMeta {
         isExperimentLaunched: (experiment: Experiment) => boolean
         isExperimentRunning: (experiment: Experiment) => boolean
         isFlagActive: (experiment: Experiment) => boolean
+        resolvedExposureEvent: (experiment: Experiment) => string
         isExperimentStopped: (experiment: Experiment) => boolean
         variants: (experiment: Experiment) => MultivariateFlagVariant[]
         excludedVariants: (experiment: Experiment) => string[]
@@ -1490,8 +1500,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 'closeResumeExperimentModal',
                 'closeFinishExperimentModal',
                 'openReleaseConditionsModal',
-                'closePrimaryMetricsReorderModal',
-                'closeSecondaryMetricsReorderModal',
             ],
         ],
     })),
@@ -1528,29 +1536,42 @@ export const experimentLogic = kea<experimentLogicType>([
         changeExperimentStartDate: (startDate: string) => ({ startDate }),
         changeExperimentEndDate: (endDate: string) => ({ endDate }),
         launchExperiment: true,
-        endExperiment: (openCleanupPr: boolean = false, repository: string | null = null) => ({
+        endExperiment: (
+            openCleanupPr: boolean = false,
+            repository: string | null = null,
+            setRepositoryAsTeamDefault: boolean = false
+        ) => ({
             openCleanupPr,
             repository,
+            setRepositoryAsTeamDefault,
         }),
-        endExperimentWithoutShipping: (openCleanupPr: boolean = false, repository: string | null = null) => ({
+        endExperimentWithoutShipping: (
+            openCleanupPr: boolean = false,
+            repository: string | null = null,
+            setRepositoryAsTeamDefault: boolean = false
+        ) => ({
             openCleanupPr,
             repository,
+            setRepositoryAsTeamDefault,
         }),
         finishExperiment: ({
             selectedVariantKey,
             releaseToEveryone,
             openCleanupPr,
             repository,
+            setRepositoryAsTeamDefault,
         }: {
             selectedVariantKey: string
             releaseToEveryone: boolean
             openCleanupPr?: boolean
             repository?: string | null
+            setRepositoryAsTeamDefault?: boolean
         }) => ({
             selectedVariantKey,
             releaseToEveryone,
             openCleanupPr: openCleanupPr ?? false,
             repository: repository ?? null,
+            setRepositoryAsTeamDefault: setRepositoryAsTeamDefault ?? false,
         }),
         pauseExperiment: true,
         resumeExperiment: true,
@@ -1677,7 +1698,8 @@ export const experimentLogic = kea<experimentLogicType>([
         }),
         // Semantic metric actions - each controls its own reload behavior
         removeMetric: (uuid: string, context: 'primary' | 'secondary') => ({ uuid, context }),
-        saveMetricsReorder: (
+        reorderMetrics: (isSecondary: boolean, orderedUuids: string[]) => ({ isSecondary, orderedUuids }),
+        moveMetricsBetweenSections: (
             isSecondary: boolean,
             orderedUuids: string[],
             removedUuids: string[],
@@ -2424,7 +2446,7 @@ export const experimentLogic = kea<experimentLogicType>([
             values.experiment && eventUsageLogic.actions.reportExperimentEndDateChange(values.experiment, endDate)
             actions.refreshExperimentResults(true, 'config_change')
         },
-        endExperiment: async ({ openCleanupPr, repository }) => {
+        endExperiment: async ({ openCleanupPr, repository, setRepositoryAsTeamDefault }) => {
             actions.setEndExperimentLoading(true)
             try {
                 const response: Experiment = await api.create(
@@ -2434,6 +2456,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         conclusion_comment: values.experiment.conclusion_comment,
                         open_cleanup_pr: openCleanupPr,
                         ...(repository ? { repository } : {}),
+                        ...(setRepositoryAsTeamDefault ? { set_repository_as_team_default: true } : {}),
                     }
                 )
                 actions.setExperiment(response)
@@ -2444,8 +2467,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.setEndExperimentLoading(false)
             }
         },
-        endExperimentWithoutShipping: async ({ openCleanupPr, repository }) => {
-            actions.endExperiment(openCleanupPr, repository)
+        endExperimentWithoutShipping: async ({ openCleanupPr, repository, setRepositoryAsTeamDefault }) => {
+            actions.endExperiment(openCleanupPr, repository, setRepositoryAsTeamDefault)
             actions.closeFinishExperimentModal()
             lemonToast.success('Experiment ended successfully')
 
@@ -2760,7 +2783,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
         },
-        finishExperiment: async ({ selectedVariantKey, releaseToEveryone, openCleanupPr, repository }) => {
+        finishExperiment: async ({
+            selectedVariantKey,
+            releaseToEveryone,
+            openCleanupPr,
+            repository,
+            setRepositoryAsTeamDefault,
+        }) => {
             actions.setEndExperimentLoading(true)
             try {
                 const response: Experiment = await api.create(
@@ -2772,6 +2801,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         conclusion_comment: values.experiment.conclusion_comment,
                         open_cleanup_pr: openCleanupPr,
                         ...(repository ? { repository } : {}),
+                        ...(setRepositoryAsTeamDefault ? { set_repository_as_team_default: true } : {}),
                     }
                 )
                 actions.setExperiment(response)
@@ -2814,15 +2844,28 @@ export const experimentLogic = kea<experimentLogicType>([
                     ...values.experiment.parameters,
                     variant_screenshot_media_ids: variantPreviewMediaIds,
                 }
-                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                    parameters: updatedParameters,
-                    update_feature_flag_params: false,
-                })
+                const response: Experiment = await api.update(
+                    `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
+                    {
+                        ...toConcurrencyPayload(values.unmodifiedExperiment),
+                        parameters: updatedParameters,
+                        update_feature_flag_params: false,
+                    }
+                )
+                actions.setUnmodifiedExperiment(structuredClone(initializeMetricOrdering(response)))
                 actions.setExperiment({
                     parameters: updatedParameters,
                 })
-            } catch {
-                lemonToast.error('Failed to update experiment variant images')
+            } catch (error: any) {
+                if (isExperimentConflictError(error)) {
+                    lemonToast.error(
+                        error.data?.detail ||
+                            'This experiment was changed while you were editing it. Review the latest changes and try again.'
+                    )
+                    actions.loadExperiment()
+                } else {
+                    lemonToast.error('Failed to update experiment variant images')
+                }
             }
         },
         updateExperimentVariantNotes: async ({ variantNotes }) => {
@@ -2831,18 +2874,35 @@ export const experimentLogic = kea<experimentLogicType>([
                     ...values.experiment.parameters,
                     variant_notes: variantNotes,
                 }
-                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                    parameters: updatedParameters,
-                    update_feature_flag_params: false,
-                })
+                const response: Experiment = await api.update(
+                    `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
+                    {
+                        ...toConcurrencyPayload(values.unmodifiedExperiment),
+                        parameters: updatedParameters,
+                        update_feature_flag_params: false,
+                    }
+                )
+                actions.setUnmodifiedExperiment(structuredClone(initializeMetricOrdering(response)))
                 actions.setExperiment({
                     parameters: updatedParameters,
                 })
-            } catch {
-                lemonToast.error('Failed to update experiment variant notes')
+            } catch (error: any) {
+                if (isExperimentConflictError(error)) {
+                    lemonToast.error(
+                        error.data?.detail ||
+                            'This experiment was changed while you were editing it. Review the latest changes and try again.'
+                    )
+                    actions.loadExperiment()
+                } else {
+                    lemonToast.error('Failed to update experiment variant notes')
+                }
             }
         },
         updateDistribution: async ({ variants, rolloutPercentage }) => {
+            // Resending an unchanged holdout would make every stale distribution save read as a
+            // holdout edit server-side; include it only when the selector actually changed it.
+            const holdoutChanged =
+                (values.experiment.holdout_id ?? null) !== (values.unmodifiedExperiment?.holdout_id ?? null)
             actions.updateExperiment({
                 feature_flag: {
                     filters: {
@@ -2852,7 +2912,7 @@ export const experimentLogic = kea<experimentLogicType>([
                             : {}),
                     },
                 },
-                holdout_id: values.experiment.holdout_id,
+                ...(holdoutChanged ? { holdout_id: values.experiment.holdout_id } : {}),
                 update_feature_flag_params: true,
             })
         },
@@ -3268,24 +3328,51 @@ export const experimentLogic = kea<experimentLogicType>([
                 update_feature_flag_params: false,
             })
         },
-        saveMetricsReorder: async ({ isSecondary, orderedUuids, removedUuids, movedUuids }) => {
+        reorderMetrics: async ({ isSecondary, orderedUuids }, breakpoint) => {
+            const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
+            const previousOrder = values.experiment[orderingField] ?? []
+
+            // Only the ordering array changes, so the positional results arrays stay aligned
+            // to the metrics and nothing needs reloading.
+            actions.setExperiment({ [orderingField]: orderedUuids })
+
+            // Coalesce a flurry of drops into one request.
+            await breakpoint(300)
+
+            try {
+                // Deliberately not the updateExperiment loader: kea-loaders swallows the rejection
+                // into a Failure action, and a silent failure here would leave the table showing an
+                // order that never saved.
+                const response: Experiment = await api.update(
+                    `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
+                    {
+                        ...toConcurrencyPayload(values.unmodifiedExperiment),
+                        [orderingField]: orderedUuids,
+                        update_feature_flag_params: false,
+                    }
+                )
+                // A newer reorder may have started while this request was in flight.
+                breakpoint()
+                const responseWithMetricsOrdering = initializeMetricOrdering(response)
+                // Refreshing unmodifiedExperiment too, so a later edit-cancel doesn't revert the
+                // order the user just set.
+                actions.setUnmodifiedExperiment(structuredClone(responseWithMetricsOrdering))
+                actions.setExperiment(responseWithMetricsOrdering)
+            } catch (error) {
+                // Swallowing the breakpoint would roll a superseded reorder back over a newer one.
+                if (isBreakpoint(error as Error)) {
+                    throw error
+                }
+                actions.setExperiment({
+                    [orderingField]: values.unmodifiedExperiment?.[orderingField] ?? previousOrder,
+                })
+                lemonToast.error('Could not save the new metric order')
+            }
+        },
+        moveMetricsBetweenSections: async ({ isSecondary, orderedUuids, removedUuids, movedUuids }) => {
             const removed = new Set(removedUuids)
             const moved = new Set(movedUuids)
             const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
-            const closeModal = isSecondary
-                ? actions.closeSecondaryMetricsReorderModal
-                : actions.closePrimaryMetricsReorderModal
-
-            // Pure reorder: only the ordering array changes, so the positional
-            // results arrays stay aligned and nothing needs reloading.
-            if (removed.size === 0 && moved.size === 0) {
-                await asyncActions.updateExperiment({
-                    [orderingField]: orderedUuids,
-                    update_feature_flag_params: false,
-                })
-                closeModal()
-                return
-            }
 
             // Moves and removals don't change any metric's definition, so existing
             // results stay valid — they only need realigning to the new positional
@@ -3345,7 +3432,6 @@ export const experimentLogic = kea<experimentLogicType>([
             }
 
             await asyncActions.updateExperiment(update)
-            closeModal()
 
             if (!canReuseResults) {
                 actions.refreshExperimentResults(true, 'config_change')
@@ -3734,6 +3820,15 @@ export const experimentLogic = kea<experimentLogicType>([
             (experiment: Experiment): boolean => {
                 return !!experiment?.feature_flag?.active
             },
+        ],
+        /**
+         * The event this experiment's default exposure is actually counted on, resolved by the
+         * backend so the UI names the same event the results queries read. Falls back to
+         * `$feature_flag_called` for an experiment that hasn't been loaded from the API yet.
+         */
+        resolvedExposureEvent: [
+            (s) => [s.experiment],
+            (experiment: Experiment): string => resolvedExposureEvent(experiment ?? {}),
         ],
         isExperimentStopped: [
             (s) => [s.experiment],

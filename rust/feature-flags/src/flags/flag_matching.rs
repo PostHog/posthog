@@ -1,8 +1,10 @@
 use crate::api::errors::FlagError;
 use crate::api::types::{FlagDetails, FlagValue, FlagsResponse, FromFeatureAndMatch};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
-use crate::cohorts::cohort_models::{Cohort, CohortId};
-use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
+use crate::cohorts::cohort_models::{Cohort, CohortId, MembershipStampPolicy};
+use crate::cohorts::cohort_operations::{
+    apply_cohort_membership_logic, evaluate_dynamic_cohorts, record_stamp_policy_divergence,
+};
 use crate::cohorts::membership::{CohortMembershipProvider, NoOpCohortMembershipProvider};
 use crate::database::PostgresRouter;
 use crate::flags::flag_group_type_mapping::{
@@ -334,6 +336,7 @@ pub struct FeatureFlagMatcher {
     /// Whether to enable realtime cohort evaluation.
     /// When false, realtime cohorts are treated as non-members.
     enable_realtime_cohort_evaluation: bool,
+    membership_stamp_policy: MembershipStampPolicy,
     /// Cohort definitions preloaded from the flags hypercache.
     /// When present, scoped to only the cohorts referenced by flags (including transitive deps),
     /// so the matcher skips the CohortCacheManager PG query entirely.
@@ -411,6 +414,7 @@ impl FeatureFlagMatcher {
             skip_writes: false,
             filtered_out_flag_ids: HashSet::new(),
             enable_realtime_cohort_evaluation: false,
+            membership_stamp_policy: MembershipStampPolicy::default(),
             preloaded_cohorts: None,
             detailed_analysis: false,
             only_use_override_person_properties: false,
@@ -451,6 +455,11 @@ impl FeatureFlagMatcher {
 
     pub fn with_realtime_cohort_evaluation(mut self, enable: bool) -> Self {
         self.enable_realtime_cohort_evaluation = enable;
+        self
+    }
+
+    pub fn with_membership_stamp_policy(mut self, policy: MembershipStampPolicy) -> Self {
+        self.membership_stamp_policy = policy;
         self
     }
 
@@ -2054,7 +2063,7 @@ impl FeatureFlagMatcher {
         debug_assert!(
             !cohorts
                 .iter()
-                .any(|c| c.is_static && c.uses_realtime_membership()),
+                .any(|c| c.is_static && self.membership_stamp_policy.uses_realtime_membership(c)),
             "Cohort cannot be both static and realtime"
         );
         let static_cohort_ids: Vec<CohortId> = cohorts
@@ -2110,7 +2119,8 @@ impl FeatureFlagMatcher {
         let realtime_cohort_ids: Vec<CohortId> = if self.enable_realtime_cohort_evaluation {
             cohorts
                 .iter()
-                .filter(|c| c.uses_realtime_membership())
+                .inspect(|c| record_stamp_policy_divergence(c, self.membership_stamp_policy))
+                .filter(|c| self.membership_stamp_policy.uses_realtime_membership(c))
                 .map(|c| c.id)
                 .collect()
         } else {

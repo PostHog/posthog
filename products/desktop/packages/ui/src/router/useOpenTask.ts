@@ -64,6 +64,12 @@ export function useOpenTask(): (task: Task) => Promise<void> {
 
 export interface TaskInputNavigationOptions {
   folderId?: string;
+  /**
+   * `owner/repo` the picked sidebar group stands for. Cloud-only groups have no
+   * registered folder, so this is the only thing the new-task screen can prefill
+   * its repo from. Unlike `initialCloudRepository` it does not force cloud mode.
+   */
+  folderRepository?: string;
   initialPrompt?: string;
   initialCloudRepository?: string;
   initialModel?: string;
@@ -98,10 +104,11 @@ export function openTaskInput(
       ? { folderId: folderIdOrOptions }
       : (folderIdOrOptions ?? {});
 
-  // folderId counts as transient state: each "+" click must get a fresh
-  // requestId so re-picking the same folder re-applies the prefill.
+  // The folder prefill counts as transient state: each "+" click must get a
+  // fresh requestId so re-picking the same group re-applies the prefill.
   const hasTransientState =
     !!options.folderId ||
+    !!options.folderRepository ||
     !!options.initialPrompt ||
     !!options.initialCloudRepository ||
     !!options.initialModel ||
@@ -111,6 +118,7 @@ export function openTaskInput(
   useTaskInputPrefillStore.setState({
     prefill: {
       folderId: options.folderId,
+      folderRepository: options.folderRepository,
       initialPrompt: options.initialPrompt,
       initialCloudRepository: options.initialCloudRepository,
       initialModel: options.initialModel,

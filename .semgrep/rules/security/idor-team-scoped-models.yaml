@@ -85,7 +85,13 @@ rules:
                               |BatchImport
                               |BriefConfig
                               |ButtonTile
+                              |Canvas
+                              |CanvasBuild
+                              |CanvasSourceVersion
                               |ChangeRequest
+                              |ChannelContextGeneration
+                              |ChannelInstructions
+                              |ChannelStar
                               |ClusteringConfig
                               |ClusteringJob
                               |Cohort
@@ -150,6 +156,7 @@ rules:
                               |ErrorTrackingSuppressionRule
                               |ErrorTrackingSymbolSet
                               |Evaluation
+                              |EvaluationDirectory
                               |Experiment
                               |ExperimentHoldout
                               |ExperimentMetricsRecalculation
@@ -210,6 +217,7 @@ rules:
                               |LLMSkillOwner
                               |LLMTraceSummary
                               |ManagedWarehouseBackfillPartition
+                              |ManagedWarehouseSourceJob
                               |MarketingAnalyticsGoalMapping
                               |MessageCategory
                               |MessageRecipientPreference
@@ -280,6 +288,7 @@ rules:
                               |SignalScoutRun
                               |SignalScoutEmission
                               |SignalScoutNote
+                              |SignalScoutStructuredOutput
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -299,6 +308,7 @@ rules:
                               |Task
                               |TaskActivity
                               |TaskArtifact
+                              |TaskCommentActivity
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
@@ -422,7 +432,13 @@ rules:
                         |BatchImport
                         |BriefConfig
                         |ButtonTile
+                        |Canvas
+                        |CanvasBuild
+                        |CanvasSourceVersion
                         |ChangeRequest
+                        |ChannelContextGeneration
+                        |ChannelInstructions
+                        |ChannelStar
                         |ClusteringConfig
                         |ClusteringJob
                         |Cohort
@@ -487,6 +503,7 @@ rules:
                         |ErrorTrackingSuppressionRule
                         |ErrorTrackingSymbolSet
                         |Evaluation
+                        |EvaluationDirectory
                         |Experiment
                         |ExperimentHoldout
                         |ExperimentMetricsRecalculation
@@ -542,6 +559,7 @@ rules:
                         |LLMSkillOwner
                         |LLMTraceSummary
                         |ManagedWarehouseBackfillPartition
+                        |ManagedWarehouseSourceJob
                         |MarketingAnalyticsGoalMapping
                         |MessageCategory
                         |MessageRecipientPreference
@@ -611,6 +629,7 @@ rules:
                         |SignalScoutRun
                         |SignalScoutEmission
                         |SignalScoutNote
+                        |SignalScoutStructuredOutput
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
@@ -630,6 +649,7 @@ rules:
                         |Task
                         |TaskActivity
                         |TaskArtifact
+                        |TaskCommentActivity
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
@@ -924,7 +944,8 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              DashboardPrivilege
+                              CommunitySkillVote
+                              |DashboardPrivilege
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
                               |SignalUserAutonomyConfig
@@ -979,7 +1000,8 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        DashboardPrivilege
+                        CommunitySkillVote
+                        |DashboardPrivilege
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
                         |SignalUserAutonomyConfig

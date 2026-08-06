@@ -42,6 +42,7 @@ PRODUCTS_APPS = [
     "products.analytics_platform.backend.apps.AnalyticsPlatformConfig",
     "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
     "products.tasks.backend.apps.TasksConfig",
+    "products.canvas.backend.apps.CanvasConfig",
     "products.stamphog.backend.apps.StamphogConfig",
     "products.links.backend.apps.LinksConfig",
     "products.field_notes.backend.apps.FieldNotesConfig",
@@ -78,6 +79,7 @@ PRODUCTS_APPS = [
     "products.logs.backend.apps.LogsConfig",
     "products.tracing.backend.apps.TracingConfig",
     "products.metrics.backend.apps.MetricsConfig",
+    "products.apm.backend.apps.ApmConfig",
     "products.notifications.backend.apps.NotificationsConfig",
     "products.dashboards.backend.apps.DashboardsConfig",
     "products.messaging.backend.apps.MessagingConfig",
@@ -360,11 +362,6 @@ GROWTH_ENRICHMENT_INTERNAL_TEAM_ID = get_from_env("GROWTH_ENRICHMENT_INTERNAL_TE
 # one source of truth, like SESSION_COOKIE_CREATED_AT_KEY above.
 SESSION_STEP_UP_REQUIRED_KEY = get_from_env("SESSION_STEP_UP_REQUIRED_KEY", "step_up_required")
 SESSION_LAST_REAUTH_AT_KEY = get_from_env("SESSION_LAST_REAUTH_AT_KEY", "last_reauth_at")
-# Dedup state for risk telemetry/enforcement: the last-emitted anomaly signature and when. A flagged
-# session is re-scored every request, but we only re-emit/re-enforce on a new signature or after the
-# cooldown, so one persistent anomaly can't fire on every request. Cleared on (re)login by post_login.
-SESSION_RISK_LAST_SIG_KEY = get_from_env("SESSION_RISK_LAST_SIG_KEY", "risk_last_sig")
-SESSION_RISK_LAST_EMIT_AT_KEY = get_from_env("SESSION_RISK_LAST_EMIT_AT_KEY", "risk_last_emit_at")
 
 # Impossible-travel risk thresholds (see posthog/session/risk.py). Tunable without a code change.
 RISK_DISTANCE_FLOOR_KM = get_from_env("RISK_DISTANCE_FLOOR_KM", 500.0, type_cast=float)
@@ -420,6 +417,18 @@ STATIC_URL = "/static/"
 STATICFILES_DIRS = [
     os.path.join(BASE_DIR, "frontend/dist"),
 ]
+if DEBUG:
+    # Vite copies frontend/public into dist only on a production build, so in dev
+    # nothing serves `/static/services/*`. Those paths aren't bundler imports — they
+    # arrive as strings in API payloads (warehouse source `iconPath`, CDP destination
+    # `icon_url`), so the bundler never sees them and can't rewrite them. The request
+    # falls through to the SPA catch-all, the <img> is handed HTML, and every one of
+    # those logos silently swaps to its error placeholder.
+    #
+    # DEBUG-only on purpose: in production dist already holds these files, and adding
+    # a second source for 1300+ identical assets would make collectstatic warn about
+    # duplicate destinations for no gain.
+    STATICFILES_DIRS.append(os.path.join(BASE_DIR, "frontend/public"))
 STORAGES = {
     "default": {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
@@ -617,6 +626,18 @@ SPECTACULAR_SETTINGS = {
         # TaskRunUpdate.status and ExperimentFlagCleanupTask.run_status.
         "RunStatusEnum": ["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
         "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",
+        "ReasoningEffortEnum": ["low", "medium", "high", "xhigh", "max", "ultracode", None],
+        "TaskRunReasoningEffortEnum": [
+            "off",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultracode",
+            None,
+        ],
         "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",
         "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
         "ScannerModelEnum": "products.replay_vision.backend.models.replay_scanner.ScannerModel",
@@ -646,6 +667,9 @@ SPECTACULAR_SETTINGS = {
         # Account.slack_summary_cadence and AccountChannelSummary.cadence share the same
         # daily/weekly/monthly choice set; pin one name for both.
         "SlackSummaryCadenceEnum": ["daily", "weekly", "monthly"],
+        # Canvas source diagnostics and marketing-analytics UTM issues share the same
+        # error/warning severity pair; pin one shared name for the choice set.
+        "DiagnosticSeverityEnum": ["error", "warning"],
         # ReviewHog findings expose the same priority set on two fields (effective_priority +
         # reviewer_priority); pin one shared name for the choice set.
         "ReviewIssuePriorityEnum": ["must_fix", "should_fix", "consider"],
@@ -1047,6 +1071,9 @@ DEV_DISABLE_NAVIGATION_HOOKS = get_from_env("DEV_DISABLE_NAVIGATION_HOOKS", Fals
 # one-click passwordless login on the login page (also requires DEBUG)
 ALLOW_DEV_LOGIN = get_from_env("ALLOW_DEV_LOGIN", False, type_cast=str_to_bool)
 
+# shows the full value of the seeded dev personal API key in the UI (also requires DEBUG)
+ALLOW_DEV_API_KEY_REVEAL = get_from_env("ALLOW_DEV_API_KEY_REVEAL", False, type_cast=str_to_bool)
+
 ####
 # Random/temporary
 # Everything that is supposed to be removed eventually
@@ -1223,6 +1250,25 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS: list[int] = [
 # Sized well above any realistic team; 0 disables the cap.
 WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM: int = get_from_env(
     "WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM", 1000, type_cast=int
+)
+
+# Cohort the weekly AI path-cleaning-suggestion job runs for. Defaults to the precompute enrollment
+# list (the teams "selected to test out precomputed analytics tables") so the two cohorts track each
+# other unless explicitly overridden. Comma-separated env-var override, like the lists above.
+WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS_TEAM_IDS: list[int] = [
+    int(team_id)
+    for team_id in get_list(
+        get_from_env(
+            "WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS_TEAM_IDS",
+            ",".join(str(t) for t in WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS),
+        )
+    )
+]
+
+# Model the path-cleaning-suggestion job sends to the LLM gateway. Must be in the `web_analytics`
+# product allowlist in services/llm-gateway/src/llm_gateway/products/config.py.
+WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS_MODEL: str = get_from_env(
+    "WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS_MODEL", "claude-haiku-4-5"
 )
 
 # Teams whose web analytics queries (overview, paths tile) skip the events↔sessions join

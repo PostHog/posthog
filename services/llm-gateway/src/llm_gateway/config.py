@@ -36,6 +36,10 @@ DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     "signals": ProductCostLimit(limit_usd=25000.0, window_seconds=86400),
     "posthog_ai": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
     "changelog_bot": ProductCostLimit(limit_usd=500.0, window_seconds=86400),
+    # Path-cleaning suggestions: haiku-only, a few short calls per team per week. The product is
+    # unbilled and reachable with any feature-gated llm_gateway:read key, so a tight cap bounds
+    # abuse of the shared budget rather than real usage.
+    "web_analytics": ProductCostLimit(limit_usd=100.0, window_seconds=86400),
 }
 
 DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {

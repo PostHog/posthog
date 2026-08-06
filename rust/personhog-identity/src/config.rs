@@ -91,6 +91,40 @@ pub struct Config {
     /// so the caller retries on another pod. 0 = disabled.
     #[envconfig(default = "0")]
     pub max_concurrent_requests: usize,
+
+    /// How long one claim of a lifecycle op lasts before another instance
+    /// may steal it (seconds).
+    #[envconfig(default = "15")]
+    pub lifecycle_lease_secs: u64,
+
+    /// How long a DeletePersons call keeps driving (or waiting on another
+    /// driver's lease) before returning UNAVAILABLE (seconds).
+    #[envconfig(default = "30")]
+    pub lifecycle_execute_timeout_secs: u64,
+
+    /// How often a non-owning driver re-checks a leased op for completion (ms).
+    #[envconfig(default = "250")]
+    pub lifecycle_poll_interval_ms: u64,
+
+    /// Warn when an op's attempt counter reaches this value.
+    #[envconfig(default = "5")]
+    pub lifecycle_attempt_alert_threshold: i32,
+
+    /// Run the background sweeper + GC loop for abandoned lifecycle ops.
+    /// One sweeper per fleet is enough; every instance running it is also
+    /// fine (the lease arbitrates), so this is a plain per-pod toggle.
+    #[envconfig(default = "false")]
+    pub lifecycle_sweeper_enabled: bool,
+
+    /// Interval between sweeper passes (seconds).
+    #[envconfig(default = "30")]
+    pub lifecycle_sweep_interval_secs: u64,
+
+    /// How long completed op rows are retained for op_id idempotency before
+    /// GC (hours). The durable deletion shield is the person tombstone row,
+    /// not the op row.
+    #[envconfig(default = "24")]
+    pub lifecycle_op_retention_hours: u64,
 }
 
 impl Config {
@@ -148,5 +182,22 @@ impl Config {
         } else {
             Some(Duration::from_secs(self.grpc_max_connection_age_secs))
         }
+    }
+
+    pub fn lifecycle_engine_config(&self) -> crate::lifecycle::engine::EngineConfig {
+        crate::lifecycle::engine::EngineConfig {
+            lease: Duration::from_secs(self.lifecycle_lease_secs),
+            execute_timeout: Duration::from_secs(self.lifecycle_execute_timeout_secs),
+            poll_interval: Duration::from_millis(self.lifecycle_poll_interval_ms),
+            attempt_alert_threshold: self.lifecycle_attempt_alert_threshold,
+        }
+    }
+
+    pub fn lifecycle_sweep_interval(&self) -> Duration {
+        Duration::from_secs(self.lifecycle_sweep_interval_secs)
+    }
+
+    pub fn lifecycle_op_retention(&self) -> Duration {
+        Duration::from_secs(self.lifecycle_op_retention_hours * 3600)
     }
 }

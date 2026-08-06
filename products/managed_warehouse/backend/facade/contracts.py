@@ -34,6 +34,10 @@ __all__ = [
     "DuckLakeTableResult",
     "ManagedWarehouseBackfillState",
     "ManagedWarehouseProvisionStatus",
+    "ManagedWarehouseSourceJobRecord",
+    "ManagedWarehouseSourceJobStatus",
+    "ManagedWarehouseSourceJobUpdate",
+    "ManagedWarehouseSourceJobWorkflow",
     "ManagedWarehouseTableNames",
     "ManagedWarehouseTeamMembership",
 ]
@@ -120,6 +124,52 @@ class ManagedWarehouseBackfillState:
 
     has_backfill: bool
     table_suffix: str | None
+
+
+class ManagedWarehouseSourceJobWorkflow(StrEnum):
+    COPY = "copy"
+    REGISTER = "register"
+
+
+class ManagedWarehouseSourceJobStatus(StrEnum):
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+    STALE = "stale"
+
+
+@dataclass(frozen=True, kw_only=True)
+class ManagedWarehouseSourceJobUpdate:
+    team_id: int
+    schema_ids: list[UUID]
+    source_job_id: str
+    attempt_id: str
+    workflow_type: ManagedWarehouseSourceJobWorkflow
+    status: ManagedWarehouseSourceJobStatus
+    started_at: datetime
+    finished_at: datetime | None = None
+    latest_error: str | None = None
+    workflow_id: str | None = None
+    workflow_run_id: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class ManagedWarehouseSourceJobRecord:
+    id: UUID
+    team_id: int
+    environment_id: int
+    schema_id: UUID
+    source_job_id: str
+    attempt_id: str
+    workflow_type: ManagedWarehouseSourceJobWorkflow
+    status: ManagedWarehouseSourceJobStatus
+    started_at: datetime
+    finished_at: datetime | None
+    latest_error: str | None
+    workflow_id: str | None
+    workflow_run_id: str | None
+    last_completed_at: datetime | None = None
 
 
 @dataclass

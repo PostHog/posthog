@@ -1340,6 +1340,41 @@ const findTreeItem = (items: TreeDataItem[], targetId: string): TreeDataItem | n
     return path ? path[path.length - 1] : null
 }
 
+const getTreeItemDataSourceName = (item: TreeDataItem): string | null => {
+    switch (item.record?.type) {
+        case 'table':
+            return item.record.table?.name ?? item.name
+        case 'view':
+        case 'managed-view':
+            return item.record.view?.name ?? item.name
+        case 'endpoint':
+            return item.record.tableName ?? item.record.table?.name ?? item.name
+        default:
+            return null
+    }
+}
+
+const findDataSourceTreePath = (
+    items: TreeDataItem[],
+    tableName: string,
+    path: TreeDataItem[] = []
+): TreeDataItem[] | null => {
+    for (const item of items) {
+        const nextPath = [...path, item]
+        if (getTreeItemDataSourceName(item) === tableName) {
+            return nextPath
+        }
+        if (item.children) {
+            const foundPath = findDataSourceTreePath(item.children, tableName, nextPath)
+            if (foundPath) {
+                return foundPath
+            }
+        }
+    }
+
+    return null
+}
+
 const getFolderIdFromDropTarget = (items: TreeDataItem[], dropTargetId: string | null): string | null | undefined => {
     if (dropTargetId === '') {
         return null
@@ -1431,6 +1466,7 @@ export interface queryDatabaseLogicValues {
     selectedSchema: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery | null
     sidebarOverlayTreeItems: TreeItem[]
     syncMoreNoticeDismissed: boolean
+    tableToLocate: string | null
     treeData: TreeDataItem[]
     treeDataContext: TreeDataContext
     treeRef: EditorSidebarTreeRef
@@ -1543,6 +1579,9 @@ export interface queryDatabaseLogicActions {
     clearSearch: () => {
         value: true
     }
+    clearTableToLocate: () => {
+        value: true
+    }
     deleteUnsavedQuery: (record: Record<string, any>) => {
         record: Record<string, any>
     }
@@ -1594,6 +1633,9 @@ export interface queryDatabaseLogicActions {
     ) => {
         queryTabState: QueryTabState | null
         payload?: any
+    }
+    locateTable: (tableName: string) => {
+        tableName: string
     }
     moveDraggedViewToDropTarget: (
         viewId: string,
@@ -1818,6 +1860,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         setTreeRef: (ref: EditorSidebarTreeRef | null) => ({ ref }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         clearSearch: true,
+        clearTableToLocate: true,
+        locateTable: (tableName: string) => ({ tableName }),
         selectSourceTable: (tableName: string) => ({ tableName }),
         setSyncMoreNoticeDismissed: (dismissed: boolean) => ({ dismissed }),
         setEditingDraft: (draftId: string) => ({ draftId }),
@@ -1935,6 +1979,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 setTreeRef: (_, { ref }) => ref,
             },
         ],
+        tableToLocate: [
+            null as string | null,
+            {
+                locateTable: (_, { tableName }) => tableName,
+                clearTableToLocate: () => null,
+            },
+        ],
 
         searchTerm: [
             '',
@@ -2029,6 +2080,40 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             actions.clearPendingViewFolderOverrides()
         },
     })),
+    listeners(({ actions, values }) => {
+        const revealLocatedTable = (tableName: string): void => {
+            actions.clearSearch()
+            const path = findDataSourceTreePath(values.displayedTreeData, tableName)
+            if (!path) {
+                return
+            }
+
+            const tableId = path[path.length - 1].id
+            actions.setExpandedFolders(
+                Array.from(new Set([...values.expandedFolders, ...path.map((item) => item.id)])),
+                values.connectionId
+            )
+
+            if (values.treeRef?.current) {
+                values.treeRef.current.focusItem(tableId, {
+                    scrollPosition: 'top-third',
+                    behavior: 'smooth',
+                })
+                actions.clearTableToLocate()
+            }
+        }
+
+        return {
+            locateTable: ({ tableName }) => {
+                revealLocatedTable(tableName)
+            },
+            setTreeRef: ({ ref }) => {
+                if (ref?.current && values.tableToLocate) {
+                    revealLocatedTable(values.tableToLocate)
+                }
+            },
+        }
+    }),
     loaders(({ values }) => ({
         queryTabState: [
             null as QueryTabState | null,

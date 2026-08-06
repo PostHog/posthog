@@ -94,15 +94,15 @@ export interface Task {
 }
 
 /**
- * A backend task channel — the shared feed a task is kicked off in. Distinct
- * from the desktop file-system "channel" folders: those carry CONTEXT.md and
- * artifacts, while this owns the task feed and threads. `personal` is the
- * user's private "#me" channel.
+ * A backend task channel — the single channel identity: it owns the task feed,
+ * threads, instructions (CONTEXT.md) and filed canvases. `personal` is the
+ * user's private "#me" channel. `starred` is per-user.
  */
 export interface TaskChannel {
   id: string;
   name: string;
   channel_type: "public" | "personal";
+  starred: boolean;
   github_integration?: number | null;
   repositories?: string[];
   created_at: string;
@@ -230,6 +230,11 @@ export type ArtifactType =
   | "user_attachment"
   | "skill_bundle";
 
+export type ArtifactSource =
+  | "agent_output"
+  | "user_attachment"
+  | "posthog_code_skill";
+
 export interface TaskRunArtifactMetadata {
   skill_name: string;
   skill_source: UploadableSkillSource;
@@ -242,7 +247,7 @@ export interface TaskRunArtifact {
   id?: string;
   name: string;
   type: ArtifactType;
-  source?: string;
+  source?: ArtifactSource;
   size?: number;
   content_type?: string;
   metadata?: TaskRunArtifactMetadata;
@@ -925,7 +930,4 @@ export interface SlackChannelsQueryParams {
   channelId?: string;
 }
 
-export type {
-  NewTaskLinkPayload,
-  NewTaskSharedParams,
-} from "./deep-links";
+export type { NewTaskLinkPayload, NewTaskSharedParams } from "./deep-links";

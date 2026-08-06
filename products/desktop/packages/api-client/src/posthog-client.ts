@@ -1,11 +1,11 @@
 import "./generated.augment";
 import type {
   Adapter,
-  CloudMcpServerImport,
   CloudMcpServerRelayDesignation,
   CloudRunSource,
   CreateTaskAutomationOptions,
   ExecutionMode,
+  McpServerConnection,
   PrAuthorshipMode,
   SourceProduct,
   SourceType,
@@ -193,6 +193,16 @@ export interface TaskRunSessionLogsResult {
   complete: boolean;
 }
 
+export interface TaskListOptions {
+  repository?: string;
+  createdBy?: number;
+  originProduct?: string;
+  internal?: boolean;
+  channel?: string;
+  /** Caller-side cap for surfaces that only show the newest few. */
+  limit?: number;
+}
+
 export interface TaskSessionStorageAccess {
   id: string;
   download_url: string | null;
@@ -351,12 +361,49 @@ export interface SignalSourceConfig {
 // Endpoints live under /api/projects/{id}/signals/scout/ and require the
 // `signal_scout:read` / `signal_scout:write` scopes.
 
+/**
+ * Lifecycle state the coordinator keeps alongside `enabled`:
+ * - `active` – running on its schedule.
+ * - `pending_pause` – still running, but flagged by the inactivity sweep and
+ *   due to be paused unless something changes.
+ * - `paused_by_user` – a person switched it off; the system never overrides it.
+ * - `paused_by_system` – the platform switched it off, see `pause_reason`.
+ */
+export type ScoutLifecycleStatus =
+  | "active"
+  | "pending_pause"
+  | "paused_by_user"
+  | "paused_by_system";
+
+/**
+ * Why the system warned or paused a scout: `ignored` (its findings went
+ * unacted on), `no_output` (it stopped emitting anything), or
+ * `repeated_failures` (its runs kept erroring).
+ */
+export type ScoutPauseReason = "ignored" | "no_output" | "repeated_failures";
+
 export interface ScoutConfig {
   id: string;
   skill_name: string;
   enabled: boolean;
   /** False means dry-run: the scout runs but findings are not emitted. */
   emit: boolean;
+  /**
+   * Lifecycle state behind `enabled`. Absent on backends predating the
+   * lifecycle fields, in which case `enabled` is all there is to go on.
+   */
+  status?: ScoutLifecycleStatus;
+  /** Why the system warned or paused the scout; null while it is healthy. */
+  pause_reason?: ScoutPauseReason | null;
+  /** ISO timestamp of the last `status` transition; null if it never moved. */
+  status_changed_at?: string | null;
+  /** Runs that failed back to back; trips a `repeated_failures` pause. */
+  consecutive_failure_count?: number;
+  /**
+   * Exempts the scout from the inactivity sweep — both the `ignored` pause and
+   * the `no_output` warning. Set on watchdog scouts whose value is staying quiet.
+   */
+  auto_pause_exempt?: boolean;
   /**
    * Summary of what the scout investigates, from the skill's description
    * metadata. Empty string when the skill is absent or carries no description;
@@ -373,26 +420,6 @@ export interface ScoutConfig {
   run_interval_minutes: number;
   last_run_at: string | null;
   created_at: string;
-}
-
-/** A team's enforced scout run caps and current usage, as dispatch applies them. */
-export interface ScoutLimits {
-  max_runs_per_tick: number;
-  /** Null when the daily budget is uncapped. */
-  max_runs_per_day: number | null;
-  runs_today: number;
-  /** Null when the daily budget is uncapped. */
-  runs_remaining_today: number | null;
-}
-
-/**
- * Team-scoped scout metadata from the `signals-scout` flag: enrollment, an optional
- * announcement banner, and the enforced run limits. `banner_message` is null when unset.
- */
-export interface ScoutMetadata {
-  enrolled: boolean;
-  banner_message: string | null;
-  limits: ScoutLimits;
 }
 
 export interface ScoutRun {
@@ -586,7 +613,7 @@ export interface SourceConfig {
   fields: SourceFieldConfig[];
 }
 
-export interface FolderInstructionsUser {
+export interface ChannelInstructionsUser {
   id?: number;
   uuid?: string;
   first_name?: string;
@@ -594,29 +621,19 @@ export interface FolderInstructionsUser {
   email?: string;
 }
 
-export interface FolderInstructions {
-  id: string;
+export interface ChannelInstructions {
+  channel: string;
   content: string;
   version: number;
-  is_latest: boolean;
-  created_by: FolderInstructionsUser | null;
   created_at: string;
-  updated_at: string;
+  created_by: ChannelInstructionsUser | null;
 }
 
-export interface FolderInstructionsVersion {
-  id: string;
+export interface ChannelInstructionsVersion {
+  channel: string;
   version: number;
-  is_latest: boolean;
-  created_by: FolderInstructionsUser | null;
   created_at: string;
-}
-
-interface PaginatedFolderInstructionsVersions {
-  count: number;
-  next: string | null;
-  previous: string | null;
-  results: FolderInstructionsVersion[];
+  created_by: ChannelInstructionsUser | null;
 }
 
 // Thrown when PUT /instructions/ rejects a publish because the caller's
@@ -685,7 +702,7 @@ export interface CloudRunOptions {
    * Local url-based MCP servers to make available inside the sandbox. The
    * backend merges these into the agent server's `--mcpServers` at spawn.
    */
-  importedMcpServers?: CloudMcpServerImport[];
+  importedMcpServers?: McpServerConnection[];
   relayedMcpServers?: CloudMcpServerRelayDesignation[];
 }
 
@@ -1558,298 +1575,6 @@ export class PostHogAPIClient {
     );
   }
 
-  // Desktop file system — the backend surface that backs canvas channels
-  // (top-level folders) and dashboards. These routes aren't in the generated
-  // OpenAPI client, so we use the raw fetcher.
-  // Channels are top-level folders on the desktop file system. Filtering to
-  // `type=folder` server-side (and requesting a large page) keeps us from
-  // paginating over every dashboard and filed task just to populate the
-  // sidebar channel list — the bulk of the initial-load cost otherwise.
-  async getDesktopFileSystemChannels(): Promise<Schemas.FileSystem[]> {
-    const DESKTOP_FILE_SYSTEM_MAX_PAGES = 50;
-    const DESKTOP_FILE_SYSTEM_PAGE_SIZE = 200;
-    const teamId = await this.getTeamId();
-    const all: Schemas.FileSystem[] = [];
-    let urlPath: string = `/api/projects/${teamId}/desktop_file_system/?type=folder&limit=${DESKTOP_FILE_SYSTEM_PAGE_SIZE}`;
-    for (let i = 0; i < DESKTOP_FILE_SYSTEM_MAX_PAGES; i++) {
-      const url = new URL(`${this.api.baseUrl}${urlPath}`);
-      const response = await this.api.fetcher.fetch({
-        method: "get",
-        url,
-        path: urlPath,
-      });
-      if (!response.ok) {
-        throw new Error(
-          `Failed to fetch desktop file system channels: ${response.statusText}`,
-        );
-      }
-      const page = (await response.json()) as Schemas.PaginatedFileSystemList;
-      all.push(...page.results);
-      if (!page.next) return all;
-      const nextUrl = new URL(page.next);
-      urlPath = `${nextUrl.pathname}${nextUrl.search}`;
-    }
-    log.warn(
-      `getDesktopFileSystemChannels hit MAX_PAGES (${DESKTOP_FILE_SYSTEM_MAX_PAGES}); returning partial results`,
-      { returned: all.length },
-    );
-    return all;
-  }
-
-  // Create a top-level channel (a folder row whose path is a single segment).
-  async createDesktopFileSystemChannel(
-    name: string,
-  ): Promise<Schemas.FileSystem> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/desktop_file_system/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: urlPath,
-      overrides: {
-        body: JSON.stringify({ path: name, type: "folder", depth: 1 }),
-      },
-    });
-    if (!response.ok) {
-      throw new Error(
-        `Failed to create desktop file system channel: ${response.statusText}`,
-      );
-    }
-    return (await response.json()) as Schemas.FileSystem;
-  }
-
-  // Rename a top-level channel: PATCH its path (a single segment) to the new
-  // name. The backend recomputes depth from the path.
-  async renameDesktopFileSystemChannel(
-    id: string,
-    name: string,
-  ): Promise<Schemas.FileSystem> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/desktop_file_system/${encodeURIComponent(id)}/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "patch",
-      url,
-      path: urlPath,
-      overrides: {
-        body: JSON.stringify({ path: name }),
-      },
-    });
-    if (!response.ok) {
-      throw new Error(
-        `Failed to rename desktop file system channel: ${response.statusText}`,
-      );
-    }
-    return (await response.json()) as Schemas.FileSystem;
-  }
-
-  // Delete a desktop file system entry by id (used to remove top-level channels).
-  async deleteDesktopFileSystem(id: string): Promise<void> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/desktop_file_system/${encodeURIComponent(id)}/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "delete",
-      url,
-      path: urlPath,
-    });
-    if (!response.ok && response.status !== 404) {
-      throw new Error(
-        `Failed to delete desktop file system channel: ${response.statusText}`,
-      );
-    }
-  }
-
-  // Desktop file system shortcuts — the user-scoped "starred" items on the
-  // desktop surface (e.g. starred channels). Unlike the file system rows above,
-  // shortcuts are per-user, so they back cross-device starring without leaking
-  // one user's stars to their teammates. Not in the generated OpenAPI client,
-  // so we use the raw fetcher.
-  async getDesktopFileSystemShortcuts(): Promise<Schemas.FileSystemShortcut[]> {
-    const SHORTCUTS_MAX_PAGES = 50;
-    const SHORTCUTS_PAGE_SIZE = 200;
-    const teamId = await this.getTeamId();
-    const all: Schemas.FileSystemShortcut[] = [];
-    let urlPath: string = `/api/projects/${teamId}/desktop_file_system_shortcut/?limit=${SHORTCUTS_PAGE_SIZE}`;
-    for (let i = 0; i < SHORTCUTS_MAX_PAGES; i++) {
-      const url = new URL(`${this.api.baseUrl}${urlPath}`);
-      const response = await this.api.fetcher.fetch({
-        method: "get",
-        url,
-        path: urlPath,
-      });
-      if (!response.ok) {
-        throw new Error(
-          `Failed to fetch desktop file system shortcuts: ${response.statusText}`,
-        );
-      }
-      const page =
-        (await response.json()) as Schemas.PaginatedFileSystemShortcutList;
-      all.push(...page.results);
-      if (!page.next) return all;
-      const nextUrl = new URL(page.next);
-      urlPath = `${nextUrl.pathname}${nextUrl.search}`;
-    }
-    log.warn(
-      `getDesktopFileSystemShortcuts hit MAX_PAGES (${SHORTCUTS_MAX_PAGES}); returning partial results`,
-      { returned: all.length },
-    );
-    return all;
-  }
-
-  // Create a desktop shortcut for the current user. For a folder/channel the
-  // backend links by `ref` (the folder's full path), with `path` as the label.
-  async createDesktopFileSystemShortcut(input: {
-    path: string;
-    type: string;
-    ref?: string;
-    href?: string;
-  }): Promise<Schemas.FileSystemShortcut> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/desktop_file_system_shortcut/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: urlPath,
-      overrides: {
-        body: JSON.stringify(input),
-      },
-    });
-    if (!response.ok) {
-      throw new Error(
-        `Failed to create desktop file system shortcut: ${response.statusText}`,
-      );
-    }
-    return (await response.json()) as Schemas.FileSystemShortcut;
-  }
-
-  // Delete a desktop shortcut by id (used to unstar). A 404 means it's already
-  // gone, which is the desired end state, so we treat it as success.
-  async deleteDesktopFileSystemShortcut(id: string): Promise<void> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/desktop_file_system_shortcut/${encodeURIComponent(id)}/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "delete",
-      url,
-      path: urlPath,
-    });
-    if (!response.ok && response.status !== 404) {
-      throw new Error(
-        `Failed to delete desktop file system shortcut: ${response.statusText}`,
-      );
-    }
-  }
-
-  // Per-folder, versioned markdown instructions for a desktop folder. The
-  // endpoint is keyed on the FileSystem row id (must be `type === "folder"`).
-  // Returns the current latest version or null when none has been published.
-  async getDesktopFolderInstructions(
-    folderId: string,
-  ): Promise<FolderInstructions | null> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/desktop_file_system/${encodeURIComponent(folderId)}/instructions/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "get",
-      url,
-      path: urlPath,
-    });
-    if (response.status === 404) return null;
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch folder instructions: ${response.statusText}`,
-      );
-    }
-    return (await response.json()) as FolderInstructions;
-  }
-
-  // Publish a new version of the folder's instructions. Pass `base_version`
-  // (the latest version the editor was started from) for optimistic
-  // concurrency; use 0 when no instructions exist yet. A 409 turns into a
-  // typed `FolderInstructionsConflictError` so the UI can prompt to reload.
-  async putDesktopFolderInstructions(
-    folderId: string,
-    input: { content: string; base_version?: number },
-  ): Promise<FolderInstructions> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/desktop_file_system/${encodeURIComponent(folderId)}/instructions/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "put",
-      url,
-      path: urlPath,
-      overrides: {
-        body: JSON.stringify(input),
-      },
-    });
-    if (response.status === 409) {
-      throw new FolderInstructionsConflictError();
-    }
-    if (!response.ok) {
-      throw new Error(
-        `Failed to publish folder instructions: ${response.statusText}`,
-      );
-    }
-    return (await response.json()) as FolderInstructions;
-  }
-
-  // Soft-delete all versions of this folder's instructions. The folder row
-  // itself is not affected.
-  async deleteDesktopFolderInstructions(folderId: string): Promise<void> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/desktop_file_system/${encodeURIComponent(folderId)}/instructions/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "delete",
-      url,
-      path: urlPath,
-    });
-    if (!response.ok && response.status !== 404) {
-      throw new Error(
-        `Failed to delete folder instructions: ${response.statusText}`,
-      );
-    }
-  }
-
-  // List version metadata (no content) newest-first. Single page is enough for
-  // the typical UI; we cap follow-up pages to avoid runaway pagination on
-  // pathological histories.
-  async listDesktopFolderInstructionVersions(
-    folderId: string,
-  ): Promise<FolderInstructionsVersion[]> {
-    const VERSIONS_MAX_PAGES = 20;
-    const teamId = await this.getTeamId();
-    const all: FolderInstructionsVersion[] = [];
-    let urlPath = `/api/projects/${teamId}/desktop_file_system/${encodeURIComponent(folderId)}/instructions/versions/`;
-    for (let i = 0; i < VERSIONS_MAX_PAGES; i++) {
-      const url = new URL(`${this.api.baseUrl}${urlPath}`);
-      const response = await this.api.fetcher.fetch({
-        method: "get",
-        url,
-        path: urlPath,
-      });
-      if (!response.ok) {
-        throw new Error(
-          `Failed to fetch folder instruction versions: ${response.statusText}`,
-        );
-      }
-      const page =
-        (await response.json()) as PaginatedFolderInstructionsVersions;
-      all.push(...page.results);
-      if (!page.next) return all;
-      const nextUrl = new URL(page.next);
-      urlPath = `${nextUrl.pathname}${nextUrl.search}`;
-    }
-    log.warn(
-      `listDesktopFolderInstructionVersions hit MAX_PAGES (${VERSIONS_MAX_PAGES}); returning partial results`,
-      { folderId, returned: all.length },
-    );
-    return all;
-  }
-
   // The task currently generating this folder's CONTEXT.md, shared across the
   // project so any user sees an in-progress generation (instead of fragile
   // local state). Keyed on the folder row (which always exists), not the
@@ -2140,17 +1865,19 @@ export class PostHogAPIClient {
     return Array.isArray(data) ? data : (data.results ?? []);
   }
 
-  async getScoutMetadata(projectId: number): Promise<ScoutMetadata> {
-    return this.scoutGet<ScoutMetadata>(projectId, "metadata/current/");
-  }
-
   async updateScoutConfig(
     projectId: number,
     configId: string,
     updates: {
+      /**
+       * Flipping this off records a user pause (`status` becomes
+       * `paused_by_user`, which the system never overrides); flipping it on
+       * resumes the scout from any pause, including a system one.
+       */
       enabled?: boolean;
       emit?: boolean;
       run_interval_minutes?: number;
+      auto_pause_exempt?: boolean;
     },
   ): Promise<ScoutConfig> {
     const urlPath = `/api/projects/${projectId}/signals/scout/configs/${configId}/`;
@@ -2421,16 +2148,20 @@ export class PostHogAPIClient {
     }
   }
 
-  async getTasks(options?: {
-    repository?: string;
-    createdBy?: number;
-    originProduct?: string;
-    internal?: boolean;
-    channel?: string;
-  }): Promise<Task[]> {
+  async getTasks(options?: TaskListOptions): Promise<Task[]> {
+    return (await this.getTasksPage(options)).tasks;
+  }
+
+  /**
+   * The same list with the total behind it, for surfaces that ask for a short
+   * page and still have to say how much they are not showing.
+   */
+  async getTasksPage(
+    options?: TaskListOptions,
+  ): Promise<{ tasks: Task[]; count: number }> {
     const teamId = await this.getTeamId();
     const params: Record<string, string | number | boolean> = {
-      limit: 500,
+      limit: options?.limit ?? 500,
     };
 
     if (options?.repository) {
@@ -2458,9 +2189,10 @@ export class PostHogAPIClient {
       query: params,
     });
 
-    return (data.results ?? []).map((task) =>
+    const tasks = (data.results ?? []).map((task) =>
       normalizeTaskResponse(task, { teamId }),
     );
+    return { tasks, count: data.count ?? tasks.length };
   }
 
   async getTaskSummaries(ids: string[]) {
@@ -2638,7 +2370,6 @@ export class PostHogAPIClient {
           Task,
           | "title"
           | "repository"
-          | "repositories"
           | "json_schema"
           | "origin_product"
           | "runtime"
@@ -2700,8 +2431,6 @@ export class PostHogAPIClient {
       description: task.description ?? "",
       title: task.title,
       repository: task.repository,
-      repositories:
-        task.repositories ?? (task.repository ? [task.repository] : []),
       json_schema: task.json_schema,
       origin_product: task.origin_product,
       github_integration: task.github_integration,
@@ -2744,20 +2473,38 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskChannel;
   }
 
-  async updateTaskChannel(
-    channelId: string,
-    updates: {
-      github_integration: number | null;
-      repositories: string[];
-    },
-  ): Promise<TaskChannel> {
+  async renameTaskChannel(id: string, name: string): Promise<TaskChannel> {
     const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/task_channels/${channelId}/`;
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/`;
     const response = await this.api.fetcher.fetch({
       method: "patch",
       url: new URL(`${this.api.baseUrl}${urlPath}`),
       path: urlPath,
-      overrides: { body: JSON.stringify(updates) },
+      overrides: { body: JSON.stringify({ name }) },
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to rename task channel: ${response.statusText}`);
+    }
+    return (await response.json()) as TaskChannel;
+  }
+
+  async updateTaskChannelRepositories(
+    id: string,
+    githubIntegration: number | null,
+    repositories: string[],
+  ): Promise<TaskChannel> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/`;
+    const response = await this.api.fetcher.fetch({
+      method: "patch",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({
+          github_integration: githubIntegration,
+          repositories,
+        }),
+      },
     });
     if (!response.ok) {
       throw new Error(
@@ -2765,6 +2512,131 @@ export class PostHogAPIClient {
       );
     }
     return (await response.json()) as TaskChannel;
+  }
+
+  async deleteTaskChannel(id: string): Promise<void> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/`;
+    const response = await this.api.fetcher.fetch({
+      method: "delete",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok && response.status !== 404) {
+      throw new Error(`Failed to delete task channel: ${response.statusText}`);
+    }
+  }
+
+  async starTaskChannel(id: string, starred: boolean): Promise<void> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/star/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: { body: JSON.stringify({ starred }) },
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to star task channel: ${response.statusText}`);
+    }
+  }
+
+  async getChannelInstructions(
+    channelId: string,
+  ): Promise<ChannelInstructions | null> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(channelId)}/instructions/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch channel instructions: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as ChannelInstructions;
+  }
+
+  async putChannelInstructions(
+    channelId: string,
+    input: { content: string; baseVersion?: number },
+  ): Promise<ChannelInstructions> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(channelId)}/instructions/`;
+    const response = await this.api.fetcher.fetch({
+      method: "put",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({
+          content: input.content,
+          ...(input.baseVersion !== undefined
+            ? { base_version: input.baseVersion }
+            : {}),
+        }),
+      },
+    });
+    if (response.status === 409) {
+      throw new FolderInstructionsConflictError();
+    }
+    if (!response.ok) {
+      throw new Error(
+        `Failed to publish channel instructions: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as ChannelInstructions;
+  }
+
+  async deleteChannelInstructions(channelId: string): Promise<void> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(channelId)}/instructions/`;
+    const response = await this.api.fetcher.fetch({
+      method: "delete",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok && response.status !== 404) {
+      throw new Error(
+        `Failed to delete channel instructions: ${response.statusText}`,
+      );
+    }
+  }
+
+  async listChannelInstructionVersions(
+    channelId: string,
+  ): Promise<ChannelInstructionsVersion[]> {
+    const maxPages = 20;
+    const teamId = await this.getTeamId();
+    const all: ChannelInstructionsVersion[] = [];
+    let urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(channelId)}/instructions/versions/`;
+    for (let i = 0; i < maxPages; i++) {
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+      });
+      if (!response.ok) {
+        throw new Error(
+          `Failed to fetch channel instruction versions: ${response.statusText}`,
+        );
+      }
+      const body = (await response.json()) as
+        | ChannelInstructionsVersion[]
+        | { next: string | null; results: ChannelInstructionsVersion[] };
+      if (Array.isArray(body)) return [...all, ...body];
+      all.push(...body.results);
+      if (!body.next) return all;
+      const nextUrl = new URL(body.next);
+      urlPath = `${nextUrl.pathname}${nextUrl.search}`;
+    }
+    log.warn("Channel instruction version pagination limit reached", {
+      channelId,
+      returned: all.length,
+    });
+    return all;
   }
 
   // A channel's system-announcement feed (context created, CONTEXT.md being
@@ -5648,6 +5520,7 @@ export class PostHogAPIClient {
     description: string;
     body: string;
     files?: LlmSkillFileInput[];
+    metadata?: Record<string, unknown>;
   }): Promise<LlmSkill> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/environments/${teamId}/llm_skills/`;
@@ -5680,6 +5553,7 @@ export class PostHogAPIClient {
       body: string;
       description?: string;
       files?: LlmSkillFileInput[];
+      metadata?: Record<string, unknown>;
       base_version: number;
     },
   ): Promise<LlmSkill> {
