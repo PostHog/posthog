@@ -9,6 +9,10 @@
             "description": "Number of results to return per page.",
             "type": "number"
         },
+        "max_level": {
+            "description": "Only return members at or below this membership level (1 member, 8 admin, 15 owner).",
+            "type": "number"
+        },
         "offset": {
             "description": "The initial index from which to return the results.",
             "type": "number"

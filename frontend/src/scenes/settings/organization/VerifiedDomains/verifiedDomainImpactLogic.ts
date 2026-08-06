@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 
 import { loaders } from 'kea-loaders'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -197,6 +198,8 @@ export const verifiedDomainImpactLogic = kea<verifiedDomainImpactLogicType>([
                 loadEnforcementImpact: async () => {
                     return await api.organizationMembers.list({
                         outside_verified_domains: true,
+                        // Owners are never removed, so listing them would overstate the count.
+                        max_level: OrganizationMembershipLevel.Admin,
                         limit: IMPACTED_MEMBERS_FETCH_LIMIT,
                     })
                 },

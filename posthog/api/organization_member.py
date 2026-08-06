@@ -170,6 +170,11 @@ class OrganizationMemberGithubLoginSerializer(serializers.Serializer):
                 type=OpenApiTypes.BOOL,
                 description="When `true`, only return members whose email domain is not one of the organization's verified domains — the members who would lose access under verified-domain enforcement.",
             ),
+            OpenApiParameter(
+                name="max_level",
+                type=OpenApiTypes.INT,
+                description="Only return members at or below this membership level (1 member, 8 admin, 15 owner).",
+            ),
         ],
     ),
 )
@@ -260,6 +265,13 @@ class OrganizationMemberViewSet(
                 admitted = verified_domain_email_q(organization)
                 if admitted is not None:
                     queryset = queryset.exclude(admitted)
+
+            if "max_level" in params:
+                try:
+                    max_level = int(params["max_level"])
+                except ValueError:
+                    raise serializers.ValidationError({"max_level": "Must be an integer membership level."})
+                queryset = queryset.filter(level__lte=max_level)
 
             if "updated_after" in params:
                 queryset = queryset.filter(updated_at__gt=params["updated_after"])

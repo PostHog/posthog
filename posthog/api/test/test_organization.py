@@ -371,6 +371,17 @@ class TestOrganizationAPI(APIBaseTest):
             self.organization, "owner@hedgebox.net", None, level=OrganizationMembership.Level.OWNER
         )
 
+        # The modal previews the removals with these filters, so the two must agree — an owner shown
+        # there would promise a removal that never happens.
+        preview = self.client.get(
+            "/api/organizations/@current/members/",
+            {"outside_verified_domains": "true", "max_level": OrganizationMembership.Level.ADMIN},
+        )
+        self.assertEqual(
+            {member["user"]["email"] for member in preview.json()["results"]},
+            {blocked.email},
+        )
+
         response = self.client.post(
             f"/api/organizations/{self.organization.id}/remove_blocked_members_and_enforce_verified_domains/"
         )

@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
 import { CountedPaginatedResponse } from 'lib/api'
-import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -139,9 +138,6 @@ export function EnforceVerifiedDomainsModal(): JSX.Element {
     const { closeEnforcementPrompt, confirmEnforceVerifiedDomains } = useActions(verifiedDomainImpactLogic)
 
     const impactedCount = enforcementImpact?.count ?? 0
-    const includesOwner = (enforcementImpact?.results ?? []).some(
-        (member) => member.level === OrganizationMembershipLevel.Owner
-    )
 
     return (
         <LemonModal
@@ -178,11 +174,6 @@ export function EnforceVerifiedDomainsModal(): JSX.Element {
                     organization.
                 </p>
                 <ImpactedMembersTable impact={enforcementImpact} loading={enforcementImpactLoading} />
-                {includesOwner && (
-                    <p className="text-secondary text-xs">
-                        Organization owners are never removed, but they lose access until the restriction is turned off.
-                    </p>
-                )}
             </div>
         </LemonModal>
     )

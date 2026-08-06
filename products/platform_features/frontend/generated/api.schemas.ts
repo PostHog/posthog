@@ -910,6 +910,10 @@ export type MembersListParams = {
      */
     limit?: number
     /**
+     * Only return members at or below this membership level (1 member, 8 admin, 15 owner).
+     */
+    max_level?: number
+    /**
      * The initial index from which to return the results.
      */
     offset?: number

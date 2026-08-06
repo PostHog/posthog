@@ -529,6 +529,7 @@ const orgMembersList = (): ToolBase<typeof OrgMembersListSchema, Schemas.Paginat
             query: {
                 email_domain: params.email_domain,
                 limit: params.limit,
+                max_level: params.max_level,
                 offset: params.offset,
                 order: params.order,
                 outside_verified_domains: params.outside_verified_domains,
