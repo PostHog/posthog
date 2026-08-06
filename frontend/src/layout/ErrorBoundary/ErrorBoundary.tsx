@@ -1,16 +1,24 @@
 import './ErrorBoundary.scss'
 
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
 
 import { IconCopy } from '@posthog/icons'
 import { PostHogErrorBoundary, type PostHogErrorBoundaryFallbackProps } from '@posthog/react'
 
+import { ApiConfig } from 'lib/api'
 import { SupportTicketExceptionEvent, supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { teamLogic } from 'scenes/teamLogic'
+
+// The boundary must render even when Kea itself is in a bad state (an unmounted-logic store
+// error is a common thing it has to catch). Reading team/support via Kea hooks here would run
+// during the boundary's own render, and an error thrown there escapes to the root and blanks
+// the whole app. So the team id comes from the plain ApiConfig static, and the support form is
+// opened lazily from the click handler — neither touches the store while rendering the fallback.
+function getCurrentTeamIdSafe(): number | undefined {
+    return ApiConfig.hasCurrentTeamId() ? ApiConfig.getCurrentTeamId() : undefined
+}
 
 const DOM_MUTATION_PATTERNS = [
     "Failed to execute 'removeChild' on 'Node'",
@@ -30,8 +38,7 @@ interface ErrorBoundaryProps {
 }
 
 export function ErrorBoundary({ children, exceptionProps = {}, className }: ErrorBoundaryProps): JSX.Element {
-    const { currentTeamId } = useValues(teamLogic)
-    const { openSupportForm } = useActions(supportLogic)
+    const currentTeamId = getCurrentTeamIdSafe()
 
     const additionalProperties = { ...exceptionProps }
 
@@ -71,7 +78,7 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                                 action={{
                                     children: 'Email an engineer',
                                     onClick: () => {
-                                        openSupportForm({
+                                        supportLogic.actions.openSupportForm({
                                             kind: 'bug',
                                             isEmailFormOpen: true,
                                             exception_event: exceptionEvent ?? null,
@@ -112,7 +119,7 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                                         type="primary"
                                         center
                                         onClick={() => {
-                                            openSupportForm({
+                                            supportLogic.actions.openSupportForm({
                                                 kind: 'bug',
                                                 isEmailFormOpen: true,
                                                 exception_event: exceptionEvent ?? null,
@@ -145,7 +152,7 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
 }
 
 export function LightErrorBoundary({ children, exceptionProps = {}, className }: ErrorBoundaryProps): JSX.Element {
-    const { currentTeamId } = useValues(teamLogic)
+    const currentTeamId = getCurrentTeamIdSafe()
     const additionalProperties = { ...exceptionProps }
     if (currentTeamId !== undefined) {
         additionalProperties.team_id = currentTeamId
