@@ -84,6 +84,7 @@ logger = structlog.get_logger(__name__)
 RELATED_OPEN_PREVIEW_LIMIT = 3
 RELATED_OPEN_PREVIEW_TEXT_LENGTH = 160
 # A merge-heavy person can carry thousands of distinct_ids, and every one widens the IN list.
+# Each row is always guaranteed its own distinct_id; these bound the extras on top of that.
 RELATED_OPEN_MAX_DISTINCT_IDS_PER_PERSON = 25
 RELATED_OPEN_MAX_TOTAL_DISTINCT_IDS = 500
 
@@ -673,19 +674,31 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             key_by_ticket[ticket.id] = key
             if key in dids_by_key:
                 continue
-            # Own distinct_id first: a merge-heavy person can carry thousands of them and the IN
-            # list has to stay bounded, but the row's own id must never be the one dropped.
+            # Own distinct_id first, because the allocation below guarantees the head of this list.
             candidates = [ticket.distinct_id]
             if person is not None:
                 candidates += [did for did in person.distinct_ids if did != ticket.distinct_id]
             dids_by_key[key] = candidates[:RELATED_OPEN_MAX_DISTINCT_IDS_PER_PERSON]
 
+        # Every row keeps its own distinct_id before any extras are handed out. Allocating
+        # first-come instead lets one requester carrying thousands of merged ids exhaust the
+        # budget and silently leave the rest of the page with no pill at all.
         keys_by_did: dict[str, set[str]] = defaultdict(set)
         for key, dids in dids_by_key.items():
-            for did in dids:
-                if did not in keys_by_did and len(keys_by_did) >= RELATED_OPEN_MAX_TOTAL_DISTINCT_IDS:
+            keys_by_did[dids[0]].add(key)
+
+        # Round-robin what's left so the extras are shared out rather than taken by whoever sorts
+        # first. This is what bounds the query; the guaranteed ids above are one per page row.
+        extras_by_key = {key: iter(dids[1:]) for key, dids in dids_by_key.items() if len(dids) > 1}
+        while extras_by_key and len(keys_by_did) < RELATED_OPEN_MAX_TOTAL_DISTINCT_IDS:
+            for key in list(extras_by_key):
+                did = next(extras_by_key[key], None)
+                if did is None:
+                    del extras_by_key[key]
                     continue
                 keys_by_did[did].add(key)
+                if len(keys_by_did) >= RELATED_OPEN_MAX_TOTAL_DISTINCT_IDS:
+                    break
         if not keys_by_did:
             return
 

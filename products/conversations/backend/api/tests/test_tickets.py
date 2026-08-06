@@ -3056,6 +3056,20 @@ class TestTicketRelatedOpenTickets(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [row["related_open"] for row in response.json()["results"]] == [None, None]
 
+    @patch("products.conversations.backend.api.tickets.RELATED_OPEN_MAX_TOTAL_DISTINCT_IDS", 3)
+    def test_a_merge_heavy_requester_does_not_starve_the_rest_of_the_page(self, mock_limit, mock_on_commit):
+        # Handing out the distinct_id budget first-come let whoever sorted first take all of it,
+        # silently leaving every later row on the page with no pill at all.
+        first = self._create_ticket("ordinary", suffix="a")
+        second = self._create_ticket("ordinary", suffix="b")
+        create_person(team=self.team, distinct_ids=[f"heavy-{index}" for index in range(6)])
+        self._create_ticket("heavy-0", suffix="heavy")
+
+        related = self._related_by_number()
+
+        assert related[first.ticket_number]["count"] == 1
+        assert related[second.ticket_number]["count"] == 1
+
     def test_costs_one_extra_query(self, mock_on_commit):
         self._create_ticket("budget-user", suffix="a")
         self._create_ticket("budget-user", suffix="b")
