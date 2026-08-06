@@ -11,6 +11,7 @@ from posthog.temporal.utils import ExternalDataWorkflowInputs
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
     UpdateExternalDataJobStatusInputs,
     trigger_schedule_buffer_one_activity,
@@ -63,30 +64,38 @@ class TestTriggerScheduleBufferOneActivity(BaseTest):
 
 
 @pytest.mark.parametrize(
-    "pipeline_version, sync_type, expected_billable",
+    "sync_type, has_loaded_before, expected_billable",
     [
-        (ExternalDataJob.PipelineVersion.V2, ExternalDataSchema.SyncType.FULL_REFRESH, False),
-        # Thousands of live schemas carry no sync_type and still replace their table every run
-        (ExternalDataJob.PipelineVersion.V2, None, False),
-        (ExternalDataJob.PipelineVersion.V2, ExternalDataSchema.SyncType.INCREMENTAL, True),
-        (ExternalDataJob.PipelineVersion.V2, ExternalDataSchema.SyncType.APPEND, True),
-        # v3 stages the watermark and promotes it on the final batch, which this run never sends
-        (ExternalDataJob.PipelineVersion.V3, ExternalDataSchema.SyncType.INCREMENTAL, False),
+        # The rows this run got through land in the table that is already there
+        (ExternalDataSchema.SyncType.FULL_REFRESH, True, True),
+        (ExternalDataSchema.SyncType.INCREMENTAL, True, True),
+        # No table has ever been registered, so nothing this run extracted is queryable
+        (ExternalDataSchema.SyncType.FULL_REFRESH, False, False),
     ],
 )
 # transaction=True: the activity writes through database_sync_to_async_pool, which runs off this
 # thread on its own connection and so only sees committed rows.
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_shutdown_run_drops_its_charge_when_its_rows_get_re_extracted(
+async def test_a_shutdown_run_drops_its_charge_only_when_it_loaded_nothing(
     team,
-    pipeline_version: ExternalDataJob.PipelineVersion,
-    sync_type: ExternalDataSchema.SyncType | None,
+    sync_type: ExternalDataSchema.SyncType,
+    has_loaded_before: bool,
     expected_billable: bool,
 ):
     source = await sync_to_async(ExternalDataSource.objects.create)(team=team)
+    table = (
+        await sync_to_async(DataWarehouseTable.objects.create)(team=team, name="table", format="DeltaS3Wrapper")
+        if has_loaded_before
+        else None
+    )
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
-        team=team, source=source, name="table", sync_type=sync_type
+        team=team,
+        source=source,
+        name="table",
+        sync_type=sync_type,
+        table=table,
+        initial_sync_complete=has_loaded_before,
     )
     job = await sync_to_async(ExternalDataJob.objects.create)(
         team=team,
@@ -95,7 +104,6 @@ async def test_a_shutdown_run_drops_its_charge_when_its_rows_get_re_extracted(
         status=ExternalDataJob.Status.RUNNING,
         rows_synced=100,
         billable=True,
-        pipeline_version=pipeline_version,
     )
 
     await ActivityEnvironment().run(

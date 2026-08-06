@@ -169,7 +169,7 @@ class UpdateExternalDataJobStatusInputs:
     # run's own job when job_id never made it back. Optional for mixed-version workers mid-rollout.
     workflow_run_id: str | None = None
     # Set when the run was cut short by something on our side (a worker shutdown). Acted on only
-    # when the run that replaces it re-extracts the same rows.
+    # when the run loaded nothing the customer can query.
     mark_non_billable: bool = False
 
     @property
@@ -184,21 +184,19 @@ class UpdateExternalDataJobStatusInputs:
         }
 
 
-def _run_will_be_re_extracted(job_id: str, team_id: int) -> bool:
-    """Whether the run that replaces this one starts these rows over, so charging for them bills twice.
+def _run_loaded_nothing(job_id: str, team_id: int) -> bool:
+    """Whether this run left the customer with nothing they can query, so its rows aren't billable.
 
-    Two ways that happens. A full refresh re-extracts everything by definition — read as the inverse
-    of the sync types that carry progress across runs, since many live schemas carry no sync_type at
-    all and a handful carry a legacy `full`. And on v3 the incremental watermark is only staged
-    during the run: the loader promotes it when it sees the final batch, which an extraction cut off
-    mid-stream never sends, so the next run resumes from the watermark this one started at.
+    Loading is progressive once a table exists: the loader overwrites it on the first batch of a
+    full refresh and merges every batch after that, so a run cut off mid-stream still delivered the
+    rows it got through and stays billable. Registering that table is post-load's job, and an
+    extraction that never finishes never reaches post-load — so until one run has completed, every
+    row extracted is invisible to the customer and charging for it charges for nothing.
     """
     job = ExternalDataJob.objects.filter(id=job_id, team_id=team_id).select_related("schema").first()
     if job is None or job.schema is None:
         return False
-    if job.pipeline_version == ExternalDataJob.PipelineVersion.V3:
-        return True
-    return not job.schema.table_row_count_is_cumulative
+    return job.schema.table_id is None or not job.schema.initial_sync_complete
 
 
 @activity.defn
@@ -295,10 +293,9 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 logger.exception(friendly_errors[0])
                 inputs.latest_error = friendly_errors[0]
 
-    # A run cut short keeps its charge when the run that replaces it resumes from where this one
-    # stopped, since those rows are then extracted once. It loses the charge when the replacement
-    # starts them over.
-    drop_charge = inputs.mark_non_billable and await database_sync_to_async_pool(_run_will_be_re_extracted)(
+    # A run cut short keeps its charge for the rows it did load, and loses it only when the customer
+    # got nothing out of it.
+    drop_charge = inputs.mark_non_billable and await database_sync_to_async_pool(_run_loaded_nothing)(
         job_id=job_id, team_id=inputs.team_id
     )
 

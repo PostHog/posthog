@@ -3229,7 +3229,7 @@ async def test_worker_shutdown_desc_sort_order(team):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands, pipeline_mode):
+async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands):
     def mock_raise_if_is_worker_shutdown(self):
         raise WorkerShuttingDownError("test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type")
 
@@ -3267,10 +3267,9 @@ async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands
 
     assert run is not None
     assert run.status == ExternalDataJob.Status.COMPLETED
-    # v2 writes the incremental watermark per batch, so the retriggered run resumes from it and
-    # these rows are charged once. v3 only stages the watermark until the final batch, which this
-    # run never sent, so the retriggered run extracts them again.
-    assert run.billable is (pipeline_mode != "v3")
+    # This is the schema's first run and it never reached post-load, so no table was registered and
+    # nothing it extracted is queryable
+    assert run.billable is False
 
 
 @pytest.mark.django_db(transaction=True)
