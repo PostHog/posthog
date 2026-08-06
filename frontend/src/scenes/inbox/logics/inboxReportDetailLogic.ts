@@ -474,6 +474,7 @@ export interface inboxReportDetailLogicMeta {
         reportReviewers: (reportArtefacts: SignalReportArtefact[] | null) => EnrichedReviewer[] | null
         isReportActive: (report: SignalReport | null) => boolean
         hasImplementationPr: (report: SignalReport | null) => boolean
+        implementationPrUrl: (report: SignalReport | null) => string | null
         hasPersonalGithub: (personalIntegrations: PersonalGitHubIntegration[]) => boolean
         currentUserGithubLogin: (personalIntegrations: PersonalGitHubIntegration[]) => string | null
         inlineThreadsByFile: (prComments: readonly PullRequestCommentApi[] | null) => Record<string, ReviewThread[]>
