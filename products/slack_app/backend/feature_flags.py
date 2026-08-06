@@ -162,9 +162,9 @@ def is_slack_app_agent_design_enabled(integration: Integration) -> bool:
 
 
 def is_slack_app_canvas_file_artifacts_enabled(integration: Integration) -> bool:
-    """Gate for living-artifact delivery that depends on the in-review Slack scopes
-    (``canvases:write`` for the canvas adapter, ``files:write`` for the file adapter).
-    Stays off until Slack approves those scopes for the public app.
+    """Gate for living-artifact delivery that depends on ``canvases:write`` (the canvas
+    adapter) and ``files:write`` (the file adapter). Both are approved but recent, so an
+    install authorized earlier won't have them until it reconnects.
 
     The flag alone: the two adapters need one scope each, so they check theirs at point
     of use and can name the one to grant. Keyed on the Slack workspace + PostHog org."""
