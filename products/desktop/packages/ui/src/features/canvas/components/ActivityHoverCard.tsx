@@ -114,7 +114,7 @@ export function ActivityHoverCard({
           <div className="flex flex-col gap-0.5">
             {items.map((item) => (
               <ActivityRow
-                key={item.taskId}
+                key={item.id}
                 item={item}
                 channelId={item.channelId}
                 onOpen={(activity) =>

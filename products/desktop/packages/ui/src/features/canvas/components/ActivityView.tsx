@@ -28,8 +28,11 @@ import { MentionText } from "@posthog/ui/features/canvas/components/MentionText"
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
+import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
+import { useThreadPanelStore } from "@posthog/ui/features/canvas/stores/threadPanelStore";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
+import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import {
   PageHeader,
   PageHeaderActions,
@@ -40,6 +43,7 @@ import {
   PageHeaderTitleRow,
 } from "@posthog/ui/primitives/PageHeader";
 import {
+  navigateToChannelDashboard,
   navigateToChannelTask,
   navigateToTaskDetail,
 } from "@posthog/ui/router/navigationBridge";
@@ -63,6 +67,17 @@ function ChannelSuffix({ channelName }: { channelName: string | null }) {
       </Text>
     </>
   );
+}
+
+function ownedItemName(item: TaskActivityItem): string {
+  switch (item.commentTarget?.scope) {
+    case "desktop_canvas":
+      return "canvas";
+    case "task_artifact":
+      return "artifact";
+    default:
+      return "task";
+  }
 }
 
 /** The lead line describing what happened, chosen by the row's activity kind. */
@@ -112,6 +127,26 @@ export function activityHeadline(
           <ChannelSuffix channelName={item.channelName} />
         </>
       );
+    case "thread_reply":
+      return (
+        <>
+          <Text as="span" size="1" weight="medium">
+            {userDisplayName(item.author)}
+          </Text>{" "}
+          replied to a thread you participated in
+          <ChannelSuffix channelName={item.channelName} />
+        </>
+      );
+    case "owned_item_comment":
+      return (
+        <>
+          <Text as="span" size="1" weight="medium">
+            {userDisplayName(item.author)}
+          </Text>{" "}
+          commented on your {ownedItemName(item)}
+          <ChannelSuffix channelName={item.channelName} />
+        </>
+      );
     default:
       return "You created this task";
   }
@@ -149,10 +184,23 @@ export function ActivityRow({
       task_id: item.taskId,
     });
     onOpen(item);
+    if (item.commentId && item.commentTarget) {
+      useCommentNavigationStore
+        .getState()
+        .requestCommentFocus(item.taskId, item.commentTarget, item.commentId);
+    }
     onNavigate?.();
+    if (channelId && item.commentTarget?.scope === "desktop_canvas") {
+      useCanvasChatPanelStore.getState().openComments();
+      navigateToChannelDashboard(channelId, item.commentTarget.itemId);
+      return;
+    }
     // The channel thread route is the deep-link target; unfiled tasks fall
     // back to the plain task view.
     if (channelId) {
+      if (item.commentId) {
+        useThreadPanelStore.getState().setCollapsed(false);
+      }
       navigateToChannelTask(channelId, item.taskId);
     } else {
       navigateToTaskDetail(item.taskId);
@@ -270,7 +318,13 @@ export function ActivityView() {
   // reached any other way, so the feed converges either way.
   const markRead = useCallback(
     (item: TaskActivityItem) =>
-      markTasksRead([{ task_id: item.taskId, seen_before: item.activityAt }]),
+      markTasksRead([
+        {
+          task_id: item.taskId,
+          seen_before: item.activityAt,
+          ...(item.commentId ? { activity_id: item.id } : {}),
+        },
+      ]),
     [markTasksRead],
   );
   const markAllRead = useCallback(() => {
@@ -311,8 +365,8 @@ export function ActivityView() {
           </EmptyMedia>
           <EmptyTitle>No activity yet</EmptyTitle>
           <EmptyDescription>
-            Tasks you create, get tagged in, or reply to across{" "}
-            {spacesLayout ? "spaces" : "channels"} land here.
+            Task updates and comment notifications across{" "}
+            {spacesLayout ? "spaces" : "channels"} appear here.
           </EmptyDescription>
         </EmptyHeader>
       </Empty>
@@ -320,7 +374,7 @@ export function ActivityView() {
       <div className="flex flex-col gap-0.5">
         {items.map((item) => (
           <ActivityRow
-            key={item.taskId}
+            key={item.id}
             item={item}
             channelId={item.channelId}
             onOpen={markRead}
@@ -359,7 +413,7 @@ export function ActivityView() {
               )}
             </PageHeaderTitleRow>
             <PageHeaderDescription>
-              Tasks you're involved in across spaces.
+              Task updates and comment notifications across spaces.
             </PageHeaderDescription>
           </PageHeaderHeading>
         </PageHeader>
@@ -379,7 +433,7 @@ export function ActivityView() {
               Activity
             </Text>
             <Text size="2" className="block text-muted-foreground">
-              Tasks you're involved in across{" "}
+              Task updates and comment notifications across{" "}
               {spacesLayout ? "spaces" : "channels"}.
             </Text>
           </div>

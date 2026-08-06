@@ -209,6 +209,29 @@ export interface TaskSessionStorageAccess {
   content_sha256: string | null;
 }
 
+/**
+ * The commentable resources this client knows how to address. `scope` is a
+ * free-form column on the backend `Comment` model, so adding a resource is a
+ * new member here plus a caller — no migration and no endpoint.
+ */
+export type CommentScope = "task_artifact" | "desktop_canvas" | "task";
+
+/** Named `Resource*` so it never collides with the DOM's global `Comment`.
+ * Optimistic rows do not have a server version yet, while item_context is a
+ * real JSON value despite the generated serializer's historically narrow type. */
+export type ResourceComment = Omit<Schemas.Comment, "version"> & {
+  version?: number;
+};
+
+export interface CreateResourceCommentRequest {
+  scope: CommentScope;
+  itemId: string;
+  content: string;
+  context: unknown;
+  sourceCommentId?: string;
+  mentions?: number[];
+}
+
 /** Thrown when the backend rejects a cloud run with a 429 usage-limit error. */
 export class CloudUsageLimitError extends Error {
   limitType: UsageLimitType;
@@ -2732,8 +2755,7 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskMention[];
   }
 
-  // Tasks the current user is involved in (created, mentioned, or messaged),
-  // one row per task, newest activity first.
+  // Task lifecycle and individual comment activity, newest first.
   async getTaskActivity(options?: {
     before?: string;
     beforeId?: string;
@@ -2756,8 +2778,7 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskActivityPage;
   }
 
-  // Read state is per task, so callers name the tasks the user has seen rather than
-  // clearing the whole feed.
+  // Task lifecycle activity clears by task timestamp; comment activity clears by row id.
   async markTaskActivityRead(
     activities: TaskActivityReadMarker[],
   ): Promise<TaskActivityMarkReadResult> {
@@ -3249,6 +3270,54 @@ export class PostHogAPIClient {
 
     const data = (await response.json()) as { url: string };
     return data.url;
+  }
+
+  async getResourceComments(
+    scope: CommentScope,
+    itemId: string,
+    taskId: string,
+  ): Promise<ResourceComment[]> {
+    const MAX_COMMENT_PAGES = 50;
+    const teamId = await this.getTeamId();
+    const comments: ResourceComment[] = [];
+    let cursor: string | undefined;
+    for (let pageIndex = 0; pageIndex < MAX_COMMENT_PAGES; pageIndex++) {
+      const page = await this.api.get("/api/projects/{project_id}/comments/", {
+        path: { project_id: String(teamId) },
+        query: { scope, item_id: itemId, task_id: taskId, cursor },
+      });
+      comments.push(...page.results);
+      cursor = page.next
+        ? (new URL(page.next).searchParams.get("cursor") ?? undefined)
+        : undefined;
+      if (!cursor) return comments;
+    }
+    log.warn(
+      `getResourceComments hit MAX_PAGES (${MAX_COMMENT_PAGES}); returning partial results`,
+      { scope, itemId, returned: comments.length },
+    );
+    return comments;
+  }
+
+  async createResourceComment(
+    request: CreateResourceCommentRequest,
+  ): Promise<ResourceComment> {
+    const teamId = await this.getTeamId();
+    const payload = {
+      content: request.content,
+      scope: request.scope,
+      item_id: request.itemId,
+      item_context: request.context,
+      source_comment: request.sourceCommentId ?? null,
+      mentions: request.mentions ?? [],
+      // Resolution is represented by a thread-state reply so this stays on the
+      // same PAT-compatible write path as ordinary comments.
+      is_task: false,
+    };
+    return await this.api.post("/api/projects/{project_id}/comments/", {
+      path: { project_id: String(teamId) },
+      body: payload as unknown as Schemas.Comment,
+    });
   }
 
   async getTaskSessionStorageAccess(
