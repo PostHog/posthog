@@ -496,6 +496,9 @@ class SandboxBase(ABC):
     def read_agent_server_session_init_ms(self) -> int | None:
         return None
 
+    def read_cpu_usage_usec(self) -> int | None:
+        return None
+
     def _read_health_session_init_ms(self, port: int) -> int | None:
         try:
             result = self.execute(f"curl -s --max-time 5 http://localhost:{port}/health", timeout_seconds=10)

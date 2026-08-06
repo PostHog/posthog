@@ -103,7 +103,7 @@ def open_sandbox_session(
 
 
 @_best_effort
-def close_sandbox_session(sandbox_id: str, *, reason: str) -> None:
+def close_sandbox_session(sandbox_id: str, *, reason: str, cpu_usage_usec: int | None = None) -> None:
     """Stamp the sandbox's end. Idempotent — the first stamp wins."""
     # Unscoped: cleanup/reap activities only carry the globally-unique provider
     # sandbox id, not team context.
@@ -112,10 +112,14 @@ def close_sandbox_session(sandbox_id: str, *, reason: str) -> None:
         return
     with transaction.atomic():
         TaskRun.objects.select_for_update().get(id=sandbox_session.task_run_id)
+        updates: dict[str, object] = {"ended_at": timezone.now(), "ended_reason": reason}
+        if cpu_usage_usec is not None:
+            updates["provider_cpu_usage_usec"] = cpu_usage_usec
+            updates["provider_usage_measured_at"] = timezone.now()
         SandboxSession.objects.unscoped().filter(
             id=sandbox_session.id,
             ended_at__isnull=True,
-        ).update(ended_at=timezone.now(), ended_reason=reason)
+        ).update(**updates)
 
 
 @_best_effort

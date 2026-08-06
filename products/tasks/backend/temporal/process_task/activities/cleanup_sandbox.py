@@ -39,6 +39,7 @@ def publish_run_stream_completion(run_id: str) -> None:
 def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
     strict_cleanup = input.complete_stream_on_cleanup or input.raise_on_error
     stream_completion_safe = False
+    cpu_usage_usec = None
     try:
         sandbox = Sandbox.get_by_id(input.sandbox_id)
     except SandboxNotFoundError:
@@ -67,6 +68,16 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
                 )
 
         try:
+            measured_cpu_usage = sandbox.read_cpu_usage_usec()
+            cpu_usage_usec = measured_cpu_usage if isinstance(measured_cpu_usage, int) else None
+        except Exception:
+            logger.warning(
+                "cleanup_sandbox_cpu_usage_read_failed",
+                extra={"sandbox_id": input.sandbox_id},
+                exc_info=True,
+            )
+
+        try:
             sandbox.destroy()
             stream_completion_safe = True
         except Exception:
@@ -77,7 +88,11 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
     # Best-effort usage-ledger end stamp (swallows its own failures). Stamped even when
     # destroy failed or the sandbox was already gone: the TTL kills any undead sandbox
     # anyway, and the ledger prefers a slightly early end over an open-ended row.
-    close_sandbox_session(input.sandbox_id, reason=SandboxSession.EndedReason.CLEANUP)
+    close_sandbox_session(
+        input.sandbox_id,
+        reason=SandboxSession.EndedReason.CLEANUP,
+        cpu_usage_usec=cpu_usage_usec,
+    )
 
     if input.complete_stream_on_cleanup and input.run_id and stream_completion_safe:
         try:

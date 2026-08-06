@@ -186,6 +186,20 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         assert again.ended_at == first.ended_at
         assert again.ended_reason == SandboxSession.EndedReason.CLEANUP
 
+    def test_close_records_provider_cpu_usage(self):
+        run = self._run()
+        open_sandbox_session(run_id=run.id, sandbox_id="sb-usage", config=_config(vm_runtime=True))
+
+        close_sandbox_session(
+            "sb-usage",
+            reason=SandboxSession.EndedReason.CLEANUP,
+            cpu_usage_usec=12_345_678,
+        )
+
+        session = SandboxSession.objects.unscoped().get(sandbox_id="sb-usage")
+        assert session.provider_cpu_usage_usec == 12_345_678
+        assert session.provider_usage_measured_at is not None
+
     def test_user_activity_stamps_open_sessions_only(self):
         run = self._run(state={"await_user_message": True})
         open_sandbox_session(run_id=run.id, sandbox_id="sb-a", config=_config())

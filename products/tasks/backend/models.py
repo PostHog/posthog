@@ -2576,6 +2576,12 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
         null=True, blank=True, help_text="Sandbox destroyed; NULL rows are clamped to ttl_expires_at"
     )
     ended_reason = models.CharField(max_length=20, choices=EndedReason, null=True, blank=True)
+    provider_cpu_usage_usec = models.PositiveBigIntegerField(
+        null=True, blank=True, help_text="Cumulative provider CPU time sampled immediately before sandbox cleanup"
+    )
+    provider_usage_measured_at = models.DateTimeField(
+        null=True, blank=True, help_text="When provider resource usage was sampled"
+    )
 
     class Meta:
         db_table = "posthog_task_sandbox_session"
