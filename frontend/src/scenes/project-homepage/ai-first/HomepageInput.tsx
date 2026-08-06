@@ -572,10 +572,12 @@ export function HomepageInput(): JSX.Element {
                                 className="w-full shrink-0 overflow-hidden"
                                 style={{ height: CAPABILITY_CARDS_HEIGHT_PX }}
                             >
-                                {/* Keyed so each selection change remounts and replays the fade — the swap
-                                    visibly arrives instead of teleporting into an identical-size box. */}
-                                <Fade visible key={selectedCapability ?? '__recents__'} className="h-full">
-                                    {selectedCapabilityData ? (
+                                {/* Fade only the capability cards, keyed so each selection change remounts
+                                    and replays it — the swap visibly arrives instead of teleporting into an
+                                    identical-size box. The recents grid is the resting state, so it renders
+                                    bare (no entrance flash on every homepage load). */}
+                                {selectedCapabilityData ? (
+                                    <Fade visible key={selectedCapability} className="h-full">
                                         <CapabilitySuggestions
                                             capability={selectedCapabilityData}
                                             onType={typeQuery}
@@ -585,10 +587,10 @@ export function HomepageInput(): JSX.Element {
                                                 document.querySelector<HTMLElement>('#homepage-input')?.focus()
                                             }}
                                         />
-                                    ) : (
-                                        <IdleGrid />
-                                    )}
-                                </Fade>
+                                    </Fade>
+                                ) : (
+                                    <IdleGrid />
+                                )}
                             </div>
                         </div>
                     </div>
