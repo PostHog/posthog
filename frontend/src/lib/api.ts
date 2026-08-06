@@ -7534,7 +7534,14 @@ async function handleFetch(
         if (error && (error as any).name === 'AbortError') {
             throw error
         }
-        throw new ApiError(error as any, response?.status)
+        // The fetch rejected before any HTTP response (offline, DNS failure, connection reset, CORS),
+        // so there is no status. Surface a human message instead of letting the raw exception (e.g.
+        // "TypeError: Load failed") become user-facing copy, and keep the original as `cause`.
+        const networkError = new ApiError("Couldn't reach PostHog. Check your connection and try again.")
+        if (error) {
+            networkError.cause = error
+        }
+        throw networkError
     }
 
     // Standalone OAuth mode: a 401 likely means the access token expired — refresh once and retry.

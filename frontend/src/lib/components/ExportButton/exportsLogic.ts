@@ -1,8 +1,9 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { TriggerExportProps, downloadBlob, downloadExportedAsset } from 'lib/components/ExportButton/exporter'
 import { isLongRunningExportFormat } from 'lib/components/ExportButton/exportStatus'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -44,6 +45,32 @@ const fetchExportOrNull = async (id: number): Promise<ExportedAssetType | null> 
     }
 }
 
+const recordingIdForExport = (context: ExportContext | undefined): string | undefined =>
+    context && 'session_recording_id' in context ? context.session_recording_id : undefined
+
+// A create request that drops at the network layer tells us nothing about the backend: it may
+// already have created the asset and dispatched the render. Find a still-rendering export for the
+// same recording so we can keep polling it instead of reporting a failure that didn't happen.
+const findUntrackedRenderingExport = async (exportData: TriggerExportProps): Promise<ExportedAssetType | null> => {
+    const recordingId = recordingIdForExport(exportData.export_context)
+    if (!recordingId) {
+        return null
+    }
+    try {
+        const { results } = await api.exports.list()
+        return (
+            results.find(
+                (asset) =>
+                    isRendering(asset) &&
+                    asset.export_format === exportData.export_format &&
+                    recordingIdForExport(asset.export_context) === recordingId
+            ) ?? null
+        )
+    } catch {
+        return null
+    }
+}
+
 export const pickPollDelayMs = (pendingAssets: ExportedAssetType[]): number => {
     const pending = pendingAssets.filter(isRendering)
     if (pending.length === 0) {
@@ -78,6 +105,7 @@ export interface exportsLogicValues {
     exportsLoading: boolean
     freshUndownloadedExports: ExportedAssetType[]
     hasReachedExportFullVideoLimit: boolean
+    pendingVideoExportRecordingIds: Set<string>
     pollingExports: ExportedAssetType[]
     pollingExportsLoading: boolean
 }
@@ -256,6 +284,26 @@ export const exportsLogic = kea<exportsLogicType>([
             false,
             {
                 setHasReachedExportFullVideoLimit: (_, { hasReached }) => hasReached,
+            },
+        ],
+    }),
+
+    selectors({
+        // Recordings with a video export still rendering, so callers can block a duplicate render.
+        pendingVideoExportRecordingIds: [
+            (s) => [s.exports, s.freshUndownloadedExports],
+            (exports, freshUndownloadedExports): Set<string> => {
+                const ids = new Set<string>()
+                for (const asset of [...exports, ...freshUndownloadedExports]) {
+                    if (!isRendering(asset) || !isLongRunningExportFormat(asset.export_format)) {
+                        continue
+                    }
+                    const recordingId = recordingIdForExport(asset.export_context)
+                    if (recordingId) {
+                        ids.add(recordingId)
+                    }
+                }
+                return ids
             },
         ],
     }),
@@ -448,6 +496,21 @@ export const exportsLogic = kea<exportsLogicType>([
                             // give everything else a friendly message for the failure toast.
                             if ((error as { data?: APIErrorType })?.data?.attr === 'export_limit_exceeded') {
                                 throw error
+                            }
+                            // A network-layer failure (fetch rejected, no HTTP status) on a
+                            // long-running render is ambiguous — the backend may have created the
+                            // asset and started the workflow. Treat it as unknown rather than
+                            // failed: reconcile against the exports list and keep polling if found.
+                            const isNetworkLayerFailure = error instanceof ApiError && error.status === undefined
+                            if (isNetworkLayerFailure && isLongRunningExportFormat(exportData.export_format)) {
+                                const recovered = await findUntrackedRenderingExport(exportData)
+                                if (recovered) {
+                                    actions.addFresh(recovered)
+                                } else {
+                                    actions.loadExports()
+                                }
+                                actions.openSidePanel(SidePanelTab.Exports)
+                                return 'Export started'
                             }
                             const message = error instanceof Error ? error.message : String(error)
                             throw new Error('Export failed: ' + message)

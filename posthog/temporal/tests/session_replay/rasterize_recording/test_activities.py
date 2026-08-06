@@ -512,3 +512,30 @@ class TestFinalizeRasterization:
         as_dict = period.model_dump()
         rebuilt = InactivityPeriod.model_validate(as_dict)
         assert rebuilt == period
+
+    def test_captures_export_succeeded(self):
+        # The video path never runs through the Celery exporter, so this activity is the only place a
+        # successful MP4/WebM/GIF render is measured. Guards against that instrumentation being dropped.
+        asset = _make_asset(pk=42, export_context={"session_recording_id": "s1", "file_size_bytes": 999})
+        asset.created_by.distinct_id = "user-1"
+        asset.get_analytics_metadata.return_value = {"asset_id": 42, "export_format": "video/mp4"}
+        result = self._make_result(file_size_bytes=999)
+
+        patches, _ = _patches(asset)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patch(
+                "posthog.temporal.session_replay.rasterize_recording.activities.rasterize.posthoganalytics.capture"
+            ) as capture,
+        ):
+            finalize_rasterization(
+                FinalizeRasterizationInput(exported_asset_id=42, result=result, render_fingerprint="x")
+            )
+
+        capture.assert_called_once()
+        assert capture.call_args.kwargs["event"] == "export succeeded"
+        assert capture.call_args.kwargs["properties"]["file_size_bytes"] == 999

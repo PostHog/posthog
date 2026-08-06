@@ -13,6 +13,7 @@ import {
 import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
@@ -132,11 +133,17 @@ const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'full
 }
 
 const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => {
-    const { logicProps, isMuted, hasReachedExportFullVideoLimit } = useValues(sessionRecordingPlayerLogic)
+    const { sessionRecordingId, logicProps, isMuted, hasReachedExportFullVideoLimit } =
+        useValues(sessionRecordingPlayerLogic)
     const { deleteRecording, setIsFullScreen, exportRecordingToFile, exportRecordingToVideoFile, setMuted } =
         useActions(sessionRecordingPlayerLogic)
     const { skipInactivitySetting } = useValues(playerSettingsLogic)
     const { setSkipInactivitySetting } = useActions(playerSettingsLogic)
+    const { pendingVideoExportRecordingIds } = useValues(exportsLogic)
+
+    // Block a second render while one is already in flight for this recording — each click spawns an
+    // independent hour-long workflow and burns export quota.
+    const isVideoExportPending = !!sessionRecordingId && pendingVideoExportRecordingIds.has(sessionRecordingId)
 
     // Creating an export requires editor access to the export resource.
     const exportAccessControlDisabledReason = getAccessControlDisabledReason(
@@ -210,6 +217,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                     : 'Export PostHog recording data to MP4 video file.',
                 disabledReason:
                     (hasReachedExportFullVideoLimit ? 'You have reached your export limit.' : undefined) ??
+                    (isVideoExportPending ? 'An MP4 export is already rendering for this recording' : undefined) ??
                     exportAccessControlDisabledReason ??
                     undefined,
                 'data-attr': 'replay-export-mp4',
@@ -243,6 +251,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
         isMuted,
         setMuted,
         hasReachedExportFullVideoLimit,
+        isVideoExportPending,
         exportAccessControlDisabledReason,
     ])
 

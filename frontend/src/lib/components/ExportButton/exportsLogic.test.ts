@@ -1,4 +1,5 @@
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -336,6 +337,68 @@ describe('exportsLogic', () => {
             }
         })
 
+        it.each([
+            {
+                label: 'tracks the matching in-flight render found in the exports list',
+                listResults: [
+                    asset({
+                        id: 51,
+                        export_format: ExporterFormat.MP4,
+                        has_content: false,
+                        export_context: { session_recording_id: 'rec-1' } as any,
+                    }),
+                ],
+                expectedFreshIds: [51],
+            },
+            {
+                label: 'opens the exports panel even when no matching render is found yet',
+                listResults: [],
+                expectedFreshIds: [],
+            },
+        ])(
+            'a dropped video-export create request $label instead of reporting failure',
+            async ({ listResults, expectedFreshIds }) => {
+                // A fetch that rejects at the network layer (no HTTP status) tells us nothing about the
+                // backend — the render may already be running. It must resolve to "Export started" and
+                // keep tracking the asset, not toast a failure the user then retries.
+                jest.spyOn(api.exports, 'create').mockRejectedValue(new ApiError('Network down'))
+                jest.spyOn(api.exports, 'list').mockResolvedValue({
+                    results: listResults,
+                    count: listResults.length,
+                } as any)
+
+                logic.actions.createExport({
+                    exportData: {
+                        export_format: ExporterFormat.MP4,
+                        export_context: { session_recording_id: 'rec-1' },
+                    },
+                })
+                await flush()
+
+                const runPromise = jest.mocked(lemonToast.promise).mock.calls[0][0]
+                await expect(runPromise).resolves.toBe('Export started')
+                expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toEqual(expectedFreshIds)
+                expect(lemonToast.error).not.toHaveBeenCalled()
+                expect(
+                    sidePanelStateLogic.values.sidePanelOpen &&
+                        sidePanelStateLogic.values.selectedTab === SidePanelTab.Exports
+                ).toBe(true)
+            }
+        )
+
+        it('still reports failure when a network-layer failure hits a synchronous export', async () => {
+            // Synchronous formats (CSV/PNG) deliver content in the request, so a dropped connection
+            // genuinely means the user got nothing — the reconciliation is video-only.
+            jest.spyOn(api.exports, 'create').mockRejectedValue(new ApiError('Network down'))
+
+            logic.actions.createExport({ exportData: { export_format: ExporterFormat.CSV } })
+            await flush()
+
+            const runPromise = jest.mocked(lemonToast.promise).mock.calls[0][0]
+            await expect(runPromise).rejects.toThrow('Export failed: Network down')
+            expect(logic.values.freshUndownloadedExports).toEqual([])
+        })
+
         it('replaces the failure toast with the upsell survey when the export limit is reached', async () => {
             jest.spyOn(api.exports, 'create').mockRejectedValue({
                 data: { attr: 'export_limit_exceeded', detail: 'You hit the cap' },
@@ -351,6 +414,66 @@ describe('exportsLogic', () => {
                 expect.objectContaining({ button: expect.objectContaining({ label: 'I want more' }) })
             )
             expect(jest.mocked(downloadExportedAsset).mock.calls).toEqual([])
+        })
+    })
+
+    describe('pendingVideoExportRecordingIds', () => {
+        let logic: ReturnType<typeof exportsLogic.build>
+
+        beforeEach(() => {
+            initKeaTests()
+            logic = exportsLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+        })
+
+        it('includes only recordings whose video export is still rendering', () => {
+            logic.actions.loadExportsSuccess([
+                asset({
+                    id: 1,
+                    export_format: ExporterFormat.MP4,
+                    has_content: false,
+                    export_context: { session_recording_id: 'rendering' } as any,
+                }),
+                asset({
+                    id: 2,
+                    export_format: ExporterFormat.MP4,
+                    has_content: true,
+                    export_context: { session_recording_id: 'finished' } as any,
+                }),
+                asset({
+                    id: 3,
+                    export_format: ExporterFormat.MP4,
+                    exception: 'boom',
+                    export_context: { session_recording_id: 'failed' } as any,
+                }),
+                asset({
+                    id: 4,
+                    export_format: ExporterFormat.PNG,
+                    has_content: false,
+                    export_context: { session_recording_id: 'not-video' } as any,
+                }),
+            ])
+
+            expect([...logic.values.pendingVideoExportRecordingIds]).toEqual(['rendering'])
+        })
+
+        it('tracks a freshly kicked-off render before it appears in the exports list', () => {
+            // The in-flight menu guard leans on this: right after a click the render is only in the
+            // fresh set, not yet in the loaded list.
+            logic.actions.addFresh(
+                asset({
+                    id: 5,
+                    export_format: ExporterFormat.MP4,
+                    has_content: false,
+                    export_context: { session_recording_id: 'rec-fresh' } as any,
+                })
+            )
+
+            expect(logic.values.pendingVideoExportRecordingIds.has('rec-fresh')).toBe(true)
         })
     })
 })

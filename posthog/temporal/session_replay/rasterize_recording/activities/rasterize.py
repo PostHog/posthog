@@ -2,8 +2,10 @@ from django.conf import settings
 from django.db import close_old_connections, transaction
 
 import structlog
+import posthoganalytics
 from temporalio import activity
 
+from posthog.event_usage import groups
 from posthog.storage import object_storage
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -172,3 +174,30 @@ def finalize_rasterization(inputs: FinalizeRasterizationInput) -> None:
         file_size_bytes=result.file_size_bytes,
         render_fingerprint=inputs.render_fingerprint,
     )
+
+    # The video path never runs through posthog/tasks/exporter.py, so this is the only place a video
+    # render's success is captured. Without it, "export succeeded" is silent for MP4/WebM/GIF and the
+    # started-vs-succeeded ratio can't be measured. Fired after commit so a rollback can't over-count.
+    _capture_video_export_succeeded(inputs.exported_asset_id)
+
+
+def _capture_video_export_succeeded(exported_asset_id: int) -> None:
+    try:
+        asset = ExportedAsset.objects.select_related("created_by", "team", "team__organization").get(
+            pk=exported_asset_id
+        )
+        team = asset.team
+        distinct_id = asset.created_by.distinct_id if asset.created_by else str(team.uuid)
+        posthoganalytics.capture(
+            distinct_id=distinct_id,
+            event="export succeeded",
+            properties={
+                **asset.get_analytics_metadata(),
+                "file_size_bytes": (asset.export_context or {}).get("file_size_bytes"),
+                "video_duration_s": (asset.export_context or {}).get("video_duration_s"),
+            },
+            groups=groups(team.organization, team),
+        )
+    except Exception as exc:
+        # Telemetry must never fail the render that already succeeded.
+        logger.warning("rasterize.export_succeeded_capture_failed", asset_id=exported_asset_id, error=str(exc))
