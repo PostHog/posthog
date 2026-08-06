@@ -481,6 +481,7 @@ path = "products.logs"
 depends_on = [
     "posthog",
     "products.alerts",
+    "products.apm",
     "products.cdp",
     "products.exports",
     "products.signals",
