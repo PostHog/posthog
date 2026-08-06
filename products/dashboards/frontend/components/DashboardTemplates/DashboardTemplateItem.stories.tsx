@@ -3,8 +3,6 @@ import { Meta, StoryObj } from '@storybook/react'
 import type { DashboardTemplateItemProps } from 'scenes/dashboard/dashboards/templates/DashboardTemplateItem'
 import { TemplateItem } from 'scenes/dashboard/dashboards/templates/DashboardTemplateItem'
 
-import { action } from 'storybook/actions'
-
 // A small inline SVG data URI so stories don't depend on external network requests (picsum.photos)
 // which cause flaky timeouts in CI when waiting for image naturalWidth.
 const PLACEHOLDER_IMAGE =
@@ -18,7 +16,7 @@ const sampleTemplate: DashboardTemplateItemProps['template'] = {
 }
 
 function DashboardTemplateItemGallery(): JSX.Element {
-    const onClick = action('onClick')
+    const onClick = (): void => undefined
 
     return (
         <div className="flex max-w-3xl flex-col gap-10">
