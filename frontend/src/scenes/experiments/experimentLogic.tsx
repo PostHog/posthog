@@ -773,16 +773,10 @@ export interface experimentLogicActions {
     closePrimaryMetricModal: () => {
         value: true
     } // modalsLogic
-    closePrimaryMetricsReorderModal: () => {
-        value: true
-    } // modalsLogic
     closeResumeExperimentModal: () => {
         value: true
     } // modalsLogic
     closeSecondaryMetricModal: () => {
-        value: true
-    } // modalsLogic
-    closeSecondaryMetricsReorderModal: () => {
         value: true
     } // modalsLogic
     openPrimaryMetricModal: (uuid: string) => {
@@ -978,6 +972,17 @@ export interface experimentLogicActions {
         refreshId: string
         triggeredBy: ExperimentTriggeredBy
     }
+    moveMetricsBetweenSections: (
+        isSecondary: boolean,
+        orderedUuids: string[],
+        removedUuids: string[],
+        movedUuids: string[]
+    ) => {
+        isSecondary: boolean
+        movedUuids: string[]
+        orderedUuids: string[]
+        removedUuids: string[]
+    }
     pauseExperiment: () => {
         value: true
     }
@@ -1012,6 +1017,13 @@ export interface experimentLogicActions {
     removeSharedMetricFromExperiment: (sharedMetricId: SharedMetric['id']) => {
         sharedMetricId: number
     }
+    reorderMetrics: (
+        isSecondary: boolean,
+        orderedUuids: string[]
+    ) => {
+        isSecondary: boolean
+        orderedUuids: string[]
+    }
     resetAutoRefreshInterval: () => {
         value: true
     }
@@ -1032,17 +1044,6 @@ export interface experimentLogicActions {
     }
     retrySecondaryMetric: (index: number) => {
         index: number
-    }
-    saveMetricsReorder: (
-        isSecondary: boolean,
-        orderedUuids: string[],
-        removedUuids: string[],
-        movedUuids: string[]
-    ) => {
-        isSecondary: boolean
-        movedUuids: string[]
-        orderedUuids: string[]
-        removedUuids: string[]
     }
     setAutoRefresh: (
         enabled: boolean,
@@ -1503,8 +1504,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 'closeResumeExperimentModal',
                 'closeFinishExperimentModal',
                 'openReleaseConditionsModal',
-                'closePrimaryMetricsReorderModal',
-                'closeSecondaryMetricsReorderModal',
             ],
         ],
     })),
@@ -1703,7 +1702,8 @@ export const experimentLogic = kea<experimentLogicType>([
         }),
         // Semantic metric actions - each controls its own reload behavior
         removeMetric: (uuid: string, context: 'primary' | 'secondary') => ({ uuid, context }),
-        saveMetricsReorder: (
+        reorderMetrics: (isSecondary: boolean, orderedUuids: string[]) => ({ isSecondary, orderedUuids }),
+        moveMetricsBetweenSections: (
             isSecondary: boolean,
             orderedUuids: string[],
             removedUuids: string[],
@@ -3336,24 +3336,51 @@ export const experimentLogic = kea<experimentLogicType>([
                 update_feature_flag_params: false,
             })
         },
-        saveMetricsReorder: async ({ isSecondary, orderedUuids, removedUuids, movedUuids }) => {
+        reorderMetrics: async ({ isSecondary, orderedUuids }, breakpoint) => {
+            const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
+            const previousOrder = values.experiment[orderingField] ?? []
+
+            // Only the ordering array changes, so the positional results arrays stay aligned
+            // to the metrics and nothing needs reloading.
+            actions.setExperiment({ [orderingField]: orderedUuids })
+
+            // Coalesce a flurry of drops into one request.
+            await breakpoint(300)
+
+            try {
+                // Deliberately not the updateExperiment loader: kea-loaders swallows the rejection
+                // into a Failure action, and a silent failure here would leave the table showing an
+                // order that never saved.
+                const response: Experiment = await api.update(
+                    `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
+                    {
+                        ...toConcurrencyPayload(values.unmodifiedExperiment),
+                        [orderingField]: orderedUuids,
+                        update_feature_flag_params: false,
+                    }
+                )
+                // A newer reorder may have started while this request was in flight.
+                breakpoint()
+                const responseWithMetricsOrdering = initializeMetricOrdering(response)
+                // Refreshing unmodifiedExperiment too, so a later edit-cancel doesn't revert the
+                // order the user just set.
+                actions.setUnmodifiedExperiment(structuredClone(responseWithMetricsOrdering))
+                actions.setExperiment(responseWithMetricsOrdering)
+            } catch (error) {
+                // Swallowing the breakpoint would roll a superseded reorder back over a newer one.
+                if (isBreakpoint(error as Error)) {
+                    throw error
+                }
+                actions.setExperiment({
+                    [orderingField]: values.unmodifiedExperiment?.[orderingField] ?? previousOrder,
+                })
+                lemonToast.error('Could not save the new metric order')
+            }
+        },
+        moveMetricsBetweenSections: async ({ isSecondary, orderedUuids, removedUuids, movedUuids }) => {
             const removed = new Set(removedUuids)
             const moved = new Set(movedUuids)
             const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
-            const closeModal = isSecondary
-                ? actions.closeSecondaryMetricsReorderModal
-                : actions.closePrimaryMetricsReorderModal
-
-            // Pure reorder: only the ordering array changes, so the positional
-            // results arrays stay aligned and nothing needs reloading.
-            if (removed.size === 0 && moved.size === 0) {
-                await asyncActions.updateExperiment({
-                    [orderingField]: orderedUuids,
-                    update_feature_flag_params: false,
-                })
-                closeModal()
-                return
-            }
 
             // Moves and removals don't change any metric's definition, so existing
             // results stay valid — they only need realigning to the new positional
@@ -3413,7 +3440,6 @@ export const experimentLogic = kea<experimentLogicType>([
             }
 
             await asyncActions.updateExperiment(update)
-            closeModal()
 
             if (!canReuseResults) {
                 actions.refreshExperimentResults(true, 'config_change')
