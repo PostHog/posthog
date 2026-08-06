@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 
@@ -31,6 +32,9 @@ from products.slack_app.backend.inbox_channel import (
     has_inbox_scopes,
     invite_user_to_inbox,
 )
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -326,6 +330,18 @@ def _resolve_onboarding_user(slack: SlackIntegration, integration: Integration, 
 
     context = resolve_slack_user(slack, integration, slack_user_id, "", "", post_feedback=False)
     return context.user.id if context else None
+
+
+def resolve_onboarding_user_object(integration: Integration, slack_user_id: str) -> User | None:
+    """The PostHog user behind a Slack click, for attributing activity-logged writes to whoever
+    clicked (or None when they can't be tied to an org member). Same resolution as
+    ``_resolve_onboarding_user``, but returns the object ``ActingUserContext`` needs, not just the id."""
+    from products.slack_app.backend.api import (
+        resolve_slack_user,  # noqa: PLC0415 — api.py imports this module; defer to break the cycle
+    )
+
+    context = resolve_slack_user(SlackIntegration(integration), integration, slack_user_id, "", "", post_feedback=False)
+    return context.user if context else None
 
 
 def _onboarding_status(

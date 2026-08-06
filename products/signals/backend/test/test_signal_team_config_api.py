@@ -4,6 +4,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.activity_logging.model_activity import ActingUserContext
 
 from products.signals.backend.facade.api import set_default_slack_notification_channel
 from products.signals.backend.models import SignalTeamConfig
@@ -215,3 +216,13 @@ class TestSignalTeamConfigAPI(APIBaseTest):
                 "after": "C123|#posthog-inbox",
             }
         ]
+
+    def test_slack_channel_change_is_attributed_to_the_acting_user(self):
+        # The Slack interactivity handlers resolve the clicker and wrap the channel write in
+        # ActingUserContext, so the entry names who clicked rather than reading as system activity.
+        with ActingUserContext(self.user):
+            set_default_slack_notification_channel(self.team.id, "C123|#posthog-inbox")
+
+        entries = self._activity()
+        assert len(entries) == 1
+        assert entries[0].user == self.user

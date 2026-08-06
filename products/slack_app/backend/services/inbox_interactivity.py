@@ -15,6 +15,7 @@ from django.http import HttpResponse
 import requests
 import structlog
 
+from posthog.models.activity_logging.model_activity import ActingUserContext
 from posthog.models.integration import Integration
 
 from products.slack_app.backend import inbox_channel, onboarding
@@ -99,7 +100,11 @@ def handle_inbox_create(payload: dict) -> HttpResponse:
     if integration is None or not slack_user_id:
         return HttpResponse(status=200)
 
-    channel = inbox_channel.ensure_inbox_channel(integration)
+    # The channel write inside ensure_inbox_channel is activity-logged; attribute it to the clicker
+    # so it doesn't read as system activity (None user makes the context a no-op).
+    acting_user = onboarding.resolve_onboarding_user_object(integration, slack_user_id)
+    with ActingUserContext(acting_user):
+        channel = inbox_channel.ensure_inbox_channel(integration)
     if channel is None:
         _replace_message_via_response_url(response_url, f"I couldn't create the channel. {_reconnect_hint()}")
         return HttpResponse(status=200)
@@ -122,7 +127,11 @@ def handle_inbox_join(payload: dict) -> HttpResponse:
     if integration is None or not slack_user_id:
         return HttpResponse(status=200)
 
-    channel = inbox_channel.ensure_inbox_channel(integration)
+    # The channel write inside ensure_inbox_channel is activity-logged; attribute it to the clicker
+    # so it doesn't read as system activity (None user makes the context a no-op).
+    acting_user = onboarding.resolve_onboarding_user_object(integration, slack_user_id)
+    with ActingUserContext(acting_user):
+        channel = inbox_channel.ensure_inbox_channel(integration)
     if channel is None:
         _replace_message_via_response_url(
             response_url, "Your team's inbox channel isn't available right now — please try again shortly."
