@@ -535,7 +535,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             has_more = True
 
         # daysOfWeek filters events at the query level; for day interval also drop the
-        # deselected day buckets so the chart doesn't show a row of zeros for them
+        # deselected day buckets so the chart doesn't show a row of zeros for them.
+        # Longer intervals span multiple days, so their buckets are kept.
         days_of_week = self.query_date_range.days_of_week()
         if days_of_week and self.query_date_range.interval_name == "day":
             final_result = self._filter_buckets_to_days(final_result, set(days_of_week))

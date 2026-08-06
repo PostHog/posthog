@@ -681,6 +681,95 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(DRFValidationError):
             TrendsQueryRunner(team=self.team, query=query).calculate()
 
+    def test_days_of_week_with_formula(self):
+        # Formula results carry action=None, which the bucket filter has to tolerate while it
+        # slices the day axis
+        self._create_test_events()
+
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            dateRange=DateRange(
+                date_from=self.default_date_from,  # 2020-01-09 (Thu)
+                date_to=self.default_date_to,  # 2020-01-19 (Sun)
+                daysOfWeek=[1, 2, 3, 4, 5],
+            ),
+            interval=IntervalType.DAY,
+            trendsFilter=TrendsFilter(formulaNodes=[TrendsFormulaNode(formula="A+B")]),
+        )
+        response = TrendsQueryRunner(team=self.team, query=query).calculate()
+
+        # Formula queries return only the formula result
+        assert len(response.results) == 1
+        formula_result = response.results[0]
+        assert formula_result["action"] is None
+        # 11 days Thu-Sun, weekend buckets removed leaves 7 weekdays
+        assert formula_result["days"] == [
+            "2020-01-09",  # Thu
+            "2020-01-10",  # Fri
+            "2020-01-13",  # Mon
+            "2020-01-14",  # Tue
+            "2020-01-15",  # Wed
+            "2020-01-16",  # Thu
+            "2020-01-17",  # Fri
+        ]
+        assert len(formula_result["data"]) == len(formula_result["days"])
+        assert formula_result["count"] == sum(formula_result["data"])
+
+    def test_days_of_week_with_compare_slices_each_period_on_its_own_axis(self):
+        # Compare is the common case where two series carry different day axes, so it is what
+        # exercises the per-axis index cache. The two periods drop weekends at different
+        # positions, so reusing one series' kept indices would misalign the other.
+        self._create_test_events()
+
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(
+                date_from="2020-01-15",  # Wed
+                date_to="2020-01-19",  # Sun
+                daysOfWeek=[1, 2, 3, 4, 5],
+            ),
+            interval=IntervalType.DAY,
+            compareFilter=CompareFilter(compare=True),
+        )
+        response = TrendsQueryRunner(team=self.team, query=query).calculate()
+
+        assert len(response.results) == 2
+        assert response.results[0]["compare_label"] == "current"
+        assert response.results[1]["compare_label"] == "previous"
+        assert response.results[0]["days"] == ["2020-01-15", "2020-01-16", "2020-01-17"]
+        assert response.results[1]["days"] == ["2020-01-10", "2020-01-13", "2020-01-14"]
+
+    def test_days_of_week_with_cumulative_display(self):
+        # Cumulative recomputes count from the final bucket instead of summing the buckets, so
+        # the bucket filter has to leave a coherent running total behind
+        self._create_test_events()
+
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(
+                date_from=self.default_date_from,  # 2020-01-09 (Thu)
+                date_to=self.default_date_to,  # 2020-01-19 (Sun)
+                daysOfWeek=[1, 2, 3, 4, 5],
+            ),
+            interval=IntervalType.DAY,
+            trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE),
+        )
+        response = TrendsQueryRunner(team=self.team, query=query).calculate()
+
+        # Weekend events leave the aggregation entirely, so the running total only accumulates
+        # the weekday counts [1, 0, 1, 0, 2, 0, 1]
+        assert response.results[0]["days"] == [
+            "2020-01-09",
+            "2020-01-10",
+            "2020-01-13",
+            "2020-01-14",
+            "2020-01-15",
+            "2020-01-16",
+            "2020-01-17",
+        ]
+        assert response.results[0]["data"] == [1, 1, 2, 2, 4, 4, 5]
+        assert response.results[0]["count"] == response.results[0]["data"][-1]
+
     def test_exclude_incomplete_periods_drops_current_bucket(self):
         self._create_test_events()
 
