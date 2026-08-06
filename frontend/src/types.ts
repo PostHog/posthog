@@ -2603,6 +2603,7 @@ export interface DashboardBasicType extends WithAccessControl {
     creation_mode: 'default' | 'template' | 'duplicate' | 'unlisted'
     tags?: string[]
     effective_privilege_level?: DashboardPrivilegeLevel
+    access_control_version?: 'v1' | 'v2'
     /** Project-tree folder the dashboard is filed under, e.g. 'Unfiled/Dashboards'. Empty string is the project root; null means no file system entry. */
     folder?: string | null
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
