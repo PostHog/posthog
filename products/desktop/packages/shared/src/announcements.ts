@@ -56,7 +56,8 @@ const baseAnnouncementShape = {
   /** Stable per-user dismissal key. Changing it resurfaces the announcement. */
   id: z.string().min(1),
   title: z.string().min(1),
-  /** Markdown. Modals render it in full; banners show only the first line. */
+  /** Markdown. Modals render it in full; banners render only the first line
+   * (inline markdown — block structure flattens away). */
   body: z.string().min(1),
   startsAt: z.iso.datetime({ offset: true }).optional(),
   endsAt: z.iso.datetime({ offset: true }).optional(),

@@ -7,6 +7,7 @@ import {
 import type { Announcement } from "@posthog/shared/announcements";
 import { track } from "@posthog/ui/shell/analytics";
 import { useEffect } from "react";
+import { AnnouncementInlineMarkdown } from "./AnnouncementMarkdown";
 import { openAnnouncementCta } from "./announcementCta";
 import { useAnnouncementsStore } from "./announcementsStore";
 import { UpdateAction } from "./UpdateAction";
@@ -75,7 +76,9 @@ export function BannerRow({
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="font-medium">{announcement.title}</span>
           <span className="truncate text-(--accent-a11) text-[11px]">
-            {announcement.body.split("\n")[0]}
+            <AnnouncementInlineMarkdown
+              content={announcement.body.split("\n")[0]}
+            />
           </span>
         </div>
         {needsUpdate ? (

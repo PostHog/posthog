@@ -11,6 +11,7 @@ const announcementComponents: Partial<Components> = {
   a: ({ href, children }) => (
     <a
       href={href}
+      className="underline underline-offset-2"
       onClick={(event) => {
         event.preventDefault();
         if (href) openAnnouncementCta(href);
@@ -27,5 +28,30 @@ export function AnnouncementMarkdown({ content }: { content: string }) {
       content={content}
       componentsOverride={announcementComponents}
     />
+  );
+}
+
+// Block elements collapse to their inline content so the result fits a
+// single truncating line.
+const inlineComponents: Partial<Components> = {
+  ...announcementComponents,
+  p: ({ children }) => <>{children}</>,
+  h1: ({ children }) => <>{children}</>,
+  h2: ({ children }) => <>{children}</>,
+  h3: ({ children }) => <>{children}</>,
+  h4: ({ children }) => <>{children}</>,
+  h5: ({ children }) => <>{children}</>,
+  h6: ({ children }) => <>{children}</>,
+  blockquote: ({ children }) => <>{children}</>,
+  ul: ({ children }) => <>{children}</>,
+  ol: ({ children }) => <>{children}</>,
+  li: ({ children }) => <>{children}</>,
+  hr: () => null,
+};
+
+/** One-line markdown for the banner's body excerpt. */
+export function AnnouncementInlineMarkdown({ content }: { content: string }) {
+  return (
+    <MarkdownRenderer content={content} componentsOverride={inlineComponents} />
   );
 }
