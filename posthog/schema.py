@@ -196,6 +196,7 @@ from posthog.schema_enums import (
     OrderDirection2 as OrderDirection2,
     ParserMode as ParserMode,
     PathsV2AnchorType as PathsV2AnchorType,
+    PathsV2ElementType as PathsV2ElementType,
     PathType as PathType,
     PersonsArgMaxVersion as PersonsArgMaxVersion,
     PersonsJoinMode as PersonsJoinMode,
@@ -5749,6 +5750,15 @@ class PathsV2Edge(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    anyStepCount: float | None = Field(
+        default=None,
+        description=(
+            "Unique actors who transition from source to target at any step of any of"
+            ' their whole journeys, the position-free count behind "went source →'
+            " target at any step\". Equals the two-step item-strict funnel's converted"
+            " count. Only set in open mode on edges between two named items."
+        ),
+    )
     count: float = Field(
         ...,
         description=("Unique actors with a journey that transitions from source to target between these steps."),
@@ -5764,6 +5774,46 @@ class PathsV2Edge(BaseModel):
     target: PathsV2Item | None = Field(
         ...,
         description='Target path item, or null for the target column\'s "other" row.',
+    )
+
+
+class PathsV2ElementSelector(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    anyStep: bool | None = Field(
+        default=None,
+        description=(
+            "Match the source → target transition at any step of any whole journey"
+            " instead of at one step pair: the position-free set behind an edge's"
+            " anyStepCount. Requires a named source and target and open mode. Edge"
+            " elements only."
+        ),
+    )
+    chain: list[PathsV2Item] | None = Field(
+        default=None,
+        description=(
+            "The chain's path items in order from the anchor. Returns the actors whose"
+            " anchored sequence begins with exactly these items, the set behind a hover"
+            " preview's per-chain counts. Chain elements only, anchored mode only."
+        ),
+    )
+    elementType: PathsV2ElementType
+    item: PathsV2Item | None = Field(default=None, description="The node card's path item. Node elements only.")
+    source: PathsV2Item | None = Field(
+        default=None,
+        description=("The edge's source path item; omit for the source column's \"other\" row. Edge elements only."),
+    )
+    stepIndex: int | None = Field(
+        default=None,
+        description=(
+            "0-based step index (column) of the element; for an edge, its source"
+            " column. Required for node, other, dropOff, and positional edge elements."
+        ),
+    )
+    target: PathsV2Item | None = Field(
+        default=None,
+        description=("The edge's target path item; omit for the target column's \"other\" row. Edge elements only."),
     )
 
 
@@ -25536,6 +25586,20 @@ class LifecycleQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class PathsV2ActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    element: PathsV2ElementSelector
+    includeRecordings: bool | None = None
+    kind: Literal["PathsV2ActorsQuery"] = "PathsV2ActorsQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    response: ActorsQueryResponse | None = None
+    source: PathsV2Query
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class QueryResponseAlternative62(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -26895,6 +26959,7 @@ class InsightActorsQueryOptions(BaseModel):
         | FunnelCorrelationActorsQuery
         | StickinessActorsQuery
         | ExperimentActorsQuery
+        | PathsV2ActorsQuery
     )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -27003,6 +27068,7 @@ class ActorsQuery(BaseModel):
         | FunnelCorrelationActorsQuery
         | ExperimentActorsQuery
         | StickinessActorsQuery
+        | PathsV2ActorsQuery
         | HogQLQuery
         | None
     ) = None

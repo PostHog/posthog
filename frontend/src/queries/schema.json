@@ -531,6 +531,9 @@
                             "$ref": "#/definitions/StickinessActorsQuery"
                         },
                         {
+                            "$ref": "#/definitions/PathsV2ActorsQuery"
+                        },
+                        {
                             "$ref": "#/definitions/HogQLQuery"
                         }
                     ]
@@ -27647,6 +27650,9 @@
                         },
                         {
                             "$ref": "#/definitions/ExperimentActorsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/PathsV2ActorsQuery"
                         }
                     ]
                 },
@@ -35415,6 +35421,7 @@
                 "GroupsQuery",
                 "FunnelsActorsQuery",
                 "FunnelCorrelationActorsQuery",
+                "PathsV2ActorsQuery",
                 "SessionsTimelineQuery",
                 "RecordingsQuery",
                 "SessionAttributionExplorerQuery",
@@ -36186,6 +36193,40 @@
             "required": ["results"],
             "type": "object"
         },
+        "PathsV2ActorsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "element": {
+                    "$ref": "#/definitions/PathsV2ElementSelector"
+                },
+                "includeRecordings": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "PathsV2ActorsQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/ActorsQueryResponse"
+                },
+                "source": {
+                    "$ref": "#/definitions/PathsV2Query"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["element", "kind", "source"],
+            "type": "object"
+        },
         "PathsV2Anchor": {
             "additionalProperties": false,
             "description": "The start or end point an anchored-mode chart is built around.",
@@ -36211,6 +36252,10 @@
             "additionalProperties": false,
             "description": "A displayed transition between path items at adjacent journey grid columns.",
             "properties": {
+                "anyStepCount": {
+                    "description": "Unique actors who transition from source to target at any step of any of their whole journeys, the position-free count behind \"went source → target at any step\". Equals the two-step item-strict funnel's converted count. Only set in open mode on edges between two named items.",
+                    "type": "number"
+                },
                 "count": {
                     "description": "Unique actors with a journey that transitions from source to target between these steps.",
                     "type": "number"
@@ -36244,6 +36289,49 @@
             },
             "required": ["stepIndex", "source", "target", "count"],
             "type": "object"
+        },
+        "PathsV2ElementSelector": {
+            "additionalProperties": false,
+            "description": "Selects the journey grid element whose actors a PathsV2ActorsQuery returns. The same journeys that produced the grid produce these actor sets, so each element's modal equals its displayed number by construction.",
+            "properties": {
+                "anyStep": {
+                    "description": "Match the source → target transition at any step of any whole journey instead of at one step pair: the position-free set behind an edge's anyStepCount. Requires a named source and target and open mode. Edge elements only.",
+                    "type": "boolean"
+                },
+                "chain": {
+                    "description": "The chain's path items in order from the anchor. Returns the actors whose anchored sequence begins with exactly these items, the set behind a hover preview's per-chain counts. Chain elements only, anchored mode only.",
+                    "items": {
+                        "$ref": "#/definitions/PathsV2Item"
+                    },
+                    "type": "array"
+                },
+                "elementType": {
+                    "$ref": "#/definitions/PathsV2ElementType"
+                },
+                "item": {
+                    "$ref": "#/definitions/PathsV2Item",
+                    "description": "The node card's path item. Node elements only."
+                },
+                "source": {
+                    "$ref": "#/definitions/PathsV2Item",
+                    "description": "The edge's source path item; omit for the source column's \"other\" row. Edge elements only."
+                },
+                "stepIndex": {
+                    "$ref": "#/definitions/integer",
+                    "description": "0-based step index (column) of the element; for an edge, its source column. Required for node, other, dropOff, and positional edge elements."
+                },
+                "target": {
+                    "$ref": "#/definitions/PathsV2Item",
+                    "description": "The edge's target path item; omit for the target column's \"other\" row. Edge elements only."
+                }
+            },
+            "required": ["elementType"],
+            "type": "object"
+        },
+        "PathsV2ElementType": {
+            "description": "The kind of journey grid element a PathsV2ActorsQuery drills into.",
+            "enum": ["node", "edge", "dropOff", "other", "chain"],
+            "type": "string"
         },
         "PathsV2Filter": {
             "additionalProperties": false,
