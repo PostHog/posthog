@@ -69,8 +69,6 @@ _POSTHOG_CODE_COMPONENT_RESOURCES = {
     "compute_credits": "sandbox_compute_credits",
     "cpu_millicore_seconds": "sandbox_compute_cpu_millicore_seconds",
     "memory_mib_seconds": "sandbox_compute_memory_mib_seconds",
-    "cpu_cost_microusd": "sandbox_compute_cpu_cost_microusd",
-    "memory_cost_microusd": "sandbox_compute_memory_cost_microusd",
 }
 
 

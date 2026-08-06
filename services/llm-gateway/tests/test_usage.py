@@ -470,8 +470,6 @@ class TestUsageEndpoint:
             "compute_used_usd": "0.67",
             "cpu_millicore_seconds": 9_876_543_210,
             "memory_mib_seconds": 7_654_321_098,
-            "cpu_cost_microusd": 123_456_789,
-            "memory_cost_microusd": 98_765_432,
         }
         authenticated_usage_client.app.state.quota_resolver.get_resource_status = AsyncMock(
             return_value=QuotaResourceStatus(

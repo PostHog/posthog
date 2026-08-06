@@ -293,8 +293,6 @@ class TestQuotaResolver:
             "compute_used_usd": "0.67",
             "cpu_millicore_seconds": 9_876_543_210,
             "memory_mib_seconds": 7_654_321_098,
-            "cpu_cost_microusd": 123_456_789,
-            "memory_cost_microusd": 98_765_432,
         }
         redis = _FakeRedis()
         resolver = QuotaResolver(
@@ -315,16 +313,6 @@ class TestQuotaResolver:
                             "sandbox_compute_memory_mib_seconds": {
                                 "limited": False,
                                 "usage": 7_654_321_098,
-                                "limit": None,
-                            },
-                            "sandbox_compute_cpu_cost_microusd": {
-                                "limited": False,
-                                "usage": 123_456_789,
-                                "limit": None,
-                            },
-                            "sandbox_compute_memory_cost_microusd": {
-                                "limited": False,
-                                "usage": 98_765_432,
                                 "limit": None,
                             },
                         },
