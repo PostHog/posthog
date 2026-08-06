@@ -149,12 +149,11 @@ class PostHogCodeSlackMentionCommandWorkflowInputs:
 class PostHogCodeRepoCascadeOutcome:
     """Synchronous fast-path repo resolution before the discovery agent runs.
 
-    `auto` → use `repository` directly. `no_repo` → create a task with no repo
-    (e.g. team has no GitHub integration connected). `agent_needed` → there are
-    multiple candidates and no explicit mention. `needs_user_github` → the team
-    has a GitHub install but the mentioning user has not connected their personal
-    GitHub yet, so the workflow should fire the connect-GitHub prompt rather than
-    silently creating a no-repo task.
+    `auto` → use `repository` directly. `no_repo` → the mentioning user resolves no
+    repos, so the workflow classifies the ask and only gates on a personal GitHub
+    install when it actually needs code. `agent_needed` → there are multiple
+    candidates and no explicit mention. `needs_user_github` is no longer emitted and
+    survives only so workflow executions that recorded it still replay.
     """
 
     mode: Literal["auto", "no_repo", "agent_needed", "needs_user_github"]
