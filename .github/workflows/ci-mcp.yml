@@ -295,7 +295,9 @@ jobs:
         name: Integration Tests (depot-ubuntu-24.04-4)
         runs-on: depot-ubuntu-24.04-4
         needs: changes
-        timeout-minutes: 30
+        # Must fit the schema-cache miss path (~20 min migrate + ~11 min tests),
+        # not just a cache hit — a miss is an intentional fallback, not a failure.
+        timeout-minutes: 45
         # Skipped on drafts: these boot the full PostHog backend and trigger on any
         # non-pytest Python change, so they're the expensive half of this workflow.
         # Build and unit tests still run on drafts; the `MCP Tests Pass` aggregator
