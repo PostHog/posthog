@@ -189,10 +189,18 @@ export function useInboxAllReports(options?: {
     [pullRequestTotal, reportsTotal],
   );
 
+  // Each count is its own request, so the list can succeed while they are still
+  // in flight and `counts` still reads 0. Anything that records the counts once
+  // and never revises them has to wait for this rather than for the list.
+  const countsReady =
+    pullRequestCountQuery.isSuccess &&
+    (!withReportsCount || reportsCountQuery.isSuccess);
+
   return {
     ...query,
     scopedReports,
     counts,
+    countsReady,
     scope,
     // The effective filter values used for this query. Surfaced so consumers
     // (e.g. analytics) can read them without subscribing to the filter store a
