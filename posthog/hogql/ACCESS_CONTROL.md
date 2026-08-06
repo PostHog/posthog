@@ -1,7 +1,11 @@
 # HogQL access controls
 
-HogQL enforces access control in three layers:
+HogQL enforces access control in layers.
+Layer 0 is the multi-tenancy boundary and applies to every query. Layers 1 to 3 are role-based access control on top of it.
 
+0. **[Tenant isolation](#0-tenant-isolation-the-team_id-guard)** — every table read, keeping one team's rows out of another team's results.
+   - Enforced when the query is printed to SQL.
+   - Always on: a mandatory `team_id` filter on every table. Not part of RBAC, and needs no user.
 1. **[System tables](#1-system-tables)** — the `system.*` tables (dashboards, notebooks, error tracking issues, ...).
    - Enforced at schema build time and print time.
    - When denied: the whole table is removed from the schema and the query errors; individual denied objects are filtered out with a `WHERE` guard.
@@ -12,12 +16,9 @@ HogQL enforces access control in three layers:
    - Enforced when the query is printed to ClickHouse SQL (AST transform, then printing).
    - When denied: values are masked to `NULL` or stripped from the JSON blob, with no error.
 
-All three layers share one preloaded `UserAccessControl` instance and partition the query cache so a restricted user can never be served an unrestricted user's cached rows.
+Layers 1 to 3 share one preloaded `UserAccessControl` instance and partition the query cache so a restricted user can never be served an unrestricted user's cached rows.
 
-Sitting underneath all of them is a separate, more fundamental guard: the [`team_id` guard](#tenant-isolation-the-team_id-guard) that keeps one team's rows out of another team's query results.
-It's not part of RBAC and doesn't touch `UserAccessControl` — it's the multi-tenancy boundary, and it applies to every query regardless of who (or whether anyone) is asking.
-
-## Tenant isolation: the `team_id` guard
+## 0. Tenant isolation: the `team_id` guard
 
 PostHog's ClickHouse tables (`events`, `persons`, `sessions`, ...) are shared: one physical table holds the rows for every team, keyed by a `team_id` column.
 Multi-tenancy therefore depends on every query being scoped to a single team.
@@ -29,7 +30,7 @@ Because it's added during printing, query-supplied `WHERE` clauses and modifiers
 For `LEFT JOIN`s the guard goes in the `ON` clause instead of `WHERE`, so unmatched rows aren't dropped.
 
 **Fail closed:** `team_id_guard_for_table()` raises `InternalHogQLError` if `context.team_id` is missing, so a query with no team never runs against shared data.
-Unlike the RBAC layers, this guard needs no user — only a team.
+This layer is independent of the ones below it: it never consults `UserAccessControl`, and it needs no user — only a team.
 
 A few tables opt out, and only these:
 
@@ -38,7 +39,7 @@ A few tables opt out, and only these:
 
 ## Passing the user into HogQL
 
-Access control needs to know who is querying.
+Layers 1 to 3 need to know who is querying.
 The user is threaded through `Database.create_for()` and `HogQLContext` (`posthog/hogql/context.py`):
 
 ```python
