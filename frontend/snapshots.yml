@@ -24,6 +24,10 @@ snapshots:
         hash: v1.k794b7964.ddbb5d27187cb1eb9341734e0b780c762cdfbc09aae81833c970369bd7ad4f32.3HNFMfb4Lflcg3uKD1-KNl09d3leMhmfuhR2WVLjLRE
     components-account-project-switcher--no-pending-invite--light:
         hash: v1.k794b7964.3f8d66ba04469cdf3e92d78483c58125e84531888eedde628469fde5e9e39a08.MhOzPyXhl7CeOLA5Em19cktkdgffO_BL7CojWkngtMQ
+    components-account-project-switcher--with-data-freshness--dark:
+        hash: v1.k794b7964.33311041a0feedba12322f5c99b05b91db51c7f26793b837fce7c0666c5ef6f5.EPYhVoP42oDcDI9m3qloUEuvND0yjchkisUylND2Y-s
+    components-account-project-switcher--with-data-freshness--light:
+        hash: v1.k794b7964.825e1ea3745d1f526c46a4d7b365778ce2d3307933461503fca588f68916a3a9.6Bpu71WRfMaGy8N4X06ixaXTIYkj-4jg44eVXhgWkCw
     components-account-project-switcher--with-pending-invite--dark:
         hash: v1.k794b7964.b0c1c0b0b8d1a0c77cd873a1cc0b391924cd64ff7de46b1b4d309a50d98eca8a.ddWvJC0f1_fBpYhfDKtUrKeuZSrY5xR8ViHWVdiIfqk
     components-account-project-switcher--with-pending-invite--light:
@@ -6063,9 +6067,9 @@ snapshots:
     scenes-app-heatmap--generating--light:
         hash: v1.k794b7964.9e9c863c6e06c7e6e610353fbd826ee85406c86419eeba160ad2e525b66021bc.pQ8mxSWr4ScfBLrbe8Ppc_tyJdr0mNjKY5q71eurkBM
     scenes-app-heatmap--iframe-example--dark:
-        hash: v1.k794b7964.739b8f5ac461aff690d35b4622c683f5758d1a2f16d203cb315aaa449a954cb7.QT8KobMmRxytbOoCQFHYofq2yAHXDezRBTnyfgk91Ts
+        hash: v1.k794b7964.a0485622651f6209c964b471dfbf9b67db71d0303cfca25fd6a6e2568189e4e4.1SPn9-wnuy5kArXpbuUD-1C-4Qq1U2KfHX_o9SuQ0jg
     scenes-app-heatmap--iframe-example--light:
-        hash: v1.k794b7964.0097f81a4f3b10e015afc1e7ef33ce7fa9dd075eae6abf2bb91fe52efe819bf1.JBf76R0LFMGSHQlTAG8GKh3zkX4v5yawAtV3tZvMCYE
+        hash: v1.k794b7964.af03805619acd2e84eb5827c79214278edd70e0c8e9960b988373d9009ec53a3.hp3EfREnSzpna8jwhIeb7AdjZm_EDPQ00CLUfJY8pmc
     scenes-app-heatmap--new--dark:
         hash: v1.k794b7964.cfd075c10189496c867372e36391cf5985948fe5a8137c434545f5825b15ac7e.IUvQTi7vHNPSGeWj-q6upJsHMLU3UpumxHwGBndOhYE
     scenes-app-heatmap--new--light:
