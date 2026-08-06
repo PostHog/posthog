@@ -5,6 +5,7 @@ import { LemonModal } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { teamLogic } from 'scenes/teamLogic'
@@ -30,6 +31,12 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
 
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
+
+    const activationEventEnabled = useFeatureFlag('EXPERIMENT_ACTIVATION_EVENT')
+    const isCustom = !!exposureCriteria?.exposure_config
+    const isActivation = !isCustom && !!exposureCriteria?.activation_config
+    // Keep an existing activation config editable even if the team is no longer flagged in
+    const showActivationCard = activationEventEnabled || isActivation
 
     return (
         <LemonModal
@@ -75,14 +82,39 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                             <strong>exposed</strong> to the experiment and included in the analysis.
                         </>
                     }
-                    selected={!exposureCriteria?.exposure_config}
+                    selected={!isCustom && !isActivation}
                     onClick={() => {
                         setExposureCriteria({
                             ...exposureCriteria,
                             exposure_config: undefined,
+                            activation_config: undefined,
                         })
                     }}
                 />
+                {showActivationCard && (
+                    <SelectableCard
+                        title="Activation event"
+                        description={
+                            <>
+                                Require an additional event after <LemonTag>{resolvedExposureEvent}</LemonTag>. Users
+                                enter the analysis when this event follows their first exposure, and metrics count from
+                                the activation event.
+                            </>
+                        }
+                        selected={isActivation}
+                        onClick={() => {
+                            setExposureCriteria({
+                                ...exposureCriteria,
+                                exposure_config: undefined,
+                                activation_config: {
+                                    kind: NodeKind.ExperimentEventExposureConfig,
+                                    event: '$pageview',
+                                    properties: [],
+                                },
+                            })
+                        }}
+                    />
+                )}
                 <SelectableCard
                     title="Custom"
                     description={
@@ -92,7 +124,7 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                             You can also filter out users you would like to exclude from the analysis.
                         </>
                     }
-                    selected={!!exposureCriteria?.exposure_config}
+                    selected={isCustom}
                     onClick={() => {
                         setExposureCriteria({
                             ...exposureCriteria,
@@ -101,6 +133,7 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                                 event: EXPOSURE_DEFAULT_EVENT,
                                 properties: [],
                             },
+                            activation_config: undefined,
                         })
                     }}
                 />
@@ -121,6 +154,32 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         }}
                         typeKey="experiment-exposure-config"
                         buttonCopy="Add graph series"
+                        showSeriesIndicator={true}
+                        hideRename={true}
+                        entitiesLimit={1}
+                        mathAvailability={MathAvailability.None}
+                        showNumericalPropsOnly={true}
+                        actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+                        propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
+                    />
+                </div>
+            )}
+            {isActivation && exposureCriteria?.activation_config && (
+                <div className="mb-4">
+                    <ActionFilter
+                        bordered
+                        filters={exposureConfigToFilter(exposureCriteria.activation_config)}
+                        setFilters={({ events, actions }: Partial<FilterType>): void => {
+                            const entity = events?.[0] || actions?.[0]
+                            if (entity) {
+                                setExposureCriteria({
+                                    ...exposureCriteria,
+                                    activation_config: filterToExposureConfig(entity),
+                                })
+                            }
+                        }}
+                        typeKey="experiment-activation-config"
+                        buttonCopy="Add activation event"
                         showSeriesIndicator={true}
                         hideRename={true}
                         entitiesLimit={1}

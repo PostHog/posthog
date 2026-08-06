@@ -12,6 +12,7 @@ import { experimentMetricsLogic } from 'scenes/experiments/experimentMetricsLogi
 import { isMetricThresholdCueVisible } from 'scenes/experiments/ExperimentMetricThreshold'
 import {
     EXPOSURE_DEFAULT_EVENT,
+    getActivationConfig,
     getExposureEventAndProperty,
     resolvedExposureEvent,
 } from 'scenes/experiments/exposureContract'
@@ -30,13 +31,21 @@ import { getMetricTag } from './utils'
 
 const MAX_BREAKDOWNS = 3
 
-// Helper function to get the exposure event from experiment
-const getExposureEvent = (experiment: Experiment): string =>
-    getExposureEventAndProperty({
-        featureFlagKey: experiment.feature_flag_key,
-        exposureCriteria: experiment.exposure_criteria,
-        resolvedExposureEvent: resolvedExposureEvent(experiment),
-    }).event ?? EXPOSURE_DEFAULT_EVENT
+// Helper function to get the exposure event from experiment. In activation mode breakdowns are
+// attributed from the activation event, so property suggestions should come from it too.
+const getExposureEvent = (experiment: Experiment): string => {
+    const activationConfig = getActivationConfig(experiment.exposure_criteria)
+    if (activationConfig && 'event' in activationConfig && activationConfig.event) {
+        return activationConfig.event
+    }
+    return (
+        getExposureEventAndProperty({
+            featureFlagKey: experiment.feature_flag_key,
+            exposureCriteria: experiment.exposure_criteria,
+            resolvedExposureEvent: resolvedExposureEvent(experiment),
+        }).event ?? EXPOSURE_DEFAULT_EVENT
+    )
+}
 
 const AddBreakdownMenuItem = ({
     experiment,
