@@ -939,6 +939,8 @@ describe('experimentLogic', () => {
         })
 
         it('rolls the order back when the update fails', async () => {
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
             api.update.mockRejectedValue(new Error('nope'))
 
             await expectLogic(logic, () => {
@@ -946,6 +948,7 @@ describe('experimentLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.experiment.primary_metrics_ordered_uuids).toEqual(['first-uuid', 'second-uuid'])
+            expect(errorMock).toHaveBeenCalledWith('Could not save the new metric order')
         })
 
         it('coalesces drops inside the debounce window into one request', async () => {
