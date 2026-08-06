@@ -73,9 +73,11 @@ class TestSetScheduleAnchor(BaseTest):
 
     def test_clear_removes_anchor(self):
         set_declared_anchor(self.matview, 120)
-        self._run("--dag-id", str(self.dag.id), "--clear")
+        output, _reconcile = self._run("--dag-id", str(self.dag.id), "--clear")
         self.matview.refresh_from_db()
         self.assertIsNone(get_declared_anchor(self.matview))
+        # a clear reported as "anchored" reads as the opposite operation in operator logs
+        self.assertIn("cleared 1 node(s)", output)
 
     def test_on_sets_the_day_component(self):
         self._run("--saved-query-names", "mv", "--at", "02:00", "--on", "tuesday")

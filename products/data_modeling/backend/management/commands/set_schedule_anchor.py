@@ -136,9 +136,12 @@ class Command(BaseCommand):
             )
             plans.append((dag, node_ids, tier_line))
 
+        infinitive, past = ("clear", "cleared") if anchor is None else ("anchor", "anchored")
         if options["dry_run"]:
             for dag, node_ids, tier_line in plans:
-                self.stdout.write(f"DAG {dag.name} ({dag.id}): would anchor {len(node_ids)} node(s) → {tier_line}")
+                self.stdout.write(
+                    f"DAG {dag.name} ({dag.id}): would {infinitive} {len(node_ids)} node(s) → {tier_line}"
+                )
             self.stdout.write("(dry run: nothing was written)")
             return
 
@@ -155,10 +158,10 @@ class Command(BaseCommand):
             # require_tiered makes reconcile skip an unconverted DAG; saying "reconciled" there
             # would tell the operator a pin took effect when it didn't
             if reconcile_dag_schedules(dag, require_tiered=True):
-                self.stdout.write(f"DAG {dag.name} ({dag.id}): anchored {written} node(s), reconciled → {tier_line}")
+                self.stdout.write(f"DAG {dag.name} ({dag.id}): {past} {written} node(s), reconciled → {tier_line}")
             else:
                 self.stdout.write(
-                    f"DAG {dag.name} ({dag.id}): anchored {written} node(s), but the DAG is not on cadence-tier "
+                    f"DAG {dag.name} ({dag.id}): {past} {written} node(s), but the DAG is not on cadence-tier "
                     "schedules yet; anchors apply once it is converted (reconcile_freshness_schedules)"
                 )
 
