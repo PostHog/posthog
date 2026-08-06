@@ -1024,6 +1024,13 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             return 0
         except Exception as e:
             logger.debug(f"get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
+            if "Remote request timeout" in str(e):
+                # Redshift's leader node lost internal RPC contact with a compute node mid-query
+                # (SQLSTATE-less `InternalError_`, code 29150) — a transient cluster-side hiccup,
+                # the same non-actionable class as a WLM/QMR abort (see `has_duplicate_primary_keys`).
+                # Row-count estimation is best-effort (already defaulting to 0 here), so skip
+                # reporting the expected error to error tracking.
+                return 0
             capture_exception(e)
             if "temporary file size exceeds temp_file_limit" in str(e):
                 raise TemporaryFileSizeExceedsLimitException(

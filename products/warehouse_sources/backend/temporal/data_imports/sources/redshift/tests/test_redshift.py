@@ -379,6 +379,23 @@ class TestGetRowsToSync:
             assert impl.get_rows_to_sync(cursor, self._inner(), None, logger) == 0
         mock_capture.assert_not_called()
 
+    def test_remote_request_timeout_is_not_reported(self, impl, cursor, logger):
+        # A `Remote request timeout` (code 29150) is Redshift's leader node losing internal RPC
+        # contact with a compute node mid-query — a transient cluster-side hiccup, the same
+        # non-actionable class as a WLM/QMR abort. Row-count estimation is best-effort (the caller
+        # defaults to 0), so skip gracefully without reporting the expected error to error tracking.
+        cursor.execute.side_effect = psycopg.errors.InternalError_(
+            "Remote request timeout\nDETAIL:  \n  -----------------------------------------------\n"
+            "  error:  Remote request timeout\n  code:      29150\n  context:   \n  query:     0\n"
+            "  location:  redcat_rpc_client.cpp:3197\n  process:   padbmaster [pid=1074384894]\n"
+            "  -----------------------------------------------"
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
+        ) as mock_capture:
+            assert impl.get_rows_to_sync(cursor, self._inner(), None, logger) == 0
+        mock_capture.assert_not_called()
+
 
 class TestFetchTableStats:
     def test_returns_none_when_no_row(self, impl, cursor, logger):
