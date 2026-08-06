@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     DatabaseSchemaRequestApi,
+    DirectConnectionSourceOptionApi,
     DraftCustomManifestRequestApi,
     DraftCustomManifestResponseApi,
     ExternalDataSchemaApi,
@@ -888,6 +889,27 @@ export const externalDataSourcesDatabaseSchemaCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(databaseSchemaRequestApi),
     })
+}
+
+export const getExternalDataSourcesDirectConnectionOptionsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/direct_connection_options/`
+}
+
+/**
+ * Source types the user can add as a direct connection, driven by the direct-SQL capability
+ * surface so the picker never drifts from the engines we actually support.
+ */
+export const externalDataSourcesDirectConnectionOptionsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DirectConnectionSourceOptionApi[]> => {
+    return apiMutator<DirectConnectionSourceOptionApi[]>(
+        getExternalDataSourcesDirectConnectionOptionsListUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getExternalDataSourcesDraftCustomManifestCreateUrl = (projectId: string) => {

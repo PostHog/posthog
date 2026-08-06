@@ -24,7 +24,10 @@ class TestTeamWorkflowsConfig(APIBaseTest):
     def test_defaults_to_capture_disabled_when_no_extension_row_exists(self) -> None:
         response = self.client.get(self.url)
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["workflows_config"] == {"capture_workflows_engagement_events": False}
+        assert response.json()["workflows_config"] == {
+            "capture_workflows_engagement_events": False,
+            "email_tracking_consent_mode": "off",
+        }
 
     def test_patch_enables_capture(self) -> None:
         # APIBaseTest.setUp may trigger the workflows_config cached_property (which calls
@@ -32,7 +35,7 @@ class TestTeamWorkflowsConfig(APIBaseTest):
         # value. Either way, the patch must end with the row present and capture enabled.
         response = self.client.patch(self.url, {"workflows_config": {"capture_workflows_engagement_events": True}})
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["workflows_config"] == {"capture_workflows_engagement_events": True}
+        assert response.json()["workflows_config"]["capture_workflows_engagement_events"] is True
 
         row = TeamWorkflowsConfig.objects.get(team=self.team)
         assert row.capture_workflows_engagement_events is True
@@ -42,7 +45,7 @@ class TestTeamWorkflowsConfig(APIBaseTest):
         response = self.client.patch(self.url, {"workflows_config": {"capture_workflows_engagement_events": False}})
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["workflows_config"] == {"capture_workflows_engagement_events": False}
+        assert response.json()["workflows_config"]["capture_workflows_engagement_events"] is False
         assert TeamWorkflowsConfig.objects.get(team=self.team).capture_workflows_engagement_events is False
 
     def test_patch_with_other_team_fields_does_not_disturb_workflows_config(self) -> None:
@@ -50,8 +53,19 @@ class TestTeamWorkflowsConfig(APIBaseTest):
 
         response = self.client.patch(self.url, {"name": "renamed team"})
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["workflows_config"] == {"capture_workflows_engagement_events": True}
+        assert response.json()["workflows_config"]["capture_workflows_engagement_events"] is True
         assert TeamWorkflowsConfig.objects.get(team=self.team).capture_workflows_engagement_events is True
+
+    def test_patch_sets_email_tracking_consent_mode(self) -> None:
+        response = self.client.patch(self.url, {"workflows_config": {"email_tracking_consent_mode": "opt_in"}})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["workflows_config"]["email_tracking_consent_mode"] == "opt_in"
+        assert TeamWorkflowsConfig.objects.get(team=self.team).email_tracking_consent_mode == "opt_in"
+
+    def test_patch_rejects_unknown_email_tracking_consent_mode(self) -> None:
+        response = self.client.patch(self.url, {"workflows_config": {"email_tracking_consent_mode": "sometimes"}})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "workflows_config__email_tracking_consent_mode"
 
     def test_patch_rejects_non_boolean_capture_workflows_engagement_events(self) -> None:
         response = self.client.patch(
@@ -69,4 +83,7 @@ class TestTeamWorkflowsConfig(APIBaseTest):
             self.url, {"workflows_config": {"capture_workflows_engagement_events": True, "future_flag": "ignored"}}
         )
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["workflows_config"] == {"capture_workflows_engagement_events": True}
+        assert response.json()["workflows_config"] == {
+            "capture_workflows_engagement_events": True,
+            "email_tracking_consent_mode": "off",
+        }

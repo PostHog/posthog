@@ -485,6 +485,7 @@ export interface workflowLogicActions {
                                 message_category_type?: 'marketing' | 'transactional' | undefined
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
+                                tracking_enabled?: boolean | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -658,7 +659,11 @@ export interface workflowLogicActions {
                                   }
                                 | {
                                       filters: {
+                                          all_roles_unassigned?: boolean | undefined
+                                          assigned_to_user_ids?: number[] | undefined
+                                          audience_type?: 'accounts' | 'persons' | undefined
                                           properties: any[]
+                                          tag_names?: string[] | undefined
                                       }
                                       type: 'batch'
                                   }
@@ -906,7 +911,11 @@ export interface workflowLogicActions {
                         }
                       | {
                             filters: {
+                                all_roles_unassigned?: boolean | undefined
+                                assigned_to_user_ids?: number[] | undefined
+                                audience_type?: 'accounts' | 'persons' | undefined
                                 properties: any[]
+                                tag_names?: string[] | undefined
                             }
                             type: 'batch'
                         }
@@ -1270,6 +1279,7 @@ export interface workflowLogicActions {
                                 message_category_type?: 'marketing' | 'transactional' | undefined
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
+                                tracking_enabled?: boolean | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -1443,7 +1453,11 @@ export interface workflowLogicActions {
                                   }
                                 | {
                                       filters: {
+                                          all_roles_unassigned?: boolean | undefined
+                                          assigned_to_user_ids?: number[] | undefined
+                                          audience_type?: 'accounts' | 'persons' | undefined
                                           properties: any[]
+                                          tag_names?: string[] | undefined
                                       }
                                       type: 'batch'
                                   }
@@ -1691,7 +1705,11 @@ export interface workflowLogicActions {
                         }
                       | {
                             filters: {
+                                all_roles_unassigned?: boolean | undefined
+                                assigned_to_user_ids?: number[] | undefined
+                                audience_type?: 'accounts' | 'persons' | undefined
                                 properties: any[]
+                                tag_names?: string[] | undefined
                             }
                             type: 'batch'
                         }
@@ -1851,7 +1869,11 @@ export interface workflowLogicActions {
               }
             | {
                   filters: {
+                      all_roles_unassigned?: boolean | undefined
+                      assigned_to_user_ids?: number[] | undefined
+                      audience_type?: 'accounts' | 'persons' | undefined
                       properties: any[]
+                      tag_names?: string[] | undefined
                   }
                   type: 'batch'
               }
@@ -2032,22 +2054,6 @@ export interface workflowLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
-                  template_id: 'template-email'
-                  template_uuid?: string | undefined
-              }
-            | {
-                  inputs: Record<
-                      string,
-                      {
-                          bytecode?: any
-                          order?: number | undefined
-                          secret?: boolean | undefined
-                          templating?: 'hog' | 'liquid' | undefined
-                          value: any
-                      }
-                  >
-                  message_category_id?: string | undefined
-                  message_category_type?: 'marketing' | 'transactional' | undefined
                   template_id: 'template-native-push'
                   template_uuid?: string | undefined
               }
@@ -2077,6 +2083,23 @@ export interface workflowLogicActions {
                   time: [string, string] | 'any'
                   timezone: string | null
                   use_person_timezone?: boolean | undefined
+              }
+            | {
+                  inputs: Record<
+                      string,
+                      {
+                          bytecode?: any
+                          order?: number | undefined
+                          secret?: boolean | undefined
+                          templating?: 'hog' | 'liquid' | undefined
+                          value: any
+                      }
+                  >
+                  message_category_id?: string | undefined
+                  message_category_type?: 'marketing' | 'transactional' | undefined
+                  template_id: 'template-email'
+                  template_uuid?: string | undefined
+                  tracking_enabled?: boolean | undefined
               }
         >
     }
@@ -2180,7 +2203,11 @@ export interface workflowLogicActions {
               }
             | {
                   filters: {
+                      all_roles_unassigned?: boolean | undefined
+                      assigned_to_user_ids?: number[] | undefined
+                      audience_type?: 'accounts' | 'persons' | undefined
                       properties: any[]
+                      tag_names?: string[] | undefined
                   }
                   type: 'batch'
               }
@@ -2361,22 +2388,6 @@ export interface workflowLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
-                  template_id: 'template-email'
-                  template_uuid?: string | undefined
-              }
-            | {
-                  inputs: Record<
-                      string,
-                      {
-                          bytecode?: any
-                          order?: number | undefined
-                          secret?: boolean | undefined
-                          templating?: 'hog' | 'liquid' | undefined
-                          value: any
-                      }
-                  >
-                  message_category_id?: string | undefined
-                  message_category_type?: 'marketing' | 'transactional' | undefined
                   template_id: 'template-native-push'
                   template_uuid?: string | undefined
               }
@@ -2406,6 +2417,23 @@ export interface workflowLogicActions {
                   time: [string, string] | 'any'
                   timezone: string | null
                   use_person_timezone?: boolean | undefined
+              }
+            | {
+                  inputs: Record<
+                      string,
+                      {
+                          bytecode?: any
+                          order?: number | undefined
+                          secret?: boolean | undefined
+                          templating?: 'hog' | 'liquid' | undefined
+                          value: any
+                      }
+                  >
+                  message_category_id?: string | undefined
+                  message_category_type?: 'marketing' | 'transactional' | undefined
+                  template_id: 'template-email'
+                  template_uuid?: string | undefined
+                  tracking_enabled?: boolean | undefined
               }
     }
     setWorkflowActionEdges: (
@@ -2465,7 +2493,11 @@ export interface workflowLogicActions {
         >['filters']
     ) => {
         filters: {
+            all_roles_unassigned?: boolean | undefined
+            assigned_to_user_ids?: number[] | undefined
+            audience_type?: 'accounts' | 'persons' | undefined
             properties: any[]
+            tag_names?: string[] | undefined
         }
         variables: Record<string, any>
     }
@@ -2528,7 +2560,11 @@ export interface workflowLogicMeta {
                             }
                           | {
                                 filters: {
+                                    all_roles_unassigned?: boolean | undefined
+                                    assigned_to_user_ids?: number[] | undefined
+                                    audience_type?: 'accounts' | 'persons' | undefined
                                     properties: any[]
+                                    tag_names?: string[] | undefined
                                 }
                                 type: 'batch'
                             }
@@ -3154,7 +3190,12 @@ export const workflowLogic = kea<workflowLogicType>([
                                     }
                                 }
                             } else if (action.config.type === 'batch') {
-                                if (!action.config.filters.properties?.length) {
+                                // Accounts audiences may legitimately target every account — the
+                                // blast-radius preview and confirm token guard the send instead.
+                                if (
+                                    action.config.filters.audience_type !== 'accounts' &&
+                                    !action.config.filters.properties?.length
+                                ) {
                                     result.valid = false
                                     result.errors = {
                                         filters: 'At least one property filter is required for batch workflows',

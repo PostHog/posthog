@@ -80,6 +80,22 @@ fn setup_analytics_router(
     overflow_limiter: Option<Arc<OverflowLimiter>>,
     ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
 ) -> (Router, CapturingSink) {
+    setup_router_for_mode(
+        CaptureMode::Events,
+        ai_routing,
+        ai_events_overflow_enabled,
+        overflow_limiter,
+        ai_events_overflow_limiter,
+    )
+}
+
+fn setup_router_for_mode(
+    capture_mode: CaptureMode,
+    ai_routing: AiRouting,
+    ai_events_overflow_enabled: bool,
+    overflow_limiter: Option<Arc<OverflowLimiter>>,
+    ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
+) -> (Router, CapturingSink) {
     let (readiness, liveness, _monitor) = test_lifecycle_handlers();
 
     let sink = CapturingSink::new();
@@ -92,7 +108,7 @@ fn setup_analytics_router(
     let redis = Arc::new(MockRedisClient::new());
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = capture_mode;
 
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
@@ -107,9 +123,8 @@ fn setup_analytics_router(
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        false,
-        CaptureMode::Events,
-        String::from("capture-analytics"),
+        None, // recorder_handle
+        capture_mode,
         None,
         25 * 1024 * 1024,
         false,
@@ -155,6 +170,28 @@ fn mixed_batch_payload() -> String {
     .to_string()
 }
 
+// The same mixed batch flagged as a historical migration — the only kind of
+// batch Import mode accepts.
+fn historical_mixed_batch_payload() -> String {
+    json!({
+        "api_key": TOKEN,
+        "historical_migration": true,
+        "batch": [
+            {
+                "event": "$ai_generation",
+                "distinct_id": DISTINCT_ID,
+                "properties": {"$ai_model": "gpt-4"}
+            },
+            {
+                "event": "$pageview",
+                "distinct_id": DISTINCT_ID,
+                "properties": {}
+            }
+        ]
+    })
+    .to_string()
+}
+
 async fn post_batch(client: &TestClient, payload: String) {
     let response = client
         .post("/batch")
@@ -164,6 +201,52 @@ async fn post_batch(client: &TestClient, payload: String) {
         .send()
         .await;
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[rstest]
+#[case("/e")]
+#[case("/batch")]
+#[tokio::test]
+async fn legacy_routes_strip_forged_gateway_properties(#[case] path: &str) {
+    let (router, sink) = setup_analytics_router(AiRouting::Primary, false, None, None);
+    let client = TestClient::new(router);
+    let event = json!({
+        "event": "$ai_span",
+        "distinct_id": DISTINCT_ID,
+        "properties": {
+            "$ai_gateway_verified": true,
+            "$ai_gateway_relay": true,
+            "$ai_gateway_request_id": "forged",
+            "$ai_trace_id": "trace-1"
+        }
+    });
+    let payload = if path == "/batch" {
+        json!({"api_key": TOKEN, "batch": [event]}).to_string()
+    } else {
+        json!({
+            "api_key": TOKEN,
+            "event": "$ai_span",
+            "distinct_id": DISTINCT_ID,
+            "properties": event["properties"].clone()
+        })
+        .to_string()
+    };
+
+    let response = client
+        .post(path)
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .body(payload)
+        .send()
+        .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let events = sink.get_events().await;
+    let data: serde_json::Value = serde_json::from_str(&events[0].event.data).unwrap();
+    assert_eq!(data["properties"]["$ai_trace_id"], "trace-1");
+    assert!(data["properties"].get("$ai_gateway_verified").is_none());
+    assert!(data["properties"].get("$ai_gateway_relay").is_none());
+    assert!(data["properties"].get("$ai_gateway_request_id").is_none());
 }
 
 fn allowlist(tokens: &[&str]) -> AiRouting {
@@ -315,4 +398,48 @@ async fn ai_lane_overflow_isolated_from_analytics_limiter() {
         pageview.metadata.overflow_reason,
         Some(OverflowReason::ForceLimited)
     );
+}
+
+/// Import mode's no-overflow guarantee, end-to-end on the legacy path. With the
+/// deployment's real config — AI routing off — every event in a historical batch
+/// lands on `AnalyticsHistorical`, even with the overflow limiter force-keyed on
+/// the batch's `token:distinct_id`. Nothing reaches `AnalyticsMain` or `AiEvents`
+/// (the only overflowing lanes), so nothing can be stamped for overflow, and the
+/// GRL never runs. The invariant is emergent (historical_migration forces the
+/// lane, AI routing off keeps AI events out of the AI lane), so it needs pinning:
+/// arming AI routing here would divert `$ai_*` and break it.
+#[tokio::test]
+async fn import_mode_historical_batch_never_overflows() {
+    let (router, sink) = setup_router_for_mode(
+        CaptureMode::Import,
+        AiRouting::Primary, // matches capture-import: AI routing off
+        false,
+        Some(force_keyed_limiter()),
+        None,
+    );
+    let client = TestClient::new(router);
+
+    post_batch(&client, historical_mixed_batch_payload()).await;
+
+    let events = sink.get_events().await;
+    assert_eq!(
+        events.len(),
+        2,
+        "both historical events must reach the sink"
+    );
+
+    for event in &events {
+        assert_eq!(
+            event.metadata.data_type,
+            DataType::AnalyticsHistorical,
+            "Import mode must route every event to the historical lane, got {:?} for {}",
+            event.metadata.data_type,
+            event.metadata.event_name,
+        );
+        assert_eq!(
+            event.metadata.overflow_reason, None,
+            "the historical lane must never overflow, even with the limiter force-keyed ({})",
+            event.metadata.event_name,
+        );
+    }
 }

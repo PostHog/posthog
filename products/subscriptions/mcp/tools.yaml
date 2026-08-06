@@ -137,6 +137,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: '{id}'
         list: true
         title: List subscriptions
         description: >

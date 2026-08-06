@@ -24,6 +24,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from http import HTTPStatus
 from typing import Any, Optional
 from uuid import uuid4
 
@@ -129,6 +130,10 @@ class CaptureInternalError(Exception):
     def __init__(self, message: str, *, status_code: int = 0) -> None:
         super().__init__(message)
         self.status_code = status_code
+
+    @property
+    def is_billing_limit_exceeded(self) -> bool:
+        return self.status_code == HTTPStatus.PAYMENT_REQUIRED
 
 
 @dataclass

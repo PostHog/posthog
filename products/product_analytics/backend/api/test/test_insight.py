@@ -47,7 +47,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog import settings
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.caching.fetch_from_cache import InsightResult
+from posthog.caching.insight_result import InsightResult
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
 from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
@@ -1207,6 +1207,20 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/environments/{self.team.pk}/insights/?insight=TRENDS")
 
         self.assertEqual(len(response.json()["results"]), 2)
+
+    def test_listing_insights_by_journeys_type(self) -> None:
+        journeys_insight_id, _ = self.dashboard_api.create_insight(
+            data={"query": {"kind": "InsightVizNode", "source": {"kind": "PathsV2Query"}}}
+        )
+        paths_insight_id, _ = self.dashboard_api.create_insight(
+            data={"filters": {"insight": "PATHS", "events": [{"id": "$pageview"}]}}
+        )
+
+        journeys_response = self.client.get(f"/api/environments/{self.team.pk}/insights/?insight=JOURNEYS")
+        assert [insight["id"] for insight in journeys_response.json()["results"]] == [journeys_insight_id]
+
+        paths_response = self.client.get(f"/api/environments/{self.team.pk}/insights/?insight=PATHS")
+        assert [insight["id"] for insight in paths_response.json()["results"]] == [paths_insight_id]
 
     def test_can_list_insights_by_which_dashboards_they_are_in(self) -> None:
         insight_one_id, _ = self.dashboard_api.create_insight(

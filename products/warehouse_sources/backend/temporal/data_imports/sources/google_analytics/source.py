@@ -13,10 +13,8 @@ from posthog.schema import (
     SourceFieldOauthConfig,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
+from posthog.models.integration import Integration
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -25,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleanalytics import (
     GoogleAnalyticsSourceConfig,
 )
@@ -66,7 +65,20 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
             "401 Client Error": "Your Google Analytics connection is invalid or expired. Please reconnect your account.",
             "403 Client Error": "PostHog is not authorized to read this Google Analytics property. Please make sure the connected Google account has access to the property.",
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT": "Insufficient permissions. Please reconnect your Google Analytics account with the required scopes.",
+            # Raised as a bare `RefreshError` from `AuthorizedSession` when the stored refresh token
+            # has been revoked or expired. `validate_credentials` already maps this to a reconnect
+            # prompt, but only runs before a sync starts. Mid-sync it reaches `_run_report` via
+            # `session.post()` before any HTTP status is available to match on, so match Google's
+            # stable OAuth error code instead.
+            "invalid_grant": "Your Google Analytics connection has expired or been revoked. Please reconnect your account.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_run_report` already retries Data API quota exhaustion in-line with backoff; if it's
+        # still exhausted once those retries run out, the property's token quota refills over
+        # time and the resumable source picks up from the last saved chunk, so let Temporal
+        # retry the activity without paging it as a bug.
+        return {"(retryable)"}
 
     def get_schemas(
         self,
@@ -149,6 +161,13 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
 
         try:
             session = google_analytics_session(config.google_analytics_integration_id, team_id)
+        except Integration.DoesNotExist:
+            # The stored OAuth integration row has been deleted/disconnected before validation runs.
+            # Caught explicitly so an unrelated model's DoesNotExist still surfaces as a real bug below.
+            return (
+                False,
+                "The Google Analytics connection for this source no longer exists. Please reconnect your Google account.",
+            )
         except Exception as e:
             return False, f"Could not load Google Analytics credentials: {e}"
 
@@ -197,8 +216,7 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
                 "devices, locations, traffic sources, and events). Requires a Google account with read access "
                 "to the GA4 property."
             ),
-            releaseStatus=ReleaseStatus.BETA,
-            featureFlag="dwh-google-analytics",
+            releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/google_analytics.png",
             docsUrl="https://posthog.com/docs/cdp/sources/google-analytics",
             fields=cast(
@@ -219,7 +237,8 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
                         placeholder="123456789",
                         caption=(
                             "The numeric GA4 property ID, found in Google Analytics under "
-                            "Admin → Property settings → Property details."
+                            "Admin → Property settings → Property details. This is not the "
+                            "'G-XXXXXXX' Measurement ID from your website tag."
                         ),
                         secret=False,
                     ),

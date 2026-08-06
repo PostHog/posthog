@@ -1,5 +1,21 @@
-import { projectQuota, quotaUx, splitProjectedPct } from './quotaProjection'
+import { exhaustionForecast, hasBillableSpend, projectQuota, quotaUx, splitProjectedPct } from './quotaProjection'
 import { makeQuota } from './quotaTestUtils'
+
+describe('hasBillableSpend', () => {
+    it.each([
+        ['null quota keeps the dollars rather than flickering', null, true],
+        ['uncapped org is metered', makeQuota({ credit_limit: null, remaining: null }), true],
+        [
+            'limit is entirely the free allocation',
+            makeQuota({ credit_limit: 2_500, free_monthly_credits: 2_500 }),
+            false,
+        ],
+        ['limit exceeds the free allocation', makeQuota({ credit_limit: 7_500, free_monthly_credits: 2_500 }), true],
+        ['zero limit cannot bill', makeQuota({ credit_limit: 0, free_monthly_credits: 2_500 }), false],
+    ])('%s', (_name, quota, expected) => {
+        expect(hasBillableSpend(quota)).toBe(expected)
+    })
+})
 
 describe('projectQuota', () => {
     it('returns the empty projection when quota is null or uncapped', () => {
@@ -45,6 +61,15 @@ describe('projectQuota', () => {
         expect(proj.capReachDate).not.toBeNull()
     })
 
+    it('danger when spend has passed the limit even without backend exhaustion', () => {
+        // The startup-cap display clamp can lower credit_limit below credits_used while exhausted stays false;
+        // that state must not read quieter than merely approaching the limit.
+        const proj = projectQuota(makeQuota({ credits_used: 12_000 }))
+        expect(proj.status).toBe('danger')
+        expect(proj.exhausted).toBe(false)
+        expect(proj.usedPct).toBe(120)
+    })
+
     it('danger when explicitly exhausted regardless of the fleet rate', () => {
         const proj = projectQuota(makeQuota({ credits_used: 10_000, remaining: 0, exhausted: true }))
         expect(proj.status).toBe('danger')
@@ -64,6 +89,17 @@ describe('projectQuota', () => {
         expect(lowered.projectedPct).toBeCloseTo(13.33, 1)
         const clamped = projectQuota(makeQuota({ projected_monthly_credits: 3_000 }), -9_000)
         expect(clamped.projectedPct).toBe(0)
+    })
+
+    it.each([
+        // Cap 10,000 with a 2,500 free allocation.
+        ['all spend still inside the free tier', 1_000, 10, 10],
+        ['free portion caps at the allocation', 4_000, 40, 25],
+        ['nothing spent, nothing free', 0, 0, 0],
+    ])('usedFreePct: %s', (_name, creditsUsed, expectedUsedPct, expectedFreePct) => {
+        const proj = projectQuota(makeQuota({ credits_used: creditsUsed }))
+        expect(proj.usedPct).toBe(expectedUsedPct)
+        expect(proj.usedFreePct).toBe(expectedFreePct)
     })
 
     it('reports unclamped percentages on overshoot', () => {
@@ -105,13 +141,60 @@ describe('quotaUx', () => {
         expect(ux.tooltip).toBeUndefined()
     })
 
-    it('shows a dollar tooltip near the warn threshold but does not block', () => {
+    it('shows a remaining-credits tooltip near the warn threshold but does not block', () => {
         const ux = quotaUx(makeQuota({ credits_used: 8_500, remaining: 1_500 }))
         expect(ux.disabledReason).toBeUndefined()
-        expect(ux.tooltip).toContain('$15.00')
+        expect(ux.tooltip).toContain('1,500 credits left')
+    })
+
+    // A deliberate $0 cap is not a free plan, so it keeps the spend-limit wording.
+    it('keeps spend-limit wording for a zero limit', () => {
+        const ux = quotaUx(makeQuota({ credit_limit: 0, remaining: 0, exhausted: true }))
+        expect(ux.disabledReason).toMatch(/spend limit reached/i)
+    })
+
+    it('tells a free-tier org its credits ran out, not that it hit a spend limit', () => {
+        const ux = quotaUx(
+            makeQuota({
+                credit_limit: 2_500,
+                free_monthly_credits: 2_500,
+                credits_used: 2_500,
+                remaining: 0,
+                exhausted: true,
+            })
+        )
+        expect(ux.disabledReason).toMatch(/free Replay vision credits/i)
+        expect(ux.disabledReason).not.toMatch(/spend limit/i)
     })
 
     it('returns nothing while usage is well under the threshold', () => {
         expect(quotaUx(makeQuota({ credits_used: 1_000, remaining: 9_000 }))).toEqual({})
+    })
+})
+
+describe('exhaustionForecast', () => {
+    // Frozen 10 days into a July 1-31 period.
+    beforeEach(() => {
+        jest.useFakeTimers().setSystemTime(new Date('2026-07-11T00:00:00Z'))
+    })
+    afterEach(() => {
+        jest.useRealTimers()
+    })
+
+    const PERIOD_START = '2026-07-01T00:00:00Z'
+    const PERIOD_END = '2026-07-31T00:00:00Z'
+
+    it.each([
+        ['uncapped', 5_000, null],
+        ['no spend yet', 0, 10_000],
+        ['already at the limit', 10_000, 10_000],
+        ['burn too slow to hit the limit this period', 1_000, 10_000],
+    ])('returns null when %s', (_name, creditsUsed, creditLimit) => {
+        expect(exhaustionForecast(creditsUsed, creditLimit, PERIOD_START, PERIOD_END)).toBeNull()
+    })
+
+    it('extrapolates the burn rate to the exhaustion date', () => {
+        // 5,000 of 10,000 spent in 10 days: the other half runs out 10 days from now.
+        expect(exhaustionForecast(5_000, 10_000, PERIOD_START, PERIOD_END)).toBe('Jul 21')
     })
 })

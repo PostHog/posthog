@@ -48,9 +48,10 @@ def bigquery_integration(team, user):
     )
 
 
-def test_can_put_config(client: HttpClient, temporal, encryption_codec, organization, team, user):
+def test_can_put_config(client: HttpClient, temporal, encryption_codec, organization, team, user, aws_s3_integration):
     destination_data: dict[str, t.Any] = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -122,12 +123,15 @@ def test_can_put_config(client: HttpClient, temporal, encryption_codec, organiza
 
 
 @pytest.mark.parametrize("interval", ["hour", "day"])
-def test_can_patch_config(client: HttpClient, interval, temporal, encryption_codec, organization, team, user):
+def test_can_patch_config(
+    client: HttpClient, interval, temporal, encryption_codec, organization, team, user, aws_s3_integration
+):
     timezone = "Europe/Berlin"
     # use offset of 1 hour for daily exports and None for hourly exports (these don't support offsets)
     offset_hour = None if interval == "hour" else 1
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -163,6 +167,7 @@ def test_can_patch_config(client: HttpClient, interval, temporal, encryption_cod
     # credentials. The existing values should be preserved.
     new_destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-new-production-s3-bucket",
             "region": "us-east-1",
@@ -408,6 +413,7 @@ def test_can_patch_schedule_configuration(
     organization,
     team,
     user,
+    aws_s3_integration,
     initial_state,
     patch_data,
     expected_state,
@@ -421,6 +427,7 @@ def test_can_patch_schedule_configuration(
     """
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -569,11 +576,13 @@ def test_patch_rejects_destination_type_change(
     organization,
     team,
     user,
+    aws_s3_integration,
     bigquery_integration,
 ):
     """Assert PATCH cannot change the destination type — callers must delete and recreate."""
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -621,10 +630,12 @@ def test_put_rejects_destination_type_change(
     organization,
     team,
     user,
+    aws_s3_integration,
 ):
     """Assert PUT cannot change the destination type either — same restriction as PATCH."""
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -665,10 +676,13 @@ def test_put_rejects_destination_type_change(
     assert refreshed["destination"]["config"]["bucket_name"] == "my-production-s3-bucket"
 
 
-def test_can_patch_hogql_query(client: HttpClient, temporal, encryption_codec, organization, team, user):
+def test_can_patch_hogql_query(
+    client: HttpClient, temporal, encryption_codec, organization, team, user, aws_s3_integration
+):
     """Test we can patch a schema with a HogQL query."""
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -751,12 +765,16 @@ def test_can_patch_hogql_query(client: HttpClient, temporal, encryption_codec, o
             "values": {"hogql_val_0": "test", "hogql_val_1": "Int64"},
             "hogql_query": "SELECT toString(uuid) AS uuid, 'test' AS test, toInt(plus(1, 1)) AS n FROM events",
         },
+        "hogql_query": None,
     }
 
 
-def test_patch_returns_error_on_unsupported_hogql_query(client: HttpClient, temporal, organization, team, user):
+def test_patch_returns_error_on_unsupported_hogql_query(
+    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+):
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",

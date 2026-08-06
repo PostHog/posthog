@@ -5,8 +5,10 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { urls } from 'scenes/urls'
 
-import api from '~/lib/api'
+import { ApiConfig } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
+
+import { llmPromptsNameDuplicateCreate } from '../generated/api'
 
 export const PROMPT_NAME_MAX_LENGTH = 255
 
@@ -24,6 +26,19 @@ export function validatePromptName(name: string | undefined): string | undefined
         return 'Only letters, numbers, hyphens (-), and underscores (_) are allowed'
     }
     return undefined
+}
+
+// Search params owned by the prompt detail scene. Strip them from any URL that
+// leaves the scene (breadcrumb, list row links), otherwise a lingering ?edit or
+// ?version reopens the next prompt in the wrong view.
+const PROMPT_SCENE_SEARCH_PARAMS = ['edit', 'version', 'version_id', 'tab']
+
+export function stripPromptSceneSearchParams(searchParams: Record<string, any>): Record<string, any> {
+    const nextSearchParams = { ...searchParams }
+    for (const param of PROMPT_SCENE_SEARCH_PARAMS) {
+        delete nextSearchParams[param]
+    }
+    return nextSearchParams
 }
 
 export const PROMPT_LABEL_MAX_LENGTH = 128
@@ -172,7 +187,7 @@ export function openArchivePromptDialog(onArchive: () => void): void {
 
 export async function requestPromptDuplicate(sourceName: string, newName: string): Promise<void> {
     try {
-        await api.llmPrompts.duplicateByName(sourceName, newName)
+        await llmPromptsNameDuplicateCreate(String(ApiConfig.getCurrentTeamId()), sourceName, { new_name: newName })
         lemonToast.success(`Prompt duplicated as "${newName}".`)
         router.actions.push(urls.aiObservabilityPrompt(newName))
     } catch (error) {

@@ -26,6 +26,7 @@ import { playlistFiltersLogic } from './playlistFiltersLogic'
 import {
     DEFAULT_RECORDING_FILTERS,
     DEFAULT_RECORDING_FILTERS_ORDER_BY,
+    asUniversalFilters,
     convertLegacyFiltersToUniversalFilters,
     convertUniversalFiltersToRecordingsQuery,
     getDefaultFilters,
@@ -956,6 +957,47 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         otherRecordings: [bRecording],
                     })
             })
+
+            it('clears a stale selection when filters change, instead of deleting recordings the user can no longer see', async () => {
+                await expectLogic(logic)
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ otherRecordings: [aRecording, bRecording] })
+
+                logic.actions.setSelectedRecordingsIds(['abc', 'def'])
+                await expectLogic(logic).toMatchValues({ selectedRecordingsIds: ['abc', 'def'] })
+
+                logic.actions.setFilters({ date_from: '-30d' })
+
+                await expectLogic(logic).toMatchValues({ selectedRecordingsIds: [] })
+            })
+
+            it('ignores a second delete request while one is already in flight', async () => {
+                let resolveDelete: (value: {
+                    success: boolean
+                    deleted_count: number
+                    total_requested: number
+                    failed_ids: string[]
+                }) => void = () => {}
+                jest.spyOn(api.recordings, 'bulkDeleteRecordings').mockReturnValue(
+                    new Promise((resolve) => {
+                        resolveDelete = resolve
+                    })
+                )
+
+                await expectLogic(logic)
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ otherRecordings: [aRecording, bRecording] })
+
+                logic.actions.setSelectedRecordingsIds(['abc', 'def'])
+
+                logic.actions.handleDeleteSelectedRecordings(undefined)
+                logic.actions.handleDeleteSelectedRecordings(undefined)
+
+                resolveDelete({ success: true, deleted_count: 2, total_requested: 2, failed_ids: [] })
+                await expectLogic(logic).toDispatchActions(['addDeletedRecordings'])
+
+                expect(api.recordings.bulkDeleteRecordings).toHaveBeenCalledTimes(1)
+            })
         })
     })
 
@@ -1042,6 +1084,71 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     },
                 })
             }).toMatchValues({ totalFiltersCount: 1 })
+        })
+    })
+
+    describe('matchingEventsMatchType', () => {
+        it('classifies a bare event-property filter as backend', () => {
+            // The shape the experiments server-side-flag exposure fallback produces
+            // ($feature/<key> with no event filter). Classifying it as 'none' would silently
+            // drop match indicators and skip-to-first-matching-event for those lists.
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: 'match-type-tests',
+                filters: {
+                    ...DEFAULT_RECORDING_FILTERS,
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        key: '$feature/my-flag',
+                                        type: PropertyFilterType.Event,
+                                        value: ['test'],
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            })
+            logic.mount()
+
+            expect(logic.values.matchingEventsMatchType.matchType).toBe('backend')
+        })
+
+        it('does not classify a bare visited_page filter as backend', () => {
+            // visited_page is sent to the backend as a recording-type property (matched against
+            // the session's all_urls array), which `matching_events` can't highlight against -
+            // it only matches event uuids. Classifying it as 'backend' made the player call an
+            // endpoint that 400s on every request with no event/action/event-property filter.
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: 'match-type-tests-visited-page',
+                filters: {
+                    ...DEFAULT_RECORDING_FILTERS,
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        key: 'visited_page',
+                                        type: PropertyFilterType.Recording,
+                                        value: ['https://example-url.com'],
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            })
+            logic.mount()
+
+            expect(logic.values.matchingEventsMatchType.matchType).toBe('none')
         })
     })
 
@@ -1194,6 +1301,29 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 properties: [],
                 session_ids: ['session-1', 'session-2', 'session-3'],
             })
+        })
+    })
+
+    describe('asUniversalFilters', () => {
+        // A playlist saved before universal filters stores only `events`. Left unconverted it has no
+        // filter_group, so the query converter finds nothing to filter on and the list returns
+        // everything while the UI shows no criteria.
+        it('carries a legacy saved filter through to the recordings query', () => {
+            const legacy = { events: [{ id: '$rageclick', type: 'events', order: 0 }] }
+
+            const query = convertUniversalFiltersToRecordingsQuery(asUniversalFilters(legacy as any)!)
+
+            expect(query.events).toEqual([expect.objectContaining({ id: '$rageclick', type: 'events' })])
+        })
+
+        it('leaves filters that are already universal untouched', () => {
+            const universal = getDefaultFilters()
+
+            expect(asUniversalFilters(universal)).toBe(universal)
+        })
+
+        it('returns undefined when there are no stored filters', () => {
+            expect(asUniversalFilters(undefined)).toBeUndefined()
         })
     })
 

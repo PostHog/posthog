@@ -38,7 +38,6 @@ import {
     ErrorTrackingIssue,
     ErrorTrackingIssueAggregations,
     ErrorTrackingRelationalIssue,
-    SimilarIssue,
 } from '~/queries/schema/schema-general'
 import { ActivityScope, Breadcrumb, IntegrationType, UniversalFiltersGroup } from '~/types'
 
@@ -55,7 +54,7 @@ import {
     triggerFilterActions,
     updateFilterSearchParams,
 } from '../../components/IssueFilters/issueFiltersLogic'
-import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery, errorTrackingSimilarIssuesQuery } from '../../queries'
+import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from '../../queries'
 import { syncSearchParams } from '../../utils'
 import { ERROR_TRACKING_DETAILS_RESOLUTION, dateRangeToIsoBounds } from '../../utils'
 import {
@@ -102,10 +101,6 @@ export interface errorTrackingIssueSceneLogicValues {
     properties: ErrorEventProperties | null
     selectedEvent: ErrorEventType | null
     sidePanelContext: SidePanelSceneContext
-    similarIssues: SimilarIssue[]
-    similarIssuesError: string | null
-    similarIssuesLoading: boolean
-    similarIssuesMaxDistance: number
     spikeEvents: ErrorTrackingSpikeEvent[]
     spikeEventsLoading: boolean
     summary: ErrorTrackingIssueSummary | null
@@ -259,21 +254,6 @@ export interface errorTrackingIssueSceneLogicActions {
             value: true
         }
     }
-    loadSimilarIssues: (refresh?: boolean) => boolean
-    loadSimilarIssuesFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadSimilarIssuesSuccess: (
-        similarIssues: SimilarIssue[],
-        payload?: boolean
-    ) => {
-        similarIssues: SimilarIssue[]
-        payload?: boolean
-    }
     loadSpikeEvents: () => any
     loadSpikeEventsFailure: (
         error: string,
@@ -300,20 +280,12 @@ export interface errorTrackingIssueSceneLogicActions {
         errorObject?: any
     }
     loadSummarySuccess: (
-        summary: {
-            aggregations: ErrorTrackingIssueAggregations
-            first_seen: string
-            last_seen: string
-        } | null,
+        summary: ErrorTrackingIssueSummary | null,
         payload?: {
             value: true
         }
     ) => {
-        summary: {
-            aggregations: ErrorTrackingIssueAggregations
-            first_seen: string
-            last_seen: string
-        } | null
+        summary: ErrorTrackingIssueSummary | null
         payload?: {
             value: true
         }
@@ -353,9 +325,6 @@ export interface errorTrackingIssueSceneLogicActions {
     }
     setMobileDetailOpen: (mobileDetailOpen: boolean) => {
         mobileDetailOpen: boolean
-    }
-    setSimilarIssuesMaxDistance: (distance: number) => {
-        distance: number
     }
     updateAssignee: (assignee: ErrorTrackingIssue['assignee']) => {
         assignee: ErrorTrackingIssueAssignee | null
@@ -597,7 +566,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         updateStatus: (status: ErrorTrackingIssue['status']) => ({ status }),
         updateName: (name: string) => ({ name }),
         updateDescription: (description: string) => ({ description }),
-        setSimilarIssuesMaxDistance: (distance: number) => ({ distance }),
         setListDateRange: (dateRange: DateRange) => ({ dateRange }),
     }),
 
@@ -611,8 +579,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         mobileDetailOpen: false as boolean,
         initialEventTimestamp: null as string | null,
         initialEventLoading: true as boolean,
-        similarIssuesMaxDistance: 0.2 as number,
-        similarIssuesError: null as string | null,
         listDateRange: null as DateRange | null,
     }),
 
@@ -626,14 +592,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }
                 return prevLastSeen
             },
-        },
-        similarIssuesMaxDistance: {
-            setSimilarIssuesMaxDistance: (_, { distance }) => distance,
-        },
-        similarIssuesError: {
-            loadSimilarIssues: () => null,
-            loadSimilarIssuesSuccess: () => null,
-            loadSimilarIssuesFailure: (_, { error }) => error,
         },
         initialEventTimestamp: {
             // A malformed `timestamp` URL param (truncated/mangled shared links, crawlers) would
@@ -751,45 +709,21 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         searchQuery: values.searchQuery,
                         volumeResolution: ERROR_TRACKING_DETAILS_RESOLUTION,
                         withAggregations: true,
-                        withFirstEvent: false,
-                        withLastEvent: false,
+                        withFirstEvent: true,
+                        withLastEvent: true,
                     }),
                     { refresh: 'blocking' }
                 )
                 if (!response.results.length) {
                     return null
                 }
-                const summary = response.results[0]
-                if (!summary.aggregations) {
-                    return null
-                }
-                return {
-                    first_seen: summary.first_seen,
-                    last_seen: summary.last_seen,
-                    aggregations: summary.aggregations,
-                }
+                return toErrorTrackingIssueSummary(response.results[0])
             },
         },
         issueFingerprints: [
             [] as ErrorTrackingFingerprint[],
             {
                 loadIssueFingerprints: async () => await api.errorTracking.fingerprints.list(props.id),
-            },
-        ],
-        similarIssues: [
-            [] as SimilarIssue[],
-            {
-                loadSimilarIssues: async (refresh: boolean = false) => {
-                    const query = errorTrackingSimilarIssuesQuery({
-                        issueId: props.id,
-                        limit: 10,
-                        maxDistance: values.similarIssuesMaxDistance,
-                    })
-                    const response = await api.query(query, {
-                        refresh: refresh ? 'force_blocking' : 'blocking',
-                    })
-                    return response.results
-                },
             },
         ],
         spikeEvents: [
@@ -968,9 +902,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     actions.loadIssue()
                 }
             },
-            setSimilarIssuesMaxDistance: () => {
-                actions.loadSimilarIssues(true)
-            },
         }
     }),
 
@@ -1034,5 +965,23 @@ function getNarrowDateRange(timestamp: Dayjs | string): DateRange {
 export type ErrorTrackingIssueSummary = {
     last_seen?: string
     first_seen?: string
+    first_event_uuid?: string
+    last_event_uuid?: string
     aggregations: ErrorTrackingIssueAggregations
+}
+
+export function toErrorTrackingIssueSummary(
+    summary: Pick<ErrorTrackingIssue, 'first_seen' | 'last_seen' | 'first_event' | 'last_event' | 'aggregations'>
+): ErrorTrackingIssueSummary | null {
+    if (!summary.aggregations) {
+        return null
+    }
+
+    return {
+        first_seen: summary.first_seen,
+        last_seen: summary.last_seen,
+        first_event_uuid: summary.first_event?.uuid,
+        last_event_uuid: summary.last_event?.uuid,
+        aggregations: summary.aggregations,
+    }
 }

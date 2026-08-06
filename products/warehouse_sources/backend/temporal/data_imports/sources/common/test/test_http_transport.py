@@ -8,6 +8,7 @@ from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
     DEFAULT_RETRY,
+    BoundedRetry,
     TrackedHTTPAdapter,
     _NoRedirectSession,
     make_tracked_adapter,
@@ -108,6 +109,29 @@ def test_make_tracked_session_merges_headers():
 
     assert session.headers["X-Source"] == "stripe"
     assert session.headers["User-Agent"] == "posthog/test"
+
+
+@pytest.mark.parametrize(
+    "header_value,expected",
+    [
+        ("5", 5),
+        ("0.129", 0.129),
+        (" 1.5 ", 1.5),
+        ("not-a-number", 0.0),
+        # Non-finite values `float()` accepts but `time.sleep` rejects — must
+        # collapse to no delay rather than reach the sleep call.
+        ("NaN", 0.0),
+        ("Infinity", 0.0),
+        ("-Infinity", 0.0),
+    ],
+)
+def test_lenient_retry_after_parses_fractional_seconds_without_raising(header_value, expected):
+    # Some upstream APIs send fractional-second Retry-After values (e.g. "0.129"),
+    # which isn't RFC 9110-compliant and makes urllib3's default parsing raise
+    # InvalidHeader, crashing the sync instead of backing off.
+    retry = BoundedRetry(total=3)
+
+    assert retry.parse_retry_after(header_value) == expected
 
 
 def test_make_tracked_adapter_with_none_retry_uses_default():

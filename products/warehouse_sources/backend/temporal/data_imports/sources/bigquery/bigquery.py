@@ -40,17 +40,13 @@ from structlog.types import FilteringBoundLogger
 from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_TABLE_SIZE_BYTES
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
     incremental_type_to_initial_value,
     incremental_type_to_operator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_TABLE_SIZE_BYTES
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
-    DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import make_tracked_channel
@@ -77,6 +73,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
     format_projected_select_clause,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigquery import (
     BigQuerySourceConfig,
 )
@@ -701,6 +698,12 @@ def _get_primary_keys_for_table(table: bigquery.Table, client: bigquery.Client) 
 # stay in lockstep if BigQuery ever adjusts the phrasing.
 BIGQUERY_RESOURCES_EXCEEDED_ERROR = "Resources exceeded during query execution"
 
+# Stable wording BigQuery puts in a `billingTierLimitExceeded` query failure's message, raised as a
+# 400 BadRequest from `jobs.getQueryResults` when a query's CPU-second usage relative to bytes
+# billed exceeds the ratio the on-demand pricing model allows. Shared with
+# `BigQuerySource.get_non_retryable_errors` so the two stay in lockstep.
+BIGQUERY_ON_DEMAND_RATIO_EXCEEDED_ERROR = "exceeds the ratio supported by the on-demand pricing model"
+
 
 def _is_bigquery_resource_exceeded(error: BadRequest) -> bool:
     """True for BigQuery's `resourcesExceeded` query failures.
@@ -713,6 +716,18 @@ def _is_bigquery_resource_exceeded(error: BadRequest) -> bool:
     """
     reasons = {err.get("reason") for err in (getattr(error, "errors", None) or [])}
     return "resourcesExceeded" in reasons or BIGQUERY_RESOURCES_EXCEEDED_ERROR in str(error)
+
+
+def _is_bigquery_view_parse_failure(error: BadRequest) -> bool:
+    """True for BigQuery's `failed to parse view` query failures.
+
+    BigQuery raises this when the table being probed is itself a view whose definition no
+    longer compiles (a column, UDF, or upstream table it references was renamed or dropped).
+    See the `"failed to parse view"` key in `BigQuerySource.get_non_retryable_errors` for the
+    main read path — that's a customer-side view problem we can't fix, so this best-effort
+    probe should degrade gracefully instead of treating it as an actionable crash.
+    """
+    return "failed to parse view" in str(error)
 
 
 def _has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, primary_keys: list[str] | None) -> bool:
@@ -741,6 +756,17 @@ def _has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, 
             # on every sync.
             structlog.get_logger().warning(
                 "Skipping duplicate primary key check for BigQuery table %s.%s: query exceeded BigQuery memory limits",
+                table.dataset_id,
+                table.table_id,
+            )
+            return False
+        if _is_bigquery_view_parse_failure(e):
+            # The table being probed is itself a broken view — its own definition doesn't
+            # compile, so BigQuery rejects the probe before it can even run. That's a
+            # customer-side view problem this check can't fix, and this check is best-effort,
+            # so skip it quietly rather than capturing non-actionable noise on every sync.
+            structlog.get_logger().warning(
+                "Skipping duplicate primary key check for BigQuery table %s.%s: view failed to parse",
                 table.dataset_id,
                 table.table_id,
             )

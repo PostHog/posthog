@@ -31,6 +31,7 @@ import { CdpApi } from './cdp-api'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
+import { compileHog } from './templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
 
 // Email MX validation runs on every email send, so without a mock the test-panel
@@ -625,6 +626,112 @@ describe('CDP API', () => {
         })
     })
 
+    describe('log transformations', () => {
+        let configuration: HogFunctionType
+
+        const logRecordGlobals = {
+            record: {
+                body: 'login ok password=hunter2',
+                severity_text: 'info',
+                severity_number: 9,
+                service_name: 'payments-api',
+                attributes: { 'http.method': 'POST' },
+                resource_attributes: { 'k8s.namespace.name': 'payments' },
+            },
+        }
+
+        beforeEach(async () => {
+            const hog = `
+                let r := record
+                if (r.severity_text == 'debug') {
+                    return null
+                }
+                if (r.body != null) {
+                    r.body := replaceAll(r.body, inputs.needle, '[REDACTED]')
+                }
+                r.attributes.transformed := 'true'
+                return r
+            `
+            configuration = createHogFunction({
+                type: 'transformation_log',
+                name: 'Test log transformation',
+                team_id: team.id,
+                enabled: true,
+                hog,
+                bytecode: await compileHog(hog),
+                inputs: { needle: { value: 'hunter2' } },
+            })
+        })
+
+        it('transforms a mock log record', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_functions/new/invocations`)
+                .send({ globals: logRecordGlobals, configuration })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('success')
+            expect(res.body.errors).toEqual([])
+            expect(res.body.result.body).toEqual('login ok password=[REDACTED]')
+            expect(res.body.result.severity_text).toEqual('info')
+            expect(res.body.result.attributes).toEqual({ 'http.method': 'POST', transformed: 'true' })
+        })
+
+        it('returns null result when the record is dropped', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_functions/new/invocations`)
+                .send({
+                    globals: { record: { ...logRecordGlobals.record, severity_text: 'debug' } },
+                    configuration,
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('success')
+            expect(res.body.result).toEqual(null)
+            expect(res.body.logs.map((log: any) => log.message)).toContain('Record dropped by transformation.')
+        })
+
+        it('returns 400 when the record global is missing', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_functions/new/invocations`)
+                .send({ globals: {}, configuration })
+
+            expect(res.status).toEqual(400)
+            expect(res.body.error).toEqual('Missing record')
+        })
+
+        it('reports a malformed return value as an error', async () => {
+            // Returning a non-record, non-null value is a customer mistake the endpoint must surface
+            const hog = `return 42`
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_functions/new/invocations`)
+                .send({
+                    globals: logRecordGlobals,
+                    configuration: { ...configuration, hog, bytecode: await compileHog(hog) },
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('error')
+            expect(res.body.errors.length).toBeGreaterThan(0)
+        })
+
+        it('captures print output from the transformation', async () => {
+            const hog = `
+                print('inspecting', record.service_name)
+                return record
+            `
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_functions/new/invocations`)
+                .send({
+                    globals: logRecordGlobals,
+                    configuration: { ...configuration, hog, bytecode: await compileHog(hog) },
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('success')
+            expect(res.body.logs.map((log: any) => log.message)).toContain('inspecting, payments-api')
+        })
+    })
+
     describe('hog function states', () => {
         beforeEach(async () => {
             jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue(team)
@@ -836,6 +943,57 @@ describe('CDP API', () => {
             expect(res.body.status).toEqual('success')
             expect(res.body.nextActionId).toEqual(expectedNextActionId)
         })
+    })
+
+    it('redacts a flow function action secret from mocked async function logs', async () => {
+        const SECRET_TOKEN = 'super-secret-flow-token-xyz'
+
+        await insertHogFunctionTemplate(hub.postgres, {
+            id: 'template-cdp-api-flow-secret-fetch',
+            name: 'Flow secret fetch',
+            code: `fetch(inputs.url, { 'method': 'POST', 'headers': { 'Authorization': f'Bearer {inputs.access_token}' } })`,
+            inputs_schema: [
+                { key: 'url', type: 'string', label: 'URL', secret: false, required: true },
+                { key: 'access_token', type: 'string', label: 'Access token', secret: true, required: true },
+            ],
+        })
+
+        const flowConfiguration = {
+            name: 'Flow with secret fetch',
+            actions: [
+                { id: 'trigger_node', name: 'Trigger', type: 'trigger', config: { type: 'event', filters: {} } },
+                {
+                    id: 'fetch_node',
+                    name: 'Fetch',
+                    type: 'function',
+                    config: {
+                        template_id: 'template-cdp-api-flow-secret-fetch',
+                        inputs: {
+                            url: { value: 'https://example.com/hook' },
+                            access_token: { value: SECRET_TOKEN },
+                        },
+                    },
+                },
+                { id: 'exit_node', name: 'Exit', type: 'exit', config: {} },
+            ],
+            edges: [
+                { from: 'trigger_node', to: 'fetch_node', type: 'continue' },
+                { from: 'fetch_node', to: 'exit_node', type: 'continue' },
+            ],
+        }
+
+        const res = await supertest(app).post(`/api/projects/${team.id}/hog_flows/new/invocations`).send({
+            globals,
+            mock_async_functions: true,
+            configuration: flowConfiguration,
+            current_action_id: 'fetch_node',
+        })
+
+        expect(res.status).toEqual(200)
+        const allLogText = res.body.logs.map((log: any) => log.message).join('\n')
+        expect(allLogText).not.toContain(SECRET_TOKEN)
+        // Confirm redaction actually ran, rather than passing because no fetch log was emitted.
+        expect(allLogText).toContain('***REDACTED***')
     })
 
     describe('batch hogflow invocations', () => {
@@ -1463,7 +1621,7 @@ describe('CDP API', () => {
     // The test panel POSTs to /hog_flows/:id/invocations and runs the executor in-process —
     // it never enqueues into cyclotron. If the executor routes an email action onto the
     // dedicated email queue, nothing services that job and the workflow stalls on a
-    // "Workflow will pause until …" log. The handler forces `sendEmailsInline: true` so the
+    // "Workflow will pause until …" log. The handler forces `isTest: true` so the
     // email branch always goes through EmailService directly on this path.
     describe('hog_flows/:id/invocations — email actions are sent inline despite queue routing', () => {
         let emailSpy: jest.SpyInstance
@@ -1548,7 +1706,7 @@ describe('CDP API', () => {
             // Stub EmailService so the test doesn't depend on a running maildev SMTP. The spy
             // captures whether the inline path was taken — that's the assertion that proves the fix.
             emailSpy = jest
-                .spyOn(api['hogExecutor']['emailService'], 'executeSendEmail')
+                .spyOn(api['hogExecutorAsync']['deps'].emailService, 'executeSendEmail')
                 .mockImplementation((invocation: any) =>
                     Promise.resolve({
                         invocation,
@@ -1566,7 +1724,7 @@ describe('CDP API', () => {
                         ],
                         capturedPostHogEvents: [],
                         warehouseWebhookPayloads: [],
-                        emailAssets: [],
+                        messageAssets: [],
                     })
                 )
         })
