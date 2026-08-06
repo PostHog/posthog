@@ -12,6 +12,7 @@ from posthog.temporal.common.errors import NonReportableError
 from products.warehouse_sources.backend.temporal.data_imports import util as util_module
 from products.warehouse_sources.backend.temporal.data_imports.util import (
     NonRetryableException,
+    _is_storage_full_error,
     _is_transient_s3_connection_error,
     prepare_s3_files_for_querying,
 )
@@ -163,6 +164,80 @@ class TestPrepareS3FilesForQuerying:
                     delete_existing=False,
                 )
 
+    async def test_reclaims_stale_folders_and_retries_copy_when_store_full(self):
+        # The copy normally deletes old query folders only after it succeeds, so a store that is
+        # full can never make room: the space it needs is held by the folders it plans to delete.
+        # On XMinioStorageFull the copy must reclaim those already-identified folders and retry,
+        # so a near-full store finishes the sync on its own instead of wedging until manual cleanup.
+        storage_full = OSError(
+            "An error occurred (XMinioStorageFull) when calling the CopyObject operation: "
+            "Storage backend has reached its minimum free drive threshold"
+        )
+        cp_file = AsyncMock(side_effect=[storage_full, None])
+        # Two stale query folders; the newest (events__query_2000) is spared as the live one,
+        # so events__query_1000 is the reclaimable generation.
+        listing = [
+            {"Key": "job/events__query_1000/", "type": "directory"},
+            {"Key": "job/events__query_2000/", "type": "directory"},
+        ]
+        s3 = _fake_s3(_cp_file=cp_file, _ls=AsyncMock(return_value=listing))
+
+        with patch.object(util_module, "aget_s3_client", return_value=_FakeS3CM(s3)):
+            await prepare_s3_files_for_querying(
+                folder_path="job",
+                table_name="events",
+                file_uris=["s3://bucket/job/events/part-0.parquet"],
+                use_timestamped_folders=True,
+                delete_existing=True,
+            )
+
+        assert cp_file.await_count == 2  # failed once, retried once after reclaiming
+        reclaimed = [call.args[0] for call in s3._rm.await_args_list]
+        assert "job/events__query_1000/" in reclaimed
+        assert "job/events__query_2000/" not in reclaimed  # newest generation is never reclaimed
+
+    async def test_raises_when_store_full_with_nothing_to_reclaim(self):
+        # A full store with no stale folders to free cannot self-heal - surface the failure for a
+        # retry once capacity is added, without looping or retrying the doomed copy.
+        storage_full = OSError("An error occurred (XMinioStorageFull) when calling the CopyObject operation")
+        cp_file = AsyncMock(side_effect=storage_full)
+        s3 = _fake_s3(_cp_file=cp_file)
+
+        with patch.object(util_module, "aget_s3_client", return_value=_FakeS3CM(s3)):
+            with pytest.raises(OSError, match="XMinioStorageFull"):
+                await prepare_s3_files_for_querying(
+                    folder_path="job",
+                    table_name="events",
+                    file_uris=["s3://bucket/job/events/part-0.parquet"],
+                    delete_existing=False,
+                )
+
+        assert cp_file.await_count == 1  # no reclaimable folders, so no retry
+        s3._rm.assert_not_awaited()
+
+    async def test_does_not_retry_copy_more_than_once_when_store_stays_full(self):
+        # Reclaiming and retrying is a single shot: if the copy is still storage-full after the
+        # reclaim (it did not free enough), give up rather than reclaiming again on every attempt.
+        storage_full = OSError("An error occurred (XMinioStorageFull) when calling the CopyObject operation")
+        cp_file = AsyncMock(side_effect=storage_full)
+        listing = [
+            {"Key": "job/events__query_1000/", "type": "directory"},
+            {"Key": "job/events__query_2000/", "type": "directory"},
+        ]
+        s3 = _fake_s3(_cp_file=cp_file, _ls=AsyncMock(return_value=listing))
+
+        with patch.object(util_module, "aget_s3_client", return_value=_FakeS3CM(s3)):
+            with pytest.raises(OSError, match="XMinioStorageFull"):
+                await prepare_s3_files_for_querying(
+                    folder_path="job",
+                    table_name="events",
+                    file_uris=["s3://bucket/job/events/part-0.parquet"],
+                    use_timestamped_folders=True,
+                    delete_existing=True,
+                )
+
+        assert cp_file.await_count == 2  # initial attempt + one retry after reclaiming
+
 
 @parameterized.expand(
     [
@@ -196,6 +271,33 @@ class TestPrepareS3FilesForQuerying:
 )
 def test_is_transient_s3_connection_error(name: str, error: BaseException, expected: bool) -> None:
     assert _is_transient_s3_connection_error(error) is expected
+
+
+@parameterized.expand(
+    [
+        # s3fs translates MinIO's XMinioStorageFull ClientError into a generic OSError whose message
+        # still carries the code, so both the translated OSError and a raw ClientError must match.
+        ("translated_oserror_minio", OSError("An error occurred (XMinioStorageFull) when calling ..."), True),
+        (
+            "raw_client_error_minio",
+            botocore.exceptions.ClientError({"Error": {"Code": "XMinioStorageFull"}}, "CopyObject"),
+            True,
+        ),
+        (
+            "raw_client_error_insufficient_storage",
+            botocore.exceptions.ClientError({"Error": {"Code": "InsufficientStorage"}}, "CopyObject"),
+            True,
+        ),
+        ("unrelated_oserror", OSError("connection reset by peer"), False),
+        (
+            "unrelated_client_error",
+            botocore.exceptions.ClientError({"Error": {"Code": "AccessDenied"}}, "CopyObject"),
+            False,
+        ),
+    ]
+)
+def test_is_storage_full_error(name: str, error: BaseException, expected: bool) -> None:
+    assert _is_storage_full_error(error) is expected
 
 
 @contextlib.contextmanager

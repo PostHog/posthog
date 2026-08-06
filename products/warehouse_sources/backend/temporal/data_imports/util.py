@@ -33,6 +33,32 @@ def _is_transient_s3_connection_error(error: BaseException) -> bool:
     return isinstance(error, _TRANSIENT_S3_CONNECTION_EXCEPTIONS)
 
 
+# Object-store "no space left" codes. MinIO returns XMinioStorageFull once the backend hits its
+# minimum free-drive threshold; InsufficientStorage (HTTP 507) is the generic S3-compatible form.
+_STORAGE_FULL_MARKERS = ("XMinioStorageFull", "InsufficientStorage")
+
+
+def _is_storage_full_error(error: BaseException) -> bool:
+    """True when a copy failed because the object store is out of space.
+
+    s3fs runs the copy through its own retry wrapper, which translates an unrecognized
+    ``ClientError`` (like ``XMinioStorageFull``) into a generic ``OSError`` whose message still
+    carries the original error code, keeping the ``ClientError`` as ``__cause__``. So a raw
+    ``ClientError`` and that translated ``OSError`` both have to be matched - by the structured
+    error code where present, and by the message text otherwise."""
+    for exc in (error, getattr(error, "__cause__", None)):
+        if exc is None:
+            continue
+        response = getattr(exc, "response", None)
+        if isinstance(response, dict):
+            code = response.get("Error", {}).get("Code") or ""
+            if any(marker in code for marker in _STORAGE_FULL_MARKERS):
+                return True
+        if any(marker in str(exc) for marker in _STORAGE_FULL_MARKERS):
+            return True
+    return False
+
+
 class NonRetryableException(NonReportableError):
     """Raised only for errors already classified as a permanent customer/upstream condition
     (bad credentials, denied permissions, a deleted remote) via a source's
@@ -197,6 +223,24 @@ async def prepare_s3_files_for_querying(
                 # S3's SlowDown rate limiting on the destination prefix.
                 await s3._cp_file(file, f"{s3_path_for_querying}/{file_name}")
 
+        async def delete_folders(folders: list[str]) -> None:
+            async def delete_folder(file: str) -> None:
+                async with semaphore:
+                    try:
+                        await s3._rm(file, recursive=True)
+                    except Exception as e:
+                        await _log(f"Error while deleting old query folder {file}: {e}", level="error")
+                        if not _is_transient_s3_connection_error(e):
+                            capture_exception(e)
+
+            await asyncio.gather(*[delete_folder(file) for file in folders])
+
+        # Old query folders are normally deleted only after the copy succeeds, so a failed copy
+        # leaves the previous generation queryable. But if the copy fails because the object store
+        # is full, that ordering wedges the sync: the space it needs is held by the very folders it
+        # planned to delete. So reclaim those already-identified folders once, then retry the copy -
+        # a near-full store can finish the sync on its own instead of waiting for a manual cleanup.
+        reclaimed_for_storage = False
         attempt = 0
         while True:
             attempt += 1
@@ -218,21 +262,26 @@ async def prepare_s3_files_for_querying(
                 )
                 await asyncio.sleep(2**attempt)
                 file_uris = await refresh_file_uris()
+            except OSError as e:
+                if not _is_storage_full_error(e):
+                    raise
+                if reclaimed_for_storage or not (delete_existing and files_to_delete):
+                    # Nothing left to reclaim - the store is full and no stale folders can free
+                    # space, so let the failure surface for a retry once capacity is added.
+                    raise
+                await _log(
+                    f"Object store full mid-copy; reclaiming {len(files_to_delete)} stale query "
+                    f"folder(s) before retrying the copy: {e}",
+                    level="error",
+                )
+                await delete_folders(files_to_delete)
+                files_to_delete = []  # reclaimed here, so skip the post-copy cleanup below
+                reclaimed_for_storage = True
 
-        # Delete existing files after copying new ones
+        # Delete existing files after copying new ones (skipped if already reclaimed above)
         if delete_existing and files_to_delete:
             await _log(f"Deleting {len(files_to_delete)} old query folders")
-
-            async def delete_folder(file: str) -> None:
-                async with semaphore:
-                    try:
-                        await s3._rm(file, recursive=True)
-                    except Exception as e:
-                        await _log(f"Error while deleting old query folder {file}: {e}", level="error")
-                        if not _is_transient_s3_connection_error(e):
-                            capture_exception(e)
-
-            await asyncio.gather(*[delete_folder(file) for file in files_to_delete])
+            await delete_folders(files_to_delete)
 
         await _log(f"Returning S3 folder for querying: {s3_folder_for_querying}")
 
