@@ -67,13 +67,16 @@ the resolution stage runs on PRs the team does not own:
 2. **Author-permission gate** — no code rule restricts whose comment may drive a write turn; the policy is the
    hard part (review bots and external contributors both carry `author_association: NONE`, so a naive filter
    drops exactly the bot threads the stage exists to resolve). Decide which associations may drive write turns
-   and how trusted bots stay in scope. **Reviewing includes resolving**: a published review chains into the stage when the acting user's
-   `resolve_comments` setting is on (default on; the toggle sits with the trigger opt-outs on the Code review scene,
-   which also carries a single-active resolution-criteria skill block and a split Review button with
-   review-without-resolving / resolve-only side actions). Standalone entry: `POST /api/review_hog/resolve`, the
-   `run_resolution` command, or the UI's resolve-only action. Design + decision record: DECISIONS.md Stage 7;
-   vocabulary: CONTEXT.md; the live-e2e qualification plan (the resolver fixes its own PR):
-   `eval/experiments/2026-07-resolution-e2e/PLAN.md`.
+   and how trusted bots stay in scope.
+
+**Reviewing includes resolving**: a published review chains into the stage when the acting user's
+`resolve_comments` setting is on (default on; the toggle sits with the trigger opt-outs on the Code review scene,
+which also carries a single-active resolution-criteria skill block and a split Review button with
+review-without-resolving / resolve-only side actions). Standalone entry: `POST /api/review_hog/resolve`, the
+`run_resolution` command, or the UI's resolve-only action. Standalone runs without a pinned acting user apply
+the PR author's resolution criteria (canonical for unmapped authors). Design + decision record: DECISIONS.md
+Stage 7; vocabulary: CONTEXT.md; the live-e2e qualification plan (the resolver fixes its own PR):
+`eval/experiments/2026-07-resolution-e2e/PLAN.md`.
 
 **TODO (SOON) — react to thread replies: answer and act when a human responds to an escalated (or any settled) thread.**
 The per-thread mechanics already exist and are e2e-proven: a new human comment beats the verdict watermark and
