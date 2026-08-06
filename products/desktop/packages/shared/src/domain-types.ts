@@ -81,6 +81,7 @@ export interface Task {
   created_by?: UserBasic | null;
   origin_product: string;
   repository?: string | null; // Format: "organization/repository" (e.g., "posthog/posthog-js")
+  repositories?: string[];
   github_integration?: number | null;
   github_user_integration?: string | null;
   json_schema?: Record<string, unknown> | null;
@@ -102,6 +103,8 @@ export interface TaskChannel {
   name: string;
   channel_type: "public" | "personal";
   starred: boolean;
+  github_integration?: number | null;
+  repositories?: string[];
   created_at: string;
   created_by?: UserBasic | null;
 }

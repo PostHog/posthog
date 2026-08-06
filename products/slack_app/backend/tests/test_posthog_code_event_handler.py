@@ -529,7 +529,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
 
         mock_sync_connect.return_value.start_workflow.assert_called_once()
-        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.args[1]
+        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.kwargs["start_signal_args"][0]
         # The user belongs to ``self.organization`` only, so only that integration
         # should be the mention target — ``other_integration`` is filtered out.
         assert workflow_inputs.integration_id == self.posthog_code_integration.id
@@ -583,7 +583,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
 
         mock_sync_connect.return_value.start_workflow.assert_called_once()
-        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.args[1]
+        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.kwargs["start_signal_args"][0]
         assert workflow_inputs.integration_id == self.posthog_code_integration.id
         assert workflow_inputs.integration_id != private_integration.id
 
@@ -600,7 +600,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
 
         mock_sync_connect.return_value.start_workflow.assert_called_once()
-        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.args[1]
+        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.kwargs["start_signal_args"][0]
         assert workflow_inputs.user_id == self.user.id
 
     @patch("products.slack_app.backend.api.asyncio.run")
@@ -1433,16 +1433,15 @@ class TestQueueWorkflowDispatch(TestCase):
         ]
     )
     @patch("products.slack_app.backend.api.SlackIntegration")
-    @patch("products.slack_app.backend.api.is_slack_app_queue_workflow_enabled", return_value=True)
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-    def test_flag_on_signal_with_starts_conversation_workflow(
-        self, _name, thread_ts, expected_anchor, mock_sync_connect, mock_asyncio_run, mock_flag, mock_slack
+    def test_signal_with_starts_conversation_workflow(
+        self, _name, thread_ts, expected_anchor, mock_sync_connect, mock_asyncio_run, mock_slack
     ):
-        # With the flag on, every message in a conversation must land in ONE
-        # per-thread workflow via signal-with-start — the conversation ID
-        # anchors on the thread root so followups reach the same instance.
+        # Every message in a conversation must land in ONE per-thread workflow
+        # via signal-with-start — the conversation ID anchors on the thread
+        # root so followups reach the same instance.
         from posthog.temporal.ai.slack_app.slack_app_mention import SlackAppMentionWorkflow
 
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region

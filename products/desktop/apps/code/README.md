@@ -73,7 +73,7 @@ PostHog auto-updates on macOS and Windows. Current builds use `electron-updater`
 There are three ways a release can fire:
 
 1. **Scheduled (default)** — automatic at 17:00 and 01:00 UTC.
-2. **Hotfix** — add the `Create release` label to a PR before it merges. On merge, the tag workflow runs immediately and ships whatever is on `main`.
+2. **Hotfix** — add the `create desktop release` label to a PR before it merges. On merge, the tag workflow runs immediately and ships whatever is on `master`.
 3. **Manual** — run `Tag PostHog Release` via `workflow_dispatch` from the Actions tab.
 
 Local prep (only needed for one-off manual builds):

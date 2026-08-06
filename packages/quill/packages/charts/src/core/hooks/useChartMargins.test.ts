@@ -26,6 +26,22 @@ describe('useChartMargins', () => {
         expect(render({ hideXAxis: true }).bottom).toBe(8)
     })
 
+    describe('override', () => {
+        it('applies the sides it sets', () => {
+            expect(render({ override: { top: 30, left: 24 } })).toMatchObject({ top: 30, left: 24 })
+        })
+
+        it('leaves a side alone when its override is undefined', () => {
+            const withUndefined = render({ override: { top: undefined, left: 24 } })
+            expect(withUndefined.top).toBe(DEFAULT_MARGINS.top)
+            expect(withUndefined.left).toBe(24)
+        })
+
+        it('honors an explicit zero rather than treating it as unset', () => {
+            expect(render({ override: { top: 0, left: 0 } })).toMatchObject({ top: 0, left: 0 })
+        })
+    })
+
     it('keeps default bottom margin otherwise', () => {
         expect(render().bottom).toBe(DEFAULT_MARGINS.bottom)
     })

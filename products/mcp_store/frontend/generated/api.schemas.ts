@@ -120,13 +120,13 @@ export interface PaginatedMCPAuditEventListApi {
 }
 
 export interface AuditCountsApi {
-    /** Every audited tool call. */
+    /** Every audited tool call visible to the requesting user. */
     all: number
-    /** Calls made by service accounts. */
+    /** Visible calls made by service accounts. */
     agents: number
-    /** Calls that were approved or are awaiting approval. */
+    /** Visible calls that were approved or are awaiting approval. */
     approvals: number
-    /** Calls the gateway blocked. */
+    /** Visible calls the gateway blocked. */
     blocked: number
 }
 
@@ -168,6 +168,8 @@ export interface TeamMCPGatewayConfigApi {
      * * `ask` - Ask for destructive
      * * `block` - Block destructive */
     agent_default_preset?: (typeof TeamMCPGatewayConfigApiAgentDefaultPreset)[keyof typeof TeamMCPGatewayConfigApiAgentDefaultPreset]
+    /** Catalog template ids that already have a gateway registration, including registrations hidden from the requesting member. Clients use this list to avoid presenting disabled or revoked templates as new. */
+    readonly registered_template_ids: readonly string[]
     /** Whether the requesting user can administer the gateway (org admin or explicit project admin). */
     readonly is_admin: boolean
 }
@@ -639,6 +641,8 @@ export interface ResolvedToolPolicyApi {
     description: string
     /** JSON Schema describing the tool's input arguments. */
     input_schema: ResolvedToolPolicyApiInputSchema
+    /** Whether the canonical gateway heuristic treats this tool as destructive. */
+    is_destructive: boolean
     /** Effective state for the scope.
      *
      * * `approved` - Approved
@@ -1041,6 +1045,13 @@ export const McpGatewayAuditListQuickFilter = {
     Approvals: 'approvals',
     Blocked: 'blocked',
 } as const
+
+export type McpGatewayAuditCountsRetrieveParams = {
+    /**
+     * Only count calls made by this service account.
+     */
+    actor_service_account_id?: string
+}
 
 export type McpGatewayMembersListParams = {
     /**

@@ -90,9 +90,11 @@ export {
   getCloudTaskGatewayUrl,
   getProviderName,
   isAnthropicModel,
+  isBasetenModel,
   isBlockedModelId,
   isCloudflareModel,
   isCloudflareModelId,
+  isDeepseekModelId,
   isGlmModelId,
   isModalModel,
   isModalModelId,
@@ -211,12 +213,19 @@ export {
 } from "./inbox-types";
 export { EXTERNAL_LINKS } from "./links";
 export type {
-  CloudMcpServerImport,
   CloudMcpServerRelayDesignation,
   LocalMcpServerDescriptor,
   LocalMcpServerScope,
   LocalMcpTransport,
+  McpServerConnection,
 } from "./local-mcp-domain";
+export {
+  MCP_TOOL_PERMISSION_OPTIONS,
+  type McpToolApprovalState,
+  type McpToolPermissionDecision,
+  type McpToolPermissionRequest,
+  type McpToolPolicy,
+} from "./mcp-tool-policy-domain";
 export {
   formatMention,
   type MentionSegment,
@@ -326,6 +335,7 @@ export type {
   UploadableSkillSource,
 } from "./skills";
 export {
+  DISABLE_MODEL_INVOCATION_METADATA_KEY,
   SKILL_EXISTS_MARKER,
   serializeSkillMarkdown,
   stripFrontmatter,
@@ -362,6 +372,7 @@ export {
   parseMcpToolName,
   posthogToolMeta,
   readAgentToolName,
+  readMcpInstallationId,
   readMcpToolDescriptor,
   readMcpToolName,
   readParentToolCallId,

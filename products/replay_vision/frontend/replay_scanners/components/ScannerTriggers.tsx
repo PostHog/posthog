@@ -128,7 +128,7 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                     const durationError = durationFilterError(durationFilter)
                     return (
                         <LemonCard hoverEffect={false} className="p-3 space-y-3">
-                            <div className="flex items-start justify-between gap-2">
+                            <div className="flex flex-wrap items-start justify-between gap-2">
                                 <div className="space-y-1">
                                     <LemonLabel>Recording filters</LemonLabel>
                                     <div className="text-xs text-muted">
@@ -307,6 +307,7 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                             </div>
                             <div className="space-y-1">
                                 <LemonSegmentedButton
+                                    className="max-w-full overflow-x-auto"
                                     value={mode}
                                     onChange={onChange}
                                     options={SAMPLING_MODE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}

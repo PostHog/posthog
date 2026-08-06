@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconPlay } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { sessionRecordingInfoLogic } from 'lib/components/ViewRecordingButton/sessionRecordingInfoLogic'
 import { RecordingPlayerType, useRecordingButton } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
@@ -59,11 +59,12 @@ export function ScannerFindingSignalCard({ signal }: SignalCardProps): JSX.Eleme
     // Batch-check the recording so the play affordance disables (rather than opening an empty player)
     // when the recording wasn't captured or has expired.
     const { checkRecordingInfo } = useActions(sessionRecordingInfoLogic)
-    const { getRecordingExists } = useValues(sessionRecordingInfoLogic)
+    const { getRecordingExists, isRecordingExistsLoading } = useValues(sessionRecordingInfoLogic)
     useEffect(() => {
         checkRecordingInfo(extra.session_id)
     }, [extra.session_id, checkRecordingInfo])
     const hasRecording = getRecordingExists(extra.session_id)
+    const recordingCheckLoading = isRecordingExistsLoading(extra.session_id)
 
     const { onClick: openRecording, disabledReason } = useRecordingButton({
         sessionId: extra.session_id,
@@ -78,7 +79,7 @@ export function ScannerFindingSignalCard({ signal }: SignalCardProps): JSX.Eleme
         extra.recording_active_seconds != null ? humanFriendlyDuration(extra.recording_active_seconds) : undefined
     const totalDuration = extra.recording_duration != null ? humanFriendlyDuration(extra.recording_duration) : undefined
 
-    const findingWindow = `${colonDelimitedDuration(extra.start_time, 2)} – ${colonDelimitedDuration(extra.end_time, 2)}`
+    const findingWindow = `${colonDelimitedDuration(extra.start_time, 2)} to ${colonDelimitedDuration(extra.end_time, 2)}`
 
     return (
         <SignalCardShell
@@ -105,7 +106,7 @@ export function ScannerFindingSignalCard({ signal }: SignalCardProps): JSX.Eleme
             <button
                 type="button"
                 onClick={openRecording}
-                disabled={!!disabledReason}
+                disabled={!!disabledReason || recordingCheckLoading}
                 title={typeof disabledReason === 'string' ? disabledReason : undefined}
                 aria-label="Play recording"
                 className="group relative w-full aspect-video rounded overflow-hidden border bg-surface-secondary mb-2 cursor-pointer disabled:cursor-default disabled:opacity-70"
@@ -124,12 +125,19 @@ export function ScannerFindingSignalCard({ signal }: SignalCardProps): JSX.Eleme
                         thumbnailSrc ? 'bg-black/20 group-hover:bg-black/30' : 'group-hover:bg-fill-highlight-100'
                     )}
                 >
-                    <IconPlay
-                        className={clsx('size-10 drop-shadow', thumbnailSrc ? 'text-white' : 'text-tertiary')}
-                        aria-hidden
-                    />
+                    {recordingCheckLoading ? (
+                        <Spinner className={clsx('text-2xl', thumbnailSrc ? 'text-white' : 'text-tertiary')} />
+                    ) : (
+                        <IconPlay
+                            className={clsx('size-10 drop-shadow', thumbnailSrc ? 'text-white' : 'text-tertiary')}
+                            aria-hidden
+                        />
+                    )}
                 </div>
             </button>
+            {hasRecording === false && (
+                <p className="text-xs text-tertiary mb-2">This recording is no longer available.</p>
+            )}
 
             {/* Dot-separated meta line: affected user, finding window, active/total duration. */}
             <div className="flex items-center gap-1.5 flex-wrap text-xs text-tertiary">

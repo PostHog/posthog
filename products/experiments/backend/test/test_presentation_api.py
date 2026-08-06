@@ -17,7 +17,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.models import Organization, Team
+from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -28,6 +28,10 @@ from posthog.test.test_journeys import journeys_for
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
+    EXPERIMENT_EXPOSURE_EVENT_FLAG,
+)
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
@@ -38,12 +42,14 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
+from products.experiments.backend.presentation.serializers import ExperimentSerializer
 from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
 
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+from ee.models.rbac.access_control import AccessControl
 
 
 def _make(cls, **attrs):
@@ -601,6 +607,66 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["is_legacy"])
+
+    @parameterized.expand(
+        [
+            # (name, flag enabled for team, start_date offset from cutoff in days, expected event)
+            ("before_cutoff", True, -7, "$feature_flag_called"),
+            ("after_cutoff", True, 7, "$experiment_exposure"),
+            ("after_cutoff_flag_disabled", False, 7, "$feature_flag_called"),
+        ]
+    )
+    def test_detail_reports_resolved_exposure_event(
+        self, _name: str, flag_enabled: bool, start_offset_days: int, expected_event: str
+    ) -> None:
+        # The frontend names the exposure event from this field, so it has to agree with what the
+        # results queries actually read (resolve_default_exposure_event). Resolution compares
+        # start_date against a fixed constant, so these cases need no clock control.
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="resolved-exposure-event",
+            feature_flag=FeatureFlag.objects.create(
+                team=self.team, key=f"resolved-exposure-{_name}", created_by=self.user
+            ),
+            start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=start_offset_days),
+        )
+
+        def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
+            return flag_enabled if flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG else False
+
+        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["resolved_exposure_event"], expected_event)
+
+    @parameterized.expand(
+        [("after_cutoff", 30, "$experiment_exposure"), ("before_cutoff", -30, "$feature_flag_called")]
+    )
+    def test_draft_resolves_exposure_event_against_now(
+        self, _name: str, now_offset_days: int, expected_event: str
+    ) -> None:
+        # A draft has no start_date, so the field reports what launching now would resolve to —
+        # otherwise the setup UI names the old event for an experiment about to use the new one.
+        # Serialized directly rather than over HTTP: the frozen clock would expire the session.
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="draft-resolved-exposure-event",
+            feature_flag=FeatureFlag.objects.create(
+                team=self.team, key=f"draft-resolved-exposure-{_name}", created_by=self.user
+            ),
+            start_date=None,
+        )
+
+        with (
+            freeze_time(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=now_offset_days)),
+            patch("posthoganalytics.feature_enabled", return_value=True),
+        ):
+            serialized = ExperimentSerializer(
+                experiment, context={"team_id": self.team.id, "get_team": lambda: self.team}
+            ).data
+
+        self.assertEqual(serialized["resolved_exposure_event"], expected_event)
 
     def test_retrieving_experiment_refreshes_action_names(self) -> None:
         # Action-name refresh lives on the detail response — the list endpoint no longer
@@ -3888,8 +3954,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("products.tasks.backend.facade.access.has_tasks_access", return_value=True)
-    def test_update_experiment_repository_validates_and_normalizes(self, _mock_access):
+    def test_update_experiment_repository_validates_and_normalizes(self):
         feature_flag = FeatureFlag.objects.create(team=self.team, key="repo-field-flag", filters={})
         experiment = Experiment.objects.create(team=self.team, name="Repo field", feature_flag=feature_flag)
 
@@ -3906,8 +3971,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(response.json()["repository"], "acme/web")
 
-    @patch("products.tasks.backend.facade.access.has_tasks_access", return_value=True)
-    def test_create_experiment_with_repository(self, _mock_access):
+    def test_create_experiment_with_repository(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
@@ -3918,27 +3982,6 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         self.assertEqual(response.json()["repository"], "acme/web")
-
-    @patch("products.tasks.backend.facade.access.has_tasks_access", return_value=False)
-    def test_setting_repository_requires_code_access(self, _mock_access):
-        feature_flag = FeatureFlag.objects.create(team=self.team, key="repo-access-flag", filters={})
-        experiment = Experiment.objects.create(team=self.team, name="Repo access", feature_flag=feature_flag)
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment.id}",
-            {"repository": "acme/web"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        experiment.refresh_from_db()
-        self.assertIsNone(experiment.repository)
-
-        # Resubmitting the unchanged value (e.g. a full-object PUT) stays allowed.
-        Experiment.objects.filter(id=experiment.id).update(repository="acme/web")
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment.id}",
-            {"repository": "acme/web"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
     def test_update_experiment_exposure_config_with_action(self):
         # Create an action
@@ -5712,9 +5755,8 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(end_response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True)
     @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=False)
-    def test_end_endpoint_cleanup_pr_requires_task_write_scope(self, _mock_flag, _mock_access):
+    def test_end_endpoint_cleanup_pr_requires_task_write_scope(self, _mock_flag):
         exp_deny = self._create_running_experiment(name="Cleanup Deny", flag_key="cleanup-deny-flag")["id"]
         exp_no_opt = self._create_running_experiment(name="Cleanup No Opt", flag_key="cleanup-no-opt-flag")["id"]
         exp_allow = self._create_running_experiment(name="Cleanup Allow", flag_key="cleanup-allow-flag")["id"]
@@ -5756,52 +5798,26 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
 
     @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=False)
-    def test_cleanup_pr_requires_code_access_for_session_users(self, _mock_flag):
-        exp_end = self._create_running_experiment(name="Cleanup Session End", flag_key="cleanup-session-end-flag")["id"]
+    def test_cleanup_pr_allowed_for_session_users(self, _mock_flag):
         exp_ship = self._create_running_experiment(name="Cleanup Session Ship", flag_key="cleanup-session-ship-flag")[
             "id"
         ]
 
-        # Scopes don't apply to session auth — without Desktop access, opting in must be rejected
-        # on both actions that can open a cleanup PR.
-        with patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=False):
-            resp = self.client.post(
-                f"/api/projects/{self.team.id}/experiments/{exp_end}/end/",
-                {"conclusion": "won", "open_cleanup_pr": True},
-                format="json",
-            )
-            self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+        # Session auth carries no scopes, and opening a cleanup PR is no longer gated on the
+        # Desktop waitlist, so both actions succeed ("end first, ship later" flow).
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{exp_ship}/end/",
+            {"conclusion": "won", "open_cleanup_pr": True},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
 
-            resp = self.client.post(
-                f"/api/projects/{self.team.id}/experiments/{exp_ship}/ship_variant/",
-                {"variant_key": "test", "conclusion": "won", "open_cleanup_pr": True},
-                format="json",
-            )
-            self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
-
-            # Not opting in still ends the experiment without Desktop access.
-            resp = self.client.post(
-                f"/api/projects/{self.team.id}/experiments/{exp_end}/end/",
-                {"conclusion": "won", "open_cleanup_pr": False},
-                format="json",
-            )
-            self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
-
-        # With Desktop access, opting in succeeds on both actions ("end first, ship later" flow).
-        with patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True):
-            resp = self.client.post(
-                f"/api/projects/{self.team.id}/experiments/{exp_ship}/end/",
-                {"conclusion": "won", "open_cleanup_pr": True},
-                format="json",
-            )
-            self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
-
-            resp = self.client.post(
-                f"/api/projects/{self.team.id}/experiments/{exp_ship}/ship_variant/",
-                {"variant_key": "test", "conclusion": "won", "open_cleanup_pr": True},
-                format="json",
-            )
-            self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{exp_ship}/ship_variant/",
+            {"variant_key": "test", "conclusion": "won", "open_cleanup_pr": True},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
 
     def test_flag_cleanup_task_endpoint(self):
         exp_id = self._create_running_experiment(name="Cleanup Status", flag_key="cleanup-status-flag")["id"]
@@ -5893,9 +5909,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @parameterized.expand(
         [
-            # (name, stored_repository, cached_repos, expected_body)
+            # (name, stored_repository, team_default, cached_repos, expected_body)
             (
                 "no_integration",
+                None,
                 None,
                 None,
                 {"repository": None, "source": "no_integration", "candidates": []},
@@ -5903,11 +5920,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             (
                 "single_repo",
                 None,
+                None,
                 [{"full_name": "acme/web"}],
                 {"repository": "acme/web", "source": "single_repo", "candidates": ["acme/web"]},
             ),
             (
                 "ambiguous",
+                None,
                 None,
                 [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
                 {"repository": None, "source": "ambiguous", "candidates": ["acme/api", "acme/web"]},
@@ -5915,31 +5934,51 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             (
                 "explicit",
                 "acme/api",
+                None,
                 [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
                 {"repository": "acme/api", "source": "explicit", "candidates": ["acme/api", "acme/web"]},
             ),
             (
                 "stale_explicit_needs_a_new_choice",
                 "gone/repo",
+                None,
                 [{"full_name": "acme/web"}],
                 {"repository": None, "source": "ambiguous", "candidates": ["acme/web"]},
             ),
             (
                 "stale_explicit_with_empty_cache",
                 "gone/repo",
+                None,
                 [],
                 {"repository": None, "source": "no_integration", "candidates": []},
             ),
+            (
+                "team_default",
+                None,
+                "acme/api",
+                [{"full_name": "acme/web"}, {"full_name": "Acme/API"}],
+                {"repository": "Acme/API", "source": "team_default", "candidates": ["Acme/API", "acme/web"]},
+            ),
+            (
+                "stale_team_default_falls_through",
+                None,
+                "gone/repo",
+                [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
+                {"repository": None, "source": "ambiguous", "candidates": ["acme/api", "acme/web"]},
+            ),
         ]
     )
-    @patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True)
     @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
     def test_flag_cleanup_target_endpoint(
-        self, _name, stored_repository, cached_repos, expected_body, mock_resolve_github, _mock_access
+        self, _name, stored_repository, team_default, cached_repos, expected_body, mock_resolve_github
     ):
         exp_id = self._create_running_experiment(name="Cleanup Target", flag_key="cleanup-target-flag")["id"]
         if stored_repository:
             Experiment.objects.filter(id=exp_id).update(repository=stored_repository)
+        if team_default:
+            config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+            config.flag_cleanup_repository = team_default
+            config.save()
         if cached_repos is None:
             mock_resolve_github.return_value = None
         else:
@@ -5952,14 +5991,6 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
         self.assertEqual(resp.json(), expected_body)
 
-    @patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=False)
-    def test_flag_cleanup_target_requires_code_access(self, _mock_access):
-        exp_id = self._create_running_experiment(name="Cleanup Target Denied", flag_key="cleanup-target-denied-flag")[
-            "id"
-        ]
-        resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_target/")
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
-
     @parameterized.expand(
         [
             # (name, open_cleanup_pr, repository, expected_status)
@@ -5970,11 +6001,8 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             ("invalid_format_rejected", True, "not-a-repo", status.HTTP_400_BAD_REQUEST),
         ]
     )
-    @patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True)
     @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=False)
-    def test_end_endpoint_repository(
-        self, _name, open_cleanup_pr, repository, expected_status, _mock_flag, _mock_access
-    ):
+    def test_end_endpoint_repository(self, _name, open_cleanup_pr, repository, expected_status, _mock_flag):
         exp_id = self._create_running_experiment(name="End With Repo", flag_key="end-with-repo-flag")["id"]
 
         resp = self.client.post(
@@ -5986,13 +6014,12 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(resp.status_code, expected_status, resp.content)
         self.assertIsNone(Experiment.objects.get(id=exp_id).repository)
 
-    @patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True)
     @patch("products.experiments.backend.experiment_service.report_user_action")
     @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
     @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
     def test_end_endpoint_repository_persists_normalized_when_cleanup_opens(
-        self, mock_resolve_github, mock_create_task, _mock_flag, _mock_report, _mock_access
+        self, mock_resolve_github, mock_create_task, _mock_flag, _mock_report
     ):
         mock_resolve_github.return_value = SimpleNamespace(
             list_all_cached_repositories=lambda max_repos: [{"full_name": "Acme/Web"}, {"full_name": "acme/api"}]
@@ -6010,6 +6037,47 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
         self.assertEqual(mock_create_task.call_args.kwargs["repository"], "Acme/Web")
         self.assertEqual(Experiment.objects.get(id=exp_id).repository, "acme/web")
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
+    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    def test_set_repository_as_team_default_requires_project_admin(
+        self, mock_resolve_github, mock_create_task, _mock_flag, _mock_report
+    ):
+        mock_resolve_github.return_value = SimpleNamespace(
+            list_all_cached_repositories=lambda max_repos: [{"full_name": "acme/web"}, {"full_name": "acme/api"}]
+        )
+        mock_create_task.return_value = SimpleNamespace(task_id=uuid4())
+        exp_member = self._create_running_experiment(name="Default Deny", flag_key="team-default-deny-flag")["id"]
+        exp_admin = self._create_running_experiment(name="Default Allow", flag_key="team-default-allow-flag")["id"]
+        body = {
+            "conclusion": "won",
+            "open_cleanup_pr": True,
+            "repository": "acme/web",
+            "set_repository_as_team_default": True,
+        }
+
+        # A team-wide default is environment configuration, admin-gated like experiments_config.
+        # Without an access-control row every member is effectively admin, so pin the project's
+        # default access to member to exercise the deny path.
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=self.team.id, access_level="member"
+        )
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        resp = self.client.post(f"/api/projects/{self.team.id}/experiments/{exp_member}/end/", body, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+        self.assertIsNone(get_or_create_team_extension(self.team, TeamExperimentsConfig).flag_cleanup_repository)
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self.client.post(f"/api/projects/{self.team.id}/experiments/{exp_admin}/end/", body, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(
+            get_or_create_team_extension(self.team, TeamExperimentsConfig).flag_cleanup_repository, "acme/web"
+        )
 
     def test_ship_variant_endpoint_default_preserves_groups(self):
         data = self._create_running_experiment(name="Ship Endpoint", flag_key="ship-endpoint-flag")
@@ -9014,6 +9082,31 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
             ],
         }
 
+    def _original_with_scalars(self, snapshot: dict) -> dict:
+        """The extended base the frontend sends: metric collections plus the scalar fields the
+        experiment surfaces PATCH, so the server can three-way merge scalars per field too."""
+        return {
+            **self._original(snapshot),
+            **{
+                field: snapshot.get(field)
+                for field in (
+                    "name",
+                    "description",
+                    "start_date",
+                    "end_date",
+                    "exposure_criteria",
+                    "stats_config",
+                    "running_time_calculation",
+                    "holdout_id",
+                    "conclusion",
+                    "conclusion_comment",
+                    "parameters",
+                    "excluded_variants",
+                    "only_count_matured_users",
+                )
+            },
+        }
+
     def _events(self, metrics: list) -> set[str]:
         return {metric["source"]["event"] for metric in metrics}
 
@@ -9145,7 +9238,7 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
         else:
             self.assertEqual(current_value, their_value)
 
-    def test_stale_scalar_write_conflicts_with_any_concurrent_change(self) -> None:
+    def test_stale_scalar_write_without_base_value_conflicts_with_any_concurrent_change(self) -> None:
         snapshot = self._create_experiment("stale-scalar", metrics=[self._metric("base")])
         concurrent = self._patch(snapshot["id"], {"metrics": [*snapshot["metrics"], self._metric("theirs")]})
         self.assertEqual(concurrent.status_code, status.HTTP_200_OK)
@@ -9161,6 +9254,143 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
 
         self.assertEqual(stale_description_write.status_code, status.HTTP_409_CONFLICT)
         self.assertIn("description", stale_description_write.json()["conflicting_fields"])
+
+    def test_stale_start_date_change_merges_over_concurrent_calculator_autosave(self) -> None:
+        # Incident replay: the running-time calculator auto-saves its estimate on results load,
+        # silently bumping the version; the user's start-date change from the same (now stale)
+        # tab must apply instead of 409ing. Also exercises the datetime base: the client echoes
+        # the ISO string it read while the row holds a datetime.
+        created = self._create_experiment("autosave-race", metrics=[self._metric("base")])
+        launch = self.client.post(f"/api/projects/{self.team.id}/experiments/{created['id']}/launch/")
+        self.assertEqual(launch.status_code, status.HTTP_200_OK, launch.json())
+        snapshot = launch.json()
+
+        autosave = self._patch(
+            snapshot["id"],
+            {"running_time_calculation": {"recommended_running_time": 12, "recommended_sample_size": 3400}},
+        )
+        self.assertEqual(autosave.status_code, status.HTTP_200_OK)
+
+        new_start = "2026-07-27T16:10:00Z"
+        stale_start_date_write = self._patch(
+            snapshot["id"],
+            {
+                "start_date": new_start,
+                "version": snapshot["version"],
+                "original_experiment": self._original_with_scalars(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_start_date_write.status_code, status.HTTP_200_OK, stale_start_date_write.json())
+        result = stale_start_date_write.json()
+        self.assertEqual(parser.parse(result["start_date"]), parser.parse(new_start))
+        self.assertEqual(result["running_time_calculation"]["recommended_running_time"], 12)
+
+    @parameterized.expand(
+        [
+            ("with_scalar_base", True),
+            ("without_scalar_base", False),
+        ]
+    )
+    def test_stale_write_resending_unchanged_scalar_is_not_a_conflict(self, _name: str, with_base: bool) -> None:
+        # The distribution modal resends holdout_id even when the user only changed the variant
+        # split; an unchanged value must not conflict just because the write is stale.
+        holdout = ExperimentHoldout.objects.create(
+            team=self.team,
+            name=f"Concurrency holdout {_name}",
+            filters=[{"properties": [], "rollout_percentage": 10, "variant": "holdout-x"}],
+            created_by=self.user,
+        )
+        created = self._create_experiment(f"noop-holdout-{with_base}", metrics=[self._metric("base")])
+        linked = self._patch(created["id"], {"holdout_id": holdout.id})
+        self.assertEqual(linked.status_code, status.HTTP_200_OK)
+        snapshot = linked.json()
+
+        concurrent = self._patch(snapshot["id"], {"metrics": [*snapshot["metrics"], self._metric("theirs")]})
+        self.assertEqual(concurrent.status_code, status.HTTP_200_OK)
+
+        stale_echo = self._patch(
+            snapshot["id"],
+            {
+                "holdout_id": holdout.id,
+                "version": snapshot["version"],
+                "original_experiment": self._original_with_scalars(snapshot) if with_base else self._original(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_echo.status_code, status.HTTP_200_OK, stale_echo.json())
+        self.assertEqual(stale_echo.json()["holdout_id"], holdout.id)
+        self.assertEqual(self._events(stale_echo.json()["metrics"]), {"base", "theirs"})
+
+    def test_stale_write_echoing_base_scalar_does_not_revert_concurrent_edit(self) -> None:
+        # A form save resends fields the user didn't touch; echoing the base value must not
+        # revert what a teammate changed meanwhile, while the user's own edit still applies.
+        snapshot = self._create_experiment("echo-base", metrics=[self._metric("base")])
+        their_edit = self._patch(snapshot["id"], {"description": "rewritten by a teammate"})
+        self.assertEqual(their_edit.status_code, status.HTTP_200_OK)
+
+        stale_form_save = self._patch(
+            snapshot["id"],
+            {
+                "description": snapshot["description"],
+                "name": "New name from the stale tab",
+                "version": snapshot["version"],
+                "original_experiment": self._original_with_scalars(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_form_save.status_code, status.HTTP_200_OK, stale_form_save.json())
+        self.assertEqual(stale_form_save.json()["description"], "rewritten by a teammate")
+        self.assertEqual(stale_form_save.json()["name"], "New name from the stale tab")
+
+    def test_stale_same_scalar_field_double_edit_still_conflicts(self) -> None:
+        # All three values must differ: an edit that matches the base is not "my change"
+        # (the echo rule), and one that matches the current value is a no-op.
+        snapshot = self._create_experiment("double-scalar", metrics=[self._metric("base")])
+        their_edit = self._patch(snapshot["id"], {"description": "their rewrite"})
+        self.assertEqual(their_edit.status_code, status.HTTP_200_OK)
+
+        stale_conflicting_edit = self._patch(
+            snapshot["id"],
+            {
+                "description": "my rewrite",
+                "version": snapshot["version"],
+                "original_experiment": self._original_with_scalars(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_conflicting_edit.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(stale_conflicting_edit.json()["conflicting_fields"], ["description"])
+        experiment = Experiment.objects.get(id=snapshot["id"])
+        self.assertEqual(experiment.description, "their rewrite")
+
+    def test_stale_variant_notes_write_merges_on_flag_linked_experiment(self) -> None:
+        # Incident replay for the variant notes/images path: reads project the linked flag's
+        # config into `parameters` while writes strip it before storage, so the client's base
+        # never matches the stored column byte-for-byte — the merge must compare `parameters`
+        # in stored shape instead of treating the projection as a concurrent edit.
+        snapshot = self._create_experiment("notes-over-autosave", metrics=[self._metric("base")])
+        self.assertIn("feature_flag_variants", snapshot["parameters"])
+
+        autosave = self._patch(
+            snapshot["id"],
+            {"running_time_calculation": {"recommended_running_time": 9, "recommended_sample_size": 1200}},
+        )
+        self.assertEqual(autosave.status_code, status.HTTP_200_OK)
+
+        stale_notes_write = self._patch(
+            snapshot["id"],
+            {
+                "parameters": {**snapshot["parameters"], "variant_notes": {"control": "baseline notes"}},
+                "version": snapshot["version"],
+                "original_experiment": self._original_with_scalars(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_notes_write.status_code, status.HTTP_200_OK, stale_notes_write.json())
+        result = stale_notes_write.json()
+        self.assertEqual(result["parameters"]["variant_notes"], {"control": "baseline notes"})
+        self.assertEqual(result["running_time_calculation"]["recommended_running_time"], 9)
 
     def test_stale_reorder_keeps_relative_order_and_appends_concurrent_addition(self) -> None:
         snapshot = self._create_experiment("reorder", metrics=[self._metric("m1"), self._metric("m2")])

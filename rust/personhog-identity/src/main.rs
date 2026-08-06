@@ -9,6 +9,7 @@ use lifecycle::{ComponentOptions, Manager};
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
 use personhog_common::{spawn_pool_monitor, MonitoredPool};
 use personhog_proto::personhog::identity::v1::person_hog_identity_server::PersonHogIdentityServer;
+use personhog_proto::personhog::lifecycle::v1::person_hog_lifecycle_server::PersonHogLifecycleServer;
 use tonic::codec::CompressionEncoding;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
@@ -19,6 +20,7 @@ use tracing_subscriber::EnvFilter;
 
 use personhog_common::client::RouterClient;
 use personhog_identity::config::Config;
+use personhog_identity::lifecycle::PersonHogLifecycleService;
 use personhog_identity::service::PersonHogIdentityService;
 use personhog_identity::storage::postgres::PostgresIdentityStorage;
 
@@ -168,6 +170,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Invalid router URL"),
     );
     let service = PersonHogIdentityService::new(storage, property_writer, config.request_limits());
+    // Separate proto service co-served on the same server so lifecycle
+    // callers are insulated from any future split.
+    let lifecycle_service = PersonHogLifecycleService::new();
 
     let grpc_addr = config.grpc_address;
     let keepalive_interval = config.grpc_keepalive_interval();
@@ -212,6 +217,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .layer(GrpcLoadShedLayer::new(max_concurrent_requests))
             .add_service(
                 PersonHogIdentityServer::new(service)
+                    .accept_compressed(CompressionEncoding::Gzip)
+                    .max_encoding_message_size(max_send)
+                    .max_decoding_message_size(max_recv),
+            )
+            .add_service(
+                PersonHogLifecycleServer::new(lifecycle_service)
                     .accept_compressed(CompressionEncoding::Gzip)
                     .max_encoding_message_size(max_send)
                     .max_decoding_message_size(max_recv),
