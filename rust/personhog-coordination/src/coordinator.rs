@@ -673,7 +673,12 @@ impl Coordinator {
                         Some(_) => HandoffPhase::Draining,
                     };
                     let advanced = store
-                        .cas_handoff_phase(partition, HandoffPhase::Freezing, target)
+                        .cas_handoff_phase(
+                            partition,
+                            &handoff.handoff_id,
+                            HandoffPhase::Freezing,
+                            target,
+                        )
                         .await?;
                     if advanced {
                         record_phase_advance(&handoff, target);
@@ -713,7 +718,12 @@ impl Coordinator {
                 let drained_acks = store.list_drained_acks(partition).await?;
                 if drain_satisfied(&pods, &drained_acks, &handoff) {
                     let advanced = store
-                        .cas_handoff_phase(partition, HandoffPhase::Draining, HandoffPhase::Warming)
+                        .cas_handoff_phase(
+                            partition,
+                            &handoff.handoff_id,
+                            HandoffPhase::Draining,
+                            HandoffPhase::Warming,
+                        )
                         .await?;
                     if advanced {
                         record_phase_advance(&handoff, HandoffPhase::Warming);
@@ -739,7 +749,10 @@ impl Coordinator {
                         new_owner = %handoff.new_owner,
                         "new owner warmed, completing handoff"
                     );
-                    match store.complete_handoff(partition).await {
+                    match store
+                        .complete_handoff(partition, &handoff.handoff_id, HandoffPhase::Warming)
+                        .await
+                    {
                         Ok(true) => {
                             record_phase_advance(&handoff, HandoffPhase::Complete);
                             if trigger == AdvanceTrigger::Ack {
