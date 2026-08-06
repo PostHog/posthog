@@ -909,8 +909,13 @@ const ChannelSection = memo(
                   which is meant to let a shortcut hang into a button's own
                   padding. Here `ml-auto` takes every pixel of slack, so the
                   hang had nowhere to go and cut off the last 4px of the hint. */}
+                  {/* Dropped from the row rather than faded on hover: the label
+                  already reserves mr-11 for the buttons that replace the hint,
+                  and a hint still taking part in the row's width and its gap
+                  there is what cut a starred name shorter than an unstarred
+                  one. */}
                   {hotkeySlot != null && (
-                    <Kbd className="!mr-0 ml-auto shrink-0 opacity-50 group-hover/chan:opacity-0">
+                    <Kbd className="!mr-0 ml-auto shrink-0 opacity-50 group-hover/chan:hidden">
                       {formatHotkey(`mod+${hotkeySlot}`)}
                     </Kbd>
                   )}
