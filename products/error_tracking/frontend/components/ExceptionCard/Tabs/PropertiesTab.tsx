@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import type { ComponentProps } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 
@@ -13,27 +14,37 @@ import {
     DropdownMenuItemIndicator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrimitive/TabsPrimitive'
+import { TabsContent } from 'lib/ui/quill'
 import { cn } from 'lib/utils/css-classes'
 
 import { ContextDisplay } from '../../ContextDisplay/ContextDisplay'
 import { exceptionCardLogic } from '../exceptionCardLogic'
 import { SubHeader } from './SubHeader'
 
-export interface PropertiesTabProps extends TabsPrimitiveContentProps {}
+export interface PropertiesTabProps extends ComponentProps<typeof TabsContent> {}
 
 export function PropertiesTab({ className, ...props }: PropertiesTabProps): JSX.Element {
     const { properties, exceptionAttributes, additionalProperties } = useValues(errorPropertiesLogic)
     const { loading, showJSONProperties, showAdditionalProperties } = useValues(exceptionCardLogic)
 
     return (
-        <TabsPrimitiveContent {...props} className={cn('flex flex-col', className)}>
+        <TabsContent {...props} className={cn('flex flex-col', className)}>
             <SubHeader className="justify-end shrink-0">
-                <ShowDropDownMenu />
+                <div className="contents">
+                    <ShowDropDownMenu />
+                </div>
             </SubHeader>
             <div className="flex-1 min-h-0 overflow-y-auto">
                 {showJSONProperties ? (
-                    <JSONViewer src={properties} name="event" collapsed={1} collapseStringsAfterLength={80} sortKeys />
+                    <div className="contents">
+                        <JSONViewer
+                            src={properties}
+                            name="event"
+                            collapsed={1}
+                            collapseStringsAfterLength={80}
+                            sortKeys
+                        />
+                    </div>
                 ) : (
                     <ContextDisplay
                         loading={loading}
@@ -42,7 +53,7 @@ export function PropertiesTab({ className, ...props }: PropertiesTabProps): JSX.
                     />
                 )}
             </div>
-        </TabsPrimitiveContent>
+        </TabsContent>
     )
 }
 

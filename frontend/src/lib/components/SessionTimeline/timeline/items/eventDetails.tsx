@@ -186,7 +186,7 @@ export const LazyEventDetailsRenderer: React.FC<RendererProps<TimelineItem>> = (
 
     if (loading) {
         return (
-            <div className="p-2 text-xs text-secondary flex items-center gap-2">
+            <div className="flex items-center gap-2 p-2 text-xs text-muted-foreground">
                 <Spinner textColored />
                 <span>Loading event details...</span>
             </div>
@@ -194,7 +194,7 @@ export const LazyEventDetailsRenderer: React.FC<RendererProps<TimelineItem>> = (
     }
 
     if (!event) {
-        return <div className="p-2 text-xs text-secondary">Event details unavailable</div>
+        return <div className="p-2 text-xs text-muted-foreground">Event details unavailable</div>
     }
 
     return <SessionEventDetails event={event} errorDisplayIdSuffix="session-timeline-expanded" />

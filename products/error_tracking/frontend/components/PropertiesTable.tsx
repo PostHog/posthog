@@ -1,6 +1,7 @@
 import { IconCopy, IconFilter, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { Link } from 'lib/lemon-ui/Link'
+import { Button, Table, TableBody, TableCell, TableRow, Tooltip, TooltipContent, TooltipTrigger } from 'lib/ui/quill'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 type PropertyTableRow = {
@@ -31,72 +32,73 @@ export function PropertiesTable({
         .filter((entry) => entry.value !== undefined)
 
     return (
-        <LemonTable
-            embedded
-            size="small"
-            dataSource={rows}
-            showHeader={false}
-            columns={[
-                {
-                    title: 'Key',
-                    key: 'key',
-                    dataIndex: 'key',
-                    width: 0,
-                    className: 'font-medium bg-inherit',
-                    render: (dataValue, record) => (
-                        <div className="flex gap-x-2 justify-between items-center">
-                            <div>{String(dataValue)}</div>
-                            <div className="flex items-center gap-1">
-                                {onFilterValue &&
-                                    record.filterKey &&
-                                    getFilterableValue(record.filterValue ?? record.value) !== null && (
-                                        <LemonButton
-                                            size="xsmall"
-                                            tooltip="Filter by this value"
-                                            className="invisible group-hover:visible"
-                                            onClick={() => {
-                                                const filterableValue = getFilterableValue(
-                                                    record.filterValue ?? record.value
-                                                )
-                                                if (filterableValue !== null) {
-                                                    onFilterValue(record.filterKey as string, filterableValue)
+        <Table fullWidth size="sm">
+            <TableBody>
+                {rows.map((record, index) => {
+                    const filterableValue = getFilterableValue(record.filterValue ?? record.value)
+
+                    return (
+                        <TableRow
+                            key={`${record.key}-${index}`}
+                            className={
+                                alternatingColors
+                                    ? 'group odd:bg-[var(--card)] even:bg-[var(--muted)]'
+                                    : 'group bg-[var(--card)]'
+                            }
+                        >
+                            <TableCell className="sticky left-0 z-10 bg-inherit font-medium">
+                                <div className="flex items-center justify-between gap-x-2">
+                                    <div>{record.key}</div>
+                                    <div className="flex items-center gap-1">
+                                        {onFilterValue && record.filterKey && filterableValue !== null && (
+                                            <Tooltip>
+                                                <TooltipTrigger
+                                                    render={
+                                                        <Button
+                                                            variant="default"
+                                                            size="icon-xs"
+                                                            className="invisible group-hover:visible"
+                                                            onClick={() =>
+                                                                onFilterValue(record.filterKey!, filterableValue)
+                                                            }
+                                                            aria-label="Filter by this value"
+                                                        />
+                                                    }
+                                                >
+                                                    <IconFilter />
+                                                </TooltipTrigger>
+                                                <TooltipContent>Filter by this value</TooltipContent>
+                                            </Tooltip>
+                                        )}
+                                        <Tooltip>
+                                            <TooltipTrigger
+                                                render={
+                                                    <Button
+                                                        variant="default"
+                                                        size="icon-xs"
+                                                        className="invisible group-hover:visible"
+                                                        onClick={() =>
+                                                            copyToClipboard(copyValue(record.value)).catch((error) => {
+                                                                console.error('Failed to copy to clipboard:', error)
+                                                            })
+                                                        }
+                                                        aria-label="Copy value"
+                                                    />
                                                 }
-                                            }}
-                                        >
-                                            <IconFilter />
-                                        </LemonButton>
-                                    )}
-                                <LemonButton
-                                    size="xsmall"
-                                    tooltip="Copy value"
-                                    className="invisible group-hover:visible"
-                                    onClick={() =>
-                                        copyToClipboard(copyValue(record.value)).catch((error) => {
-                                            console.error('Failed to copy to clipboard:', error)
-                                        })
-                                    }
-                                >
-                                    <IconCopy />
-                                </LemonButton>
-                            </div>
-                        </div>
-                    ),
-                },
-                {
-                    title: 'Value',
-                    key: 'value',
-                    dataIndex: 'value',
-                    className: 'whitespace-nowrap',
-                    render: (value) => {
-                        return <div className="whitespace-nowrap">{renderValue(value)}</div>
-                    },
-                },
-            ]}
-            rowClassName={
-                alternatingColors ? 'even:bg-fill-tertiary odd:bg-surface-primary group' : 'bg-fill-secondary group'
-            }
-            firstColumnSticky
-        />
+                                            >
+                                                <IconCopy />
+                                            </TooltipTrigger>
+                                            <TooltipContent>Copy value</TooltipContent>
+                                        </Tooltip>
+                                    </div>
+                                </div>
+                            </TableCell>
+                            <TableCell className="whitespace-nowrap">{renderValue(record.value)}</TableCell>
+                        </TableRow>
+                    )
+                })}
+            </TableBody>
+        </Table>
     )
 }
 
@@ -182,9 +184,11 @@ function renderValue(value: unknown, level = 0): React.ReactNode {
                 return value
             }
             return (
-                <Link to={value as string} target="_blank">
-                    {value}
-                </Link>
+                <span className="contents">
+                    <Link to={value} target="_blank">
+                        {value}
+                    </Link>
+                </span>
             )
         }
         return value // no quotes
@@ -195,8 +199,11 @@ function renderValue(value: unknown, level = 0): React.ReactNode {
 export function MaskedValue({ value, tooltip }: { value: string; tooltip: string }): JSX.Element {
     return (
         <span className="inline-flex items-center gap-1">
-            <Tooltip title={tooltip}>
-                <IconInfo className="text-muted text-sm" />
+            <Tooltip>
+                <TooltipTrigger render={<span className="inline-flex" tabIndex={0} aria-label={tooltip} />}>
+                    <IconInfo className="text-sm text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent>{tooltip}</TooltipContent>
             </Tooltip>
             {value}
         </span>

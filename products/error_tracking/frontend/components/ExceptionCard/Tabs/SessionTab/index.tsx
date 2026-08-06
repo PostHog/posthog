@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, type ComponentProps } from 'react'
 import { P, match } from 'ts-pattern'
 
 import { LemonBanner, Link, Spinner } from '@posthog/lemon-ui'
@@ -19,13 +19,7 @@ import {
 import { ConsoleLogLoader, consoleLogRenderer } from 'lib/components/SessionTimeline/timeline/items/logs'
 import { pageRenderer } from 'lib/components/SessionTimeline/timeline/items/page'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import {
-    TabsPrimitive,
-    TabsPrimitiveContent,
-    TabsPrimitiveContentProps,
-    TabsPrimitiveList,
-    TabsPrimitiveTrigger,
-} from 'lib/ui/TabsPrimitive/TabsPrimitive'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from 'lib/ui/quill'
 import { cn } from 'lib/utils/css-classes'
 
 import { ViewLogsButton } from 'products/logs/frontend/components/ViewLogsButton'
@@ -35,7 +29,7 @@ import { SubHeader } from '../SubHeader'
 import { SessionRecordingTab } from './SessionRecordingTab'
 import { sessionTabLogic } from './sessionTabLogic'
 
-export interface SessionTabProps extends TabsPrimitiveContentProps {
+export interface SessionTabProps extends ComponentProps<typeof TabsContent> {
     timestamp?: string
 }
 
@@ -45,7 +39,7 @@ export function SessionTab({ timestamp, className, ...props }: SessionTabProps):
     const { setCurrentSessionTab } = useActions(exceptionCardLogic)
 
     return (
-        <TabsPrimitiveContent {...props} className={cn('flex flex-col', className)}>
+        <TabsContent {...props} className={cn('flex min-w-0 flex-col overflow-hidden', className)}>
             {match([loading, sessionId])
                 .with([true, P.any], () => (
                     <div className="flex justify-center items-center h-[300px]">
@@ -55,19 +49,22 @@ export function SessionTab({ timestamp, className, ...props }: SessionTabProps):
                 .with([false, P.nullish], () => <NoSessionStepsView timestamp={timestamp} />)
                 .with([false, P.string], ([_, sessionId]) => (
                     <BindLogic logic={sessionTabLogic} props={{ timestamp, sessionId }}>
-                        <TabsPrimitive
+                        <Tabs
                             value={currentSessionTab}
                             onValueChange={setCurrentSessionTab}
-                            className="flex flex-col flex-1 min-h-0"
+                            className="min-h-0 min-w-0 flex-1 gap-0"
                         >
                             <SubHeader className="p-0 shrink-0">
-                                <TabsPrimitiveList className="flex justify-start gap-2 w-full h-full items-center">
-                                    <TabsPrimitiveTrigger className="px-2 h-full" value="timeline">
+                                <TabsList
+                                    variant="line"
+                                    className="flex h-full w-full items-center justify-start gap-2 p-0 pl-1"
+                                >
+                                    <TabsTrigger className="h-auto flex-none px-2" value="timeline">
                                         Timeline
-                                    </TabsPrimitiveTrigger>
-                                    <TabsPrimitiveTrigger className="px-2 h-full" value="recording">
+                                    </TabsTrigger>
+                                    <TabsTrigger className="h-auto flex-none px-2" value="recording">
                                         Recording
-                                    </TabsPrimitiveTrigger>
+                                    </TabsTrigger>
                                     <div className="ml-auto pr-1">
                                         <ViewLogsButton
                                             sessionId={sessionId}
@@ -76,15 +73,15 @@ export function SessionTab({ timestamp, className, ...props }: SessionTabProps):
                                             data-attr="error-tracking-session-view-logs"
                                         />
                                     </div>
-                                </TabsPrimitiveList>
+                                </TabsList>
                             </SubHeader>
                             <SessionTimelineTab />
                             <SessionRecordingTab />
-                        </TabsPrimitive>
+                        </Tabs>
                     </BindLogic>
                 ))
                 .exhaustive()}
-        </TabsPrimitiveContent>
+        </TabsContent>
     )
 }
 
@@ -118,16 +115,18 @@ export function SessionTimelineTab(): JSX.Element {
     }, [properties, sessionId, timestamp, uuid])
 
     return (
-        <TabsPrimitiveContent value="timeline" className="flex-1 min-h-0 overflow-y-auto">
+        <TabsContent value="timeline" className="min-h-0 min-w-0 flex-1 overflow-y-auto">
             {collector && (
-                <SessionTimeline
-                    ref={sessionTimelineRef}
-                    collector={collector}
-                    selectedItemId={uuid}
-                    onTimeClick={onTimeClick}
-                />
+                <div className="contents">
+                    <SessionTimeline
+                        ref={sessionTimelineRef}
+                        collector={collector}
+                        selectedItemId={uuid}
+                        onTimeClick={onTimeClick}
+                    />
+                </div>
             )}
-        </TabsPrimitiveContent>
+        </TabsContent>
     )
 }
 
