@@ -246,6 +246,51 @@ export const OAUTH_SCOPES = [
 // v7: "*" replaced with the explicit list above.
 export const OAUTH_SCOPE_VERSION = 7;
 
+// Scopes checked against what the server actually granted, not just what we asked for.
+// OAUTH_SCOPE_VERSION only catches drift someone remembered to hand-bump; /oauth/authorize
+// narrows a request to the app's ceiling instead of failing it, and refresh never widens a
+// grant, so a session can run indefinitely on a token quietly missing a scope. The failure is
+// invisible: MCP filters its tool catalog by granted scope, so a surface gated on a scope the
+// token lacks looks like a feature that does not exist rather than a permission error.
+//
+// Deliberately a small subset of OAUTH_SCOPES. A scope that is legitimately ungrantable for
+// some installs must never appear here, or every one of those users gets prompted to
+// re-authenticate over a grant that is behaving correctly. That rules out privileged
+// llm_gateway:read, which depends on the per-app ceiling being seeded in the region.
+export const OAUTH_REQUIRED_SCOPES = ["task:read", "task:write"];
+
+/**
+ * Required scopes absent from a granted `scope` string (the space-separated set the token
+ * endpoint echoes back).
+ *
+ * Returns [] when the string is empty or absent: `scope` is optional on a token response, and a
+ * server that does not report its grant is telling us nothing. Reading that silence as "every
+ * scope is missing" would prompt working installs to re-authenticate.
+ *
+ * A `<object>:write` grant satisfies a `<object>:read` requirement, mirroring the server's own
+ * APIScopePermission check, so a token holding only the write half is not reported as missing
+ * access it in fact has.
+ */
+export function findMissingRequiredScopes(
+  grantedScope: string | undefined,
+): string[] {
+  if (!grantedScope) {
+    return [];
+  }
+  const granted = new Set(grantedScope.split(" ").filter(Boolean));
+  // The wildcard short-circuits scope checks server-side and grants everything.
+  if (granted.has("*")) {
+    return [];
+  }
+  return OAUTH_REQUIRED_SCOPES.filter(
+    (scope) =>
+      !granted.has(scope) &&
+      !(
+        scope.endsWith(":read") && granted.has(scope.replace(":read", ":write"))
+      ),
+  );
+}
+
 // Token refresh settings
 export const TOKEN_REFRESH_BUFFER_MS = 30 * 60 * 1000; // 30 minutes before expiry
 export const TOKEN_REFRESH_FORCE_MS = 60 * 1000; // Force refresh when <1 min to expiry, even with active sessions

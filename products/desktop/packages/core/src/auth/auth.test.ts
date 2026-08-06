@@ -82,6 +82,7 @@ function mockTokenResponse(
     refreshToken?: string | null;
     expiresIn?: number;
     scopedOrgs?: string[];
+    scope?: string;
   } = {},
 ) {
   const refreshToken =
@@ -95,7 +96,7 @@ function mockTokenResponse(
       ...(refreshToken ? { refresh_token: refreshToken } : {}),
       expires_in: overrides.expiresIn ?? 3600,
       token_type: "Bearer",
-      scope: "",
+      scope: overrides.scope ?? "",
       scoped_organizations: overrides.scopedOrgs ?? ["org-1"],
     },
   };
@@ -421,6 +422,27 @@ describe("AuthService", () => {
       sessionEndReason: null,
     });
   });
+
+  it.each([
+    ["missing a required scope", "insight:read", true],
+    ["carrying the required scopes", "task:read task:write", false],
+    // A server that omits `scope` reports nothing, and must not be read as a narrowed grant.
+    ["reporting no scopes at all", "", false],
+  ] as const)(
+    "keeps the session but prompts to re-authenticate for a refreshed grant %s",
+    async (_case, scope, needsScopeReauth) => {
+      seedStoredSession({ selectedProjectId: 42 });
+      oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse({ scope }));
+      stubAuthFetch();
+
+      await service.initialize();
+
+      expect(service.getState()).toMatchObject({
+        status: "authenticated",
+        needsScopeReauth,
+      });
+    },
+  );
 
   it("restores an authenticated session by refreshing the stored refresh token", async () => {
     seedStoredSession({ selectedProjectId: 42 });

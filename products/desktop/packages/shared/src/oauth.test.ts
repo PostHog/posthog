@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { OAUTH_SCOPE_VERSION, OAUTH_SCOPES } from "./oauth";
+import {
+  findMissingRequiredScopes,
+  OAUTH_REQUIRED_SCOPES,
+  OAUTH_SCOPE_VERSION,
+  OAUTH_SCOPES,
+} from "./oauth";
 
 describe("OAUTH_SCOPES guard", () => {
   // Fingerprint instead of snapshotting the whole list: any add, removal, or reorder of
@@ -50,5 +55,32 @@ describe("OAUTH_SCOPES guard", () => {
         !/^[a-z_]+:(read|write)$/.test(scope),
     );
     expect(malformed).toEqual([]);
+  });
+});
+
+describe("findMissingRequiredScopes", () => {
+  it.each([
+    ["an absent scope string", undefined, []],
+    ["an empty scope string", "", []],
+    ["a wildcard grant", "*", []],
+    ["both halves granted", "task:read task:write insight:read", []],
+    ["the write half alone", "task:write", []],
+    ["the read half alone", "task:read", ["task:write"]],
+    [
+      "no task scopes at all",
+      "insight:read person:read",
+      ["task:read", "task:write"],
+    ],
+  ] as const)("resolves %s", (_case, granted, expected) => {
+    expect(findMissingRequiredScopes(granted)).toEqual(expected);
+  });
+
+  // A required scope the app never asks for would nag every install to re-authenticate over a
+  // grant the server was never going to widen.
+  it("only requires scopes the app actually requests", () => {
+    const unrequested = OAUTH_REQUIRED_SCOPES.filter(
+      (scope) => !OAUTH_SCOPES.includes(scope),
+    );
+    expect(unrequested).toEqual([]);
   });
 });

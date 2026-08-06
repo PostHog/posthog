@@ -6,6 +6,7 @@ import {
 import {
   type BackoffOptions,
   type CloudRegion,
+  findMissingRequiredScopes,
   getCloudUrlFromRegion,
   NotAuthenticatedError,
   OAUTH_SCOPE_VERSION,
@@ -91,6 +92,9 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   private session: InMemorySession | null = null;
   private initializePromise: Promise<void> | null = null;
   private refreshPromise: Promise<InMemorySession> | null = null;
+  // Required scopes the last refreshed grant did not carry. Drives the scope-reauth
+  // prompt for a stored grant that predates a scope the app now needs.
+  private missingRequiredScopes: string[] = [];
   private impersonationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   // Serializes session-state commits so overlapping selections can't
   // interleave across async encryption (see commitSessionState).
@@ -644,6 +648,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       );
 
       if (result.success && result.data) {
+        this.recordRefreshedGrantScopes(result.data.scope);
         return await this.createSessionFromTokenResponse(result.data, {
           ...input,
           fallbackRefreshToken: input.refreshToken,
@@ -682,6 +687,25 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     }
 
     throw new Error(lastError);
+  }
+  /**
+   * Note the required scopes a refreshed grant came back without, so the session surfaces the
+   * scope-reauth prompt instead of running on a token whose missing scope only shows up as a
+   * feature that appears not to exist.
+   *
+   * Checked on refresh only. The fresh interactive grant clears the flag unconditionally, which
+   * caps this at one prompt: if the server clamps the scope away again, the user is let in with a
+   * warning rather than bounced back through login forever. A login loop is worse than a missing
+   * scope, and shipping the scope list has broken login before (see shared/src/oauth.ts).
+   */
+  private recordRefreshedGrantScopes(grantedScope: string | undefined): void {
+    this.missingRequiredScopes = findMissingRequiredScopes(grantedScope);
+    if (this.missingRequiredScopes.length > 0) {
+      this.logger.warn(
+        "Refreshed grant is missing required scopes, prompting to re-authenticate",
+        { missingScopes: this.missingRequiredScopes },
+      );
+    }
   }
   private async createSessionFromTokenResponse(
     tokenResponse: AuthTokenResponse,
@@ -866,6 +890,16 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       throw new Error(result.error || fallbackError);
     }
 
+    // A fresh grant is the answer to the scope-reauth prompt, so it always clears the flag —
+    // even when the server clamped the scope away again. See recordRefreshedGrantScopes.
+    const stillMissing = findMissingRequiredScopes(result.data.scope);
+    if (stillMissing.length > 0) {
+      this.logger.warn("Fresh grant is still missing required scopes", {
+        missingScopes: stillMissing,
+      });
+    }
+    this.missingRequiredScopes = [];
+
     const session = await this.createSessionFromTokenResponse(result.data, {
       cloudRegion: region,
       selectedProjectId: this.state.currentProjectId,
@@ -895,7 +929,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       orgProjectsMap: session.orgProjectsMap,
       currentOrgId: session.currentOrgId,
       currentProjectId: session.currentProjectId,
-      needsScopeReauth: false,
+      needsScopeReauth: this.missingRequiredScopes.length > 0,
       sessionType: session.sessionType,
       sessionExpiresAt: session.accessTokenExpiresAt,
       sessionEndReason: null,

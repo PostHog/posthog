@@ -243,7 +243,9 @@ export {
   selectOptionDocsUrl,
 } from "./models";
 export {
+  findMissingRequiredScopes,
   getOauthClientIdFromRegion,
+  OAUTH_REQUIRED_SCOPES,
   OAUTH_SCOPE_VERSION,
   OAUTH_SCOPES,
   POSTHOG_DEV_CLIENT_ID,
