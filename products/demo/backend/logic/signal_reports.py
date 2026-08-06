@@ -1,11 +1,10 @@
+import json
 import uuid
 from dataclasses import dataclass
 
 from django.utils import timezone
 
-from posthog.schema import EmbeddingModelName
-
-from posthog.api.embedding_worker import emit_embedding_request
+from posthog.clickhouse.client import sync_execute
 
 from products.signals.backend.artefact_schemas import (
     ActionabilityAssessment,
@@ -17,6 +16,12 @@ from products.signals.backend.artefact_schemas import (
     SignalFinding,
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
+from products.signals.backend.signal_metadata import EMBEDDING_MODEL
+
+_MODEL_TABLE = f"distributed_posthog_document_embeddings_{EMBEDDING_MODEL.value.replace('-', '_')}"
+# A deterministic unit vector keeps the row valid for cosine-distance queries while avoiding an
+# external embedding API dependency. Semantic quality is irrelevant for this source-link fixture.
+_EMBEDDING = [1.0, *([0.0] * 1535)]
 
 
 @dataclass(frozen=True)
@@ -128,23 +133,53 @@ def seed_signal_report_for_error_issue(*, team_id: int, issue_id: str, index: in
             reevaluate_autostart=False,
         )
 
-    emit_embedding_request(
-        content=f"New error tracking issue created: {spec.title}",
+    _seed_bound_signal(
         team_id=team_id,
-        product="signals",
-        document_type="signal",
-        rendering="plain",
-        document_id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"posthog-demo-signal:{team_id}:{issue_id}")),
-        models=[model.value for model in EmbeddingModelName],
-        timestamp=timezone.now(),
-        metadata={
-            "source_product": "error_tracking",
-            "source_type": "issue_created",
-            "source_id": issue_id,
-            "weight": 1.0,
-            "report_id": str(report.id),
-            "extra": {"demo": True},
-            "remediation": None,
-        },
+        issue_id=issue_id,
+        report_id=str(report.id),
+        content=f"New error tracking issue created: {spec.title}",
     )
     return report
+
+
+def _seed_bound_signal(*, team_id: int, issue_id: str, report_id: str, content: str) -> None:
+    """Insert a real backing signal without requiring Kafka or the embedding worker in local dev."""
+    timestamp = timezone.now()
+    document_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"posthog-demo-signal:{team_id}:{issue_id}"))
+    metadata = {
+        "source_product": "error_tracking",
+        "source_type": "issue_created",
+        "source_id": issue_id,
+        "weight": 1.0,
+        "report_id": report_id,
+        "extra": {"demo": True},
+        "remediation": None,
+    }
+    sync_execute(
+        f"""
+        INSERT INTO {_MODEL_TABLE} (
+            team_id, product, document_type, rendering, document_id,
+            timestamp, inserted_at, content, metadata, embedding,
+            _timestamp, _offset, _partition
+        ) VALUES
+        """,
+        [
+            (
+                team_id,
+                "signals",
+                "signal",
+                "plain",
+                document_id,
+                timestamp,
+                timestamp,
+                content,
+                json.dumps(metadata),
+                _EMBEDDING,
+                timestamp,
+                0,
+                0,
+            )
+        ],
+        flush=False,
+        team_id=team_id,
+    )
