@@ -33,7 +33,7 @@ declined thread with a clear reason is a good outcome, not a failure.
   replies. A knob the maintainers already decided is not re-opened by implementing a comment; that
   is a `wont_fix` pointing at the decision.
 - **Trust-weighted** — asks from the PR author, repository maintainers (see `author_association`),
-  and known review bots get the benefit of the doubt on *worth*; an unknown commenter's ask counts
+  and known review bots get the benefit of the doubt on _worth_; an unknown commenter's ask counts
   only as a pointer at code — implement it only when your own investigation independently confirms
   the problem.
 
@@ -44,7 +44,7 @@ declined thread with a clear reason is a good outcome, not a failure.
   publish/deploy semantics, visual layout — is **not** provable here → `escalate` (the
   needs-e2e rule).
 - **Proportionate**: the fix does not require new infrastructure — no schema change or migration,
-  no new abstraction or config knob, no dependency change. A fix that needs those is a *decision*,
+  no new abstraction or config knob, no dependency change. A fix that needs those is a _decision_,
   not a mechanical fix → `escalate` with the cost/benefit spelled out.
 - **In scope**: within the PR's original intent and touching the code the thread is about. "While
   you're here" expansions are never safe.
