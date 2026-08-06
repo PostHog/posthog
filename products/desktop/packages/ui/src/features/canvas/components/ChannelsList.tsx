@@ -176,6 +176,12 @@ function SpaceRowSurface({
         // also clips, which would cut off the disclosure's hit box where that
         // hangs past the wrapper; every child that needs clipping does its own.
         "[&>span]:w-full [&>span]:gap-2 [&>span]:overflow-visible",
+        // An icon's own colour lives on its `<svg>`, but quill repaints a
+        // highlighted option's contents down to the `<path>` that `fill:
+        // currentColor` resolves against, which drops every badge to the row's
+        // colour. Sending the marks back to their icon keeps a pinned row's pin
+        // and a status badge's tone under the pointer and the keyboard.
+        "[&_svg_*]:text-inherit!",
         // quill highlights an option with an offset focus ring, which suits a
         // popup listbox but reads as a stray outline on a sidebar row — and at
         // dark-theme contrast it outshouts the selected row it sits next to.
@@ -424,10 +430,13 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
       {/* One tooltip provider per row, shared by its dot and badges so moving
           between them doesn't re-wait the open delay. */}
       <TaskStatusTooltips>
+        {/* Not on the row you are already in: ⏎ opens the session and leaves
+            the highlight where it was, so the card would sit over the session
+            it just opened. */}
         <ChannelItemHoverCard
           item={item}
           menu={menu}
-          highlighted={isHighlighted}
+          highlighted={isHighlighted && !isActive}
         >
           {row}
         </ChannelItemHoverCard>
