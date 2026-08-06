@@ -101,6 +101,7 @@ import type { DataModelingDAG, DataWarehouseSavedQueryFolder, UserType } from '.
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { validateSavedQueryName } from '../saved_queries/savedQueryNameValidation'
 import { dataModelingLogic } from '../scene/dataModelingLogic'
+import { captureBIEditorQueryRun, captureBIEditorQuerySaved } from './bi/biEditorAnalytics'
 import { BIEditorState, parseBIEditorState } from './bi/biEditorTypes'
 import { connectionSelectorLogic } from './connectionSelectorLogic'
 import { draftsLogic } from './draftsLogic'
@@ -1677,6 +1678,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
             return resolveSaveCandidatesPure(fullText, cursorOffset, selectionText)
         }
+        const getActiveBIEditorState = (): BIEditorState | undefined =>
+            values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE] ? values.activeTab?.biEditorState : undefined
 
         return {
             fixErrorsSuccess: ({ response }) => {
@@ -1999,6 +2002,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })
             },
             runQuery: ({ queryOverride, switchTab }) => {
+                captureBIEditorQueryRun(getActiveBIEditorState())
+
                 let query: string
                 if (queryOverride) {
                     // Explicit override (e.g. user selected text and pressed Cmd+Enter)
@@ -2275,6 +2280,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 isTest = false,
                 queryOverride,
             }) => {
+                const biEditorState = getActiveBIEditorState()
                 const query: HogQLQuery = values.sourceQuery.source
 
                 const queryToSave = normalizeRawQuerySource({
@@ -2310,6 +2316,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         ...(dagId ? { dag_id: dagId } : {}),
                         ...(isTest ? { is_test: true } : {}),
                     })
+                    captureBIEditorQuerySaved(biEditorState, 'view', 'create')
 
                     // Saved queries are unique by team,name
                     const savedQuery = dataWarehouseViewsLogic.values.dataWarehouseSavedQueries.find(
@@ -2434,6 +2441,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })
             },
             saveAsInsightSubmit: async ({ name, queryOverride }) => {
+                const biEditorState = getActiveBIEditorState()
                 const currentVisualizationQuery = getCurrentVisualizationQuery(values.dataLogicKey, values.sourceQuery)
                 const effectiveVisualizationType = dataVisualizationLogic.findMounted({
                     key: values.dataLogicKey,
@@ -2464,6 +2472,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     saved: true,
                     ...(dashboardId ? { dashboards: [dashboardId] } : {}),
                 })
+                captureBIEditorQuerySaved(biEditorState, 'insight', 'create', dashboardId !== null)
                 const logic = insightLogic({
                     dashboardItemId: insight.short_id,
                     doNotLoad: true,
@@ -2537,6 +2546,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })
             },
             saveAsEndpointSubmit: async ({ name, description, queryOverride }) => {
+                const biEditorState = getActiveBIEditorState()
                 try {
                     const endpoint = await api.endpoint.create({
                         name: slugify(name),
@@ -2546,6 +2556,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             query: queryOverride ?? values.queryInput ?? '',
                         }),
                     })
+                    captureBIEditorQuerySaved(biEditorState, 'endpoint', 'create')
                     lemonToast.success('Endpoint created')
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateFirstEndpoint)
                     router.actions.push(urls.endpoint(endpoint.name))
@@ -2584,6 +2595,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })
             },
             saveAsMetricSubmit: async ({ name, description, queryOverride }) => {
+                const biEditorState = getActiveBIEditorState()
                 try {
                     const metric = await dataCatalogMetricsCreate(String(ApiConfig.getCurrentTeamId()), {
                         name,
@@ -2593,6 +2605,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             query: queryOverride ?? values.queryInput ?? '',
                         }) as unknown as Record<string, unknown>,
                     })
+                    captureBIEditorQuerySaved(biEditorState, 'metric', 'create')
                     lemonToast.success('Metric created')
                     router.actions.push(urls.dataCatalogMetric(metric.name))
                 } catch (error: any) {
@@ -2604,6 +2617,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     return
                 }
                 actions.setMetricUpdating(true)
+                const biEditorState = getActiveBIEditorState()
                 try {
                     await dataCatalogMetricsPartialUpdate(
                         String(ApiConfig.getCurrentTeamId()),
@@ -2615,6 +2629,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             }) as unknown as Record<string, unknown>,
                         }
                     )
+                    captureBIEditorQuerySaved(biEditorState, 'metric', 'update')
                     lemonToast.success('Metric updated')
                     router.actions.push(urls.dataCatalogMetric(values.editingMetricName))
                 } catch (error: any) {
@@ -2644,6 +2659,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
 
                 actions.setInsightLoading(true)
+                const biEditorState = getActiveBIEditorState()
 
                 const insightName = values.activeTab?.name
                 const insightDescription = values.activeTab?.description
@@ -2679,6 +2695,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     throw e
                 }
                 actions.setInsightLoading(false)
+                captureBIEditorQuerySaved(biEditorState, 'insight', 'update', dashboardId !== null)
 
                 if (values.activeTab) {
                     actions.updateTab({
@@ -2872,6 +2889,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
             },
             updateViewSuccess: async ({ view, draftId }) => {
+                captureBIEditorQuerySaved(getActiveBIEditorState(), 'view', 'update')
                 if (draftId) {
                     actions.deleteDraft(draftId, view?.name)
                 }

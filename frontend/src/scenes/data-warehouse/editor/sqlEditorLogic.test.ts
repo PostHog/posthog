@@ -1,7 +1,9 @@
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
@@ -26,6 +28,7 @@ import {
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
+import { BI_EDITOR_EVENTS } from './bi/biEditorAnalytics'
 import { biEditorLogic } from './bi/biEditorLogic'
 import { BIConfig, BIEditorView, BIField } from './bi/biEditorTypes'
 import { buildSqlNotebook, editorSceneLogic } from './editorSceneLogic'
@@ -1506,6 +1509,110 @@ describe('sqlEditorLogic', () => {
             filters: [{ field: eventField, operator: 'equals', value: 'signup' }],
             limit: 1000,
         }
+        const configEventProperties = {
+            source_kind: 'project_data',
+            chart_type: ChartDisplayType.ActionsBar,
+            row_count: 1,
+            column_count: 0,
+            value_count: 0,
+            filter_count: 1,
+            field_types: ['string'],
+            aggregation_types: [],
+            filter_operator_types: ['equals'],
+            date_bucket_types: [],
+            custom_expression_count: 0,
+        }
+
+        it('captures BI mode selection and query runs without query contents', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SQL_EDITOR_BI_MODE], {
+                [FEATURE_FLAGS.SQL_EDITOR_BI_MODE]: true,
+            })
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, {
+                q: "SELECT event, count(*) FROM events WHERE event = 'signup' GROUP BY event",
+                mode: BIEditorView.BI,
+                bi: config,
+            })
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            ;(posthog.capture as jest.Mock).mockClear()
+            biLogic.actions.setEditorView(BIEditorView.SQL)
+            expect(posthog.capture).toHaveBeenCalledWith(BI_EDITOR_EVENTS.MODE_SELECTED, {
+                mode: BIEditorView.SQL,
+                ...configEventProperties,
+            })
+
+            ;(posthog.capture as jest.Mock).mockClear()
+            biLogic.actions.setEditorView(BIEditorView.BI)
+            expect(posthog.capture).toHaveBeenCalledWith(BI_EDITOR_EVENTS.MODE_SELECTED, {
+                mode: BIEditorView.BI,
+                ...configEventProperties,
+            })
+
+            ;(posthog.capture as jest.Mock).mockClear()
+            logic.actions.runQuery()
+            expect(posthog.capture).toHaveBeenCalledWith(BI_EDITOR_EVENTS.QUERY_RUN, configEventProperties)
+
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SQL_EDITOR_BI_MODE]: false })
+            ;(posthog.capture as jest.Mock).mockClear()
+            logic.actions.runQuery()
+            expect(posthog.capture).not.toHaveBeenCalledWith(BI_EDITOR_EVENTS.QUERY_RUN, expect.anything())
+
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SQL_EDITOR_BI_MODE], {
+                [FEATURE_FLAGS.SQL_EDITOR_BI_MODE]: true,
+            })
+            biLogic.actions.setEditorView(BIEditorView.SQL)
+            ;(posthog.capture as jest.Mock).mockClear()
+            logic.actions.runQuery()
+            expect(posthog.capture).not.toHaveBeenCalledWith(BI_EDITOR_EVENTS.QUERY_RUN, expect.anything())
+
+            biLogic.unmount()
+        })
+
+        it('captures a successful BI insight save as an activation outcome', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SQL_EDITOR_BI_MODE], {
+                [FEATURE_FLAGS.SQL_EDITOR_BI_MODE]: true,
+            })
+            const createSpy = jest.spyOn(insightsApi, 'create').mockResolvedValue(MOCK_INSIGHT)
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, {
+                q: "SELECT event, count(*) FROM events WHERE event = 'signup' GROUP BY event",
+                mode: BIEditorView.BI,
+                bi: config,
+            })
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            logic.actions.setDashboardId(99)
+            ;(posthog.capture as jest.Mock).mockClear()
+            logic.actions.saveAsInsightSubmit('BI insight')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(posthog.capture).toHaveBeenCalledWith(BI_EDITOR_EVENTS.QUERY_SAVED, {
+                save_type: 'insight',
+                operation: 'create',
+                added_to_dashboard: true,
+                ...configEventProperties,
+            })
+
+            createSpy.mockRestore()
+            biLogic.unmount()
+        })
 
         it('offers every sidebar table while excluding hidden PostHog tables', () => {
             const biLogic = biEditorLogic({ tabId: TAB_ID })
