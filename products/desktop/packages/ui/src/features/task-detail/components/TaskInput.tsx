@@ -860,6 +860,7 @@ export function TaskInput({
     workspaceMode,
     selectedRepository: selectedCloudRepository,
     githubIntegrationId: orgGithubIntegrationId,
+    allowNoRepo,
     branch: workspaceMode === "cloud" ? selectedBranch : null,
     editorIsEmpty,
     runtimeAdapter: adapter ?? null,
