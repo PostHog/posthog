@@ -67,11 +67,10 @@ tools:
             destructive: false
             idempotent: true
         title: Get a channel
-        description: >-
-            Get a single PostHog Tasks channel by id, returning its name and type. Channels are the project's workspace
-            channels that group tasks and canvases (public channels plus each member's #me channel). Use channel-list to
-            resolve a channel id from its name; use channel-instructions-retrieve to read the channel's CONTEXT.md
-            instructions.
+        description: "Get a single PostHog Tasks channel by id, returning its name and type. Channels are the project's
+            workspace channels that group tasks and canvases (public channels plus each member's #me channel). Use
+            channel-list to resolve a channel id from its name; use channel-instructions-retrieve to read the channel's
+            CONTEXT.md instructions."
         param_overrides:
             id:
                 description: ID of the channel to read.

@@ -32,9 +32,9 @@ tools:
             idempotent: false
         enrich_url: '{id}'
         title: Create feature flag
-        description: >-
-            Create a feature flag in the current project. Call when the user asks to add a flag, gate a feature behind a
-            flag, set up a percentage rollout, or deliver a remote config value. Release conditions, rollout
+        description:
+            Create a feature flag in the current project. Call when the user asks to add a flag, gate a feature behind
+            a flag, set up a percentage rollout, or deliver a remote config value. Release conditions, rollout
             percentages, multivariate variants, and payloads all go in the structured `filters` param (`filters.groups`
             for release conditions, `filters.multivariate.variants` for variants, `filters.payloads` for JSON-encoded
             payloads). For an A/B test, create an experiment instead — experiments manage their own flag. Use
@@ -135,7 +135,7 @@ tools:
             idempotent: true
         enrich_url: '{id}'
         title: Get feature flag definition
-        description: >-
+        description:
             Get a single feature flag's full definition — rollout conditions, variants, payloads, active state — by its
             numeric ID. Use feature-flag-get-definition-by-key when you only have the string key used in code; use
             feature-flag-get-all to search by key or name and find the ID.
@@ -345,13 +345,13 @@ tools:
             destructive: false
             idempotent: true
         title: Test feature flag evaluation
-        description: >-
-            Simulate how one feature flag (by numeric ID) would evaluate for a specific user, optionally at a past point
-            in time (`timestamp` reconstructs flag conditions and person properties as they existed then). Provide
+        description:
+            'Simulate how one feature flag (by numeric ID) would evaluate for a specific user, optionally at a past
+            point in time (`timestamp` reconstructs flag conditions and person properties as they existed then). Provide
             `distinct_id` or `person_id` (mutually exclusive) and optionally `groups`. Returns the evaluated value with
             detailed reasoning: which condition matched and the person properties used. Use this to debug or dry-run a
             single flag; use feature-flags-evaluation-reasons-retrieve to see live evaluations across many flags for a
-            user, and feature-flags-user-blast-radius-create to size a release condition before applying it.
+            user, and feature-flags-user-blast-radius-create to size a release condition before applying it.'
         param_overrides:
             id:
                 cast: string-int
@@ -484,7 +484,7 @@ tools:
             idempotent: true
         enrich_url: '{id}'
         title: Update feature flag
-        description: >-
+        description:
             Update a feature flag by numeric ID (partial update — only the fields you include are changed). Call when
             the user asks to enable or disable a flag, change its rollout percentage or release conditions, edit
             variants or payloads, or update its description. Rollout conditions, variants, and payloads live in the

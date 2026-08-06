@@ -221,7 +221,7 @@ tools:
             destructive: false
             idempotent: true
         title: Tolerate visual review snapshot
-        description: >-
+        description:
             Mark a single changed snapshot as a known tolerated alternate. The snapshot's current hash is recorded
             alongside the existing baseline so future runs producing the same alternate are not flagged as changes —
             useful for benign rendering variants (anti-aliasing noise, blinking cursors, etc.). Pass `snapshot_id` — the
