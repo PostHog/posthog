@@ -16,6 +16,7 @@ from products.data_catalog.evals.scorers import (
     CanonicalMetricRun,
     DeprecationProposed,
     MetricDescriptionConcise,
+    MetricDescriptionQuality,
     MetricsCatalogBeforeDataDiscovery,
     SemanticMetadataQueried,
 )
@@ -468,3 +469,23 @@ def test_metric_description_concise(
     )
 
     assert score.score == expected_score
+
+
+def test_metric_description_quality_judges_the_stored_description() -> None:
+    narrating_update = "First it sums amount_usd, then it filters to the last 30 days, then it groups by plan."
+    calls = [
+        (
+            METRIC_CREATE_TOOL,
+            {"name": "mrr", "description": _SHORT_DESCRIPTION, "definition": {"kind": "HogQLQuery"}},
+            "completed",
+        ),
+        (METRIC_UPDATE_TOOL, {"name": "mrr", "description": narrating_update}, "completed"),
+    ]
+
+    prepared = MetricDescriptionQuality()._prepare(
+        {"raw_log": _tool_log(calls)},
+        {"metric_description_quality": {}},
+    )
+
+    assert prepared["output"]["description"] == narrating_update
+    assert prepared["output"]["definition"] == json.dumps({"kind": "HogQLQuery"})

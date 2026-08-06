@@ -371,20 +371,30 @@ class DeprecationProposed(Scorer):
         return Score(name=self._name(), score=1.0, metadata={"stale_source": stale_name})
 
 
-def _written_descriptions(parser: LogParser) -> list[tuple[str, str]]:
-    """``(tool_name, description)`` for every successful metric write carrying a string description.
+def _description_writes(parser: LogParser) -> list[ToolCall]:
+    """Successful metric writes carrying a string description, in call order.
 
-    Update calls count too, so a case cannot pass by creating a short description and then
-    PATCHing a long one over it.
+    Update calls count too, so a case cannot pass by writing a short, meaningful description and
+    then PATCHing a long or query-narrating one over it. The last entry is what ends up stored.
     """
     calls: list[ToolCall] = []
     for tool in (METRIC_CREATE_TOOL, METRIC_UPDATE_TOOL):
-        calls.extend(c for c in parser.get_tool_calls(tool) if not c.is_error)
-    return [
-        (call.name, call.input["description"])
-        for call in sorted(calls, key=lambda c: c.position)
-        if isinstance(call.input, dict) and isinstance(call.input.get("description"), str)
-    ]
+        calls.extend(
+            c
+            for c in parser.get_tool_calls(tool)
+            if not c.is_error and isinstance(c.input, dict) and isinstance(c.input.get("description"), str)
+        )
+    return sorted(calls, key=lambda c: c.position)
+
+
+def _written_descriptions(parser: LogParser) -> list[tuple[str, str]]:
+    """``(tool_name, description)`` for every successful metric write carrying a description."""
+    return [(call.name, call.input["description"]) for call in _description_writes(parser)]
+
+
+def _latest_field(calls: list[ToolCall], field: str, expected_type: type) -> Any:
+    """The value of ``field`` from the last call that supplied it with the expected type."""
+    return next((c.input[field] for c in reversed(calls) if isinstance(c.input.get(field), expected_type)), None)
 
 
 class MetricDescriptionConcise(Scorer):
@@ -460,23 +470,24 @@ class MetricDescriptionQuality(JudgedScorer):
         parser = _parser_for(output)
         if parser is None:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
-        creates = [
-            c
-            for c in parser.get_tool_calls(METRIC_CREATE_TOOL)
-            if not c.is_error and isinstance(c.input, dict) and isinstance(c.input.get("description"), str)
-        ]
-        if not creates:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "no successful metric create"})
-        last = max(creates, key=lambda c: c.position)
-        definition = last.input.get("definition")
-        definition_text = json.dumps(definition) if isinstance(definition, dict) else ""
+        writes = _description_writes(parser)
+        if not writes:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "no successful metric write"})
+        # Grade the description that ends up stored, so a compliant create followed by a
+        # query-narrating update is judged on the update.
+        last = writes[-1]
+        # An update usually omits definition and reasoning, so take each from the most recent
+        # write that supplied it. The judge needs the definition to tell meaning from narration.
+        definition = _latest_field(writes, "definition", dict)
+        reasoning = _latest_field(writes, "reasoning", str)
+        definition_text = json.dumps(definition) if definition is not None else ""
         if len(definition_text) > _JUDGE_OUTPUT_CHAR_LIMIT:
             definition_text = definition_text[:_JUDGE_OUTPUT_CHAR_LIMIT] + " …[truncated]"
         return {
             "output": {
                 "description": last.input["description"],
                 "definition": definition_text,
-                "reasoning": last.input.get("reasoning") or "",
+                "reasoning": reasoning or "",
             }
         }
 
