@@ -3,9 +3,21 @@ import {
     getAiSubscriptionGate,
     getNextDeliveryDate,
     selectedDaysToDayPickerValue,
+    shouldShowDayPicker,
 } from './utils'
 
 describe('day picker values', () => {
+    it.each([
+        ['daily', 1, true],
+        ['daily', 2, false],
+        ['weekly', 1, true],
+        ['weekly', 2, true],
+        ['monthly', 1, false],
+        ['yearly', 1, false],
+    ] as const)('%s interval %s shows day picker: %s', (frequency, interval, expected) => {
+        expect(shouldShowDayPicker(frequency, interval)).toBe(expected)
+    })
+
     it.each([
         ['every day', ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'], 'all_days'],
         ['weekdays', ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'], 'weekdays'],

@@ -65,6 +65,10 @@ export const intervalOptions: LemonSelectOptions<number> = range(1, 13).map((x) 
 
 export type FrequencyOptionValue = 'daily' | 'weekly' | 'monthly'
 
+export function shouldShowDayPicker(frequency: SubscriptionType['frequency'], interval: number): boolean {
+    return frequency === 'weekly' || (frequency === 'daily' && interval === 1)
+}
+
 export const frequencyOptionsSingular: LemonSelectOption<FrequencyOptionValue>[] = [
     { value: 'daily', label: 'day' },
     { value: 'weekly', label: 'week' },

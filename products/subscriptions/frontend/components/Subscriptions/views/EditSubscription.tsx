@@ -53,6 +53,7 @@ import {
     getNextDeliveryDate,
     intervalOptions,
     monthlyWeekdayOptions,
+    shouldShowDayPicker,
     targetTypeOptions,
     timeOptions,
     selectedDaysToDayPickerValue,
@@ -658,7 +659,7 @@ function EditSubscriptionForm({
                                         <LemonSelect options={availableFrequencyOptions} />
                                     </LemonField>
 
-                                    {(subscription.frequency === 'daily' || subscription.frequency === 'weekly') && (
+                                    {shouldShowDayPicker(subscription.frequency, subscription.interval) && (
                                         <>
                                             <LemonField name="byweekday">
                                                 {({ value, onChange }) => {
