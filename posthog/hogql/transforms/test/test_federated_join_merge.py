@@ -9,6 +9,9 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.transforms.federated_join_merge import MERGED_ALIAS
 
+from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+
 ACCOUNTS_LAZY_JOINS_QUERY = """
     select id, accounts.tags.names as tag_names, accounts.notebooks.count as notebook_count
     from system.accounts as accounts
@@ -97,3 +100,37 @@ class TestFederatedJoinMerge(BaseTest):
         """
         printed = self._print_select(query)
         self.assertNotIn("UNION ALL", printed)
+
+    def test_warehouse_join_columns_compile_alongside_aggregating_joins(self):
+        # Merging warehouse (s3) joins breaks compilation ("Can't access field on
+        # LazyJoinType"), so the transform must exclude them. Printing is enough to
+        # catch the regression, and no s3 read happens here.
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="account_list",
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            team=self.team,
+            credential=credential,
+            url_pattern="http://localhost:19000/bucket/account_list/*.csv",
+            columns={
+                "external_id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "valid": True},
+                "total_mrr": {"hogql": "FloatDatabaseField", "clickhouse": "Nullable(Float64)", "valid": True},
+            },
+        )
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="system.accounts",
+            source_table_key="external_id",
+            joining_table_name="account_list",
+            joining_table_key="external_id",
+            field_name="account_list",
+        )
+
+        printed = self._print_select(
+            """
+            select id, accounts.tags.names as tag_names, accounts.notebooks.count as notebook_count,
+                   accounts.account_list.total_mrr as mrr
+            from system.accounts as accounts
+            """
+        )
+        self.assertIn("account_list", printed)

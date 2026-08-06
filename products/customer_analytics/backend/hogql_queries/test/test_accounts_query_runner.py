@@ -667,57 +667,6 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(rows[str(empty.id)][count_idx], 0)
         self.assertFalse(rows[str(empty.id)][plan_idx])
 
-    def test_warehouse_join_columns_compile_alongside_aggregating_joins(self):
-        # Merging warehouse (s3) joins breaks compilation ("Can't access field on
-        # LazyJoinType"), so the transform must exclude them. Printing is enough to
-        # catch the regression, and no s3 read happens here.
-        from posthog.hogql.query import HogQLQueryExecutor
-
-        from products.data_tools.backend.models.join import DataWarehouseJoin
-        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
-
-        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
-        DataWarehouseTable.objects.create(
-            name="account_list",
-            format=DataWarehouseTable.TableFormat.CSVWithNames,
-            team=self.team,
-            credential=credential,
-            url_pattern="http://localhost:19000/bucket/account_list/*.csv",
-            columns={
-                "external_id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "valid": True},
-                "total_mrr": {"hogql": "FloatDatabaseField", "clickhouse": "Nullable(Float64)", "valid": True},
-            },
-        )
-        DataWarehouseJoin.objects.create(
-            team=self.team,
-            source_table_name="system.accounts",
-            source_table_key="external_id",
-            joining_table_name="account_list",
-            joining_table_key="external_id",
-            field_name="account_list",
-        )
-
-        runner = AccountsQueryRunner(
-            query=AccountsQuery(
-                select=[
-                    "id",
-                    "accounts.tags.names AS tag_names",
-                    "accounts.notebooks.count AS notebook_count",
-                    "accounts.account_list.total_mrr AS mrr",
-                ]
-            ),
-            team=self.team,
-            user=self.user,
-        )
-        sql, _context = HogQLQueryExecutor(
-            query=runner.to_query(),
-            team=self.team,
-            query_type="AccountsQuery",
-            user=self.user,
-            modifiers=HogQLQueryModifiers(mergeFederatedAggregateJoins=True),
-        ).generate_clickhouse_sql()
-        self.assertIn("account_list", sql)
-
     def test_join_merge_requires_modifier(self):
         # The merge transform must stay behind the modifier: without it the printed
         # SQL keeps the original per-join shape. The modifier-on run guards against
