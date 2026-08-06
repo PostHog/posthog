@@ -131,15 +131,20 @@ class ResolutionRunResult:
     # Work-list overflow beyond MAX_THREADS_PER_RUN — named, never silent; the next run continues.
     overflow: int = 0
     failed_turns: int = 0
+    # Threads whose GitHub writes failed outright this run (e.g. a token-expiry tail) — named in the
+    # run note; their verdict rows still say undelivered, so the next run redelivers.
+    undelivered: int = 0
 
 
 @dataclass
 class _PreparedRun:
-    """In-process fetch/gate output — never crosses the Temporal boundary (threads can be big)."""
+    """In-process fetch/gate output — never crosses the Temporal boundary (threads can be big).
+
+    Deliberately carries no GitHub token: deliveries resolve their own fresh one, because a session
+    can outlive the ~1h installation-token TTL (see `_deliver_side_effects`).
+    """
 
     report_id: str
-    token: str
-    installation_id: str | None
     pr_metadata: PRMetadata
     triage: list[ReviewThread]
     redeliver: list[tuple[ReviewThread, ThreadVerdictArtefact]]
@@ -212,8 +217,6 @@ def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResu
     skill = load_resolution_skill_for_run(input.team_id, input.acting_user_id)
     return _PreparedRun(
         report_id=report_id,
-        token=token,
-        installation_id=installation_id,
         pr_metadata=pr_metadata,
         triage=triage,
         redeliver=redeliver,
@@ -227,8 +230,6 @@ def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResu
 def _deliver_side_effects(
     input: ResolveThreadsInput,
     report_id: str,
-    token: str,
-    installation_id: str | None,
     verdict: ThreadVerdictArtefact,
     *,
     branch: str,
@@ -236,6 +237,8 @@ def _deliver_side_effects(
     """Perform the verdict's undelivered GitHub writes, persisting after each so a crash redoes only
     what's still missing.
 
+    The installation token is resolved fresh here, not carried from run start: a 20-thread session
+    can outlive the ~1h token TTL, and `_installation_auth` auto-refreshes an expired one.
     A FIXED verdict's `commit_sha` is the model's echo, so it is verified server-side first
     (`commit_on_branch`, persisted as `commit_verified`): an unproven SHA delivers the reply without
     the public commit link and never auto-resolves — the thread stays open for a human.
@@ -246,6 +249,7 @@ def _deliver_side_effects(
     Resolving is etiquette-gated (`should_resolve`) and best-effort — a failed resolve is redelivered by
     the next run's pre-filter.
     """
+    token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
     updated = verdict
     if updated.outcome == ThreadOutcome.FIXED.value and updated.commit_sha and updated.commit_verified is None:
         verified = commit_on_branch(
@@ -319,6 +323,8 @@ def _append_run_note(input: ResolveThreadsInput, report_id: str, result: Resolut
     )
     if result.overflow:
         note += f" {result.overflow} thread(s) remain beyond the {MAX_THREADS_PER_RUN}-thread run cap; the next run continues."
+    if result.undelivered:
+        note += f" {result.undelivered} thread(s) hit delivery failures; the next run redelivers them."
     try:
         ReviewReportArtefact.add_log(
             team_id=input.team_id,
@@ -385,13 +391,12 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
                     await database_sync_to_async(_deliver_side_effects, thread_sensitive=False)(
                         input,
                         prepared.report_id,
-                        prepared.token,
-                        prepared.installation_id,
                         verdict,
                         branch=prepared.pr_metadata.head_branch,
                     )
                     result.redelivered += 1
                 except Exception:
+                    result.undelivered += 1
                     logger.exception("Redelivery failed for thread %s; the next run will retry", verdict.thread_id)
 
             for thread in prepared.triage:
@@ -470,13 +475,12 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
                     await database_sync_to_async(_deliver_side_effects, thread_sensitive=False)(
                         input,
                         prepared.report_id,
-                        prepared.token,
-                        prepared.installation_id,
                         verdict,
                         branch=prepared.pr_metadata.head_branch,
                     )
                 except Exception:
                     # The verdict row still says reply_posted=False, so the next run redelivers.
+                    result.undelivered += 1
                     logger.exception("Side effects failed for thread %s; the next run will retry", thread.thread_id)
         run_ok = True
     except Exception:

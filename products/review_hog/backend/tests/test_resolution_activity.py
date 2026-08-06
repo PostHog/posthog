@@ -13,6 +13,7 @@ from products.review_hog.backend.reviewer.tools.github_threads import ReviewThre
 from products.review_hog.backend.temporal.resolution import (
     ResolutionRunResult,
     ResolveThreadsInput,
+    _append_run_note,
     _append_task_run,
     _deliver_side_effects,
     _prepare_run,
@@ -128,8 +129,9 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, "https://github.com/x")) as reply,
             patch(f"{_RESOLUTION}.resolve_thread", return_value=True) as resolve,
             patch(f"{_RESOLUTION}.commit_on_branch", return_value=True),
+            patch(f"{_RESOLUTION}._installation_auth", return_value=("token", None)),
         ):
-            _deliver_side_effects(self._input(), str(report.id), "token", None, verdict, branch="feature")
+            _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature")
 
         assert reply.call_count == 1
         assert resolve.call_count == (1 if expect_resolve else 0)
@@ -146,8 +148,9 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, None)) as reply,
             patch(f"{_RESOLUTION}.resolve_thread", return_value=True),
             patch(f"{_RESOLUTION}.commit_on_branch", return_value=True),
+            patch(f"{_RESOLUTION}._installation_auth", return_value=("token", None)),
         ):
-            _deliver_side_effects(self._input(), str(report.id), "token", None, verdict, branch="feature")
+            _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature")
         assert "https://github.com/posthog/posthog/commit/abc123" in reply.call_args.kwargs["body"]
 
     def test_unverified_commit_withholds_link_and_resolve(self) -> None:
@@ -159,8 +162,9 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, None)) as reply,
             patch(f"{_RESOLUTION}.resolve_thread", return_value=True) as resolve,
             patch(f"{_RESOLUTION}.commit_on_branch", return_value=False),
+            patch(f"{_RESOLUTION}._installation_auth", return_value=("token", None)),
         ):
-            _deliver_side_effects(self._input(), str(report.id), "token", None, verdict, branch="feature")
+            _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature")
 
         assert "Fix commit" not in reply.call_args.kwargs["body"]
         assert resolve.call_count == 0
@@ -169,6 +173,17 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         assert stored.reply_posted is True
         assert stored.resolved is False
 
+    def test_run_note_names_delivery_failures(self) -> None:
+        # A token-expiry tail must be visible in the durable run note, not just worker logs.
+        report = self._report()
+        _append_run_note(
+            self._input(),
+            str(report.id),
+            ResolutionRunResult(report_id=str(report.id), triaged=1, outcomes={"fixed": 1}, undelivered=2),
+        )
+        note = ReviewReportArtefact.objects.for_team(self.team.id).get(report_id=report.id, type="note")
+        assert "2 thread(s) hit delivery failures" in note.content
+
     def test_failed_resolve_leaves_a_redeliverable_verdict(self) -> None:
         report = self._report()
         verdict = _verdict(author_is_bot=True, outcome="fixed")
@@ -176,8 +191,9 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, None)),
             patch(f"{_RESOLUTION}.resolve_thread", side_effect=RuntimeError("token cannot resolve")),
             patch(f"{_RESOLUTION}.commit_on_branch", return_value=True),
+            patch(f"{_RESOLUTION}._installation_auth", return_value=("token", None)),
         ):
-            _deliver_side_effects(self._input(), str(report.id), "token", None, verdict, branch="feature")
+            _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature")
         stored = load_thread_verdicts(team_id=self.team.id, report_id=str(report.id))["PRRT_1"]
         # The reply survived (posted once), the resolve stays due — exactly what the pre-filter redelivers.
         assert stored.reply_posted is True

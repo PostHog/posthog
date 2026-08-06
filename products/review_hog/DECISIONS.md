@@ -2936,7 +2936,10 @@ implement what is worth doing and safe to do unattended, answer what isn't, and 
    reply **without** the public commit link and never auto-resolves (`should_resolve` gates on it; the delivered
    verdict settles as SKIP, the thread stays open for a human). Full session-provenance — capturing the true SHA
    from the signed-commit tooling instead of the model's echo — remains the recorded follow-up (needs Tasks to
-   surface it).
+   surface it). _Same date (off the token-TTL escalation):_ deliveries resolve a **fresh** installation token per
+   thread (`_installation_auth` inside `_deliver_side_effects`, auto-refreshing) instead of carrying the run-start
+   token — a 20-thread session can outlive the ~1h token TTL, which silently failed the tail's replies/resolves.
+   Outright delivery failures are now counted (`ResolutionRunResult.undelivered`) and named in the run note.
 9. **Persistence & budget** — home is the living `ReviewReport`; runs append `thread_verdict` (net-new content
    schema, latest-wins per thread) plus `commit` / `task_run` / `note` artefacts (their first writers). Idempotency
    is per-thread: unchanged state skips deterministically, any new reply re-opens that thread's triage (pushback on

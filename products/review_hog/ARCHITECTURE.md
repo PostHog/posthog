@@ -512,7 +512,8 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
 
 - **GitHub auth** — the team's **GitHub App installation token**, resolved server-side per activity via
   `GitHubIntegration.first_for_team_repository(team_id, repo)` (`_installation_auth` returns
-  `(get_access_token(), github_installation_id)`, auto-refreshing). No `GITHUB_TOKEN` env var; the worker no longer
+  `(get_access_token(), github_installation_id)`, auto-refreshing); resolution-thread deliveries re-resolve it
+  per thread, since a warm session can outlive the ~1h token TTL. No `GITHUB_TOKEN` env var; the worker no longer
   needs one. All calls route through `posthog.egress.github.transport.github_request` (via
   `reviewer/tools/github_client.py`), metered against the installation's shared egress budget.
 - `--team-id` / `--user-id` (CLI, required) — the team the review runs and persists under, and the user the
