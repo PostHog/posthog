@@ -61,7 +61,13 @@ from posthog.api.oauth.toolbar_service import (
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
-from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action, unparsed_hostname_in_allowed_url_list
+from posthog.api.utils import (
+    ClassicBehaviorBooleanFieldSerializer,
+    action,
+    canonicalize_encoded_url,
+    strip_url_userinfo,
+    unparsed_hostname_in_allowed_url_list,
+)
 from posthog.auth import (
     IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
@@ -1839,8 +1845,12 @@ def redirect_to_site(request):
 
     if not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
         REDIRECT_TO_SITE_FAILED_COUNTER.inc()
-        parsed_app_url = urllib.parse.urlparse(app_url)
-        hostname = parsed_app_url.hostname or app_url
+        try:
+            hostname = urllib.parse.urlparse(app_url).hostname or app_url
+        except ValueError:
+            # A URL too malformed to parse is still a rejection, so report it back as typed
+            # rather than failing the request with a 500.
+            hostname = app_url
         logger.error(
             "can_only_redirect_to_permitted_domain",
             permitted_domains=team.app_urls,
@@ -1862,6 +1872,10 @@ def redirect_to_site(request):
             },
             status_code=403,
         )
+
+    # Redirect to the form that was approved, not the caller's raw string.
+    app_url = strip_url_userinfo(canonicalize_encoded_url(app_url))
+
     params = {
         "action": "ph_authorize",
         "token": team.api_token,
