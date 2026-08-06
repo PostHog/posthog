@@ -21,6 +21,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import {
     canvasesBuildsRetrieve,
+    canvasesPartialUpdate,
     canvasesPublishCreate,
     canvasesRetrieve,
     canvasesSourceRetrieve,
@@ -57,9 +58,14 @@ export interface notebookNodeCanvasLogicValues {
     canvasLoading: boolean
     canvasMissing: boolean
     capabilities: CanvasCapabilities | undefined
+    contextValue: string
     editedCode: string | null
+    editedContext: string | null
+    editedName: string | null
+    hasMetaChanges: boolean
     hasSourceChanges: boolean
     isBuilding: boolean
+    nameValue: string
     publishDiagnostics: CanvasDiagnosticApi[]
     publishResult: CanvasSourcePublishResponseApi | null
     publishResultLoading: boolean
@@ -136,8 +142,29 @@ export interface notebookNodeCanvasLogicActions {
         publishResult: CanvasSourcePublishResponseApi
         payload?: any
     }
+    saveCanvasMeta: () => any
+    saveCanvasMetaFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    saveCanvasMetaSuccess: (
+        canvas: CanvasApi,
+        payload?: any
+    ) => {
+        canvas: CanvasApi
+        payload?: any
+    }
     setEditedCode: (code: string) => {
         code: string
+    }
+    setEditedContext: (context: string) => {
+        context: string
+    }
+    setEditedName: (name: string) => {
+        name: string
     }
     setRuntimeError: (error: string | null) => {
         error: string | null
@@ -151,6 +178,9 @@ export interface notebookNodeCanvasLogicMeta {
         publishedBuild: (builds: CanvasBuildsResponseApi | null) => CanvasBuildApi | null
         artifactUrl: (publishedBuild: CanvasBuildApi | null) => string | null
         capabilities: (publishedBuild: CanvasBuildApi | null) => CanvasCapabilities | undefined
+        nameValue: (editedName: any, canvas: CanvasApi | null) => string
+        contextValue: (editedContext: any, canvas: CanvasApi | null) => string
+        hasMetaChanges: (editedName: any, editedContext: any, canvas: CanvasApi | null) => boolean
         savedCode: (source: CanvasSourceResponseApi | null) => string
         sourceCode: (editedCode: string | null, savedCode: string) => string
         hasSourceChanges: (editedCode: string | null, savedCode: string) => boolean
@@ -173,6 +203,8 @@ export const notebookNodeCanvasLogic: LogicWrapper<notebookNodeCanvasLogicType> 
     actions({
         setRuntimeError: (error: string | null) => ({ error }),
         setEditedCode: (code: string) => ({ code }),
+        setEditedName: (name: string) => ({ name }),
+        setEditedContext: (context: string) => ({ context }),
         buildFinished: true,
     }),
     loaders(({ props, values }) => ({
@@ -180,6 +212,11 @@ export const notebookNodeCanvasLogic: LogicWrapper<notebookNodeCanvasLogicType> 
             null as CanvasApi | null,
             {
                 loadCanvas: async () => await canvasesRetrieve(String(values.currentTeamId), props.id),
+                saveCanvasMeta: async () =>
+                    await canvasesPartialUpdate(String(values.currentTeamId), props.id, {
+                        name: values.nameValue,
+                        context: values.contextValue,
+                    }),
             },
         ],
         builds: [
@@ -237,6 +274,20 @@ export const notebookNodeCanvasLogic: LogicWrapper<notebookNodeCanvasLogicType> 
                 publishSourceSuccess: () => null,
             },
         ],
+        editedName: [
+            null as string | null,
+            {
+                setEditedName: (_, { name }) => name,
+                saveCanvasMetaSuccess: () => null,
+            },
+        ],
+        editedContext: [
+            null as string | null,
+            {
+                setEditedContext: (_, { context }) => context,
+                saveCanvasMetaSuccess: () => null,
+            },
+        ],
         publishDiagnostics: [
             [] as CanvasDiagnosticApi[],
             {
@@ -271,6 +322,20 @@ export const notebookNodeCanvasLogic: LogicWrapper<notebookNodeCanvasLogicType> 
             (s) => [s.publishedBuild],
             (publishedBuild: CanvasBuildApi | null): CanvasCapabilities | undefined =>
                 parseCanvasCapabilities(publishedBuild?.manifest?.capabilities),
+        ],
+        nameValue: [
+            (s) => [s.editedName, s.canvas],
+            (editedName: string | null, canvas: CanvasApi | null): string => editedName ?? canvas?.name ?? '',
+        ],
+        contextValue: [
+            (s) => [s.editedContext, s.canvas],
+            (editedContext: string | null, canvas: CanvasApi | null): string => editedContext ?? canvas?.context ?? '',
+        ],
+        hasMetaChanges: [
+            (s) => [s.editedName, s.editedContext, s.canvas],
+            (editedName: string | null, editedContext: string | null, canvas: CanvasApi | null): boolean =>
+                (editedName !== null && editedName !== (canvas?.name ?? '')) ||
+                (editedContext !== null && editedContext !== (canvas?.context ?? '')),
         ],
         savedCode: [
             (s) => [s.source],
@@ -323,6 +388,9 @@ export const notebookNodeCanvasLogic: LogicWrapper<notebookNodeCanvasLogicType> 
                 actions.loadSource()
                 lemonToast.error('The canvas changed elsewhere. Reloaded the latest source, please re-apply your edit.')
             }
+        },
+        saveCanvasMetaSuccess: () => {
+            lemonToast.success('Canvas updated')
         },
     })),
     afterMount(({ actions }) => {

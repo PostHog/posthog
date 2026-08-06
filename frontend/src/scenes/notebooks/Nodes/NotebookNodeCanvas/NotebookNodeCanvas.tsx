@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonBanner, LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
@@ -103,9 +103,20 @@ const Settings = ({
 }: NotebookNodeAttributeProperties<NotebookNodeCanvasAttributes>): JSX.Element => {
     const { id } = attributes
     const logic = notebookNodeCanvasLogic({ id })
-    const { sourceLoading, sourceCode, hasSourceChanges, publishResultLoading, isBuilding, publishDiagnostics } =
-        useValues(logic)
-    const { loadSource, setEditedCode, publishSource } = useActions(logic)
+    const {
+        canvasLoading,
+        nameValue,
+        contextValue,
+        hasMetaChanges,
+        sourceLoading,
+        sourceCode,
+        hasSourceChanges,
+        publishResultLoading,
+        isBuilding,
+        publishDiagnostics,
+    } = useValues(logic)
+    const { loadSource, setEditedCode, publishSource, setEditedName, setEditedContext, saveCanvasMeta } =
+        useActions(logic)
 
     useEffect(() => {
         if (id) {
@@ -138,6 +149,29 @@ const Settings = ({
             </div>
             {id ? (
                 <>
+                    <div className="flex-1">
+                        <LemonLabel>Name</LemonLabel>
+                        <LemonInput value={nameValue} onChange={setEditedName} placeholder="Canvas name" />
+                    </div>
+                    <div className="flex-1">
+                        <LemonLabel info="What this canvas should show. The agent reads these instructions whenever it builds or updates the canvas.">
+                            Agent instructions
+                        </LemonLabel>
+                        <LemonTextArea
+                            value={contextValue}
+                            onChange={setEditedContext}
+                            placeholder="Describe what this canvas should show, for example: a weekly growth overview with signups, activation, and top referrers."
+                            minRows={3}
+                        />
+                    </div>
+                    <LemonButton
+                        type="secondary"
+                        onClick={() => saveCanvasMeta()}
+                        loading={canvasLoading}
+                        disabledReason={canvasLoading ? 'Saving' : !hasMetaChanges ? 'No changes to save' : undefined}
+                    >
+                        Save name and instructions
+                    </LemonButton>
                     <LemonLabel info="Publishing creates a new source version and rebuilds the page. The rendered canvas updates when the build is ready.">
                         Source ({CANVAS_COMPONENT_PATH})
                     </LemonLabel>
