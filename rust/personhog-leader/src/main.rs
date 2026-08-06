@@ -384,7 +384,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         fenced.clone(),
         gated_authority.clone(),
         Arc::clone(&emitted_versions),
-    );
+    )
+    .with_fence_capacity(config.fence_map_max_entries);
 
     let warm_pools = Arc::new(WarmClientPools::new(
         &config.kafka,

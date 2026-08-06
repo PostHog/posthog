@@ -918,3 +918,69 @@ async fn the_takeover_scan_rebuilds_exactly_the_partitions_live_fences() {
         .await
         .expect("cleanup");
 }
+
+/// The fence map's memory fuse: at capacity, a new fence sheds with
+/// RESOURCE_EXHAUSTED (backpressure the saga retries), while a re-seal of
+/// an already-fenced person still succeeds — refusing it would free
+/// nothing.
+#[tokio::test]
+async fn at_capacity_new_fences_shed_but_reseals_succeed() {
+    use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeader;
+
+    let cache = Arc::new(PartitionedCache::new(100));
+    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let service = PersonHogLeaderService::new(
+        Arc::clone(&cache),
+        kafka_producer.clone(),
+        CHANGELOG_TOPIC.to_string(),
+        None,
+        Arc::new(DashMap::new()),
+        Arc::new(InflightTracker::new()),
+        NUM_PARTITIONS,
+        Arc::new(DirtyIndex::new(1_000_000)),
+        test_recovery(&_mock_cluster.bootstrap_servers()),
+        PropertySizeLimits::new(655360, 524288),
+        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        Arc::new(DashMap::new()),
+        None,
+        None,
+        Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
+    )
+    .with_fence_capacity(1);
+
+    let (first_id, second_id) = (5000, 5001);
+    for id in [first_id, second_id] {
+        let partition = partition_for_person(TEAM_ID, id, NUM_PARTITIONS);
+        cache.create_partition(partition);
+        seed_person(
+            &cache,
+            partition,
+            CachedPerson {
+                id,
+                ..test_cached_person()
+            },
+        );
+    }
+    let (first_op, second_op) = (Uuid::now_v7(), Uuid::now_v7());
+
+    let fence = |person_id: i64, op: Uuid| {
+        let partition = partition_for_person(TEAM_ID, person_id, NUM_PARTITIONS);
+        with_partition(fence_request(person_id, &op), partition)
+    };
+
+    service
+        .fence_person(fence(first_id, first_op))
+        .await
+        .expect("the first fence fits");
+
+    let status = service
+        .fence_person(fence(second_id, second_op))
+        .await
+        .expect_err("a new fence past the cap must shed");
+    assert_eq!(status.code(), Code::ResourceExhausted);
+
+    service
+        .fence_person(fence(first_id, first_op))
+        .await
+        .expect("a re-seal of an already-fenced person is exempt from the cap");
+}

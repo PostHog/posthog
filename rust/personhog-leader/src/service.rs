@@ -36,6 +36,10 @@ use personhog_common::properties::{
     jsonb_column_size, sanitize_for_jsonb, trim_properties_to_fit_size, TrimResult,
 };
 
+/// Mirrors the config's `fence_map_max_entries` default; production
+/// overrides via [`PersonHogLeaderService::with_fence_capacity`].
+const DEFAULT_FENCE_MAP_MAX_ENTRIES: usize = 250_000;
+
 /// Admission-time property size limits, in `pg_column_size` (JSONB
 /// binary) terms — the same units as the `check_properties_size`
 /// constraint they exist to enforce.
@@ -97,6 +101,10 @@ pub struct PersonHogLeaderService {
     /// construction. Absent without one (dev fixtures) — ghost fences
     /// then last until the partition changes hands, as before.
     fence_healer: Option<Arc<FenceHealer>>,
+    /// Memory fuse for the fence map (see `fence_map_max_entries` in the
+    /// config for the full policy): at this many live fences, FencePerson
+    /// sheds new fences with RESOURCE_EXHAUSTED.
+    fence_map_max_entries: usize,
     /// Present when broker-enforced epoch fencing is on; the write
     /// path produces through the partition's transaction window.
     fenced: Option<Arc<FencedChangelogProducers>>,
@@ -196,7 +204,16 @@ impl PersonHogLeaderService {
             fenced,
             authority,
             emitted_versions,
+            fence_map_max_entries: DEFAULT_FENCE_MAP_MAX_ENTRIES,
         }
+    }
+
+    /// Override the fence-map capacity (`fence_map_max_entries` in the
+    /// config). Separate from `new` so the many test fixtures keep the
+    /// default without threading one more argument through.
+    pub fn with_fence_capacity(mut self, max_entries: usize) -> Self {
+        self.fence_map_max_entries = max_entries;
+        self
     }
 
     /// Verify the router's routing decision against the request body: the
@@ -1129,12 +1146,28 @@ impl PersonHogLeader for PersonHogLeaderService {
             .clone();
         let _guard = mutex.lock().await;
 
-        if let Some(entry) = self.fences.get(&cache_key) {
+        let refence = if let Some(entry) = self.fences.get(&cache_key) {
             if entry.op_id != op_id {
                 // At most one lifecycle op holds a person; the loser backs
                 // off or aborts.
                 return Err(fenced_status(entry.value()));
             }
+            true
+        } else {
+            false
+        };
+
+        // The memory fuse: the map has no eviction, so a surge of ops is
+        // bounded here, by shedding new fences. Re-seals are exempt — the
+        // person is already fenced, refusing frees nothing — and so is
+        // the takeover scan, whose marks are already live. The saga's
+        // retry absorbs the backpressure.
+        if !refence && self.fences.len() >= self.fence_map_max_entries {
+            counter!("personhog_leader_fences_total", "action" => "shed_capacity").increment(1);
+            return Err(Status::resource_exhausted(format!(
+                "fence map at capacity ({} live fences); retry later",
+                self.fence_map_max_entries
+            )));
         }
 
         // The seal: the newest cached state, captured under the same lock

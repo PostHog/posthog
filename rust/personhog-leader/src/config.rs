@@ -237,6 +237,16 @@ pub struct Config {
     #[envconfig(default = "1000000")]
     pub emitted_versions_max_entries: usize,
 
+    /// Hard cap on live lifecycle fences (~100 bytes each). The fence map
+    /// grows one entry per person frozen by a lifecycle op and has no
+    /// eviction, so this is the memory fuse against a surge of ops from a
+    /// huge customer: at the cap, new FencePerson calls shed with
+    /// RESOURCE_EXHAUSTED — backpressure the saga's retries absorb —
+    /// while re-seals of already-fenced persons and the takeover scan
+    /// (marks already live; the freeze must hold) are exempt.
+    #[envconfig(default = "250000")]
+    pub fence_map_max_entries: usize,
+
     // ── PG fallback ───────────────────────────────────────────────
     /// Postgres URL for cache miss fallback. If empty, cache misses
     /// return NotFound without querying PG. Must point at the primary:
