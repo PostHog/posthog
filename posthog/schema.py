@@ -23677,6 +23677,7 @@ class InsightFilter(
         | FunnelsFilter
         | RetentionFilter
         | PathsFilter
+        | PathsV2Filter
         | StickinessFilter
         | LifecycleFilter
         | CalendarHeatmapFilter
@@ -23688,6 +23689,7 @@ class InsightFilter(
         | FunnelsFilter
         | RetentionFilter
         | PathsFilter
+        | PathsV2Filter
         | StickinessFilter
         | LifecycleFilter
         | CalendarHeatmapFilter
@@ -26563,9 +26565,11 @@ class PathsQuery(BaseModel):
 
 
 class ProductAnalyticsInsightQueryNode(
-    RootModel[TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery]
+    RootModel[
+        TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery
+    ]
 ):
-    root: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery
+    root: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery
 
 
 class VisualizationBlock(BaseModel):
@@ -26708,6 +26712,7 @@ class InsightVizNode(BaseModel):
         | FunnelsQuery
         | RetentionQuery
         | PathsQuery
+        | PathsV2Query
         | StickinessQuery
         | LifecycleQuery
         | WebStatsTableQuery
@@ -26780,6 +26785,7 @@ class WebVitalsQuery(BaseModel):
         | FunnelsQuery
         | RetentionQuery
         | PathsQuery
+        | PathsV2Query
         | StickinessQuery
         | LifecycleQuery
         | WebStatsTableQuery
@@ -26849,6 +26855,7 @@ class InsightActorsQuery(BaseModel):
         | FunnelsQuery
         | RetentionQuery
         | PathsQuery
+        | PathsV2Query
         | StickinessQuery
         | LifecycleQuery
         | WebStatsTableQuery

@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman } from 'lib/utils/strings'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -60,6 +61,7 @@ import {
     isLifecycleDataWarehouseNode,
     isLifecycleQuery,
     isPathsQuery,
+    isPathsV2Query,
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
@@ -522,6 +524,22 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         type: InsightType.PATHS,
                         dataAttr: 'insight-path-tab',
                     },
+                ]
+
+                // Visible when flagged or when viewing an existing journeys insight, so links never dead-end
+                if (featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_PATHS_V2] || activeView === InsightType.JOURNEYS) {
+                    tabs.push({
+                        label: (
+                            <>
+                                Journeys <LemonTag type="warning">BETA</LemonTag>
+                            </>
+                        ),
+                        type: InsightType.JOURNEYS,
+                        dataAttr: 'insight-journeys-tab',
+                    })
+                }
+
+                tabs.push(
                     {
                         label: 'Stickiness',
                         type: InsightType.STICKINESS,
@@ -531,8 +549,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         label: 'Lifecycle',
                         type: InsightType.LIFECYCLE,
                         dataAttr: 'insight-lifecycle-tab',
-                    },
-                ]
+                    }
+                )
 
                 if (featureFlags[FEATURE_FLAGS.HOG] || activeView === InsightType.HOG) {
                     tabs.push({
@@ -725,7 +743,8 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
         ...query,
         ...(cache.dateRange ? { dateRange: cache.dateRange } : {}),
         ...(cache.properties !== undefined ? { properties: cache.properties } : {}),
-        ...(cache.samplingFactor ? { samplingFactor: cache.samplingFactor } : {}),
+        // PathsV2Query has no samplingFactor field, and the backend rejects unknown fields
+        ...(cache.samplingFactor && !isPathsV2Query(query) ? { samplingFactor: cache.samplingFactor } : {}),
         ...(cache.filterTestAccounts !== undefined ? { filterTestAccounts: cache.filterTestAccounts } : {}),
     }
 
