@@ -14,6 +14,10 @@ export interface LegendProps {
     orientation?: 'horizontal' | 'vertical'
     align?: 'start' | 'center' | 'end'
     onItemClick?: (key: string) => void
+    /** Fired on double-click of a row. The double-click's constituent clicks still fire
+     *  `onItemClick` first; the two toggles cancel out, so the handler runs against the same
+     *  hidden state the gesture started from. */
+    onItemDoubleClick?: (key: string) => void
     hiddenKeys?: string[]
     className?: string
     dataAttr?: string
@@ -36,6 +40,7 @@ export function Legend({
     orientation = 'horizontal',
     align = 'center',
     onItemClick,
+    onItemDoubleClick,
     hiddenKeys,
     className,
     dataAttr,
@@ -87,17 +92,22 @@ export function Legend({
                         )}
                     </>
                 )
-                const node = onItemClick ? (
-                    <button
-                        type="button"
-                        className={`${rowClass} cursor-pointer bg-transparent border-0 p-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent`}
-                        onClick={() => onItemClick(item.key)}
-                    >
-                        {inner}
-                    </button>
-                ) : (
-                    <span className={rowClass}>{inner}</span>
-                )
+                // A double-click would select the label text, so suppress selection while the
+                // gesture is live; the full label stays recoverable via the title attribute.
+                const selectNone = onItemDoubleClick ? ' select-none' : ''
+                const node =
+                    onItemClick || onItemDoubleClick ? (
+                        <button
+                            type="button"
+                            className={`${rowClass} cursor-pointer bg-transparent border-0 p-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent${selectNone}`}
+                            onClick={onItemClick ? () => onItemClick(item.key) : undefined}
+                            onDoubleClick={onItemDoubleClick ? () => onItemDoubleClick(item.key) : undefined}
+                        >
+                            {inner}
+                        </button>
+                    ) : (
+                        <span className={rowClass}>{inner}</span>
+                    )
                 return <React.Fragment key={item.key}>{renderItem ? renderItem(node, item) : node}</React.Fragment>
             })}
         </div>

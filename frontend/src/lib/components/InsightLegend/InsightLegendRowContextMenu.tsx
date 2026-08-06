@@ -19,6 +19,8 @@ export type InsightLegendRowContextMenuProps = {
     isOnlyThisVisible: boolean
     onToggleOtherSeries: () => void
     onToggleAllSeries: () => void
+    /** Hover hint for the row. Overridden by consumers whose rows support more than right-click. */
+    tooltip?: string
 }
 
 export function InsightLegendRowContextMenu({
@@ -29,10 +31,11 @@ export function InsightLegendRowContextMenu({
     isOnlyThisVisible,
     onToggleOtherSeries,
     onToggleAllSeries,
+    tooltip = 'Right-click for options',
 }: InsightLegendRowContextMenuProps): JSX.Element {
     return (
         <ContextMenu>
-            <Tooltip title="Right-click for options" delayMs={200}>
+            <Tooltip title={tooltip} delayMs={200}>
                 <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
             </Tooltip>
             <ContextMenuContent className="max-w-[300px] click-outside-block">

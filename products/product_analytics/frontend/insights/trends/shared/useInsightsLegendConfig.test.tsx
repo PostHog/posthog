@@ -1,16 +1,18 @@
 import { renderHook } from '@testing-library/react'
 import { BindLogic } from 'kea'
+import { expectLogic } from 'kea-test-utils'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { trendPieResult } from 'scenes/trends/__mocks__/trendsDataLogicMocks'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataNode, NodeKind, TrendsFilter, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { InsightLogicProps } from '~/types'
+import { InsightLogicProps, InsightModel, TrendAPIResponse } from '~/types'
 
 import { useInsightsLegendConfig } from './useInsightsLegendConfig'
 
@@ -22,17 +24,25 @@ const wrapper = ({ children }: { children: React.ReactNode }): JSX.Element => (
     </BindLogic>
 )
 
-function setup({ trendsFilter }: { trendsFilter?: TrendsFilter } = {}): void {
+function setup({
+    trendsFilter,
+    result,
+}: { trendsFilter?: TrendsFilter; result?: TrendAPIResponse['result'] } = {}): void {
     initKeaTests()
     featureFlagLogic.mount()
 
-    dataNodeLogic({ key: 'InsightViz.new', query: {} as DataNode }).mount()
+    const builtDataNodeLogic = dataNodeLogic({ key: 'InsightViz.new', query: {} as DataNode })
+    builtDataNodeLogic.mount()
     insightDataLogic(insightProps).mount()
     insightLogic(insightProps).mount()
     insightVizDataLogic(insightProps).mount()
     trendsDataLogic(insightProps).mount()
     const query: TrendsQuery = { kind: NodeKind.TrendsQuery, series: [], trendsFilter }
     insightVizDataLogic(insightProps).actions.updateQuerySource(query)
+    if (result) {
+        const insight: Partial<InsightModel> = { result }
+        builtDataNodeLogic.actions.loadDataSuccess(insight)
+    }
 }
 
 describe('useInsightsLegendConfig', () => {
@@ -72,4 +82,27 @@ describe('useInsightsLegendConfig', () => {
             expect(result.current?.interactive).toBe(expectedInteractive)
         }
     )
+
+    it('onIsolateSeries dispatches toggleOtherSeriesHidden for the double-clicked series', async () => {
+        setup({ trendsFilter: { showLegend: true }, result: trendPieResult.result })
+
+        const { result } = renderHook(() => useInsightsLegendConfig({ insightProps }), { wrapper })
+        const logic = trendsDataLogic(insightProps)
+        const firstSeries = logic.values.indexedResults[0]
+
+        await expectLogic(logic, () => {
+            result.current.onIsolateSeries!(String(firstSeries.id))
+        }).toDispatchActions(['toggleOtherSeriesHidden'])
+    })
+
+    it.each([
+        { name: 'fewer than two series', result: undefined, inSharedMode: false },
+        { name: 'shared mode', result: trendPieResult.result, inSharedMode: true },
+    ])('onIsolateSeries is undefined with $name', ({ result: insightResult, inSharedMode }) => {
+        setup({ trendsFilter: { showLegend: true }, result: insightResult })
+
+        const { result } = renderHook(() => useInsightsLegendConfig({ insightProps, inSharedMode }), { wrapper })
+
+        expect(result.current.onIsolateSeries).toBeUndefined()
+    })
 })

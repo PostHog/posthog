@@ -144,9 +144,11 @@ export const LegendHidden: Story = {
 function BuiltInToggleStory({
     position,
     renderItem,
+    defaultHiddenKeys,
 }: {
     position: 'top' | 'bottom' | 'left' | 'right'
     renderItem?: (node: ReactNode, item: LegendItem) => ReactNode
+    defaultHiddenKeys?: string[]
 }): JSX.Element {
     const theme = useReactiveTheme()
     return (
@@ -157,7 +159,7 @@ function BuiltInToggleStory({
                 theme={theme}
                 config={{
                     yAxis: { showGrid: true },
-                    legend: { show: true, position, renderItem },
+                    legend: { show: true, position, renderItem, defaultHiddenKeys },
                 }}
             />
         </Stage>
@@ -168,6 +170,14 @@ export const BuiltInToggleTop: Story = { render: () => <BuiltInToggleStory posit
 export const BuiltInToggleBottom: Story = { render: () => <BuiltInToggleStory position="bottom" /> }
 export const BuiltInToggleLeft: Story = { render: () => <BuiltInToggleStory position="left" /> }
 export const BuiltInToggleRight: Story = { render: () => <BuiltInToggleStory position="right" /> }
+
+// Double-clicking a legend row isolates its series: every other series hides (dimmed rows), and a
+// second double-click restores them. A static snapshot can't run the gesture, so this pins the
+// isolated end state via defaultHiddenKeys; the interaction itself is covered by useChartLegend
+// tests. Controlled legends opt into the gesture via `onIsolateSeries`.
+export const BuiltInDoubleClickIsolate: Story = {
+    render: () => <BuiltInToggleStory position="bottom" defaultHiddenKeys={['signups', 'activations']} />,
+}
 
 // `renderItem` wraps each row so a consumer can augment it (here a native-title tooltip standing in
 // for a right-click context menu) while keeping the default swatch/label/toggle rendering.

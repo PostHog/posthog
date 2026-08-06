@@ -40,6 +40,11 @@ export function TrendsLegendItemContextMenu({
             showLegendIsolateSeriesItem={showLegendIsolateSeriesItem}
             isHidden={isHidden}
             isOnlyThisVisible={isOnlyThisVisible}
+            tooltip={
+                isOnlyThisVisible
+                    ? 'Double-click to show all series. Right-click for options'
+                    : 'Double-click to hide other series. Right-click for options'
+            }
             onToggleOtherSeries={() => {
                 posthog.capture('insight_legend_context_menu', {
                     action: isOnlyThisVisible ? 'show_all_series' : 'hide_other_series',

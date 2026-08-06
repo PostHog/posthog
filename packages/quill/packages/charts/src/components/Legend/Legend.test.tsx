@@ -49,6 +49,19 @@ describe('Legend', () => {
         expect(onClick).toHaveBeenCalledWith('returning')
     })
 
+    it('fires onItemDoubleClick with the key and suppresses text selection only when set', () => {
+        const onDoubleClick = jest.fn()
+        const clickOnly = render(<Legend items={ITEMS} onItemClick={jest.fn()} />).container
+        expect(clickOnly.querySelector('button')!.className).not.toContain('select-none')
+
+        const isolatable = render(<Legend items={ITEMS} onItemDoubleClick={onDoubleClick} />).container
+        const buttons = isolatable.querySelectorAll('button')
+        expect(buttons).toHaveLength(ITEMS.length)
+        expect(buttons[1].className).toContain('select-none')
+        fireEvent.doubleClick(buttons[1])
+        expect(onDoubleClick).toHaveBeenCalledWith('returning')
+    })
+
     it('wraps each row via renderItem while preserving the default node', () => {
         const onClick = jest.fn()
         const { container } = render(

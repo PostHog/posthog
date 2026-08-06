@@ -340,6 +340,12 @@ export interface ChartLegendConfig {
     defaultHiddenKeys?: string[]
     /** Called whenever a series is toggled, with its key and resulting hidden state. */
     onToggleSeries?: (key: string, hidden: boolean) => void
+    /** Called when a legend row is double-clicked. The gesture's two constituent clicks still fire
+     *  `onToggleSeries` first; their toggles cancel out, so the isolate runs against the hidden
+     *  state the gesture started from. Uncontrolled charts isolate the series themselves (all
+     *  others hide, a second double-click restores them); controlled consumers own the state and
+     *  implement the isolate semantics in this callback. */
+    onIsolateSeries?: (key: string) => void
     /** Wrap each rendered legend row — receives the default row node and its item, returns the
      *  node to render. Lets consumers augment rows (e.g. a right-click context menu) while keeping
      *  the default swatch/label/toggle rendering. Return `defaultNode` to leave a row untouched. */

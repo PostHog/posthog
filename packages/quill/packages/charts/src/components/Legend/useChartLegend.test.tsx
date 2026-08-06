@@ -75,6 +75,43 @@ describe('useChartLegend', () => {
         expect(result.current.visibleSeries.find((s) => s.key === 'c')?.visibility?.excluded).toBe(true)
     })
 
+    it('isolates a series on double-click and restores all on a second double-click in uncontrolled mode', () => {
+        const { result } = renderHook(() => useChartLegend(SERIES, THEME, { show: true }))
+
+        act(() => result.current.legendProps.onItemDoubleClick!('b'))
+        expect(result.current.legendProps.hiddenKeys).toEqual(['a', 'c'])
+        expect(result.current.visibleSeries.find((s) => s.key === 'b')?.visibility?.excluded).toBeUndefined()
+
+        act(() => result.current.legendProps.onItemDoubleClick!('b'))
+        expect(result.current.legendProps.hiddenKeys).toEqual([])
+    })
+
+    it('isolates a hidden series on double-click instead of restoring', () => {
+        const { result } = renderHook(() => useChartLegend(SERIES, THEME, { show: true, defaultHiddenKeys: ['b'] }))
+
+        act(() => result.current.legendProps.onItemDoubleClick!('b'))
+        expect(result.current.legendProps.hiddenKeys).toEqual(['a', 'c'])
+    })
+
+    it('notifies onIsolateSeries without mutating state in controlled mode', () => {
+        const onIsolateSeries = jest.fn()
+        const { result } = renderHook(() =>
+            useChartLegend(SERIES, THEME, { show: true, hiddenKeys: ['a'], onIsolateSeries })
+        )
+
+        act(() => result.current.legendProps.onItemDoubleClick!('b'))
+        expect(onIsolateSeries).toHaveBeenCalledWith('b')
+        expect(result.current.legendProps.hiddenKeys).toEqual(['a'])
+    })
+
+    it('omits onItemDoubleClick when controlled without onIsolateSeries or when not interactive', () => {
+        const controlled = renderHook(() => useChartLegend(SERIES, THEME, { show: true, hiddenKeys: ['a'] }))
+        expect(controlled.result.current.legendProps.onItemDoubleClick).toBeUndefined()
+
+        const nonInteractive = renderHook(() => useChartLegend(SERIES, THEME, { show: true, interactive: false }))
+        expect(nonInteractive.result.current.legendProps.onItemDoubleClick).toBeUndefined()
+    })
+
     it('does not mutate its own state in controlled mode — only notifies onToggleSeries', () => {
         const onToggleSeries = jest.fn()
         const { result } = renderHook(() =>

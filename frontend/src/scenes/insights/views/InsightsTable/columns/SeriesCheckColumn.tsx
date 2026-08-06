@@ -42,6 +42,10 @@ type SeriesCheckColumnItemProps = {
     toggleResultHidden: (dataset: IndexedTrendResult) => void
     label?: JSX.Element
     disabledReason?: string | null
+    /** Double-click isolate handler. The double-click's constituent clicks still toggle the
+     *  checkbox twice; the two toggles cancel out, so the handler runs against the hidden state
+     *  the gesture started from. */
+    onDoubleClick?: (dataset: IndexedTrendResult) => void
 }
 
 export function SeriesCheckColumnItem({
@@ -51,8 +55,9 @@ export function SeriesCheckColumnItem({
     toggleResultHidden,
     label,
     disabledReason,
+    onDoubleClick,
 }: SeriesCheckColumnItemProps): JSX.Element {
-    return (
+    const checkbox = (
         <LemonCheckbox
             checked={!isHidden}
             onChange={() => toggleResultHidden(item)}
@@ -60,5 +65,17 @@ export function SeriesCheckColumnItem({
             disabledReason={disabledReason}
             label={label}
         />
+    )
+
+    if (!onDoubleClick) {
+        return checkbox
+    }
+
+    // LemonCheckbox exposes no double-click prop, so the wrapper carries the gesture. select-none
+    // stops the double-click from selecting the row's label text.
+    return (
+        <div className="select-none" onDoubleClick={() => onDoubleClick(item)}>
+            {checkbox}
+        </div>
     )
 }

@@ -11,6 +11,8 @@ export interface ChartLegendProps {
     align?: 'start' | 'center' | 'end'
     gap?: number
     onItemClick?: (key: string) => void
+    /** Forwarded to {@link Legend}'s `onItemDoubleClick` (double-click isolate). */
+    onItemDoubleClick?: (key: string) => void
     hiddenKeys?: string[]
     className?: string
     /** Wrap each legend row — forwarded to {@link Legend}'s `renderItem`. */
@@ -27,6 +29,7 @@ export function ChartLegend({
     align = 'center',
     gap,
     onItemClick,
+    onItemDoubleClick,
     hiddenKeys,
     className,
     renderItem,
@@ -47,6 +50,7 @@ export function ChartLegend({
                     orientation={orientation}
                     align={align}
                     onItemClick={onItemClick}
+                    onItemDoubleClick={onItemDoubleClick}
                     hiddenKeys={hiddenKeys}
                     renderItem={renderItem}
                     dataAttr={legendDataAttr}

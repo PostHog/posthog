@@ -2,6 +2,7 @@ import './InsightsTable.scss'
 
 import { useActions, useValues } from 'kea'
 import { compare as compareFn } from 'natural-orderby'
+import posthog from 'posthog-js'
 import { useCallback, useMemo, useState } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -95,8 +96,12 @@ export function InsightsTable({
         getTrendsColor,
         getTrendsHidden,
         insightData,
+        legendSeriesIsolationMenuEligible,
+        getIsOnlyVisibleSeriesInLegend,
     } = useValues(trendsDataLogic(insightProps))
-    const { toggleResultHidden, toggleAllResultsHidden } = useActions(trendsDataLogic(insightProps))
+    const { toggleResultHidden, toggleAllResultsHidden, toggleOtherSeriesHidden } = useActions(
+        trendsDataLogic(insightProps)
+    )
     const { aggregation, allowAggregation, pinnedColumns, isColumnPinned, getPreviousResult, displayResults } =
         useValues(insightsTableDataLogic(insightProps))
     const { setDetailedResultsAggregationType, toggleColumnPin } = useActions(insightsTableDataLogic(insightProps))
@@ -113,6 +118,15 @@ export function InsightsTable({
             entityFilter.actions.selectFilter(item.action)
             entityFilter.actions.showModal()
         }
+    }
+
+    const handleSeriesIsolationDoubleClick = (item: IndexedTrendResult): void => {
+        posthog.capture('insight_legend_double_click', {
+            action: getIsOnlyVisibleSeriesInLegend(item) ? 'show_all_series' : 'hide_other_series',
+            source: 'insights_table',
+            series_count: indexedResults.length,
+        })
+        toggleOtherSeriesHidden(item)
     }
 
     const { allCohorts } = useValues(cohortsModel)
@@ -209,6 +223,11 @@ export function InsightsTable({
                     canCheckUncheckSeries={canCheckUncheckSeries}
                     isHidden={getTrendsHidden(item)}
                     toggleResultHidden={toggleResultHidden}
+                    onDoubleClick={
+                        canCheckUncheckSeries && legendSeriesIsolationMenuEligible
+                            ? handleSeriesIsolationDoubleClick
+                            : undefined
+                    }
                     label={<div className="ml-2 font-normal">{label}</div>}
                     disabledReason={
                         !canCheckUncheckSeries ? 'You need editor access to modify this insight.' : undefined

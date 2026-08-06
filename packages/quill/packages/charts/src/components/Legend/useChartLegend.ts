@@ -22,6 +22,7 @@ export interface ChartLegendRenderProps {
     align: ChartLegendConfig['align']
     gap: ChartLegendConfig['gap']
     onItemClick?: (key: string) => void
+    onItemDoubleClick?: (key: string) => void
     hiddenKeys: string[]
     renderItem?: (defaultNode: ReactNode, item: LegendItem) => ReactNode
 }
@@ -59,6 +60,21 @@ export function useChartLegend<Meta>(
         [controlledKeys, hiddenKeys, onToggleSeries]
     )
 
+    const onIsolateSeries = config?.onIsolateSeries
+    const isolate = useCallback(
+        (key: string) => {
+            onIsolateSeries?.(key)
+            if (controlledKeys === undefined) {
+                setInternalKeys((prev) => {
+                    const others = series.map((s) => s.key).filter((k) => k !== key)
+                    const isIsolated = others.length > 0 && !prev.includes(key) && others.every((k) => prev.includes(k))
+                    return isIsolated ? [] : others
+                })
+            }
+        },
+        [controlledKeys, onIsolateSeries, series]
+    )
+
     const hiddenSet = useMemo(() => new Set(hiddenKeys), [hiddenKeys])
     const visibleSeries = useMemo(() => applyHiddenSeries(series, hiddenSet), [series, hiddenSet])
     const derivedItems = useMemo(() => items ?? legendItemsFromSeries(series, theme), [items, series, theme])
@@ -74,6 +90,10 @@ export function useChartLegend<Meta>(
             align: config?.align,
             gap: config?.gap,
             onItemClick: interactive ? toggle : undefined,
+            // In controlled mode without onIsolateSeries a double-click would do nothing, so omit
+            // the handler rather than register a dead gesture.
+            onItemDoubleClick:
+                interactive && (controlledKeys === undefined || onIsolateSeries) ? isolate : undefined,
             hiddenKeys,
             renderItem: config?.renderItem,
         },
