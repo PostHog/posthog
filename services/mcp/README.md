@@ -329,16 +329,13 @@ Then replace `https://mcp.posthog.com/mcp` with `http://localhost:8787/mcp` in t
 
 The server defaults to port **8787**, reads config from `.env` (see `.env.example`), and expects a local Redis on port `6379` for session state; production deployments must set `REDIS_URL` to a TLS-encrypted `rediss://` endpoint.
 
-### Session cache migration
+### Session cache
 
-Legacy MCP sessions store client context across five `mcp:session:*` keys with a seven-day expiry. The compact schema stores the same context in one `mcp:s:<id>:c` key with a 24-hour idle expiry.
+A session's client context lives in one `mcp:s:<id>:c` key with a 24-hour idle expiry, refreshed on every request in the session.
+Concurrent requests merge their fields through a Lua compare-and-merge, so a field first seen mid-session is never lost to an overlapping write.
 
-The server writes and compares both schemas. Legacy keys remain authoritative unless one of these environment variables enables compact reads:
-
-- `MCP_SESSION_CACHE_V2_READ_PROJECT_IDS`: comma-separated project IDs
-- `MCP_SESSION_CACHE_V2_READ_ALL=true`: all projects
-
-Monitor `mcp_session_cache_comparisons_total` for `match`, `mismatch`, and `compact_missing` before enabling reads. Monitor `mcp_session_cache_operations_total` for compact read or write errors. Compact read failures fall back to legacy state, so removing either environment variable rolls back the read path without deleting data.
+Monitor `mcp_session_cache_operations_total` for `read_error` and `write_error`.
+Both are non-blocking: a failed read serves whatever context the current request carries, so attribution degrades rather than the call failing.
 
 ### Edge-proxy worker (Cloudflare)
 
