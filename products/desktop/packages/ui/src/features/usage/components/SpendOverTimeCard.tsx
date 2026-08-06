@@ -77,7 +77,7 @@ function SpendTooltip({
           <div className="mb-1 px-1.5 font-semibold opacity-60">
             Model breakdown
           </div>
-          <div className="max-h-40 overflow-y-auto">
+          <div>
             {day.models.map((model) => (
               <div key={model.model} className="rounded px-1.5 py-0.5">
                 <div className="flex min-w-0 items-center gap-2">
