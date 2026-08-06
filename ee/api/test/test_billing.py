@@ -21,7 +21,7 @@ from posthog.cloud_utils import TEST_clear_instance_license_cache, get_cached_in
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 
-from ee.api.billing import BillingUsageRequestSerializer
+from ee.api.billing import BillingUsageRequestSerializer, StudentProgramApplicationSerializer
 from ee.api.test.base import APILicensedTest
 from ee.billing.billing_types import BillingPeriod, CustomerInfo, CustomerProduct
 from ee.billing.quota_limiting import QuotaResource
@@ -1037,6 +1037,123 @@ class TestStartupApplicationBillingAPI(APILicensedTest):
         self.assertEqual(call_args[1], expected_data)
 
 
+class TestStudentProgramApplicationSerializer(TestCase):
+    VALID_DATA = {
+        "program": "students",
+        "organization_id": "018f0000-0000-0000-0000-000000000000",
+        "school_name": "University of Example",
+        "academic_email": "jane@university.edu",
+        "expected_graduation_date": "2028-06-15",
+        "project_description": "A course scheduling app used by students in my dorm.",
+    }
+
+    def test_accepts_a_valid_application(self):
+        serializer = StudentProgramApplicationSerializer(data=self.VALID_DATA)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    @parameterized.expand(
+        [
+            ("wrong_program", "program", "startup"),
+            ("invalid_email", "academic_email", "not-an-email"),
+            ("invalid_date", "expected_graduation_date", "soon"),
+            ("blank_project", "project_description", ""),
+            ("blank_school", "school_name", ""),
+        ]
+    )
+    def test_rejects_invalid_field(self, _name, field, value):
+        serializer = StudentProgramApplicationSerializer(data={**self.VALID_DATA, field: value})
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn(field, serializer.errors)
+
+
+class TestStudentApplicationBillingAPI(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        # Set user as admin/owner by default
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        self.url = "/api/billing/students/apply"
+        self.data = {
+            "program": "students",
+            "organization_id": str(self.organization.id),
+            "school_name": "University of Example",
+            "academic_email": "jane@university.edu",
+            "expected_graduation_date": "2028-06-15",
+            "project_description": "A course scheduling app used by students in my dorm.",
+        }
+
+    @patch("ee.billing.billing_manager.BillingManager.apply_students_program")
+    def test_student_apply_admin_success(self, mock_apply_students_program):
+        mock_apply_students_program.return_value = {"success": True}
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+        mock_apply_students_program.assert_called_once()
+
+    def test_student_apply_non_admin_failure(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_student_apply_missing_org_id(self):
+        empty_data: dict[str, Any] = {}
+
+        response = self.client.post(self.url, empty_data)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "This field is required.",
+                "attr": "organization_id",
+            },
+        )
+
+    def test_student_apply_invalid_field_returns_400(self):
+        # Wiring guard: proves the endpoint runs the serializer. The field matrix lives in
+        # TestStudentProgramApplicationSerializer.
+        response = self.client.post(self.url, {**self.data, "academic_email": "not-an-email"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "academic_email")
+
+    @patch("ee.billing.billing_manager.BillingManager.apply_students_program")
+    def test_student_apply_passes_user_info(self, mock_apply_students_program):
+        mock_apply_students_program.return_value = {"success": True}
+
+        # Set user properties
+        self.user.email = "test@example.com"
+        self.user.first_name = "Test"
+        self.user.last_name = "User"
+        self.user.save()
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        expected_data = {
+            **self.data,
+            "email": "test@example.com",
+            "first_name": "Test",
+            "last_name": "User",
+        }
+
+        # Check that apply_students_program was called with the organization and the expected data
+        mock_apply_students_program.assert_called_once()
+        _, call_args, _ = mock_apply_students_program.mock_calls[0]
+        self.assertEqual(call_args[0], self.organization)
+        self.assertEqual(call_args[1], expected_data)
+
+
 class TestCouponClaimBillingAPI(APILicensedTest):
     def setUp(self):
         super().setUp()
@@ -1246,6 +1363,7 @@ class TestBillingPermissionDeniedForMembers(APILicensedTest):
             ("purchase_credits", "post", "/api/billing/credits/purchase", {"amount": 100}),
             ("claim_coupon", "post", "/api/billing/coupons/claim", {"code": "TEST"}),
             ("startup_apply", "post", "/api/billing/startups/apply", "USE_ORG_ID"),
+            ("students_apply", "post", "/api/billing/students/apply", "USE_ORG_ID"),
         ]
     )
     def test_permission_denied(self, _name, method, url, data):

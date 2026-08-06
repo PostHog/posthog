@@ -496,6 +496,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Signup]: { onlyUnauthenticated: true, layout: 'plain' },
     [Scene.Site]: { projectBased: true, hideProjectNotice: true, layout: 'app-raw' },
     [Scene.StartupProgram]: { name: 'PostHog for Startups', organizationBased: true, layout: 'app-container' },
+    [Scene.StudentProgram]: { name: 'PostHog for Students', organizationBased: true, layout: 'app-container' },
     [Scene.SurveyWizard]: {
         projectBased: true,
         name: 'Create survey',
@@ -923,6 +924,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.exports()]: [Scene.Exports, 'exports'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
+    [urls.students()]: [Scene.StudentProgram, 'studentProgram'],
     [urls.agenticAuthorize()]: [Scene.AgenticAuthorize, 'agenticAuthorize'],
     [`${urls.agenticAuthorize()}/`]: [Scene.AgenticAuthorize, 'agenticAuthorize'],
     [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],

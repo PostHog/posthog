@@ -1901,6 +1901,16 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'organization',
+        id: 'organization-student-program',
+        hideSelfHost: true,
+        title: 'Student program',
+        to: urls.students(),
+        settings: [],
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        flag: 'STUDENT_PROGRAM_INTENT',
+    },
+    {
+        level: 'organization',
         id: 'organization-danger-zone',
         title: 'Danger zone',
         settings: [

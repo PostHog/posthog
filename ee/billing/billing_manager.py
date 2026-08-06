@@ -777,6 +777,24 @@ class BillingManager:
         handle_billing_service_error(res)
         return res.json()
 
+    def apply_students_program(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
+        """Forward a student program application to the billing service.
+
+        Agreed payload contract: program='students', organization_id, school_name, academic_email,
+        expected_graduation_date (YYYY-MM-DD), project_description, plus email/first_name/last_name
+        injected by the API layer.
+        """
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/students/apply",
+            json=data,
+            headers=self.get_auth_headers(organization),
+        )
+
+        # Explicit valid_codes because the default treats 404 as success, which would show a
+        # success state in the app for an application the billing service never received.
+        handle_billing_service_error(res, valid_codes=(200, 201))
+        return res.json()
+
     def claim_coupon(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
         res = requests.post(
             f"{BILLING_SERVICE_URL}/api/coupons/claim",

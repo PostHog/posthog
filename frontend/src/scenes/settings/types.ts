@@ -73,6 +73,7 @@ export type SettingSectionId =
     | 'organization-roles'
     | 'organization-security'
     | 'organization-startup-program'
+    | 'organization-student-program'
     | 'organization-danger-zone'
     // User
     | 'user-profile'

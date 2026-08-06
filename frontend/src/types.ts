@@ -241,6 +241,8 @@ export enum BillingPlan {
     Enterprise = 'enterprise',
 }
 
+// Values must match the startup_plan_label strings the billing service returns. The student program
+// will add 'Students' here once billing returns it, which also requires badge config in BillingHero.
 export enum StartupProgramLabel {
     YC = 'YC',
     Startup = 'Startup',

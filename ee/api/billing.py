@@ -91,6 +91,27 @@ class BillingUsageRequestSerializer(serializers.Serializer):
         return self._parse_date(value, "end_date")
 
 
+class StudentProgramApplicationSerializer(serializers.Serializer):
+    """
+    Structural validation for student program applications. The billing service owns the
+    authoritative eligibility checks (academic domain list, enrollment verification).
+    """
+
+    program = serializers.CharField(help_text="Program identifier. Must be 'students'.")
+    organization_id = serializers.CharField(help_text="ID of the organization applying for the student program.")
+    school_name = serializers.CharField(help_text="Name of the school or university the applicant is enrolled at.")
+    academic_email = serializers.EmailField(help_text="School-issued email address used to verify enrollment.")
+    expected_graduation_date = serializers.DateField(help_text="Expected graduation date in YYYY-MM-DD format.")
+    project_description = serializers.CharField(
+        help_text="What the applicant is building, in their own words. Links allowed."
+    )
+
+    def validate_program(self, value: str) -> str:
+        if value != "students":
+            raise serializers.ValidationError("Program must be 'students'.")
+        return value
+
+
 @extend_schema(tags=["billing"])
 class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = BillingSerializer
@@ -470,6 +491,71 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         try:
             res = billing_manager.apply_startup_program(organization, data)
+            return Response(res, status=status.HTTP_200_OK)
+        except Exception as e:
+            if len(e.args) > 2:
+                detail_object = e.args[2]
+                if not isinstance(detail_object, dict):
+                    raise
+                return Response(
+                    {
+                        "statusText": e.args[0],
+                        "detail": detail_object.get("error_message", detail_object),
+                        "code": detail_object.get("code"),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            else:
+                raise
+
+    @extend_schema(
+        request=StudentProgramApplicationSerializer,
+        summary="Apply for the student program",
+        description="Forwards a student program application to the billing service. Requires organization admin or owner.",
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="students/apply",
+        permission_classes=[permissions.IsAuthenticated],
+    )
+    def apply_student_program(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        user = self.request.user
+        if not isinstance(user, AbstractUser):
+            raise PermissionDenied("You must be logged in to apply for the student program")
+
+        organization_id = request.data.get("organization_id")
+        if not organization_id:
+            raise ValidationError({"organization_id": "This field is required."})
+
+        try:
+            organization = Organization.objects.get(id=organization_id)
+        except Organization.DoesNotExist:
+            raise ValidationError({"organization_id": "Organization not found."})
+
+        if not OrganizationMembership.objects.filter(
+            user=user, organization=organization, level__gte=OrganizationMembership.Level.ADMIN
+        ).exists():
+            raise PermissionDenied("You need to be an organization admin or owner to apply for the student program")
+
+        # Validate after the membership check so non-admins get a 403 rather than field-level feedback
+        serializer = StudentProgramApplicationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        billing_manager = self.get_billing_manager()
+
+        # Add user info to the request
+        data = {
+            **request.data,
+            "email": user.email,
+        }
+
+        # "-" as fallback as they're required by some of the downstream Zaps
+        data["first_name"] = user.first_name if user.first_name else "-"
+        data["last_name"] = user.last_name if user.last_name else "-"
+
+        try:
+            res = billing_manager.apply_students_program(organization, data)
             return Response(res, status=status.HTTP_200_OK)
         except Exception as e:
             if len(e.args) > 2:
