@@ -166,6 +166,8 @@ _QUERY_KIND_SCOPES: dict[str, list[str]] = {
     # Both scopes listed: this result replaces the view's default query:read
     # rather than adding to it, and a token must hold every listed scope.
     "MCPToolFailureOccurrencesQuery": ["query:read", "mcp_analytics:read"],
+    "MCPToolCallsAndErrorsQuery": ["query:read", "mcp_analytics:read"],
+    "MCPToolCallBreakdownQuery": ["query:read", "mcp_analytics:read"],
 }
 
 
@@ -347,7 +349,9 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         except ConcurrencyLimitExceeded as c:
             self._raise_concurrency_throttled(c)
         except Exception as e:
-            capture_exception(e)
+            # Breaker replays were already captured when the original failure happened.
+            if not getattr(e, "served_from_query_failure_cache", False):
+                capture_exception(e)
             raise
 
     @extend_schema(
@@ -449,7 +453,9 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         except ConcurrencyLimitExceeded as c:
             self._raise_concurrency_throttled(c)
         except Exception as e:
-            capture_exception(e)
+            # Breaker replays were already captured when the original failure happened.
+            if not getattr(e, "served_from_query_failure_cache", False):
+                capture_exception(e)
             raise
 
     def handle_column_ch_error(self, error):
@@ -469,7 +475,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         tag_queries(client_query_id=query_id)
 
     @extend_schema(operation_id="query_create_with_kind")
-    @action(methods=["POST"], detail=False, url_path=r"(?P<query_kind>[A-Z][A-Za-z]*)")
+    @action(methods=["POST"], detail=False, url_path=r"(?P<query_kind>[A-Z][A-Za-z0-9]*)")
     def create_with_kind(self, request: Request, *args, **kwargs) -> Response:
         return self.create(request, *args, **kwargs)
 

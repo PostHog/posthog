@@ -506,6 +506,7 @@ name = "assignment-coordination"
 version = "0.1.0"
 dependencies = [
  "etcd-client",
+ "metrics",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -2679,6 +2680,7 @@ dependencies = [
  "lifecycle",
  "metrics",
  "metrics-exporter-prometheus",
+ "nix 0.31.3",
  "object_store",
  "proptest",
  "rand 0.8.5",
@@ -2878,6 +2880,7 @@ dependencies = [
  "lz4",
  "metrics",
  "rdkafka",
+ "rstest",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -3786,7 +3789,7 @@ dependencies = [
 
 [[package]]
 name = "deltalite-python"
-version = "0.1.1"
+version = "0.1.3"
 dependencies = [
  "arrow",
  "arrow-array",
@@ -4125,7 +4128,10 @@ name = "embedding-worker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "aws-config",
+ "aws-sdk-dynamodb",
  "axum 0.7.9",
+ "chrono",
  "common-alloc",
  "common-continuous-profiling",
  "common-kafka",
@@ -5411,6 +5417,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "sha1",
  "sha2 0.10.9",
  "thiserror 2.0.18",
 ]
@@ -8465,10 +8472,12 @@ dependencies = [
  "assignment-coordination",
  "async-trait",
  "etcd-client",
+ "futures",
  "k8s-awareness",
  "k8s-openapi",
  "kube",
  "metrics",
+ "personhog-coordination",
  "serde",
  "serde_json",
  "serial_test",
@@ -8499,7 +8508,10 @@ dependencies = [
  "personhog-common",
  "personhog-proto",
  "rand 0.8.5",
+ "serde",
+ "serde_json",
  "sqlx",
+ "thiserror 2.0.18",
  "tokio",
  "tonic 0.12.3",
  "tracing",
@@ -8524,13 +8536,17 @@ dependencies = [
  "envconfig",
  "foyer",
  "health",
+ "k8s-awareness",
+ "kube",
  "lifecycle",
  "metrics",
  "personhog-common",
  "personhog-coordination",
+ "personhog-leader",
  "personhog-proto",
  "prost 0.13.5",
  "rdkafka",
+ "rustls 0.23.37",
  "serde_json",
  "sqlx",
  "tokio",
@@ -9239,11 +9255,11 @@ dependencies = [
  "personhog-proto",
  "quick_cache",
  "rand 0.8.5",
+ "rdkafka",
  "regex",
  "rstest",
  "serde",
  "serde_json",
- "serve-metrics",
  "sqlx",
  "thiserror 2.0.18",
  "tokio",

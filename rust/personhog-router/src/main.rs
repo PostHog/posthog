@@ -36,6 +36,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Failed to install rustls crypto provider");
 
     let config = Config::init_from_env().expect("Invalid configuration");
+    if let Err(e) = config.validate_lease_timescales() {
+        panic!("invalid lease configuration: {e}");
+    }
+    preregister_metrics();
 
     // Initialize tracing
     let log_layer = fmt::layer()
@@ -67,7 +71,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let mut manager = Manager::builder("personhog-router")
-        .with_global_shutdown_timeout(Duration::from_secs(30))
+        // Below the pod's 30s termination grace so shutdown always
+        // concludes process-side — reaching the routing table's lease
+        // revoke — rather than racing the kubelet's SIGKILL.
+        .with_global_shutdown_timeout(Duration::from_secs(25))
         .build();
 
     // Shutdown order is the inverse of the leader's: the gRPC server
@@ -292,6 +299,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             heartbeat_interval: config.heartbeat_interval(),
             participant_stall_threshold: config.participant_stall_threshold(),
             reconcile_failure_budget: config.router_reconcile_failure_budget,
+            run_retry_budget: config.router_run_retry_budget,
+            run_retry_backoff: Duration::from_millis(config.router_run_retry_backoff_ms),
             reconcile_interval: config.router_reconcile_interval(),
         };
 
@@ -442,4 +451,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     monitor_guard.wait().await?;
     Ok(())
+}
+
+/// Touch the deploy-burst counters so their series exist with zero
+/// samples before any burst. metrics registration is lazy: a counter
+/// that first fires between two scrapes materializes with the burst
+/// already inside it, and no rate function can recover a delta that
+/// precedes a series' first sample. Only enumerable label sets are
+/// touched; series with dynamic labels (client names) stay lazy.
+fn preregister_metrics() {
+    use metrics::counter;
+    counter!("personhog_router_stash_enqueued_total").increment(0);
+    counter!("personhog_router_stash_replayed_total").increment(0);
+    counter!("personhog_router_forward_retries_exhausted_total").increment(0);
+    for outcome in ["success", "error", "expired"] {
+        counter!("personhog_router_stash_drained_total", "outcome" => outcome).increment(0);
+    }
+    for cause in ["max_messages", "max_bytes"] {
+        counter!("personhog_router_stash_rejected_total", "cause" => cause).increment(0);
+    }
+    counter!("personhog_router_stash_dropped_total", "reason" => "receiver_gone").increment(0);
+    for reason in ["unrouted", "fenced", "transport"] {
+        counter!("personhog_router_forward_retries_total", "path" => "direct", "reason" => reason)
+            .increment(0);
+    }
+    for reason in ["unrouted", "fenced", "transport", "cancelled"] {
+        counter!("personhog_router_forward_retries_total", "path" => "stash", "reason" => reason)
+            .increment(0);
+    }
+    personhog_coordination::preregister_router_coordination_metrics();
 }

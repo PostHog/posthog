@@ -191,6 +191,8 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             resolve_field="slug",
             include_from_parent=["id", "slug"],
             parent_field_renames={"id": "project_id", "slug": "project_slug"},
+            # full=true makes Sentry return complete event bodies (incl. stacktrace entries).
+            child_params={"full": "true"},
         ),
     ),
     "project_users": SentryEndpointConfig(
@@ -248,6 +250,8 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             include_from_parent=["id"],
             parent_field_renames={"id": "issue_id"},
             parent_params={"query": "", "sort": "date"},
+            # full=true makes Sentry return complete event bodies (incl. stacktrace entries).
+            child_params={"full": "true"},
         ),
     ),
     "issue_hashes": SentryEndpointConfig(
@@ -262,6 +266,10 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             include_from_parent=["id"],
             parent_field_renames={"id": "issue_id"},
             parent_params={"query": "", "sort": "date"},
+            # An issue can be deleted or merged into another between the `issues` listing and
+            # this per-issue fetch, which 404s. That's expected churn, not a broken sync — treat
+            # it as "no hashes for this issue" instead of failing the whole schema.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
     ),
     "issue_tag_values": SentryEndpointConfig(
