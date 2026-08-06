@@ -212,10 +212,8 @@ class TestResolveScoutModel:
 
 
 class TestConfigModelPin:
-    """The `SignalScoutConfig.model` layer above the payload, gated on `scouts-model-config`."""
-
     _FLAG_PATH = "products.signals.backend.scout_harness.model_selection.scout_model_config_enabled"
-    _FULL_WEIGHT_PAYLOAD = _scouts({_SKILL: {GLM_MODEL: 1}})
+    _FULL_WEIGHT_PAYLOAD = _scouts({_SKILL: {_GPT: 1}})
 
     def _resolve_pinned(self, pin: str, *, flag_on: bool) -> ScoutModel:
         with patch(self._FLAG_PATH, return_value=flag_on), patch(_PAYLOAD_PATH, return_value=self._FULL_WEIGHT_PAYLOAD):
@@ -224,16 +222,19 @@ class TestConfigModelPin:
     @parameterized.expand(
         [
             ("claude_pin", "claude-opus-4-5", "claude"),
-            ("codex_pin", _GPT, "codex"),
+            ("codex_pin", "gpt-5", "codex"),
+            # The Cloudflare-served GLM id runs on the `claude` runtime per the canonical Tasks
+            # catalog — name inference alone would misroute it to `codex`.
+            ("cloudflare_pin_follows_catalog", GLM_MODEL, "claude"),
         ]
     )
-    def test_pin_beats_payload_and_infers_runtime(self, _name: str, pin: str, expected_adapter: str) -> None:
-        # The payload routes every run to GLM; an explicit pin must win over the experiment anyway.
+    def test_pin_beats_payload_and_resolves_runtime(self, _name: str, pin: str, expected_adapter: str) -> None:
+        # The payload routes every run to another model; an explicit pin must win over the experiment.
         assert self._resolve_pinned(pin, flag_on=True) == ScoutModel(model=pin, runtime_adapter=expected_adapter)
 
     def test_pin_is_ignored_outside_the_flag(self) -> None:
         # The dogfood gate: with the flag off a stored pin is inert and the payload layer applies.
-        assert self._resolve_pinned("claude-opus-4-5", flag_on=False).model == GLM_MODEL
+        assert self._resolve_pinned("claude-opus-4-5", flag_on=False).model == _GPT
 
     def test_flag_read_failure_falls_through_to_payload(self) -> None:
         # Same never-fail posture as the payload read: a flag outage demotes the pin, never the run.
@@ -243,4 +244,4 @@ class TestConfigModelPin:
             patch(_PAYLOAD_PATH, return_value=self._FULL_WEIGHT_PAYLOAD),
         ):
             resolved = resolve_scout_model(_fake_team(), _SKILL, _RUN_ID, configured_model="claude-opus-4-5")
-        assert resolved.model == GLM_MODEL
+        assert resolved.model == _GPT

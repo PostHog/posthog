@@ -65,6 +65,8 @@ import posthoganalytics
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 
+from products.tasks.backend.facade.run_config import get_models_for_runtime_adapter
+
 SCOUTS_MODEL_FLAG = "scouts-model-selection"
 
 # Dogfood gate for the per-scout config layer: only while this flag is on for the team does a
@@ -149,15 +151,45 @@ def _infer_runtime_adapter(model_id: str) -> str:
     return RUNTIME_ADAPTER_CLAUDE if "claude" in model_id.lower() else RUNTIME_ADAPTER_CODEX
 
 
+def scout_model_pin_catalog() -> tuple[str, ...]:
+    """The model ids a `SignalScoutConfig.model` pin may carry: the canonical Tasks catalog, both
+    runtimes. The config API validates pins against this, unlike the free-form payload path — a pin
+    has no runtime-pinning escape hatch, so an off-catalog id would be stored with nothing
+    authoritative to route it by."""
+    return (
+        *get_models_for_runtime_adapter(RUNTIME_ADAPTER_CLAUDE),
+        *get_models_for_runtime_adapter(RUNTIME_ADAPTER_CODEX),
+    )
+
+
+def _runtime_adapter_for_pin(model_id: str) -> str:
+    """The runtime for a config-pinned model: the canonical Tasks catalog first, name inference as
+    the fallback.
+
+    The catalog is what knows the ids whose runtime can't be read off the name — the
+    Cloudflare-served `@cf/...` and `moonshotai/...` models run on the `claude` runtime (the
+    gateway serves them over its Anthropic-Messages surface), where name inference would say
+    `codex`. The fallback only covers stored pins that have since left the catalog; the payload
+    path keeps pure name inference, because changing it would reroute live trial distributions and
+    the payload's object form can already pin a runtime explicitly.
+    """
+    if model_id in get_models_for_runtime_adapter(RUNTIME_ADAPTER_CLAUDE):
+        return RUNTIME_ADAPTER_CLAUDE
+    if model_id in get_models_for_runtime_adapter(RUNTIME_ADAPTER_CODEX):
+        return RUNTIME_ADAPTER_CODEX
+    return _infer_runtime_adapter(model_id)
+
+
 def scout_model_config_enabled(team: Team) -> bool:
     """Whether this team's per-scout `SignalScoutConfig.model` pins are honored (dogfood gate).
 
     Keyed on the `project` group the same way the web app registers it (group key = the team's
     uuid, `id` = the numeric project id), so one flag definition — a project-group condition on
-    `id` — evaluates identically for this server-side check and the frontend's gated settings UI.
-    `id` carries the canonical parent id so a child environment follows its project's enrollment.
-    Fails closed on a flag-read error: an unhonored pin just means the default resolution chain,
-    never a broken run.
+    `id` — serves both this server-side check and the frontend's gated settings UI. `id` carries
+    the canonical parent id so a child environment follows its project's enrollment server-side;
+    the frontend registers a child environment's own id, so a condition that should also show the
+    UI inside child environments must list their ids too. Fails closed on a flag-read error: an
+    unhonored pin just means the default resolution chain, never a broken run.
     """
     try:
         canonical_team_id = team.parent_team_id or team.id
@@ -332,7 +364,7 @@ def resolve_scout_model(team: Team, skill_name: str, run_id: str, configured_mod
     falls back to the next layer — gating the model must never be able to fail a scout run.
     """
     if configured_model and scout_model_config_enabled(team):
-        return ScoutModel(model=configured_model, runtime_adapter=_infer_runtime_adapter(configured_model))
+        return ScoutModel(model=configured_model, runtime_adapter=_runtime_adapter_for_pin(configured_model))
     payload = _read_payload()
     scouts = _team_scouts(payload, team.id, team.parent_team_id or team.id)
     distribution, adapters, efforts, default_model = _scout_config(scouts, skill_name)

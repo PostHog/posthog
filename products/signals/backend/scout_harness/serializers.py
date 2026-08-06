@@ -31,7 +31,7 @@ from products.signals.backend.artefact_schemas import ActionabilityChoice, Prior
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
-from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled
+from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled, scout_model_pin_catalog
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.tags import slugify_tag
 from products.signals.backend.scout_harness.tools.emit import (
@@ -2067,27 +2067,33 @@ def _validate_structured_output_schema(value: dict | None) -> dict | None:
 
 
 _SCOUT_MODEL_HELP = (
-    "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Null keeps the "
-    "default model, chosen by the platform. Early access: the pin can only be set on projects "
+    "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the "
+    "platform's agent models; an invalid id is rejected with the available ones listed. Null keeps "
+    "the default model, chosen by the platform. Early access: the pin can only be set on projects "
     "enrolled in the scout model preview, and only takes effect there. Set null to clear it."
 )
 
 
-def _validate_scout_model(value: str | None, context: dict) -> str | None:
-    """Normalize a scout model pin and gate setting one on the `scouts-model-config` dogfood flag.
+def _validate_scout_model(value: str | None, context: dict, current: str | None = None) -> str | None:
+    """Normalize a scout model pin, gate setting one on the `scouts-model-config` dogfood flag, and
+    hold it to the platform's model catalog.
 
-    Clearing (null, or a blank string normalized to null) stays ungated so a team that leaves the
-    preview can always remove a stored pin.
+    Two writes stay ungated: clearing (null, or a blank string normalized to null), and re-sending
+    the stored value unchanged — clients (MCP callers especially) resend whole config objects, and
+    a stale pin must not block unrelated edits after a team leaves the preview.
     """
     if value is not None:
         value = value.strip() or None
-    if value is None:
-        return None
+    if value is None or value == current:
+        return value
     get_team = context.get("get_team")
     # Some create paths pass a `team` object instead of the routed `get_team` lambda.
     team = get_team() if callable(get_team) else context.get("team")
     if not isinstance(team, Team) or not scout_model_config_enabled(team):
         raise serializers.ValidationError("Choosing a scout model is not available on this project yet.")
+    catalog = scout_model_pin_catalog()
+    if value not in catalog:
+        raise serializers.ValidationError(f"Not an available model. Available models: {', '.join(sorted(catalog))}.")
     return value
 
 
@@ -2419,7 +2425,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
         return _validate_scout_tags(value)
 
     def validate_model(self, value: str | None) -> str | None:
-        return _validate_scout_model(value, self.context)
+        return _validate_scout_model(value, self.context, current=self.instance.model if self.instance else None)
 
     def validate_structured_output_schema(self, value: dict | None) -> dict | None:
         return _validate_structured_output_schema(value)

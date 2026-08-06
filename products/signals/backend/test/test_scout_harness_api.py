@@ -1157,6 +1157,36 @@ class TestScoutHarnessConfigModelAPI(APIBaseTest):
         config.refresh_from_db()
         assert config.model is None
 
+    def test_resending_stored_model_unchanged_stays_ungated(self) -> None:
+        # Clients resend whole config objects, so after a team leaves the preview an unchanged
+        # stored pin must not 400 an unrelated edit.
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-judge", model="claude-opus-4-5"
+        )
+        with patch(self._FLAG_PATH, return_value=False):
+            response = self.client.patch(
+                self._detail_url(str(config.id)),
+                data={"model": "claude-opus-4-5", "emit": False},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        assert config.model == "claude-opus-4-5"
+        assert config.emit is False
+
+    def test_patch_rejects_model_outside_catalog(self) -> None:
+        # A typo'd pin would fail every scheduled run until cleared, so the write names the
+        # available models instead of storing it.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-judge")
+        with patch(self._FLAG_PATH, return_value=True):
+            response = self.client.patch(
+                self._detail_url(str(config.id)), data={"model": "claude-opus-4-55"}, format="json"
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Available models" in str(response.json())
+        config.refresh_from_db()
+        assert config.model is None
+
 
 class TestScoutHarnessScratchpadAPI(APIBaseTest):
     def setUp(self) -> None:

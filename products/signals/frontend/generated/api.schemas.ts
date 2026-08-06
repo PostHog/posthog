@@ -1889,7 +1889,7 @@ export interface SignalScoutConfigOptionsApi {
      */
     run_cron_schedule?: string | null
     /**
-     * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
+     * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
      * @maxLength 200
      * @nullable
      */
@@ -2034,7 +2034,7 @@ export interface SignalScoutConfigApi {
      * * `full` - Full */
     readonly network_access: ScoutConfigNetworkAccessEnumApi
     /**
-     * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
+     * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
      * @nullable
      */
     readonly model: string | null
@@ -2103,7 +2103,7 @@ export interface SignalScoutConfigCreateApi {
      */
     run_cron_schedule?: string | null
     /**
-     * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
+     * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
      * @maxLength 200
      * @nullable
      */
@@ -2164,7 +2164,7 @@ export interface PatchedSignalScoutConfigUpdateApi {
      * * `full` - Full */
     network_access?: ScoutConfigNetworkAccessEnumApi
     /**
-     * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
+     * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
      * @maxLength 200
      * @nullable
      */
