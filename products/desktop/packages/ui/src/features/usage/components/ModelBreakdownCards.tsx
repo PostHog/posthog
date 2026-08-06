@@ -66,10 +66,6 @@ export function ModelBreakdownCards({
             onValueChange={(value: ModelBreakdownSort | null) => {
               if (value) setSortBy(value);
             }}
-            items={[
-              { value: "cost", label: "Cost" },
-              { value: "tokens", label: "Total tokens" },
-            ]}
           >
             <SelectTrigger size="sm" aria-label="Sort models">
               <SelectValue />
