@@ -9,10 +9,14 @@ import { MessageMinimap } from "@posthog/ui/features/sessions/components/chat-th
 import {
   computeStickyAnchor,
   type FlatThreadRow,
+  FOLLOWING_END,
   nextThreadFollowState,
   SCROLL_PREVIOUS_ITEM_PEEK,
+  SCROLL_UP_KEYS,
   type StickyAnchorEntry,
   type StickyAnchorState,
+  sampleThreadScroll,
+  THREAD_AT_END_THRESHOLD,
   type ThreadFollowState,
   type ThreadScrollResume,
 } from "@posthog/ui/features/sessions/components/chat-thread/threadVirtualization";
@@ -39,22 +43,8 @@ import {
 // tuning these rows share (same item mix, same measure-then-settle churn).
 const ESTIMATED_ROW_SIZE = 80;
 const OVERSCAN = 12;
-/**
- * Tolerance for calling the viewport "at the end". Generous because rows are estimated until they
- * mount, so a fresh append reads short by more than a few pixels. It is only a measurement
- * allowance: an upward gesture takes the reader out of following regardless of where they are
- * inside it (see {@link nextThreadFollowState}).
- */
-const AT_BOTTOM_THRESHOLD = 100;
-/** Slack for sub-pixel scroll positions when deciding the viewport is hard against the bottom. */
-const AT_EXACT_END_EPSILON = 1;
-// A real upward drift, not a 1-frame measure transient: the DOM bottom sits this far below the
-// viewport. Well above any single append's measure gap.
-const FAR_DRIFT_THRESHOLD = 400;
 /** Top of the virtual coordinate space — stands in for the non-virtualized content's `py-4`. */
 const PADDING_START = 16;
-/** Keys that move the viewport upward, so pressing them reads as leaving the end. */
-const SCROLL_UP_KEYS = new Set(["ArrowUp", "PageUp", "Home"]);
 /** Frames a programmatic scroll keeps re-issuing while rows around the target still measure. */
 const SETTLE_AT_END_ATTEMPTS = 12;
 const SETTLE_TO_INDEX_ATTEMPTS = 8;
@@ -105,10 +95,7 @@ function useSettleControls(
 ) {
   // Starts following; the mount-position effect below flips it if the handoff state says the reader
   // was parked above the fold.
-  const followRef = useRef<ThreadFollowState>({
-    following: true,
-    leftEnd: false,
-  });
+  const followRef = useRef<ThreadFollowState>(FOLLOWING_END);
   const settleRafRef = useRef<number | null>(null);
 
   const cancelSettle = useCallback(() => {
@@ -120,12 +107,12 @@ function useSettleControls(
 
   const settleAtEnd = useCallback(() => {
     cancelSettle();
-    followRef.current = { following: true, leftEnd: false };
+    followRef.current = FOLLOWING_END;
     let attempts = 0;
     const step = () => {
       virtualizer.scrollToEnd();
       if (
-        virtualizer.isAtEnd(AT_BOTTOM_THRESHOLD) ||
+        virtualizer.isAtEnd(THREAD_AT_END_THRESHOLD) ||
         ++attempts > SETTLE_AT_END_ATTEMPTS
       ) {
         settleRafRef.current = null;
@@ -168,9 +155,9 @@ function useSettleControls(
   );
 
   /**
-   * An upward gesture: leave following until the reader is back against the bottom. Ignored when
-   * there is nothing above to reach — a stray wheel over a thread that fits the viewport would
-   * otherwise kill following with no scroll event left to undo it.
+   * An upward gesture: leave following until the reader scrolls back down into the end tolerance.
+   * Ignored when there is nothing above to reach — a stray wheel over a thread that fits the
+   * viewport would otherwise kill following with no scroll event left to undo it.
    */
   const leaveEnd = useCallback(() => {
     if (followRef.current.leftEnd) return;
@@ -345,7 +332,7 @@ export function VirtualThreadScrollBody({
     overscan: OVERSCAN,
     anchorTo: "end",
     followOnAppend: true,
-    scrollEndThreshold: AT_BOTTOM_THRESHOLD,
+    scrollEndThreshold: THREAD_AT_END_THRESHOLD,
     paddingStart: PADDING_START,
     paddingEnd: footerHeight,
     getItemKey: (index) => flatRows[index]?.key ?? index,
@@ -410,24 +397,13 @@ export function VirtualThreadScrollBody({
 
   const handleScroll = useCallback(() => {
     const el = viewportRef.current;
-    const scrollTop = el?.scrollTop ?? 0;
-    // Tolerate sub-pixel jitter; only a real upward move counts as leaving end.
-    const scrolledUp = scrollTop < lastScrollTopRef.current - 1;
-    lastScrollTopRef.current = scrollTop;
-
-    const distanceFromEnd = el
-      ? el.scrollHeight - el.clientHeight - scrollTop
-      : 0;
-    followRef.current = nextThreadFollowState(followRef.current, {
-      atEnd: virtualizer.isAtEnd(AT_BOTTOM_THRESHOLD),
-      atExactEnd: distanceFromEnd <= AT_EXACT_END_EPSILON,
-      scrolledUp,
-      // Genuine far drift (not a 1-frame measure transient): the DOM bottom sits well below the
-      // viewport, so follow can't get silently stuck mid-thread.
-      farFromEnd: distanceFromEnd > FAR_DRIFT_THRESHOLD,
-    });
+    if (el) {
+      const sample = sampleThreadScroll(el, lastScrollTopRef.current);
+      lastScrollTopRef.current = el.scrollTop;
+      followRef.current = nextThreadFollowState(followRef.current, sample);
+    }
     scheduleStickyRecompute();
-  }, [virtualizer, scheduleStickyRecompute, followRef]);
+  }, [scheduleStickyRecompute, followRef]);
 
   useFollowBottom({
     virtualizer,
@@ -453,9 +429,9 @@ export function VirtualThreadScrollBody({
         <ChatMessageScrollerViewport
           ref={viewportRef}
           onScroll={handleScroll}
-          // Reading upward is intent, not geometry. Without these the scroll event the gesture
-          // produces still measures "at the end" for the first AT_BOTTOM_THRESHOLD pixels, so a
-          // slow scroll out of the bottom would be undone by the next streamed chunk.
+          // Reading upward is intent, not geometry: these catch a gesture too small to register as
+          // a direction change in the scroll handler, which would otherwise still measure "at the
+          // end" and let the next streamed chunk undo it.
           onWheelCapture={(event: ReactWheelEvent) => {
             if (event.deltaY < 0) leaveEnd();
           }}

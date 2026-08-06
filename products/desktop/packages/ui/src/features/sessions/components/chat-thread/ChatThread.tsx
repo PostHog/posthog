@@ -68,8 +68,13 @@ import {
   completedTurnTimestamp,
   countFlatRows,
   type FlatThreadRow,
+  FOLLOWING_END,
   flattenTurnRows,
+  nextThreadFollowState,
   SCROLL_PREVIOUS_ITEM_PEEK,
+  SCROLL_UP_KEYS,
+  sampleThreadScroll,
+  type ThreadFollowState,
   type ThreadItem,
   type ThreadScrollResume,
   type TurnRow,
@@ -752,18 +757,18 @@ const ThreadRow = memo(function ThreadRow({
  *   commit that leaves content below the fold re-issues `scrollToEnd` to recapture follow.
  *
  * It arms on mount so a thread the reader is only watching — a cloud task streaming into a command
- * center panel, with no prompt sent from here — still follows. User scroll intent (wheel, touch,
- * pointer, keys — the same signals the engine listens to) disarms the pin for good, which is the
- * half the engine gets wrong: it re-derives follow from scroll position and so overrules the
- * gesture. The next submit or the scroll-to-bottom button re-engages following.
+ * center panel, with no prompt sent from here — still follows. Scrolling upward disarms it, which
+ * is the half the engine gets wrong: the engine re-derives follow from scroll position and so
+ * overrules the gesture. Scrolling back down to the end re-arms it, a submit or the
+ * scroll-to-bottom button re-arms it from anywhere.
  */
 function ThreadAutoFollow({
   items,
-  armedRef,
+  followRef,
 }: {
   items: ConversationItem[];
   /** Owned by the body so the scroll-to-bottom button can re-arm the pin too. */
-  armedRef: RefObject<boolean>;
+  followRef: RefObject<ThreadFollowState>;
 }) {
   const { scrollToEnd } = useChatMessageScroller();
   const { end } = useChatMessageScrollerScrollable();
@@ -781,35 +786,55 @@ function ThreadAutoFollow({
     prevCountRef.current = userMessageCount;
     if (previous === 0 || userMessageCount <= previous) return;
     if (lastItem?.type !== "user_message") return;
-    armedRef.current = true;
+    followRef.current = FOLLOWING_END;
     scrollToEnd({ behavior: "auto" });
-  }, [userMessageCount, lastItem, scrollToEnd, armedRef]);
+  }, [userMessageCount, lastItem, scrollToEnd, followRef]);
 
   useEffect(() => {
     const viewport = probeRef.current
       ?.closest('[data-slot="chat-message-scroller"]')
       ?.querySelector('[data-slot="chat-message-scroller-viewport"]');
-    if (!viewport) return;
-    const disarm = () => {
-      armedRef.current = false;
+    if (!(viewport instanceof HTMLElement)) return;
+
+    // An upward gesture too small to register as a direction change below still means the reader
+    // is reading, not following.
+    const leaveEnd = () => {
+      if (followRef.current.leftEnd || viewport.scrollTop <= 0) return;
+      followRef.current = { following: false, leftEnd: true };
     };
-    const events = ["wheel", "touchmove", "pointerdown", "keydown"] as const;
-    for (const event of events) {
-      viewport.addEventListener(event, disarm, { passive: true });
-    }
+    const onWheel = (event: Event) => {
+      if ((event as WheelEvent).deltaY < 0) leaveEnd();
+    };
+    const onKeyDown = (event: Event) => {
+      if (SCROLL_UP_KEYS.has((event as KeyboardEvent).key)) leaveEnd();
+    };
+    // Direction, not position: the reader who scrolls back to the bottom while the agent keeps
+    // appending never lands on the exact end, so following has to resume from the gesture.
+    let lastScrollTop = viewport.scrollTop;
+    const onScroll = () => {
+      const sample = sampleThreadScroll(viewport, lastScrollTop);
+      lastScrollTop = viewport.scrollTop;
+      followRef.current = nextThreadFollowState(followRef.current, sample);
+    };
+
+    viewport.addEventListener("wheel", onWheel, { passive: true });
+    viewport.addEventListener("touchmove", leaveEnd, { passive: true });
+    viewport.addEventListener("keydown", onKeyDown, { passive: true });
+    viewport.addEventListener("scroll", onScroll, { passive: true });
     return () => {
-      for (const event of events) {
-        viewport.removeEventListener(event, disarm);
-      }
+      viewport.removeEventListener("wheel", onWheel);
+      viewport.removeEventListener("touchmove", leaveEnd);
+      viewport.removeEventListener("keydown", onKeyDown);
+      viewport.removeEventListener("scroll", onScroll);
     };
-  }, [armedRef]);
+  }, [followRef]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-check on every streamed change — `end` alone doesn't re-notify while it stays true across commits.
   useEffect(() => {
-    if (armedRef.current && end) {
+    if (followRef.current.following && end) {
       scrollToEnd({ behavior: "auto" });
     }
-  }, [items, end, scrollToEnd, armedRef]);
+  }, [items, end, scrollToEnd, followRef]);
 
   return <span ref={probeRef} className="hidden" aria-hidden="true" />;
 }
@@ -982,7 +1007,7 @@ function ThreadScrollBody({
     }));
   }, [rows]);
 
-  const autoFollowArmedRef = useRef(true);
+  const autoFollowRef = useRef<ThreadFollowState>(FOLLOWING_END);
 
   // `group/thread` so the footer's hover-reveal (opacity-50 → 100 on group-hover) tracks the thread,
   // mirroring the legacy ConversationView container. `@container/thread` makes the thread's own
@@ -994,7 +1019,7 @@ function ThreadScrollBody({
       onPointerDownCapture={onUserInteract}
     >
       <MessageMinimap items={items} />
-      <ThreadAutoFollow items={items} armedRef={autoFollowArmedRef} />
+      <ThreadAutoFollow items={items} followRef={autoFollowRef} />
       <ThreadScrollStateRecorder stateRef={resumeStateRef} />
       <ChatMessageScrollerViewport>
         <ChatMessageScrollerContent
@@ -1023,7 +1048,7 @@ function ThreadScrollBody({
       {/* Re-arms the pin as well as scrolling: the button is the reader saying "follow again". */}
       <ChatMessageScrollerButton
         onClick={() => {
-          autoFollowArmedRef.current = true;
+          autoFollowRef.current = FOLLOWING_END;
         }}
       />
     </ChatMessageScroller>

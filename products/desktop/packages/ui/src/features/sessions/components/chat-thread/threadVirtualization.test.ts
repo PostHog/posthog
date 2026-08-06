@@ -8,6 +8,7 @@ import {
   flattenTurnRows,
   nextThreadFollowState,
   type StickyAnchorEntry,
+  sampleThreadScroll,
   type ThreadScrollSample,
   type TurnRow,
 } from "./threadVirtualization";
@@ -189,6 +190,7 @@ describe("nextThreadFollowState", () => {
     atEnd: false,
     atExactEnd: false,
     scrolledUp: false,
+    scrolledDown: false,
     farFromEnd: false,
     ...over,
   });
@@ -219,9 +221,21 @@ describe("nextThreadFollowState", () => {
       { following: true, leftEnd: false },
     ],
     [
-      "stays off inside the tolerance after an upward gesture",
+      "stays off when streamed content grows past a reader parked inside the tolerance",
       { following: false, leftEnd: true },
       sample({ atEnd: true }),
+      { following: false, leftEnd: true },
+    ],
+    [
+      "resumes when the reader scrolls back down into the tolerance",
+      { following: false, leftEnd: true },
+      sample({ atEnd: true, scrolledDown: true }),
+      { following: true, leftEnd: false },
+    ],
+    [
+      "ignores a downward scroll that stops short of the tolerance",
+      { following: false, leftEnd: true },
+      sample({ scrolledDown: true }),
       { following: false, leftEnd: true },
     ],
     [
@@ -230,8 +244,54 @@ describe("nextThreadFollowState", () => {
       sample({ atEnd: true, atExactEnd: true }),
       { following: true, leftEnd: false },
     ],
+    [
+      "drops following on an upward scroll that stays inside the tolerance",
+      { following: true, leftEnd: false },
+      sample({ atEnd: true, scrolledUp: true }),
+      { following: false, leftEnd: false },
+    ],
   ])("%s", (_name, state, event, expected) => {
     expect(nextThreadFollowState(state, event)).toEqual(expected);
+  });
+});
+
+describe("sampleThreadScroll", () => {
+  // Scroll range is 0..1500.
+  const viewport = (scrollTop: number) => ({
+    scrollTop,
+    scrollHeight: 2000,
+    clientHeight: 500,
+  });
+
+  it.each([
+    [
+      "a downward move that stops just short of the bottom",
+      1450,
+      1400,
+      { atEnd: true, atExactEnd: false, scrolledDown: true },
+    ],
+    [
+      "a downward move that stops outside the tolerance",
+      1300,
+      1200,
+      { atEnd: false, atExactEnd: false, scrolledDown: true },
+    ],
+    [
+      "sub-pixel drift, which is neither direction",
+      900,
+      900.5,
+      { atEnd: false, atExactEnd: false, scrolledDown: false },
+    ],
+    [
+      "the true bottom",
+      1500,
+      1450,
+      { atEnd: true, atExactEnd: true, scrolledDown: true },
+    ],
+  ])("measures %s", (_name, scrollTop, previous, expected) => {
+    expect(sampleThreadScroll(viewport(scrollTop), previous)).toMatchObject(
+      expected,
+    );
   });
 });
 
