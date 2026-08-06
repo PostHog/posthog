@@ -106,8 +106,8 @@ TEAM_ID_FILTER_PATTERNS = {
     # Junction tables without team_id; isolation is enforced via an account_id IN system.accounts predicate
     "_account_resource_notebooks": "system__accounts.team_id",
     "_account_tagged_items": "system__accounts.team_id",
-    "_account_custom_property_values": "system__accounts.team_id",
-    "_account_custom_property_values_history": "system__accounts.team_id",
+    # The custom property tables declare their real team_id column, so the standard direct
+    # guard applies (and is pushed into the federated read).
     # Same shape, scoped through system.support_tickets instead
     "_ticket_tagged_items": "system__support_tickets.team_id",
     "_ticket_assignments": "system__support_tickets.team_id",
