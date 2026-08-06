@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { isMobile } from 'lib/utils/dom'
+import { humanList } from 'lib/utils/strings'
 import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -72,9 +73,17 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     const installTitle = isSdkInstallStep ? 'Install' : productName ? `Install ${productName}` : 'Install your SDK'
     // With several install steps in one flow, a bare second "Install" reads as a duplicate.
     const installStepCount = flow.filter((step) => step.stepKey === OnboardingStepKey.INSTALL).length
+    // Name only the products this step really covers: its own plus any deduped into it. Products
+    // with their own install step (e.g. AI observability) still need that step, so claiming
+    // "the rest of your products" would overpromise.
+    const coveredProductKeys =
+        currentFlowStep?.additionalProductKeys ?? (currentStepProductKey ? [currentStepProductKey] : [])
+    const coveredProductNames = coveredProductKeys
+        .map((key) => availableOnboardingProducts[key as keyof typeof availableOnboardingProducts]?.name)
+        .filter((name): name is string => !!name)
     const installSubtitle =
-        isSdkInstallStep && installStepCount > 1 && productName
-            ? `One install covers the rest of your products, including ${productName}.`
+        isSdkInstallStep && installStepCount > 1 && coveredProductNames.length > 0
+            ? `One install covers ${humanList(coveredProductNames)}.`
             : undefined
 
     const installationCompleteFromTeam = useInstallationComplete(teamPropertyToVerify)
