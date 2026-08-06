@@ -405,7 +405,8 @@ class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         self.assertEqual(response.data["summary"]["title"], "Span Summary")
-        self.assertIn("fetch-docs", response.data["text_repr"])
+        # The formatter upper-cases the span name in its header.
+        self.assertIn("fetch-docs", response.data["text_repr"].lower())
 
     def test_unknown_event_uuid_is_reported_as_not_found(self):
         self._approve_ai_processing()

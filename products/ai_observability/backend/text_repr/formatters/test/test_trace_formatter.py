@@ -666,16 +666,16 @@ class TestLLMTraceToFormatterFormat:
     def _event(
         self,
         event_id: str,
+        properties: dict[str, Any],
         event: str = "$ai_span",
         created_at: str = "2026-08-06T12:00:00Z",
-        **properties: Any,
     ) -> LLMTraceEvent:
         return LLMTraceEvent(id=event_id, event=event, createdAt=created_at, properties=properties)
 
     def test_defaults_to_a_flat_hierarchy(self):
         trace = self._trace(
-            self._event("span-1", **{"$ai_span_id": "span-1", "$ai_trace_id": self.TRACE_ID}),
-            self._event("gen-1", event="$ai_generation", **{"$ai_parent_id": "span-1"}),
+            self._event("span-1", {"$ai_span_id": "span-1", "$ai_trace_id": self.TRACE_ID}),
+            self._event("gen-1", {"$ai_parent_id": "span-1"}, event="$ai_generation"),
         )
 
         _, hierarchy = llm_trace_to_formatter_format(trace)
@@ -685,13 +685,13 @@ class TestLLMTraceToFormatterFormat:
 
     def test_nests_children_under_their_parent(self):
         trace = self._trace(
-            self._event("span-1", **{"$ai_span_id": "span-1", "$ai_trace_id": self.TRACE_ID}),
+            self._event("span-1", {"$ai_span_id": "span-1", "$ai_trace_id": self.TRACE_ID}),
             self._event(
                 "gen-1",
+                {"$ai_generation_id": "gen-1", "$ai_parent_id": "span-1"},
                 event="$ai_generation",
-                **{"$ai_generation_id": "gen-1", "$ai_parent_id": "span-1"},
             ),
-            self._event("span-2", **{"$ai_span_id": "span-2", "$ai_parent_id": "gen-1"}),
+            self._event("span-2", {"$ai_span_id": "span-2", "$ai_parent_id": "gen-1"}),
         )
 
         _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
@@ -702,8 +702,8 @@ class TestLLMTraceToFormatterFormat:
 
     def test_promotes_events_whose_parent_is_missing_to_roots(self):
         trace = self._trace(
-            self._event("span-1", **{"$ai_span_id": "span-1", "$ai_trace_id": self.TRACE_ID}),
-            self._event("gen-1", event="$ai_generation", **{"$ai_parent_id": "span-never-ingested"}),
+            self._event("span-1", {"$ai_span_id": "span-1", "$ai_trace_id": self.TRACE_ID}),
+            self._event("gen-1", {"$ai_parent_id": "span-never-ingested"}, event="$ai_generation"),
         )
 
         _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
@@ -712,9 +712,9 @@ class TestLLMTraceToFormatterFormat:
 
     def test_excludes_feedback_and_metric_events(self):
         trace = self._trace(
-            self._event("span-1", **{"$ai_span_id": "span-1", "$ai_trace_id": self.TRACE_ID}),
-            self._event("feedback-1", event="$ai_feedback", **{"$ai_trace_id": self.TRACE_ID}),
-            self._event("metric-1", event="$ai_metric", **{"$ai_trace_id": self.TRACE_ID}),
+            self._event("span-1", {"$ai_span_id": "span-1", "$ai_trace_id": self.TRACE_ID}),
+            self._event("feedback-1", {"$ai_trace_id": self.TRACE_ID}, event="$ai_feedback"),
+            self._event("metric-1", {"$ai_trace_id": self.TRACE_ID}, event="$ai_metric"),
         )
 
         _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
@@ -723,8 +723,8 @@ class TestLLMTraceToFormatterFormat:
 
     def test_survives_a_parent_cycle(self):
         trace = self._trace(
-            self._event("span-1", **{"$ai_span_id": "span-1", "$ai_parent_id": "span-2"}),
-            self._event("span-2", **{"$ai_span_id": "span-2", "$ai_parent_id": "span-1"}),
+            self._event("span-1", {"$ai_span_id": "span-1", "$ai_parent_id": "span-2"}),
+            self._event("span-2", {"$ai_span_id": "span-2", "$ai_parent_id": "span-1"}),
         )
 
         _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
@@ -736,13 +736,13 @@ class TestLLMTraceToFormatterFormat:
         trace = self._trace(
             self._event(
                 "slow-start-first",
+                {"$ai_span_id": "slow-start-first", "$ai_trace_id": self.TRACE_ID, "$ai_latency": 2},
                 created_at="2026-08-06T12:00:02Z",
-                **{"$ai_span_id": "slow-start-first", "$ai_trace_id": self.TRACE_ID, "$ai_latency": 2},
             ),
             self._event(
                 "quick-start-second",
+                {"$ai_span_id": "quick-start-second", "$ai_trace_id": self.TRACE_ID, "$ai_latency": 0},
                 created_at="2026-08-06T12:00:01Z",
-                **{"$ai_span_id": "quick-start-second", "$ai_trace_id": self.TRACE_ID, "$ai_latency": 0},
             ),
         )
 
