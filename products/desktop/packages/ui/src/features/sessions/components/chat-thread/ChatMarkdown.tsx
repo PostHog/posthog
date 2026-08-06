@@ -11,6 +11,7 @@ import {
   Text,
 } from "@posthog/quill";
 import {
+  maskOpenLinkDestination,
   parseOpenFence,
   splitMarkdownBlocks,
 } from "@posthog/ui/features/editor/components/splitMarkdownBlocks";
@@ -212,7 +213,14 @@ export const ChatStreamingMarkdown = memo(function ChatStreamingMarkdown({
             </div>
           );
         }
-        return <ChatMarkdown key={key} content={block} />;
+        return (
+          <ChatMarkdown
+            key={key}
+            content={
+              index === lastIndex ? maskOpenLinkDestination(block) : block
+            }
+          />
+        );
       })}
     </div>
   );
