@@ -164,6 +164,32 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         mock_create_issue.assert_not_called()
         assert reference.external_url == "https://acme.atlassian.net/browse/ENG-42"
 
+    @override_settings(LINEAR_APP_CLIENT_ID="linear-client-id", LINEAR_APP_CLIENT_SECRET="linear-client-secret")
+    @patch("products.error_tracking.backend.logic.LinearIntegration.create_attachment")
+    @patch("products.error_tracking.backend.logic.LinearIntegration.create_issue")
+    def test_link_existing_linear_issue_creates_attachment(self, mock_create_issue, mock_create_attachment):
+        issue = self._create_issue(team=self.team, name="Checkout TypeError")
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.LINEAR.value,
+            config={"data": {"viewer": {"organization": {"urlKey": "acme", "name": "Acme"}}}},
+            sensitive_config={"access_token": "access-token"},
+        )
+
+        reference = api.create_external_reference(
+            team_id=self.team.id,
+            issue_id=issue.id,
+            integration_id=integration.id,
+            external_context={"id": "ENG-42"},
+            distinct_id=self.user.id,
+        )
+
+        mock_create_issue.assert_not_called()
+        linked_issue_id, attachment_url = mock_create_attachment.call_args.args
+        assert linked_issue_id == "ENG-42"
+        assert f"/project/{self.team.id}/error_tracking/" in attachment_url
+        assert reference.external_url == "https://linear.app/acme/issue/ENG-42"
+
     @parameterized.expand(
         [
             ("both", {"title": "x"}, {"key": "ENG-1"}),

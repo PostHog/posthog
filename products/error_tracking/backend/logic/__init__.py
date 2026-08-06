@@ -330,6 +330,10 @@ def create_external_reference(
         if not is_supported_external_issue_provider(integration.kind):
             raise ErrorTrackingExternalReferenceValidationError("Provider not supported")
         stored_context = _clean_existing_external_context(integration, external_context)
+        if integration.kind == Integration.IntegrationKind.LINEAR:
+            # Linked issues get the same PostHog back-link attachment as created ones.
+            attachment_url = get_issue_permalink_by_fingerprint(team_id=team_id, issue_id=issue.id)
+            LinearIntegration(integration).create_attachment(stored_context["id"], attachment_url)
         return ErrorTrackingExternalReference.objects.create(
             issue=issue,
             integration=integration,

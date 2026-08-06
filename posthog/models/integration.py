@@ -3126,6 +3126,12 @@ class LinearIntegration:
         )
         linear_issue_id = dot_get(body, "data.issueCreate.issue.identifier")
 
+        self.create_attachment(linear_issue_id, attachment_url)
+
+        return {"id": linear_issue_id}
+
+    def create_attachment(self, issue_id: str, url: str) -> None:
+        """Attach a PostHog issue link to a Linear issue (shows as a back-link in Linear)."""
         link_attachment_query = """
         mutation AttachmentCreate($issueId: String!, $title: String!, $url: String!) {
             attachmentCreate(input: { issueId: $issueId, title: $title, url: $url }) {
@@ -3135,10 +3141,8 @@ class LinearIntegration:
         """
         self.query(
             link_attachment_query,
-            variables={"issueId": linear_issue_id, "title": "PostHog issue", "url": attachment_url},
+            variables={"issueId": issue_id, "title": "PostHog issue", "url": url},
         )
-
-        return {"id": linear_issue_id}
 
     def search_issues(self, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
         """Search existing Linear issues by title / identifier for the link-existing flow."""
