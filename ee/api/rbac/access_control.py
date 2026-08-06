@@ -306,12 +306,6 @@ def resources_with_object_access_controls() -> dict[APIScopeObject, frozenset[ty
     return {scope: frozenset(models) for scope, models in found.items()}
 
 
-# Display fields tried, in order, for resources neither search nor _MODELS_NOT_IN_ENTITY_MAP knows
-_GENERIC_NAME_FIELDS = ("name", "title", "key")
-
-_PICKER_LIMIT = 20
-
-
 def _model_has_field(model: type[Model], field: str) -> bool:
     try:
         model._meta.get_field(field)
@@ -360,7 +354,7 @@ def _display_model(resource: str) -> _DisplayModel | None:
         models = resources_with_object_access_controls().get(cast(APIScopeObject, resource)) or frozenset()
         if len(models) == 1:
             model = next(iter(models))
-            name_field = next((field for field in _GENERIC_NAME_FIELDS if _model_has_field(model, field)), None)
+            name_field = next((field for field in ("name", "title", "key") if _model_has_field(model, field)), None)
 
     if model is None or name_field is None or not _model_has_field(model, "team"):
         return None
@@ -1163,20 +1157,22 @@ class AccessControlViewSetMixin(_GenericViewSet):
         if _model_has_field(display.model, "saved"):
             qs = qs.filter(saved=True)
 
+        # Enough options for a dropdown; the search narrows, and a pasted URL selects exactly one
+        limit = 20
         try:
             if resource == "insight":
                 if lookup:
                     qs = qs.filter(pk=lookup) if lookup.isdigit() else qs.filter(short_id=lookup)
                 elif search:
                     qs = qs.filter(Q(name__icontains=search) | Q(derived_name__icontains=search))
-                rows = qs.order_by("name").values_list("pk", "name", "derived_name")[:_PICKER_LIMIT]
+                rows = qs.order_by("name").values_list("pk", "name", "derived_name")[:limit]
                 results = [{"id": str(pk), "name": name or derived_name or str(pk)} for pk, name, derived_name in rows]
             else:
                 if lookup:
                     qs = qs.filter(pk=lookup)
                 elif search:
                     qs = qs.filter(**{f"{display.name_field}__icontains": search})
-                rows = qs.order_by(display.name_field).values_list("pk", display.name_field)[:_PICKER_LIMIT]
+                rows = qs.order_by(display.name_field).values_list("pk", display.name_field)[:limit]
                 results = [{"id": str(pk), "name": str(name) if name else str(pk)} for pk, name in rows]
         except (ValueError, DjangoValidationError):
             # A lookup id of the wrong shape for the model's pk matches nothing
