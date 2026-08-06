@@ -80,6 +80,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         inMenu: true,
         tooltipDocLink: 'https://posthog.com/docs/product-analytics/paths',
     },
+    [NodeKind.PathsV2Query]: {
+        name: 'Paths v2',
+        description: 'Trace the journeys users take within your product and where they drop off.',
+        icon: IconInsightUserPaths,
+        inMenu: false,
+    },
     [NodeKind.StickinessQuery]: {
         name: 'Stickiness',
         description: 'See what keeps users coming back by viewing the interval between repeated actions.',
