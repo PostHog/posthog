@@ -1,12 +1,20 @@
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from parameterized import parameterized
 
-from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import ThreadVerdictArtefact
+from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.persistence import load_thread_verdicts, persist_thread_verdict
-from products.review_hog.backend.temporal.resolution import ResolveThreadsInput, _deliver_side_effects
+from products.review_hog.backend.temporal.resolution import (
+    ResolutionRunResult,
+    ResolveThreadsInput,
+    _append_task_run,
+    _deliver_side_effects,
+    _prepare_run,
+)
+from products.tasks.backend.models import Task
 
 _RESOLUTION = "products.review_hog.backend.temporal.resolution"
 
@@ -37,7 +45,9 @@ def _verdict(
 
 class TestResolutionPersistenceAndDelivery(BaseTest):
     def _report(self) -> ReviewReport:
-        return ReviewReport.objects.create(
+        # ReviewReport is fail-closed (TeamScopedRootMixin), so creation outside request context
+        # goes through for_team — the same path the funnel uses.
+        return ReviewReport.objects.for_team(self.team.id).create(
             team=self.team,
             repository="posthog/posthog",
             pr_number=123,
@@ -126,3 +136,54 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         # The reply survived (posted once), the resolve stays due — exactly what the pre-filter redelivers.
         assert stored.reply_posted is True
         assert stored.resolved is False
+
+    def test_task_run_artefact_lands_attributed_to_the_session_task(self) -> None:
+        # The helper is best-effort (it swallows errors), so a wrong attribution doesn't fail the
+        # run — the artefact just silently never lands. This asserts the row actually exists.
+        report = self._report()
+        task = Task.objects.create(
+            team=self.team,
+            title="resolution session",
+            description="",
+            origin_product=Task.OriginProduct.REVIEW_HOG,
+            repository="posthog/posthog",
+        )
+        session = Mock()
+        session.task_run.task_id = task.id
+        session.task_run.id = "run-1"
+
+        _append_task_run(self._input(), str(report.id), session)
+
+        artefact = ReviewReportArtefact.objects.for_team(self.team.id).get(report_id=report.id, type="task_run")
+        assert artefact.task_id == task.id
+
+    def test_noop_run_writes_a_run_note_and_idles_the_report(self) -> None:
+        meta = PRMetadata(
+            number=123,
+            title="t",
+            state="open",
+            draft=False,
+            created_at="2026-01-01T00:00:00Z",
+            updated_at="2026-01-01T00:00:00Z",
+            author="octocat",
+            base_branch="master",
+            head_branch="feature",
+            head_sha="deadbeef",
+            commits=1,
+            additions=1,
+            deletions=0,
+            changed_files=1,
+        )
+        with (
+            patch(f"{_RESOLUTION}._installation_auth", return_value=("token", "inst-1")),
+            patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=meta),
+            patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=[]),
+        ):
+            result = _prepare_run(self._input())
+
+        assert isinstance(result, ResolutionRunResult)
+        assert result.skipped_reason == "no_unresolved_threads"
+        report = ReviewReport.objects.for_team(self.team.id).get(repository="posthog/posthog", pr_number=123)
+        assert report.status == ReviewReport.Status.IDLE
+        note = ReviewReportArtefact.objects.for_team(self.team.id).get(report_id=report.id, type="note")
+        assert "0 thread(s) triaged" in note.content

@@ -203,8 +203,10 @@ def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResu
     overflow = max(0, len(triage) - MAX_THREADS_PER_RUN)
     triage = triage[:MAX_THREADS_PER_RUN]
     if not triage and not redeliver:
+        result = ResolutionRunResult(report_id=report_id, skipped_reason="no_unresolved_threads", skipped=skipped)
+        _append_run_note(input, report_id, result)
         _idle_report(input.team_id, report_id)
-        return ResolutionRunResult(report_id=report_id, skipped_reason="no_unresolved_threads", skipped=skipped)
+        return result
 
     skill = load_resolution_skill_for_run(input.team_id, input.acting_user_id)
     return _PreparedRun(
@@ -274,7 +276,7 @@ def _append_task_run(input: ResolveThreadsInput, report_id: str, session: MultiT
                 product="review_hog",
                 type="resolution",
             ),
-            attribution=ArtefactAttribution.system(),
+            attribution=ArtefactAttribution.from_task(str(session.task_run.task_id)),
         )
     except Exception:
         logger.exception("Could not append the resolution task_run artefact")
