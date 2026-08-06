@@ -23,6 +23,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.constants import WIZARD_REPOSITORY_DETECTION_PROGRAMS
+from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.sandbox import Sandbox
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.activities import (
@@ -216,7 +217,9 @@ class WizardRepositoryDetectionWorkflow(PostHogWorkflow):
         except Exception as e:
             # str(ActivityError) is Temporal's opaque wrapper; surface the cause instead.
             cause = e.cause if isinstance(e, temporalio.exceptions.ActivityError) else None
-            message = (getattr(cause, "message", None) or (str(cause) if cause else None) or str(e))[:2000]
+            message = truncate_error_message(
+                getattr(cause, "message", None) or (str(cause) if cause else None) or str(e)
+            )
             await self._update_status(input.run_id, "failed", error_message=message, error_type=type(e).__name__)
             return WizardRepositoryDetectionOutput(success=False, error=message, sandbox_id=sandbox_id)
 

@@ -144,6 +144,17 @@ class SetupWizardCloudRunResponseSerializer(serializers.Serializer):
     status = serializers.CharField(help_text="Initial status of the run (e.g. 'queued').")
 
 
+class SetupWizardRepositoryDetectionResponseSerializer(serializers.Serializer):
+    task_id = serializers.CharField(
+        help_text=(
+            "ID of the created detection task. No pull request is opened; poll GET "
+            "/api/wizard/repository_detections for the scan's status and report."
+        )
+    )
+    run_id = serializers.CharField(help_text="ID of the task's run.")
+    status = serializers.CharField(help_text="Initial status of the run (e.g. 'queued').")
+
+
 class SetupWizardRepositoryDetectionSerializer(serializers.Serializer):
     project_id = serializers.IntegerField(
         help_text="ID of the PostHog project the detection result belongs to. The authenticated user must have access to it."
@@ -627,7 +638,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
 
     @extend_schema(
         request=SetupWizardRepositoryDetectionSerializer,
-        responses={200: SetupWizardCloudRunResponseSerializer},
+        responses={200: SetupWizardRepositoryDetectionResponseSerializer},
     )
     @action(
         methods=["POST"],

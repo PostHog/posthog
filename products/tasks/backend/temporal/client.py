@@ -388,6 +388,7 @@ def execute_wizard_repository_detection_workflow(task_id: str, run_id: str, team
         task_run_for_metrics = _get_task_run_for_metrics(run_id)
         observe_task_run_workflow_start(task_run_for_metrics, outcome="attempted", reason="requested")
         Team.objects.get(id=team_id)
+        _capture_run_feature_flags(run_id)
 
         workflow_id = _wizard_repository_detection_workflow_id(task_id, run_id)
         # Persist before starting: without it `TaskRun.workflow_id` resolves to `task-processing-*`,
@@ -443,6 +444,7 @@ def _redispatch_wizard_repository_detection_run(task_run: TaskRun, run_id: str) 
     workflow_id = _wizard_repository_detection_workflow_id(task_id, run_id)
     _record_prefixed_workflow_id(run_id, workflow_id)
     observe_task_run_workflow_start(task_run, outcome="attempted", reason="reconcile")
+    _capture_run_feature_flags(run_id)
     try:
         client = sync_connect()
         asyncio.run(
