@@ -1,11 +1,10 @@
-import { BreakPointFunction, MakeLogicType, actions, connect, kea, listeners, path, selectors } from 'kea'
+import { BreakPointFunction, MakeLogicType, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'lib/posthog-typed'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { showDashboardExportNudgeToast } from 'scenes/dashboard/DashboardExportNudgeToast'
 import {
     dashboardNudgeScopeKey,
     dashboardSubscribeNudgeStoreLogic,
@@ -41,9 +40,6 @@ export interface dashboardExportNudgeLogicActions {
     suppressDashboardNudge: (dashboardId: number) => {
         dashboardId: number
     } // dashboardSubscribeNudgeStoreLogic
-    considerExportNudge: (dashboardId: number) => {
-        dashboardId: number
-    }
     loadFreeTierSubscriptionCount: (_?: unknown) => unknown
     loadFreeTierSubscriptionCountFailure: (
         error: string,
@@ -77,14 +73,14 @@ export type dashboardExportNudgeLogicType = MakeLogicType<
     dashboardExportNudgeLogicMeta
 >
 
-// Nudges someone who just exported a dashboard toward a recurring subscription instead. Exports are
-// often a manual stand-in for one ("share it in a message", "put it in a report"), so the moment the
-// export lands is the moment the alternative is worth mentioning.
+// Backs the nudge that points someone who just exported a dashboard at a recurring subscription
+// instead. Exports are often a manual stand-in for one ("share it in a message", "put it in a
+// report"), so the moment the export lands is the moment the alternative is worth mentioning.
 //
-// Eligibility is resolved before the feature flag is read, so the experiment's exposure covers only
-// people who could actually act on the nudge. Unlike the repeat-view nudge, there is no server-side
-// notification: the toast is the whole treatment, so an export the user walked away from doesn't
-// leave a notification behind.
+// Holds only the shared state the two-step check needs: the persisted per-dashboard markers, the
+// team's subscription entitlement, and the free-tier count (fetched at most once per session).
+// Unlike the repeat-view nudge, there is no server-side notification: the toast is the whole
+// treatment, so an export the user walked away from doesn't leave a notification behind.
 export const dashboardExportNudgeLogic = kea<dashboardExportNudgeLogicType>([
     path(['scenes', 'dashboard', 'dashboardExportNudgeLogic']),
     connect(() => ({
@@ -103,9 +99,6 @@ export const dashboardExportNudgeLogic = kea<dashboardExportNudgeLogicType>([
             ['suppressDashboardNudge', 'markDashboardExportNudged'],
         ],
     })),
-    actions({
-        considerExportNudge: (dashboardId: number) => ({ dashboardId }),
-    }),
     loaders(() => ({
         // Team-wide count, so it is fetched at most once per session and reused across exports.
         // `load` prefix + initKea's ERROR_FILTER_ALLOW_LIST keep a failed background check from
@@ -129,56 +122,7 @@ export const dashboardExportNudgeLogic = kea<dashboardExportNudgeLogicType>([
                 hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS),
         ],
     }),
-    listeners(({ actions, values, asyncActions }) => ({
-        considerExportNudge: async ({ dashboardId }) => {
-            if (
-                values.exportNudgedDashboardIds.includes(dashboardId) ||
-                values.suppressedDashboardIds.includes(dashboardId)
-            ) {
-                return
-            }
-
-            // Paid orgs are never limited. Free-tier orgs must have room under the free-tier cap —
-            // and unlike EditSubscription (where a null count fails open because the user explicitly
-            // asked and the backend is the hard gate), a proactive nudge fails closed on an unknown
-            // count: don't advertise an action we can't confirm they can complete.
-            if (!values.hasSubscriptionsFeature) {
-                if (values.freeTierSubscriptionCount === null) {
-                    await asyncActions.loadFreeTierSubscriptionCount()
-                }
-                if (
-                    values.freeTierSubscriptionCount === null ||
-                    isFreeTierCreateAtLimit(values.freeTierSubscriptionCount)
-                ) {
-                    return
-                }
-            }
-
-            const hasExistingSubscription = await fetchHasExistingSubscription(dashboardId)
-            if (hasExistingSubscription === null) {
-                // Fail closed on a broken check. Captured so the readout can tell that apart from
-                // genuine ineligibility.
-                return
-            }
-            if (hasExistingSubscription) {
-                // The exporter clearly knows the feature — stop nudging this dashboard from either
-                // surface, even if the subscription is later deleted.
-                actions.suppressDashboardNudge(dashboardId)
-                return
-            }
-
-            // CRITICAL: `featureFlags[...]` is a proxy access that reports the flag's exposure event
-            // the first time it's read. Only touch it once every eligibility check has passed, so
-            // the experiment's exposure ($feature_flag_called) fires only for the population that
-            // could actually receive the nudge.
-            if (values.featureFlags[FEATURE_FLAGS.DASHBOARD_EXPORT_NUDGE] !== 'test') {
-                return
-            }
-
-            actions.markDashboardExportNudged(dashboardId)
-            posthog.capture('dashboard export nudge shown', { dashboard_id: dashboardId })
-            showDashboardExportNudgeToast(dashboardId, values.rawDashboards[dashboardId]?.name)
-        },
+    listeners(() => ({
         loadFreeTierSubscriptionCountFailure: ({ error, errorObject }) => {
             // A failed count check silently excludes a free-tier user (fail closed) — capture it so
             // the readout can tell that apart from genuinely being at the limit.
@@ -191,6 +135,70 @@ export const dashboardExportNudgeLogic = kea<dashboardExportNudgeLogicType>([
         },
     })),
 ])
+
+/** A dashboard whose exporter cleared every eligibility check except the experiment flag. */
+export interface ExportNudgeCandidate {
+    dashboardId: number
+    dashboardName?: string | null
+}
+
+/**
+ * Resolves the half of the check that needs the network, so an export can start it on kickoff and
+ * read the answer once the export lands. Stops deliberately short of the experiment flag, which
+ * `claimExportNudge` reads at the moment the nudge is rendered.
+ */
+export async function resolveExportNudgeEligibility(dashboardId: number): Promise<ExportNudgeCandidate | null> {
+    const { values, actions, asyncActions } = dashboardExportNudgeLogic
+    if (values.exportNudgedDashboardIds.includes(dashboardId) || values.suppressedDashboardIds.includes(dashboardId)) {
+        return null
+    }
+
+    // Paid orgs are never limited. Free-tier orgs must have room under the free-tier cap —
+    // and unlike EditSubscription (where a null count fails open because the user explicitly
+    // asked and the backend is the hard gate), a proactive nudge fails closed on an unknown
+    // count: don't advertise an action we can't confirm they can complete.
+    if (!values.hasSubscriptionsFeature) {
+        if (values.freeTierSubscriptionCount === null) {
+            await asyncActions.loadFreeTierSubscriptionCount()
+        }
+        if (values.freeTierSubscriptionCount === null || isFreeTierCreateAtLimit(values.freeTierSubscriptionCount)) {
+            return null
+        }
+    }
+
+    const hasExistingSubscription = await fetchHasExistingSubscription(dashboardId)
+    if (hasExistingSubscription === null) {
+        // Fail closed on a broken check. Captured so the readout can tell that apart from
+        // genuine ineligibility.
+        return null
+    }
+    if (hasExistingSubscription) {
+        // The exporter clearly knows the feature — stop nudging this dashboard from either
+        // surface, even if the subscription is later deleted.
+        actions.suppressDashboardNudge(dashboardId)
+        return null
+    }
+
+    return { dashboardId, dashboardName: values.rawDashboards[dashboardId]?.name }
+}
+
+/**
+ * Last gate, run as the nudge is rendered so a nudge is never spent on a toast nobody saw.
+ * Returns whether this exporter is in the treatment.
+ */
+export function claimExportNudge(dashboardId: number): boolean {
+    // CRITICAL: `featureFlags[...]` is a proxy access that reports the flag's exposure event
+    // the first time it's read. Only touch it once every eligibility check has passed, so
+    // the experiment's exposure ($feature_flag_called) fires only for the population that
+    // could actually receive the nudge.
+    if (dashboardExportNudgeLogic.values.featureFlags[FEATURE_FLAGS.DASHBOARD_EXPORT_NUDGE] !== 'test') {
+        return false
+    }
+
+    dashboardExportNudgeLogic.actions.markDashboardExportNudged(dashboardId)
+    posthog.capture('dashboard export nudge shown', { dashboard_id: dashboardId })
+    return true
+}
 
 /** Whether this dashboard already has a subscription. null means the check itself failed. */
 async function fetchHasExistingSubscription(dashboardId: number): Promise<boolean | null> {

@@ -1,9 +1,6 @@
 import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
-import { expectLogic } from 'kea-test-utils'
-
 import { FEATURE_FLAGS } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'lib/posthog-typed'
 import {
@@ -19,7 +16,7 @@ import { AvailableFeature, UserType } from '~/types'
 
 import { subscriptionsList } from 'products/subscriptions/frontend/generated/api'
 
-import { dashboardExportNudgeLogic } from './dashboardExportNudgeLogic'
+import { claimExportNudge, dashboardExportNudgeLogic, resolveExportNudgeEligibility } from './dashboardExportNudgeLogic'
 
 jest.mock('lib/posthog-typed', () => ({
     __esModule: true,
@@ -28,10 +25,6 @@ jest.mock('lib/posthog-typed', () => ({
 
 jest.mock('products/subscriptions/frontend/generated/api', () => ({
     subscriptionsList: jest.fn(),
-}))
-
-jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
-    lemonToast: { info: jest.fn(), error: jest.fn(), success: jest.fn(), dismiss: jest.fn() },
 }))
 
 const mockSubscriptionsList = subscriptionsList as jest.Mock
@@ -73,7 +66,6 @@ describe('dashboardExportNudgeLogic', () => {
         window.localStorage.clear()
         mockSubscriptionsList.mockReset()
         mockSubscriptionCounts({ dashboardCount: 0 })
-        ;(lemonToast.info as jest.Mock).mockClear()
         initKeaTests()
         userLogic.mount()
         userLogic.actions.loadUserSuccess(USER_WITH_SUBSCRIPTIONS_FEATURE)
@@ -90,16 +82,15 @@ describe('dashboardExportNudgeLogic', () => {
         window.localStorage.clear()
     })
 
-    async function considerNudge(dashboardId: number = DASHBOARD_ID): Promise<void> {
-        await expectLogic(logic, () => {
-            logic.actions.considerExportNudge(dashboardId)
-        }).toFinishAllListeners()
+    /** Runs both halves of the check the way an export does, and reports whether it nudges. */
+    async function considerNudge(dashboardId: number = DASHBOARD_ID): Promise<boolean> {
+        const candidate = await resolveExportNudgeEligibility(dashboardId)
+        return !!candidate && claimExportNudge(candidate.dashboardId)
     }
 
     it('nudges an eligible exporter in the test variant', async () => {
-        await considerNudge()
+        expect(await considerNudge()).toBe(true)
 
-        expect(lemonToast.info).toHaveBeenCalledTimes(1)
         expect(capturesOf('dashboard export nudge shown')).toEqual([
             ['dashboard export nudge shown', { dashboard_id: DASHBOARD_ID }],
         ])
@@ -109,26 +100,23 @@ describe('dashboardExportNudgeLogic', () => {
     it('does not nudge in the control variant', async () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DASHBOARD_EXPORT_NUDGE]: 'control' })
 
-        await considerNudge()
-
-        expect(lemonToast.info).not.toHaveBeenCalled()
+        // The variant is read only by the second half, so a control exporter still resolves as a
+        // candidate. Every other check has to run before the flag read reports exposure.
+        expect(await resolveExportNudgeEligibility(DASHBOARD_ID)).toMatchObject({ dashboardId: DASHBOARD_ID })
+        expect(claimExportNudge(DASHBOARD_ID)).toBe(false)
         // Not marked either, so a later rollout to this user isn't already burnt.
         expect(storeLogic.values.exportNudgedDashboardIds).toEqual([])
     })
 
     it('nudges a dashboard only once, even across repeated exports', async () => {
-        await considerNudge()
-        await considerNudge()
-
-        expect(lemonToast.info).toHaveBeenCalledTimes(1)
+        expect(await considerNudge()).toBe(true)
+        expect(await considerNudge()).toBe(false)
     })
 
     it('suppresses the dashboard when it already has a subscription', async () => {
         mockSubscriptionCounts({ dashboardCount: 1 })
 
-        await considerNudge()
-
-        expect(lemonToast.info).not.toHaveBeenCalled()
+        expect(await considerNudge()).toBe(false)
         // Shared with the repeat-view nudge: someone who already subscribed is done being asked.
         expect(storeLogic.values.suppressedDashboardIds).toEqual([DASHBOARD_ID])
     })
@@ -136,9 +124,7 @@ describe('dashboardExportNudgeLogic', () => {
     it('does not nudge a dashboard the repeat-view nudge already suppressed', async () => {
         storeLogic.actions.suppressDashboardNudge(DASHBOARD_ID)
 
-        await considerNudge()
-
-        expect(lemonToast.info).not.toHaveBeenCalled()
+        expect(await considerNudge()).toBe(false)
         expect(mockSubscriptionsList).not.toHaveBeenCalled()
     })
 
@@ -154,9 +140,7 @@ describe('dashboardExportNudgeLogic', () => {
         ])('with %i existing team subscriptions, nudges=%s', async (teamCount, nudges) => {
             mockSubscriptionCounts({ dashboardCount: 0, teamCount })
 
-            await considerNudge()
-
-            expect(lemonToast.info).toHaveBeenCalledTimes(nudges ? 1 : 0)
+            expect(await considerNudge()).toBe(nudges)
         })
     })
 
@@ -172,9 +156,7 @@ describe('dashboardExportNudgeLogic', () => {
         it('fails closed and reports when the dashboard check breaks', async () => {
             mockSubscriptionsList.mockRejectedValue({ name: 'ApiError', status: 500, message: 'boom' })
 
-            await considerNudge()
-
-            expect(lemonToast.info).not.toHaveBeenCalled()
+            expect(await considerNudge()).toBe(false)
             expect(capturesOf('dashboard export nudge check failed')).toHaveLength(1)
             expect(capturesOf('dashboard export nudge check failed')[0][1]).toMatchObject({
                 dashboard_id: DASHBOARD_ID,
@@ -186,9 +168,7 @@ describe('dashboardExportNudgeLogic', () => {
             userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
             mockSubscriptionsList.mockRejectedValue({ name: 'ApiError', status: 500, message: 'boom' })
 
-            await considerNudge()
-
-            expect(lemonToast.info).not.toHaveBeenCalled()
+            expect(await considerNudge()).toBe(false)
             expect(capturesOf('dashboard export nudge check failed')[0][1]).toMatchObject({ step: 'limit' })
         })
     })
