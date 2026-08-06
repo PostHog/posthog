@@ -1,4 +1,7 @@
-import { InitialPermissionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import {
+    CodexTaskRunCreateSchemaInitialPermissionModeEnumApi,
+    InitialPermissionModeEnumApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 
 /** The permission modes exposed by the PostHog AI composer. */
 export type PermissionMode =
@@ -33,6 +36,21 @@ export const MODE_OPTIONS: ComposerModeOption[] = [
         description: 'Plans the work first. Nothing runs until you approve the plan.',
     },
 ]
+
+export type CodexPermissionMode =
+    (typeof CodexTaskRunCreateSchemaInitialPermissionModeEnumApi)[keyof typeof CodexTaskRunCreateSchemaInitialPermissionModeEnumApi]
+
+// The picker speaks Claude's mode vocabulary; a Codex run takes its own, and the API rejects the wrong
+// one. Same mapping the agent framework applies (`resolveCloudInitialPermissionMode` in @posthog/shared).
+const CODEX_MODE_BY_PERMISSION_MODE: Record<PermissionMode, CodexPermissionMode> = {
+    [InitialPermissionModeEnumApi.Auto]: CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.Auto,
+    [InitialPermissionModeEnumApi.BypassPermissions]: CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.FullAccess,
+    [InitialPermissionModeEnumApi.Plan]: CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.Plan,
+}
+
+export function toCodexPermissionMode(mode: PermissionMode): CodexPermissionMode {
+    return CODEX_MODE_BY_PERMISSION_MODE[mode]
+}
 
 // Modes retired from the picker resolve to their closest current equivalent, so persisted
 // selections and runs started before the retirement keep resolving to a real option.

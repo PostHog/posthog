@@ -9,6 +9,7 @@ import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import {
     DEFAULT_COMPOSER_EFFORT,
     DEFAULT_COMPOSER_MODEL,
+    buildRuntimeSelection,
     resolveEffortForModel,
 } from 'products/posthog_ai/frontend/utils/composerModels'
 import {
@@ -18,9 +19,8 @@ import {
 } from 'products/posthog_ai/frontend/utils/composerModes'
 import { tasksRunCreate, tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
 import {
-    ClaudeRuntimeAdapterEnumApi,
-    type ClaudeTaskRunCreateSchemaApi,
     type ReasoningEffortEnumApi,
+    type TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import { type AttachedContextItem, attachedContextItemKey } from '../types/contextTypes'
@@ -729,13 +729,10 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 try {
                     // Same endpoint as the "Run again" button, but seeded with the user's message and chained
                     // from the finished run so the new run continues the thread, and carrying the picked model /
-                    // reasoning effort (the resume schema can't, so we send the Claude create shape). The response
+                    // reasoning effort (the resume schema can't, so we send the create shape). The response
                     // carries the new run id as `latest_run`; the consumer-provided `onRunStarted` re-points to it.
-                    const createRequest: ClaudeTaskRunCreateSchemaApi = {
-                        runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
-                        model: values.selectedModel,
-                        reasoning_effort: values.selectedEffort,
-                        initial_permission_mode: values.selectedMode,
+                    const createRequest: TaskRunCreateRequestSchemaApi = {
+                        ...buildRuntimeSelection(values.selectedModel, values.selectedEffort, values.selectedMode),
                         resume_from_run_id: props.runId,
                         pending_user_message: wrapWithPosthogContext(content, pendingContext),
                     }

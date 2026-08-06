@@ -261,8 +261,14 @@ describe('runInteractionLogic', () => {
         expect(logic.values.selectedMode).toBe('auto')
     })
 
-    it('seeds a fresh run with the picked permission mode when the run is terminal', async () => {
+    // The picker speaks Claude's mode vocabulary, but a Codex run is created with Codex's — the API
+    // rejects the wrong one, so the runtime and the mode have to be derived from the picked model together.
+    it.each([
+        ['claude-sonnet-5', 'claude', 'bypassPermissions'],
+        ['gpt-5.6-luna', 'codex', 'full-access'],
+    ])("launches a fresh terminal-run send on %s's runtime and mode", async (model, adapter, permissionMode) => {
         setStatus('completed')
+        logic.actions.setModel(model)
         logic.actions.setMode('bypassPermissions')
         logic.actions.setComposerFormValues({ draft: 'continue from here' })
 
@@ -273,7 +279,11 @@ describe('runInteractionLogic', () => {
         expect(tasksRunCreate).toHaveBeenCalledWith(
             '997',
             TASK_ID,
-            expect.objectContaining({ initial_permission_mode: 'bypassPermissions' })
+            expect.objectContaining({
+                runtime_adapter: adapter,
+                model,
+                initial_permission_mode: permissionMode,
+            })
         )
     })
 

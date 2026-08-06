@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { userLogic } from 'scenes/userLogic'
@@ -9,6 +10,11 @@ import { Composer, QueuedMessageList } from 'products/posthog_ai/frontend/api/pr
 // surface is its primary content, so a second `lazy()` would only add a redundant chunk fetch + Suspense
 // flash. The inbox embeds keep the lazy `ReadonlyRunSurface`.
 import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
+import {
+    COMPOSER_MODELS,
+    getModelsForRuntimeAdapter,
+    getRuntimeAdapterForModel,
+} from 'products/posthog_ai/frontend/utils/composerModels'
 import { cycleMode } from 'products/posthog_ai/frontend/utils/composerModes'
 
 import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
@@ -133,6 +139,13 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
 
     const draft = useDebouncedDraft(composerForm.draft, (value) => setComposerFormValues({ draft: value }))
 
+    // A running session is pinned to the harness it booted on — its agent ignores a model id from the other
+    // one. Once terminal the send launches a fresh run, so any model is fair game again.
+    const availableModels = useMemo(
+        () => (isTerminal ? COMPOSER_MODELS : getModelsForRuntimeAdapter(getRuntimeAdapterForModel(selectedModel))),
+        [isTerminal, selectedModel]
+    )
+
     return (
         <>
             {/* Inside the slot children: detaches while a pending approval replaces the composer. */}
@@ -174,6 +187,7 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
                             selectedEffort={selectedEffort}
                             onModelChange={setModel}
                             onEffortChange={setEffort}
+                            models={availableModels}
                         />
                     </Composer.Footer>
                 </Composer.Frame>

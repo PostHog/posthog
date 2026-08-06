@@ -10,7 +10,6 @@ import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
 import { tasksCreate, tasksRunCreate } from 'products/tasks/frontend/generated/api'
 import {
-    ClaudeRuntimeAdapterEnumApi,
     OriginProductEnumApi,
     ReasoningEffortEnumApi,
     type TaskWriteApi,
@@ -30,7 +29,7 @@ import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import type { AttachedContextItem } from '../../types/contextTypes'
 import type { RepositoryConfig, Task } from '../../types/taskTypes'
 import type { TaskListParams } from '../../types/taskTypes'
-import { DEFAULT_COMPOSER_EFFORT, DEFAULT_COMPOSER_MODEL, resolveEffortForModel } from '../../utils/composerModels'
+import { DEFAULT_COMPOSER_EFFORT, DEFAULT_COMPOSER_MODEL, buildRuntimeSelection } from '../../utils/composerModels'
 import { DEFAULT_COMPOSER_MODE, type PermissionMode } from '../../utils/composerModes'
 import { wrapWithPosthogContext } from '../../utils/posthogContextBlock'
 
@@ -506,13 +505,11 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
 
                 // Auto-run the task after creation; the detail scene shows the latest run by default. The
                 // run checks out the chosen branch (server falls back to the repo's default branch if unset)
-                // and launches with the picked model / reasoning effort (clamped to one the model supports).
+                // and launches on the runtime the picked model needs, with its effort / permission mode
+                // clamped to what that runtime accepts.
                 const runResponse = await tasksRunCreate(projectId, newTask.id, {
+                    ...buildRuntimeSelection(model, reasoningEffort, permissionMode),
                     branch: repositoryConfig.branch ?? null,
-                    runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
-                    model,
-                    reasoning_effort: resolveEffortForModel(reasoningEffort, model),
-                    initial_permission_mode: permissionMode,
                     // Interactive keeps the sandbox agent-server's event stream open across turns, so
                     // follow-up messages stream their reply over the same SSE (background runs seal the
                     // stream after the first turn). Interactive runs boot with the agent-server pulling

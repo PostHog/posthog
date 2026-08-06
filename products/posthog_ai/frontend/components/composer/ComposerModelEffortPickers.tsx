@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 
 import { IconBrain, IconChevronDown } from '@posthog/icons'
 import {
@@ -8,14 +8,17 @@ import {
     DropdownMenuLabel,
     DropdownMenuRadioGroup,
     DropdownMenuRadioItem,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@posthog/quill-primitives'
 
 import {
     COMPOSER_MODELS,
+    type ComposerModelOption,
     getEffortLabel,
     getEffortsForModel,
     getModelLabel,
+    groupModelsByRuntimeAdapter,
 } from 'products/posthog_ai/frontend/utils/composerModels'
 import { ReasoningEffortEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
@@ -24,6 +27,8 @@ export interface ComposerModelEffortPickersProps {
     selectedEffort: ReasoningEffortEnumApi
     onModelChange: (model: string) => void
     onEffortChange: (effort: ReasoningEffortEnumApi) => void
+    /** Narrows the models on offer — a live run can only switch within the runtime it was launched on. */
+    models?: ComposerModelOption[]
 }
 
 /**
@@ -37,8 +42,10 @@ export function ComposerModelEffortPickers({
     selectedEffort,
     onModelChange,
     onEffortChange,
+    models = COMPOSER_MODELS,
 }: ComposerModelEffortPickersProps): JSX.Element {
     const effortOptions = getEffortsForModel(selectedModel)
+    const modelGroups = useMemo(() => groupModelsByRuntimeAdapter(models), [models])
     const [modelOpen, setModelOpen] = useState(false)
     const [effortOpen, setEffortOpen] = useState(false)
 
@@ -61,11 +68,17 @@ export function ComposerModelEffortPickers({
                             setModelOpen(false)
                         }}
                     >
-                        <DropdownMenuLabel>Model</DropdownMenuLabel>
-                        {COMPOSER_MODELS.map((option) => (
-                            <DropdownMenuRadioItem key={option.value} value={option.value}>
-                                {option.label}
-                            </DropdownMenuRadioItem>
+                        {/* Sectioned by harness, so it's clear which agent a model actually runs in. */}
+                        {modelGroups.map((group, index) => (
+                            <Fragment key={group.adapter}>
+                                {index > 0 && <DropdownMenuSeparator />}
+                                <DropdownMenuLabel>{group.label}</DropdownMenuLabel>
+                                {group.models.map((option) => (
+                                    <DropdownMenuRadioItem key={option.value} value={option.value}>
+                                        {option.label}
+                                    </DropdownMenuRadioItem>
+                                ))}
+                            </Fragment>
                         ))}
                     </DropdownMenuRadioGroup>
                 </DropdownMenuContent>

@@ -107,6 +107,25 @@ describe('taskTrackerSceneLogic', () => {
         expect(router.values.location.pathname).toContain('/tasks/new-task')
     })
 
+    // The picker speaks Claude's mode vocabulary, but a Codex model has to launch on the codex runtime with
+    // Codex's — the API rejects the wrong pairing, so the runtime and the mode both follow the picked model.
+    it.each([
+        ['claude-sonnet-5', 'claude', 'bypassPermissions'],
+        ['gpt-5.6-terra', 'codex', 'full-access'],
+    ])("launches a new task on %s's runtime and mode", async (model, adapter, permissionMode) => {
+        logic.mount()
+        logic.actions.setNewTaskData({ description: 'do the thing', model, permissionMode: 'bypassPermissions' })
+        logic.actions.submitNewTask()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(runBody).toMatchObject({
+            runtime_adapter: adapter,
+            model,
+            initial_permission_mode: permissionMode,
+        })
+    })
+
     // The seeded first message wraps the on-screen context, and the wrapped non-text refs must be marked
     // sent under the created task's id — otherwise the run's first follow-up (sent via
     // `runInteractionLogic`, which prunes against the task-scoped store) re-wraps the same refs.
