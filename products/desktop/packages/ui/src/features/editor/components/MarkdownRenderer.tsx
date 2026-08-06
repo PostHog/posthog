@@ -19,6 +19,12 @@ interface MarkdownRendererProps {
   remarkPluginsOverride?: PluggableList;
   componentsOverride?: Partial<Components>;
   rehypePlugins?: PluggableList;
+  /**
+   * Extends the URL allowlist for non-http protocols the caller's components
+   * handle themselves (e.g. `chart:` refs in signal report summaries, which
+   * the default transform would strip to a dead link).
+   */
+  urlTransformOverride?: (value: string) => string;
 }
 
 // Preprocessor to prevent setext heading interpretation of horizontal rules
@@ -173,6 +179,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
   remarkPluginsOverride,
   componentsOverride,
   rehypePlugins,
+  urlTransformOverride,
 }: MarkdownRendererProps) {
   const processedContent = useMemo(
     () => preprocessMarkdown(content),
@@ -191,7 +198,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
       remarkPlugins={plugins}
       rehypePlugins={rehypePlugins}
       components={components}
-      urlTransform={markdownUrlTransform}
+      urlTransform={urlTransformOverride ?? markdownUrlTransform}
     >
       {processedContent}
     </ReactMarkdown>

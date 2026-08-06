@@ -22,6 +22,11 @@ export const inboxReportKeys = {
     [...inboxReportKeys.all, reportId, "artefacts"] as const,
   signals: (reportId: string) =>
     [...inboxReportKeys.all, reportId, "signals"] as const,
+  // The query node itself is part of the key: a report edit can swap a chart's
+  // query while keeping its chart_id, and a stale entry would silently chart
+  // the old query.
+  chartData: (reportId: string, chartId: string, query: unknown) =>
+    [...inboxReportKeys.all, reportId, "chart-data", chartId, query] as const,
   availableSuggestedReviewers: (authIdentity: string | null) =>
     [
       ...inboxReportKeys.all,

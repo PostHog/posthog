@@ -128,6 +128,8 @@ function RunOutputWidget({ report }: { report: SignalReport }) {
         }
         variant="detail"
         pending={report.status === "in_progress"}
+        reportId={report.id}
+        charts={report.charts}
       />
     </DetailSection>
   );

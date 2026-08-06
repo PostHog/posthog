@@ -1,4 +1,6 @@
 import type { SignalReportPriority } from "@posthog/shared/types";
+import { priorityMeaningLine } from "@posthog/ui/features/inbox/filterOptions";
+import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 
 const PRIORITY_CLASSES: Record<SignalReportPriority, string> = {
   P0: "bg-(--red-3) text-(--red-11) ring-1 ring-(--red-5) ring-inset",
@@ -18,10 +20,11 @@ export function PriorityMonogram({ priority }: PriorityMonogramProps) {
     ? PRIORITY_CLASSES[priority]
     : "bg-(--gray-2) text-(--gray-9)";
 
-  return (
+  const chip = (
     <div
       className={[
         "flex h-6 w-6 shrink-0 items-center justify-center rounded-(--radius-1) font-bold text-[9px] tracking-tight",
+        priority ? "cursor-help" : "",
         toneClass,
       ].join(" ")}
       aria-label={priority ? `Priority ${priority}` : "Priority unknown"}
@@ -29,5 +32,19 @@ export function PriorityMonogram({ priority }: PriorityMonogramProps) {
     >
       {label}
     </div>
+  );
+
+  if (!priority) {
+    return chip;
+  }
+
+  return (
+    <Tooltip
+      content={
+        <span className="max-w-64">{priorityMeaningLine(priority)}</span>
+      }
+    >
+      {chip}
+    </Tooltip>
   );
 }

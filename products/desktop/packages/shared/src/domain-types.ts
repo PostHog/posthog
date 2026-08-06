@@ -551,6 +551,23 @@ export interface SignalReport {
   source_products?: string[];
   /** PR URL from the latest implementation task run, if available. */
   implementation_pr_url?: string | null;
+  /** Charts attached to the report, referenced from `summary` via `chart:` markdown links. */
+  charts?: SignalReportChart[] | null;
+}
+
+/**
+ * A chart the report's author attached. The desktop app has no insight
+ * renderer, so these surface as links into the PostHog web app; `query` is the
+ * untyped insight query node the backend stores (`InsightVizNode`,
+ * `DataVisualizationNode`, or `SavedInsightNode`).
+ */
+export interface SignalReportChart {
+  /** Stable slug referenced from `summary` as `[label](chart:<chart_id>)`. */
+  chart_id: string;
+  title: string;
+  query: unknown;
+  caption?: string | null;
+  size?: "small" | "medium" | "large" | null;
 }
 
 export interface SignalReportArtefactContent {

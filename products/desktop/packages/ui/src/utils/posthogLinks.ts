@@ -233,3 +233,11 @@ export function errorTrackingIssueUrl(
       : path;
   }, overrides);
 }
+
+/** Absolute web-app URL for a project-relative path (e.g. `/insights/new#q=…`). */
+export function projectPathUrl(
+  projectPath: string,
+  overrides?: LinkOverrides,
+): string | null {
+  return withProjectId((pid) => `/project/${pid}${projectPath}`, overrides);
+}

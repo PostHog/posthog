@@ -6772,6 +6772,31 @@ export class PostHogAPIClient {
   }
 
   /**
+   * Runs an arbitrary insight query node (TrendsQuery, HogQLQuery, …) against
+   * the team's project and returns the raw response body. Backs report chart
+   * rendering in the inbox, where the node is agent-authored and untyped, so
+   * shape validation lives with the consumer.
+   */
+  async runInsightQueryNode(query: unknown): Promise<unknown> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/query/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path,
+      overrides: {
+        body: JSON.stringify({ query }),
+      },
+    });
+    const data = (await response.json()) as { error?: string | null };
+    if (data?.error) {
+      throw new Error(data.error);
+    }
+    return data;
+  }
+
+  /**
    * Agent observability rollup over the agents' `$ai_*` events — KPIs (spend,
    * sessions, failure rate, p95), a 14-day daily trend + WoW deltas, and
    * spend-by-agent / cost-by-model / tool-reliability breakdowns. Pass an

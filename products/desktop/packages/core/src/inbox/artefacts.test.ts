@@ -5,6 +5,7 @@ import type {
 import { describe, expect, it } from "vitest";
 import {
   buildReviewerOptions,
+  extractPriorityExplanation,
   extractSuggestedReviewers,
   orderSuggestedReviewers,
   reviewerInitials,
@@ -39,6 +40,40 @@ function makeAvailableReviewer(
 }
 
 describe("artefacts", () => {
+  it.each([
+    [
+      "a priority judgment",
+      [
+        { type: "repo_selection", content: { repository: "posthog/posthog" } },
+        {
+          type: "priority_judgment",
+          content: {
+            priority: "P1",
+            explanation: "Breaks checkout for 3% of sessions.",
+          },
+        },
+      ],
+      "Breaks checkout for 3% of sessions.",
+    ],
+    ["no priority judgment", [{ type: "repo_selection", content: {} }], null],
+    [
+      "a blank explanation",
+      [{ type: "priority_judgment", content: { explanation: "  " } }],
+      null,
+    ],
+    [
+      "malformed content",
+      [{ type: "priority_judgment", content: "oops" }],
+      null,
+    ],
+    ["undefined results", undefined, null],
+  ])(
+    "extracts the priority explanation from %s",
+    (_name, results, expected) => {
+      expect(extractPriorityExplanation(results)).toBe(expected);
+    },
+  );
+
   it("extracts suggested reviewers from artefacts", () => {
     const reviewers: SuggestedReviewer[] = [
       {

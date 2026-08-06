@@ -18,7 +18,7 @@ import {
   type DismissReportDialogResult,
 } from "@posthog/ui/features/inbox/components/DismissReportDialog";
 import { InboxBulkSelectionBar } from "@posthog/ui/features/inbox/components/InboxBulkSelectionBar";
-import { InboxLoadMore } from "@posthog/ui/features/inbox/components/InboxLoadMore";
+import { InboxInfiniteScroll } from "@posthog/ui/features/inbox/components/InboxInfiniteScroll";
 import { InboxSearchFilterBar } from "@posthog/ui/features/inbox/components/InboxSearchFilterBar";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import {
@@ -27,7 +27,6 @@ import {
 } from "@posthog/ui/features/inbox/hooks/useInboxBulkActions";
 import { useInboxReportListSelection } from "@posthog/ui/features/inbox/hooks/useInboxReportListSelection";
 import { useInboxReviewerScopeStore } from "@posthog/ui/features/inbox/stores/inboxReviewerScopeStore";
-import { Flex } from "@radix-ui/themes";
 import {
   type ComponentType,
   Fragment,
@@ -105,6 +104,8 @@ export function InboxReportListTab({
     hasNextPage,
     isFetchingNextPage,
     fetchNextPage,
+    refetch,
+    isRefetching,
   } = useInboxAllReports({
     pullRequestsOnly,
   });
@@ -169,17 +170,21 @@ export function InboxReportListTab({
 
   if (isLoading && scopedReports.length === 0) {
     return (
-      <Flex direction="column" gap="4" className="mx-auto max-w-4xl px-6 py-4">
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-4">
         <InboxSearchFilterBar searchPlaceholder={searchPlaceholder} />
         <CardSkeleton count={4} variant="cards" />
-      </Flex>
+      </div>
     );
   }
 
   return (
     <>
-      <Flex direction="column" gap="4" className="mx-auto max-w-4xl px-6 py-4">
-        <InboxSearchFilterBar searchPlaceholder={searchPlaceholder} />
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-4">
+        <InboxSearchFilterBar
+          searchPlaceholder={searchPlaceholder}
+          onRefresh={() => void refetch()}
+          refreshing={isRefetching}
+        />
 
         {selectedCount > 0 ? (
           <InboxBulkSelectionBar
@@ -206,7 +211,7 @@ export function InboxReportListTab({
                 reports={matchingReports}
                 Wrapper={CardListWrapper}
               >
-                <Flex direction="column" gap="3">
+                <div className="flex flex-col gap-3">
                   {matchingReports.map((report) => (
                     <Card
                       key={report.id}
@@ -225,17 +230,17 @@ export function InboxReportListTab({
                       }
                     />
                   ))}
-                </Flex>
+                </div>
               </CardListContainer>
             )}
-            <InboxLoadMore
+            <InboxInfiniteScroll
               hasNextPage={hasNextPage}
               isFetchingNextPage={isFetchingNextPage}
               onLoadMore={() => void fetchNextPage({ cancelRefetch: false })}
             />
           </>
         )}
-      </Flex>
+      </div>
 
       {dismissReport && (
         <DismissReportDialog

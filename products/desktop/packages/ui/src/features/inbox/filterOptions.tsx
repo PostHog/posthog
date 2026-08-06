@@ -60,6 +60,41 @@ export const INBOX_SORT_OPTIONS: InboxSortOption[] = [
   },
 ];
 
+/**
+ * What each priority code means, shared by the priority badge tooltips and the
+ * priority filter so users don't have to guess what P0 to P4 mean. Mirrors the
+ * PostHog Cloud inbox copy.
+ */
+export const PRIORITY_MEANING: Record<
+  SignalReportPriority,
+  { label: string; description: string }
+> = {
+  P0: {
+    label: "Critical",
+    description:
+      "Production errors, a broken core flow, data loss, or a security vulnerability.",
+  },
+  P1: {
+    label: "High",
+    description: "Significant user-facing impact or a clear regression.",
+  },
+  P2: {
+    label: "Medium",
+    description:
+      "A clear improvement opportunity, or a contained issue with workarounds.",
+  },
+  P3: { label: "Low", description: "A minor improvement or low-impact issue." },
+  P4: {
+    label: "Minimal",
+    description: "Cosmetic or negligible impact, or an optional investigation.",
+  },
+};
+
+export function priorityMeaningLine(priority: SignalReportPriority): string {
+  const meaning = PRIORITY_MEANING[priority];
+  return `${priority} · ${meaning.label} priority: ${meaning.description}`;
+}
+
 export const INBOX_PRIORITY_OPTIONS: {
   value: SignalReportPriority;
   accent: string;

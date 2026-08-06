@@ -34,6 +34,18 @@ export function extractRepoSelectionRepository(
   return artefact?.content.repository ?? null;
 }
 
+export function extractPriorityExplanation(
+  results: { type: string; content: unknown }[] | undefined,
+): string | null {
+  const artefact = results?.find((entry) => entry.type === "priority_judgment");
+  const content = artefact?.content;
+  if (typeof content !== "object" || content === null) return null;
+  const explanation = (content as { explanation?: unknown }).explanation;
+  return typeof explanation === "string" && explanation.trim()
+    ? explanation
+    : null;
+}
+
 export function suggestedReviewerDisplayName(
   reviewer: SuggestedReviewer,
 ): string {

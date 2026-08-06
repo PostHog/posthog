@@ -3,16 +3,15 @@ import {
   isPullRequestReport,
   isReportTabReport,
 } from "@posthog/core/inbox/reportMembership";
-import { Spinner } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { DetailBackLink } from "@posthog/ui/features/inbox/components/DetailBackLink";
+import { InboxDetailSkeleton } from "@posthog/ui/features/inbox/components/InboxDetailSkeleton";
 import type { InboxListRoute } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
 import { useInboxReportById } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import {
   type InboxDetailTab,
   useReportOpenTracker,
 } from "@posthog/ui/features/inbox/hooks/useReportOpenTracker";
-import { Flex, Text } from "@radix-ui/themes";
 import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect } from "react";
 
@@ -130,38 +129,26 @@ export function InboxReportDetailGate({
   }, [redirectTo, redirectReportId, navigate, backTo, backLabel]);
 
   if ((isLoading && !resolvedReport) || statusUnconfirmed) {
-    return (
-      <Flex align="center" justify="center" className="py-16">
-        <Spinner />
-      </Flex>
-    );
+    return <InboxDetailSkeleton />;
   }
 
   if (redirectTo) {
     // Redirecting across the dismissed↔pipeline boundary; render nothing
     // meaningful for the frame we're leaving.
-    return (
-      <Flex align="center" justify="center" className="py-16">
-        <Spinner />
-      </Flex>
-    );
+    return <InboxDetailSkeleton />;
   }
 
   if (!resolvedReport) {
     return (
-      <Flex direction="column" className="h-full min-h-0">
-        <Flex
-          direction="column"
-          gap="3"
-          className="border-(--gray-5) border-b px-6 py-6"
-        >
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="flex flex-col gap-3 border-(--gray-5) border-b px-6 py-6">
           <DetailBackLink
             to={backLinkTo ?? backTo}
             label={backLinkLabel ?? backLabel}
           />
-          <Text className="text-[13px] text-gray-11">{missingCopy}</Text>
-        </Flex>
-      </Flex>
+          <p className="m-0 text-[13px] text-gray-11">{missingCopy}</p>
+        </div>
+      </div>
     );
   }
 

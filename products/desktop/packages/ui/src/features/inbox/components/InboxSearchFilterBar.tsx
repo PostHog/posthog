@@ -1,4 +1,5 @@
 import {
+  ArrowsClockwiseIcon,
   ArrowsDownUpIcon,
   CaretDownIcon,
   CheckIcon,
@@ -6,6 +7,7 @@ import {
   FlagIcon,
   MagnifyingGlassIcon,
 } from "@phosphor-icons/react";
+import { Popover, PopoverContent, PopoverTrigger } from "@posthog/quill";
 import {
   INBOX_PRIORITY_OPTIONS,
   INBOX_SORT_OPTIONS,
@@ -15,11 +17,13 @@ import {
   inboxSourceFilterLabel,
 } from "@posthog/ui/features/inbox/filterOptions";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
-import { Flex, Popover } from "@radix-ui/themes";
+import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { type ReactNode, useId } from "react";
 
 interface InboxSearchFilterBarProps {
   searchPlaceholder?: string;
+  onRefresh?: () => void;
+  refreshing?: boolean;
 }
 
 const FILTER_ITEM_CLASS =
@@ -27,6 +31,8 @@ const FILTER_ITEM_CLASS =
 
 export function InboxSearchFilterBar({
   searchPlaceholder = "Search by title or description…",
+  onRefresh,
+  refreshing = false,
 }: InboxSearchFilterBarProps) {
   const inputId = useId();
   const searchQuery = useInboxSignalsFilterStore((s) => s.searchQuery);
@@ -54,9 +60,10 @@ export function InboxSearchFilterBar({
       option.field === sortField && option.direction === sortDirection,
   );
   const activeSortKey = inboxSortOptionKey(sortField, sortDirection);
+  const sortActive = activeSortKey !== "priority:asc";
 
   return (
-    <Flex align="center" gap="2" wrap="wrap" className="w-full">
+    <div className="flex w-full flex-wrap items-center gap-2">
       <label
         htmlFor={inputId}
         className="flex h-8 min-w-[220px] flex-1 items-center gap-2 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-2.5 transition-colors focus-within:border-(--gray-8) hover:border-(--gray-6)"
@@ -75,10 +82,10 @@ export function InboxSearchFilterBar({
       <InboxFilterPopover
         label="Source"
         value={inboxSourceFilterLabel(sourceProductFilter)}
-        icon={<CrosshairSimpleIcon size={13} className="text-gray-10" />}
+        icon={<CrosshairSimpleIcon size={13} />}
         active={sourceProductFilter.length > 0}
       >
-        <Flex direction="column" gap="0">
+        <div className="flex flex-col">
           <InboxFilterAnyItem
             active={sourceProductFilter.length === 0}
             onClick={clearSourceProductFilter}
@@ -102,16 +109,16 @@ export function InboxSearchFilterBar({
               </button>
             );
           })}
-        </Flex>
+        </div>
       </InboxFilterPopover>
 
       <InboxFilterPopover
         label="Sort"
         value={activeSort?.label ?? "Priority"}
-        icon={<ArrowsDownUpIcon size={13} className="text-gray-10" />}
-        active={activeSortKey !== "priority:asc"}
+        icon={<ArrowsDownUpIcon size={13} />}
+        active={sortActive}
       >
-        <Flex direction="column" gap="0">
+        <div className="flex flex-col">
           {INBOX_SORT_OPTIONS.map((option) => {
             const isActive =
               sortField === option.field && sortDirection === option.direction;
@@ -132,16 +139,16 @@ export function InboxSearchFilterBar({
               </button>
             );
           })}
-        </Flex>
+        </div>
       </InboxFilterPopover>
 
       <InboxFilterPopover
         label="Priority"
         value={inboxPriorityFilterLabel(priorityFilter)}
-        icon={<FlagIcon size={13} className="text-gray-10" />}
+        icon={<FlagIcon size={13} />}
         active={priorityFilter.length > 0}
       >
-        <Flex direction="column" gap="0">
+        <div className="flex flex-col">
           <InboxFilterAnyItem
             active={priorityFilter.length === 0}
             onClick={() => setPriorityFilter([])}
@@ -168,9 +175,26 @@ export function InboxSearchFilterBar({
               </button>
             );
           })}
-        </Flex>
+        </div>
       </InboxFilterPopover>
-    </Flex>
+
+      {onRefresh ? (
+        <Tooltip content="Refresh reports">
+          <button
+            type="button"
+            aria-label="Refresh reports"
+            disabled={refreshing}
+            onClick={onRefresh}
+            className="flex h-8 shrink-0 items-center rounded-(--radius-2) border border-transparent px-2 text-gray-10 transition-colors hover:border-(--gray-6) hover:bg-(--gray-2) hover:text-gray-12 focus-visible:outline-none disabled:pointer-events-none"
+          >
+            <ArrowsClockwiseIcon
+              size={13}
+              className={refreshing ? "animate-spin" : undefined}
+            />
+          </button>
+        </Tooltip>
+      ) : null}
+    </div>
   );
 }
 
@@ -205,31 +229,37 @@ function InboxFilterPopover({
   children: ReactNode;
 }) {
   return (
-    <Popover.Root>
-      <Popover.Trigger>
-        <button
-          type="button"
-          aria-label={`${label}: ${value}`}
-          className="flex h-8 shrink-0 items-center gap-1.5 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-2.5 transition-colors hover:border-(--gray-6) hover:bg-(--gray-2) focus-visible:outline-none"
-        >
-          {icon}
-          <span className="max-w-[150px] truncate text-[12.5px] text-gray-12">
-            {value}
-          </span>
-          {active ? (
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-(--primary)" />
-          ) : null}
-          <CaretDownIcon size={10} className="shrink-0 text-(--gray-9)" />
-        </button>
-      </Popover.Trigger>
-      <Popover.Content
-        align="start"
+    <Popover>
+      <PopoverTrigger
+        render={
+          // Quiet at rest: an unused filter is a muted, borderless chip showing
+          // its category (e.g. "Source"). Once active it gains a solid border
+          // and its selected value, so the bar only draws attention to filters
+          // actually in use.
+          <button
+            type="button"
+            aria-label={`${label}: ${value}`}
+            className={`flex h-8 shrink-0 items-center gap-1.5 rounded-(--radius-2) border px-2.5 transition-colors focus-visible:outline-none ${
+              active
+                ? "border-border bg-(--color-panel-solid) text-gray-12 hover:border-(--gray-6) hover:bg-(--gray-2)"
+                : "border-transparent text-gray-10 hover:border-(--gray-6) hover:bg-(--gray-2) hover:text-gray-12"
+            }`}
+          >
+            <span className="flex shrink-0 items-center">{icon}</span>
+            <span className="max-w-[150px] truncate text-[12.5px]">
+              {active ? value : label}
+            </span>
+            <CaretDownIcon size={10} className="shrink-0 text-(--gray-9)" />
+          </button>
+        }
+      />
+      <PopoverContent
         side="bottom"
-        sideOffset={6}
+        align="start"
         className="min-w-[220px] p-1.5"
       >
         {children}
-      </Popover.Content>
-    </Popover.Root>
+      </PopoverContent>
+    </Popover>
   );
 }
