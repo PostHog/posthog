@@ -37,7 +37,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.twenty.settings import PAGE_SIZE, TWENTY_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.twenty.settings import (
+    PAGE_SIZE,
+    REQUEST_TIMEOUT,
+    TWENTY_ENDPOINTS,
+)
 
 DEFAULT_BASE_URL = "https://api.twenty.com"
 DEFAULT_INCREMENTAL_FIELD = "updatedAt"
@@ -74,12 +78,14 @@ def normalize_base_url(base_url: Optional[str]) -> str:
 
 
 def _host_of(base_url: str) -> str:
-    # `urlparse` treats a backslash (and its %5c encoding) as userinfo, so `https://127.0.0.1\
-    # @example.com` parses as host `example.com` while requests/urllib3 treat `\` as a path
-    # separator and connect to `127.0.0.1`. Normalize to `/` first so the host we validate is the
-    # host the request actually reaches (SSRF bypass guard).
-    normalized = base_url.replace("\\", "/").replace("%5c", "/").replace("%5C", "/")
-    return (urlparse(normalized).hostname or "").lower()
+    # A backslash in the authority — literal `\` or percent-encoded `%5c` — is an SSRF vector:
+    # requests/urllib3 treat a literal `\` as a path separator and do NOT percent-decode `%5c`,
+    # so `urlparse` and the HTTP client can disagree on the host. `https://safe.com%5c@169.254.169.254`
+    # would validate as `safe.com` while the client connects to `169.254.169.254`. No legitimate
+    # Twenty URL contains a backslash, so fail closed rather than try to mirror the client's parsing.
+    if "\\" in base_url or "%5c" in base_url.lower():
+        return ""
+    return (urlparse(base_url).hostname or "").lower()
 
 
 def _is_https(base_url: str) -> bool:
@@ -160,7 +166,10 @@ class TwentyCursorPaginator(BasePaginator):
         except Exception:
             page_info = {}
         end_cursor = page_info.get("endCursor")
-        if page_info.get("hasNextPage") and end_cursor:
+        # A cursor identical to the one we just followed means the host isn't advancing — a broken
+        # or hostile customer-controlled server could return `hasNextPage: true` with the same
+        # cursor forever, looping the sync until the week-long activity timeout. Stop instead.
+        if page_info.get("hasNextPage") and end_cursor and end_cursor != self._next_cursor:
             self._next_cursor = end_cursor
             self._has_next_page = True
         else:
@@ -259,6 +268,9 @@ def twenty_source(
             # Don't follow redirects: a self-hosted host could 3xx to an internal address,
             # bypassing the host validation done before the request (SSRF).
             "allow_redirects": False,
+            # Bound each request so a customer-controlled host that stalls can't hold a worker
+            # until the week-long resumable activity timeout.
+            "request_timeout": REQUEST_TIMEOUT,
         },
         "resource_defaults": {
             "write_disposition": {"disposition": "merge", "strategy": "upsert"}

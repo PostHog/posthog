@@ -8,6 +8,10 @@ from products.warehouse_sources.backend.types import IncrementalField
 # request counts low.
 PAGE_SIZE = 200
 
+# (connect, read) timeout in seconds. The base URL is customer-controlled, so an unbounded read
+# lets a host that stalls mid-response hold an import worker until the week-long activity timeout.
+REQUEST_TIMEOUT: tuple[float, float] = (10.0, 60.0)
+
 # Every Twenty workspace entity carries `createdAt` / `updatedAt`, so both are offered as
 # incremental candidates on every endpoint; `updatedAt` also catches later edits.
 _INCREMENTAL_FIELDS: list[IncrementalField] = [

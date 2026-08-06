@@ -130,15 +130,16 @@ class TestHostOf:
         "url, expected_host",
         [
             ("https://twenty.example.com", "twenty.example.com"),
-            # Backslash (and its %5c encoding) is userinfo to urlparse but a path separator to
-            # requests/urllib3 — the host must reflect the address the request actually reaches, or
-            # the SSRF check validates a decoy host while the token goes elsewhere.
-            ("https://127.0.0.1\\@example.com", "127.0.0.1"),
-            ("https://127.0.0.1%5c@example.com", "127.0.0.1"),
-            ("https://127.0.0.1%5C@example.com", "127.0.0.1"),
+            # A backslash — literal or `%5c`-encoded — is an SSRF vector: `urlparse` and
+            # requests/urllib3 disagree on the host, so the check could validate a decoy host while
+            # the request reaches an internal address. No legitimate URL contains one, so `_host_of`
+            # fails closed and returns "" (rejected upstream).
+            ("https://safe.com\\@169.254.169.254", ""),
+            ("https://safe.com%5c@169.254.169.254", ""),
+            ("https://safe.com%5C@169.254.169.254", ""),
         ],
     )
-    def test_host_reflects_real_connect_target(self, url, expected_host):
+    def test_host_rejects_backslash_ssrf_bypass(self, url, expected_host):
         assert twenty_module._host_of(url) == expected_host
 
 
@@ -273,6 +274,24 @@ class TestPagination:
 
         assert [r["id"] for r in rows] == ["1"]
         assert session.send.call_count == 1
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stops_when_cursor_does_not_advance(self, MockSession):
+        # A broken or hostile host can return hasNextPage=true with the same endCursor forever;
+        # the sync must stop rather than loop until the week-long activity timeout. Only two
+        # responses are wired, so a third request would raise instead of looping silently.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _page([{"id": "1"}], has_next_page=True, end_cursor="cursor-a"),
+                _page([{"id": "2"}], has_next_page=True, end_cursor="cursor-a"),
+            ],
+        )
+        rows = _rows(_source(_make_manager()))
+
+        assert [r["id"] for r in rows] == ["1", "2"]
+        assert session.send.call_count == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_saves_next_page_after_yielding(self, MockSession):
