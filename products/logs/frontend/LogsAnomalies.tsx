@@ -1,17 +1,24 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonInputSelect, LemonSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { pluralize } from 'lib/utils/strings'
 
-import type {
-    LimitedByEnumApi,
-    LogsAnomalyScanIssueApi,
-    LogsAnomalyScanResponseApi,
-    LogsAnomalyScanSeriesApi,
-    LogsAnomalyVerdictEnumApi,
+import type { LogMessage } from '~/queries/schema/schema-general'
+
+import { ServiceFilter } from 'products/logs/frontend/components/LogsViewer/Filters/ServiceFilter'
+import { LogTag } from 'products/logs/frontend/components/LogTag'
+import {
+    BindingConstraintsEnumApi,
+    type LimitedByEnumApi,
+    type LogsAnomalyBaselineStageEnumApi,
+    type LogsAnomalyScanIssueApi,
+    type LogsAnomalyScanResponseApi,
+    type LogsAnomalyScanSeriesApi,
+    type LogsAnomalyVerdictEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 import { SCAN_WINDOW_OPTIONS, logsAnomaliesLogic } from 'products/logs/frontend/logsAnomaliesLogic'
 
@@ -21,7 +28,15 @@ const VERDICT_TAG: Record<LogsAnomalyVerdictEnumApi, { label: string; type: Lemo
     silence: { label: 'Silence', type: 'danger' },
 }
 
-const STAGE_LABEL: Record<string, string> = {
+const STATE_TAG: Record<LogsAnomalyScanIssueApi['state'], { label: string; type: LemonTagType }> = {
+    active: { label: 'Ongoing', type: 'danger' },
+    resolved: { label: 'Resolved', type: 'success' },
+    // A resolved issue whose anomaly recurred near the end of the window,
+    // without enough consecutive buckets to reopen yet.
+    pending: { label: 'Recurring', type: 'warning' },
+}
+
+const STAGE_LABEL: Record<LogsAnomalyBaselineStageEnumApi, string> = {
     insufficient: 'Not enough history',
     cold_start: 'Cold start',
     developing: 'Developing',
@@ -34,33 +49,49 @@ const LIMIT_LABEL: Record<LimitedByEnumApi, string> = {
     byte_budget: 'Limited by the scan read budget',
 }
 
+const CONSTRAINT_MESSAGE: Record<BindingConstraintsEnumApi, string> = {
+    [BindingConstraintsEnumApi.ByteBudget]:
+        'The scan degraded to stay inside its read budget, so baselines are less mature than usual.',
+    [BindingConstraintsEnumApi.TeamRetention]:
+        'The project log retention setting is shorter than the full lookback, so baselines are less mature than usual.',
+}
+
+const LEARNING_COLUMNS: LemonTableColumns<LogsAnomalyScanSeriesApi> = [
+    {
+        title: 'Severity',
+        render: (_, record) => <LogTag level={record.severity as LogMessage['severity_text']} />,
+    },
+    {
+        title: 'Baseline',
+        render: (_, record) => (record.stage ? STAGE_LABEL[record.stage] : 'Not scored'),
+    },
+    {
+        title: 'First seen',
+        render: (_, record) => (record.history_start ? <TZLabel time={record.history_start} /> : '—'),
+    },
+    {
+        title: 'Limits',
+        render: (_, record) => (record.limited_by ? LIMIT_LABEL[record.limited_by] : 'Full baseline'),
+    },
+]
+
 export function LogsAnomalies(): JSX.Element {
-    const {
-        serviceName,
-        windowHours,
-        serviceSuggestions,
-        serviceSuggestionsLoading,
-        scanResult,
-        scanResultLoading,
-        scanDisabledReason,
-    } = useValues(logsAnomaliesLogic)
+    const { serviceName, windowHours, scanResult, scanResultLoading, scanDisabledReason } =
+        useValues(logsAnomaliesLogic)
     const { setServiceName, setWindowHours, runScan } = useActions(logsAnomaliesLogic)
 
     return (
         <div className="flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-2">
-                <div className="min-w-60">
-                    <LemonInputSelect
-                        mode="single"
-                        placeholder="Choose a service"
+                <span data-attr="logs-anomalies-service">
+                    <ServiceFilter
                         value={serviceName ? [serviceName] : []}
-                        onChange={(value) => setServiceName(value[0] ?? null)}
-                        options={serviceSuggestions.map((name) => ({ key: name, label: name }))}
-                        loading={serviceSuggestionsLoading}
-                        allowCustomValues
-                        data-attr="logs-anomalies-service"
+                        onChange={(serviceNames) => setServiceName(serviceNames?.[0] ?? null)}
+                        dateRange={{ date_from: '-7d' }}
+                        selectionMode="single"
+                        emptyButtonLabel="Choose a service"
                     />
-                </div>
+                </span>
                 <LemonSelect
                     value={windowHours}
                     onChange={(value) => value !== null && setWindowHours(value)}
@@ -80,13 +111,11 @@ export function LogsAnomalies(): JSX.Element {
 
             {scanResult ? (
                 <ScanResults result={scanResult} />
-            ) : (
-                !scanResultLoading && (
-                    <EmptyMessage
-                        title="Anomaly detection"
-                        description="PostHog learns each service's normal log volume and flags spikes, drops, and silences. Choose a service and a time window, then run a scan."
-                    />
-                )
+            ) : scanResultLoading ? null : (
+                <EmptyMessage
+                    title="Anomaly detection"
+                    description="PostHog learns each service's normal log volume and flags spikes, drops, and silences. Choose a service and a time window, then run a scan."
+                />
             )}
         </div>
     )
@@ -108,7 +137,7 @@ function ScanResults({ result }: { result: LogsAnomalyScanResponseApi }): JSX.El
                     from <TZLabel time={result.eval_start} /> to <TZLabel time={result.eval_end} />.
                 </LemonBanner>
             )}
-            <LearningStatus series={result.series} />
+            <LearningStatus series={result.series} lookbackDays={result.lookback_days} />
         </div>
     )
 }
@@ -131,15 +160,13 @@ function ConstraintsBanner({ result }: { result: LogsAnomalyScanResponseApi }): 
                     ) : null}
                     .
                 </span>
-                <ul className="list-disc pl-4">
-                    {result.binding_constraints.map((constraint) => (
-                        <li key={constraint}>
-                            {constraint === 'byte_budget'
-                                ? 'The scan degraded to stay inside its read budget, so baselines are less mature than usual.'
-                                : 'The project log retention setting is shorter than the full lookback, so baselines are less mature than usual.'}
-                        </li>
-                    ))}
-                </ul>
+                {result.binding_constraints.length > 0 ? (
+                    <ul className="list-disc pl-4">
+                        {result.binding_constraints.map((constraint) => (
+                            <li key={constraint}>{CONSTRAINT_MESSAGE[constraint]}</li>
+                        ))}
+                    </ul>
+                ) : null}
             </div>
         </LemonBanner>
     )
@@ -147,16 +174,13 @@ function ConstraintsBanner({ result }: { result: LogsAnomalyScanResponseApi }): 
 
 function IssueCard({ issue }: { issue: LogsAnomalyScanIssueApi }): JSX.Element {
     const verdict = VERDICT_TAG[issue.kind]
+    const state = STATE_TAG[issue.state]
     return (
         <div className="rounded border bg-surface-primary p-3 flex flex-col gap-2" data-attr="logs-anomalies-issue">
             <div className="flex items-center gap-2">
                 <LemonTag type={verdict.type}>{verdict.label}</LemonTag>
-                {issue.severity ? <LemonTag type="muted">{issue.severity}</LemonTag> : null}
-                {issue.state === 'active' ? (
-                    <LemonTag type="danger">Ongoing</LemonTag>
-                ) : issue.state === 'resolved' ? (
-                    <LemonTag type="success">Resolved</LemonTag>
-                ) : null}
+                {issue.severity ? <LogTag level={issue.severity as LogMessage['severity_text']} /> : null}
+                {state ? <LemonTag type={state.type}>{state.label}</LemonTag> : null}
             </div>
             <div className="text-secondary text-sm">
                 Opened <TZLabel time={issue.opened_at} />
@@ -170,38 +194,28 @@ function IssueCard({ issue }: { issue: LogsAnomalyScanIssueApi }): JSX.Element {
                     </>
                 )}
                 {' · '}
-                {issue.anomalous_bucket_times.length} anomalous{' '}
-                {issue.anomalous_bucket_times.length === 1 ? 'bucket' : 'buckets'}
+                {pluralize(issue.anomalous_bucket_times.length, 'anomalous bucket')}
             </div>
         </div>
     )
 }
 
-function LearningStatus({ series }: { series: LogsAnomalyScanSeriesApi[] }): JSX.Element {
-    const columns: LemonTableColumns<LogsAnomalyScanSeriesApi> = [
-        {
-            title: 'Severity',
-            dataIndex: 'severity',
-        },
-        {
-            title: 'Baseline',
-            render: (_, record) => (record.stage ? STAGE_LABEL[record.stage] : 'Not scored'),
-        },
-        {
-            title: 'First seen',
-            render: (_, record) => (record.history_start ? <TZLabel time={record.history_start} /> : '—'),
-        },
-        {
-            title: 'Limits',
-            render: (_, record) => (record.limited_by ? LIMIT_LABEL[record.limited_by] : 'Full baseline'),
-        },
-    ]
+function LearningStatus({
+    series,
+    lookbackDays,
+}: {
+    series: LogsAnomalyScanSeriesApi[]
+    lookbackDays: number
+}): JSX.Element {
     return (
         <div className="flex flex-col gap-1">
             <h3 className="mb-0">What the detector has learned</h3>
+            <div className="text-secondary text-sm">
+                Baselines built from {lookbackDays.toFixed(1)} days of history.
+            </div>
             <LemonTable
                 dataSource={series}
-                columns={columns}
+                columns={LEARNING_COLUMNS}
                 rowKey="severity"
                 size="small"
                 emptyState="No log series found for this service in the scanned window."

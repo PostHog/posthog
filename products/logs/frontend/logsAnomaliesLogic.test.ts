@@ -2,19 +2,12 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
-import { logsAnomaliesScanCreate, logsServicesCreate } from 'products/logs/frontend/generated/api'
+import { logsAnomaliesScanCreate } from 'products/logs/frontend/generated/api'
 
 import { logsAnomaliesLogic } from './logsAnomaliesLogic'
 
 jest.mock('products/logs/frontend/generated/api', () => ({
     __esModule: true,
-    logsServicesCreate: jest.fn().mockResolvedValue({
-        services: [
-            { service_name: 'checkout', log_count: 100, error_count: 0, error_rate: 0 },
-            { service_name: '(no service)', log_count: 5, error_count: 0, error_rate: 0 },
-        ],
-        sparkline: [],
-    }),
     logsAnomaliesScanCreate: jest.fn().mockResolvedValue({
         service_name: 'checkout',
         eval_start: '2026-08-05T00:00:00Z',
@@ -39,11 +32,6 @@ describe('logsAnomaliesLogic', () => {
 
     afterEach(() => {
         logic.unmount()
-    })
-
-    it('filters placeholder services out of the suggestions', async () => {
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.serviceSuggestions).toEqual(['checkout'])
     })
 
     it('does not call the scan endpoint without a service', async () => {
@@ -80,7 +68,6 @@ describe('logsAnomaliesLogic', () => {
         }).toFinishAllListeners()
         const firstResult = logic.values.scanResult
 
-        ;(logsServicesCreate as jest.Mock).mockClear()
         logic.actions.setServiceName('other-service')
         expect(logic.values.scanResult).toBe(firstResult)
     })
