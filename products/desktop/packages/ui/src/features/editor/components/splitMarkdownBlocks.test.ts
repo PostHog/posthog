@@ -140,6 +140,14 @@ describe("maskOpenLinkDestination", () => {
     expect(maskOpenLinkDestination(markdown)).toBe(markdown);
   });
 
+  it("treats an unmatched backtick as literal text", () => {
+    expect(
+      maskOpenLinkDestination(
+        "Unmatched ` then [report](https://example.com/private",
+      ),
+    ).toBe("Unmatched ` then report");
+  });
+
   it("supports nested brackets and escaped destination parentheses", () => {
     expect(
       maskOpenLinkDestination("See [the [new] docs](https://example.com/a\\("),
@@ -170,6 +178,31 @@ describe("maskOpenLinkDestination", () => {
     expect(
       maskOpenLinkDestination("\\![label](https://example.com/incomplete"),
     ).toBe("\\!label");
+  });
+
+  it("handles angle-bracket destinations containing parentheses", () => {
+    const complete = "[docs](<https://example.com/a(b>)";
+    expect(maskOpenLinkDestination(complete)).toBe(complete);
+    expect(maskOpenLinkDestination("[docs](<https://example.com/a(b>")).toBe(
+      "docs",
+    );
+  });
+
+  it.each([
+    '[docs](https://example.com "a title")',
+    "[docs](https://example.com 'a title')",
+    "[docs](https://example.com (a title))",
+    '[docs](<https://example.com/a(b)> "a title")',
+  ])("recognizes a completed destination with a title: %s", (markdown) => {
+    expect(maskOpenLinkDestination(markdown)).toBe(markdown);
+  });
+
+  it.each([
+    '[docs](https://example.com "an unfinished title',
+    "[docs](https://example.com (an unfinished title)",
+    '[docs](<https://example.com/a(b)> "title"',
+  ])("masks an incomplete destination or title: %s", (markdown) => {
+    expect(maskOpenLinkDestination(markdown)).toBe("docs");
   });
 });
 

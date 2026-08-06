@@ -110,20 +110,20 @@ export function parseOpenFence(
   return { before, code };
 }
 
-function findClosingBacktickRun(src: string, start: number): number {
+function findClosingBacktickRun(src: string, start: number): number | null {
   let runLength = 1;
   while (src[start + runLength] === "`") runLength++;
 
   let cursor = start + runLength;
   while (cursor < src.length) {
     const next = src.indexOf("`", cursor);
-    if (next === -1) return src.length;
+    if (next === -1) return null;
     let closingLength = 1;
     while (src[next + closingLength] === "`") closingLength++;
     if (closingLength === runLength) return next + closingLength;
     cursor = next + closingLength;
   }
-  return src.length;
+  return null;
 }
 
 function isEscaped(src: string, index: number): boolean {
@@ -135,6 +135,69 @@ function isEscaped(src: string, index: number): boolean {
     backslashes++;
   }
   return backslashes % 2 === 1;
+}
+
+function skipWhitespace(src: string, start: number): number {
+  let cursor = start;
+  while (/\s/.test(src[cursor] ?? "")) cursor++;
+  return cursor;
+}
+
+function findTitleEnd(src: string, start: number): number | null {
+  const closer = src[start] === "(" ? ")" : src[start];
+  let cursor = start + 1;
+  while (cursor < src.length) {
+    if (src[cursor] === "\\") {
+      cursor += 2;
+      continue;
+    }
+    if (src[cursor] === closer) return cursor + 1;
+    cursor++;
+  }
+  return null;
+}
+
+function findLinkDestinationEnd(src: string, start: number): number | null {
+  let cursor = skipWhitespace(src, start);
+
+  if (src[cursor] === ")") return cursor + 1;
+
+  if (src[cursor] === "<") {
+    cursor++;
+    while (cursor < src.length && src[cursor] !== ">") {
+      if (src[cursor] === "\\") cursor++;
+      cursor++;
+    }
+    if (src[cursor] !== ">") return null;
+    cursor++;
+  } else {
+    let nestedParentheses = 0;
+    while (cursor < src.length) {
+      if (src[cursor] === "\\") {
+        cursor += 2;
+        continue;
+      }
+      if (src[cursor] === "(") nestedParentheses++;
+      if (src[cursor] === ")") {
+        if (nestedParentheses === 0) return cursor + 1;
+        nestedParentheses--;
+      }
+      if (/\s/.test(src[cursor]) && nestedParentheses === 0) break;
+      cursor++;
+    }
+  }
+
+  const suffixStart = cursor;
+  cursor = skipWhitespace(src, cursor);
+  if (src[cursor] === ")") return cursor + 1;
+  if (cursor === suffixStart || !['"', "'", "("].includes(src[cursor])) {
+    return null;
+  }
+
+  const titleEnd = findTitleEnd(src, cursor);
+  if (titleEnd === null) return null;
+  cursor = skipWhitespace(src, titleEnd);
+  return src[cursor] === ")" ? cursor + 1 : null;
 }
 
 function replaceOpenLinkDestination(
@@ -149,7 +212,7 @@ function replaceOpenLinkDestination(
       continue;
     }
     if (src[cursor] === "`") {
-      cursor = findClosingBacktickRun(src, cursor);
+      cursor = findClosingBacktickRun(src, cursor) ?? cursor + 1;
       continue;
     }
     if (src[cursor] !== "[") {
@@ -171,7 +234,7 @@ function replaceOpenLinkDestination(
         continue;
       }
       if (src[cursor] === "`") {
-        cursor = findClosingBacktickRun(src, cursor);
+        cursor = findClosingBacktickRun(src, cursor) ?? cursor + 1;
         continue;
       }
       if (src[cursor] === "[") labelDepth++;
@@ -182,20 +245,7 @@ function replaceOpenLinkDestination(
     if (labelDepth > 0 || src[cursor] !== "(") continue;
 
     const labelEnd = cursor - 1;
-    let destinationDepth = 1;
-    cursor++;
-
-    while (cursor < src.length && destinationDepth > 0) {
-      if (src[cursor] === "\\") {
-        cursor += 2;
-        continue;
-      }
-      if (src[cursor] === "(") destinationDepth++;
-      if (src[cursor] === ")") destinationDepth--;
-      cursor++;
-    }
-
-    if (destinationDepth > 0) {
+    if (findLinkDestinationEnd(src, cursor + 1) === null) {
       return (
         src.slice(0, linkStart) + replacement(src.slice(labelStart, labelEnd))
       );
