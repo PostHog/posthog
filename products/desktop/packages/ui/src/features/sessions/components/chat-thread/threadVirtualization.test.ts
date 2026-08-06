@@ -6,6 +6,7 @@ import {
   computeStickyAnchor,
   countFlatRows,
   flattenTurnRows,
+  keyTurnRows,
   nextThreadFollowState,
   type StickyAnchorEntry,
   sampleThreadScroll,
@@ -55,6 +56,38 @@ function agentTurn(
 ): AgentTurn {
   return { type: "agent_turn", id, items: items as AgentTurn["items"], prompt };
 }
+
+describe("keyTurnRows", () => {
+  it("keeps a turn's key when tool grouping moves the turn's id to its first tool call", () => {
+    const thought = sessionUpdate("t1");
+    const tool1 = sessionUpdate("c1");
+    const tool2 = sessionUpdate("c2");
+    // The same turn before and after its second tool call folds the head of the run into a group.
+    const beforeGrouping = keyTurnRows([
+      userMessage("u1"),
+      agentTurn("t1", [thought, tool1]),
+    ]);
+    const afterGrouping = keyTurnRows([
+      userMessage("u1"),
+      agentTurn("c1", [toolGroup("c1", [thought, tool1, tool2])]),
+    ]);
+    expect(afterGrouping.map((r) => r.key)).toEqual(
+      beforeGrouping.map((r) => r.key),
+    );
+    expect(afterGrouping.map((r) => r.key)).toEqual([
+      "user-turn-0",
+      "agent-turn-0",
+    ]);
+  });
+
+  it("keys non-user standalone rows by id", () => {
+    const keyed = keyTurnRows([
+      { type: "git_action", id: "g1", actionType: "commit" as never },
+      userMessage("u1"),
+    ]);
+    expect(keyed.map((r) => r.key)).toEqual(["g1", "user-turn-0"]);
+  });
+});
 
 describe("flattenTurnRows", () => {
   it("passes standalone rows through with ordinal keys for user messages", () => {

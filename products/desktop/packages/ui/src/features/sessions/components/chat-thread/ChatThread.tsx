@@ -70,6 +70,7 @@ import {
   type FlatThreadRow,
   FOLLOWING_END,
   flattenTurnRows,
+  keyTurnRows,
   nextThreadFollowState,
   SCROLL_PREVIOUS_ITEM_PEEK,
   SCROLL_UP_KEYS,
@@ -999,13 +1000,7 @@ function ThreadScrollBody({
   /** Continuously updated so the virtualized body can take over mid-session (see {@link ThreadScrollResume}). */
   resumeStateRef: RefObject<ThreadScrollResume>;
 }) {
-  const keyedRows = useMemo(() => {
-    let userTurn = 0;
-    return rows.map((item) => ({
-      item,
-      key: item.type === "user_message" ? `user-turn-${userTurn++}` : item.id,
-    }));
-  }, [rows]);
+  const keyedRows = useMemo(() => keyTurnRows(rows), [rows]);
 
   const autoFollowRef = useRef<ThreadFollowState>(FOLLOWING_END);
 
