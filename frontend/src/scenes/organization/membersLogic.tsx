@@ -32,6 +32,7 @@ function meAsMember(user: UserType): OrganizationMemberType {
         updated_at: '',
         is_2fa_enabled: user.is_2fa_enabled,
         has_social_auth: user.has_social_auth,
+        has_sso_enforcement: user.has_sso_enforcement,
     }
 }
 

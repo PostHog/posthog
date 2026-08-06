@@ -263,6 +263,16 @@ export function Members(): JSX.Element | null {
             dataIndex: 'is_2fa_enabled',
             key: 'is_2fa_enabled',
             render: function LevelRender(_, member) {
+                // SSO-enforced members never need 2FA in PostHog — their identity provider handles it
+                if (member.has_sso_enforcement) {
+                    return (
+                        <Tooltip title="This member signs in through SSO, so their identity provider handles two-factor authentication.">
+                            <LemonTag type="muted" data-attr="2fa-handled-by-sso">
+                                Handled by SSO
+                            </LemonTag>
+                        </Tooltip>
+                    )
+                }
                 return (
                     <>
                         <Tooltip

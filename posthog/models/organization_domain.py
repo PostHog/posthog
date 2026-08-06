@@ -144,16 +144,57 @@ class OrganizationDomainManager(models.Manager):
 
         candidate_sso_enforcement = query["sso_enforcement"]
 
-        available_product_features = query["organization__available_product_features"]
+        if not self._is_sso_enforcement_effective(
+            candidate_sso_enforcement,
+            query["organization__available_product_features"],
+            domain=domain,
+            organization_id=query["organization_id"],
+        ):
+            return None
+
+        return candidate_sso_enforcement
+
+    def get_sso_enforced_domains_for_organization(self, organization_id: Any) -> set[str]:
+        """
+        Lowercased verified domains of an organization on which SSO enforcement is actually in effect.
+        Resolves every domain in one query, so callers checking many email addresses at once (e.g. a
+        member list) don't need `get_sso_enforcement_for_email_address` per address.
+        """
+        enforced_domains: set[str] = set()
+        for row in (
+            self.verified_domains()
+            .filter(organization_id=organization_id)
+            .exclude(sso_enforcement="")
+            .values("domain", "sso_enforcement", "organization_id", "organization__available_product_features")
+        ):
+            if self._is_sso_enforcement_effective(
+                row["sso_enforcement"],
+                row["organization__available_product_features"],
+                domain=row["domain"],
+                organization_id=row["organization_id"],
+            ):
+                enforced_domains.add(row["domain"].lower())
+        return enforced_domains
+
+    def _is_sso_enforcement_effective(
+        self,
+        candidate_sso_enforcement: str,
+        available_product_features: list[dict[str, Any]],
+        *,
+        domain: str,
+        organization_id: Any,
+    ) -> bool:
+        """Whether a domain's configured `sso_enforcement` actually applies — the organization must be
+        licensed for it, and the enforced provider must be configured."""
         available_product_feature_keys = [feature["key"] for feature in available_product_features]
         # Check organization has a license to enforce SSO
         if AvailableFeature.SSO_ENFORCEMENT not in available_product_feature_keys:
             logger.warning(
                 f"🤑🚪 SSO is enforced for domain {domain} but the organization does not have the proper license.",
                 domain=domain,
-                organization=str(query["organization_id"]),
+                organization=str(organization_id),
             )
-            return None
+            return False
 
         # Check SSO provider is properly configured and has a valid license (to use the specific SSO) if applicable
         if candidate_sso_enforcement == "saml":
@@ -162,9 +203,9 @@ class OrganizationDomainManager(models.Manager):
                 logger.warning(
                     f"🤑🚪 SAML SSO is enforced for domain {domain} but the organization does not have a SAML license.",
                     domain=domain,
-                    organization=str(query["organization_id"]),
+                    organization=str(organization_id),
                 )
-                return None
+                return False
         else:
             sso_providers = get_instance_available_sso_providers()
             if not sso_providers[candidate_sso_enforcement]:
@@ -173,9 +214,9 @@ class OrganizationDomainManager(models.Manager):
                     domain=domain,
                     candidate_sso_enforcement=candidate_sso_enforcement,
                 )
-                return None
+                return False
 
-        return candidate_sso_enforcement
+        return True
 
     def is_domain_verified_for_organization(self, email: str, organization: Organization) -> bool:
         """Whether the domain of `email` is a verified domain owned by `organization`."""

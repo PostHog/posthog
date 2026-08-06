@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest.mock import ANY, patch
 
 from django.test import override_settings
+from django.utils import timezone
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from parameterized import parameterized
@@ -11,6 +12,7 @@ from rest_framework import status
 from social_django.models import UserSocialAuth
 
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 
@@ -398,6 +400,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
                 "id": str(updated_membership.id),
                 "is_2fa_enabled": False,
                 "has_social_auth": False,
+                "has_sso_enforcement": False,
                 "user": {
                     "id": user.id,
                     "uuid": str(user.uuid),
@@ -725,3 +728,26 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         member = next(m for m in results if m["user"]["email"] == f"{_name}@posthog.com")
 
         self.assertEqual(member["is_2fa_enabled"], expected)
+
+    @parameterized.expand(
+        [
+            ("enforced_and_licensed", "saml", [{"key": "sso_enforcement"}, {"key": "saml"}], True),
+            ("not_enforced", "", [{"key": "sso_enforcement"}, {"key": "saml"}], False),
+            ("enforced_without_license", "saml", [], False),
+        ]
+    )
+    def test_has_sso_enforcement(self, _name, sso_enforcement, available_product_features, expected):
+        self.organization.available_product_features = available_product_features
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com",
+            organization=self.organization,
+            verified_at=timezone.now(),
+            sso_enforcement=sso_enforcement,
+        )
+        User.objects.create_and_join(self.organization, "hedgehog@hogflix.com", None)
+
+        response = self.client.get("/api/organizations/@current/members/")
+        member = next(m for m in response.json()["results"] if m["user"]["email"] == "hedgehog@hogflix.com")
+
+        self.assertEqual(member["has_sso_enforcement"], expected)

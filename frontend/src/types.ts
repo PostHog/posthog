@@ -644,6 +644,8 @@ export interface OrganizationMemberType extends BaseMemberType {
     /** Level at which the user is in the organization. */
     level: OrganizationMembershipLevel
     is_2fa_enabled: boolean
+    /** Whether the member's email domain requires SSO, which means their identity provider handles 2FA. */
+    has_sso_enforcement?: boolean
 }
 
 export interface OrganizationMemberScopedApiKeysResponse {

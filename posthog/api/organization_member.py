@@ -35,6 +35,7 @@ from posthog.helpers.trigram_search import (
     normalize_search_term,
 )
 from posthog.models import OrganizationMembership
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import TimeSensitiveActionPermission, extract_organization
@@ -88,7 +89,12 @@ class OrganizationMemberSerializer(SearchMatchTypeSerializerMixin, serializers.M
     user = UserBasicSerializer(read_only=True)
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
+    has_sso_enforcement = serializers.SerializerMethodField(
+        help_text="Whether the member's email domain requires signing in through SSO. Such members are exempt from 2FA, since their identity provider handles it."
+    )
     last_login = serializers.DateTimeField(read_only=True)
+
+    _sso_enforced_domains_cache: dict[Any, set[str]] | None = None
 
     class Meta:
         model = OrganizationMembership
@@ -100,6 +106,7 @@ class OrganizationMemberSerializer(SearchMatchTypeSerializerMixin, serializers.M
             "updated_at",
             "is_2fa_enabled",
             "has_social_auth",
+            "has_sso_enforcement",
             "last_login",
             "search_match_type",
         ]
@@ -114,6 +121,23 @@ class OrganizationMemberSerializer(SearchMatchTypeSerializerMixin, serializers.M
 
     def get_has_social_auth(self, instance: OrganizationMembership) -> bool:
         return len(instance.user.social_auth.all()) > 0
+
+    def get_has_sso_enforcement(self, instance: OrganizationMembership) -> bool:
+        email = instance.user.email
+        if "@" not in email:
+            return False
+        return email.rsplit("@", 1)[1].lower() in self._sso_enforced_domains(instance.organization_id)
+
+    def _sso_enforced_domains(self, organization_id: Any) -> set[str]:
+        # The enforced domains are the same for every member of an organization, so resolve them
+        # once per serializer instance instead of once per member
+        if self._sso_enforced_domains_cache is None:
+            self._sso_enforced_domains_cache = {}
+        if organization_id not in self._sso_enforced_domains_cache:
+            self._sso_enforced_domains_cache[organization_id] = (
+                OrganizationDomain.objects.get_sso_enforced_domains_for_organization(organization_id)
+            )
+        return self._sso_enforced_domains_cache[organization_id]
 
     def update(self, instance: OrganizationMembership, validated_data: dict[str, object]) -> OrganizationMembership:
         updated_membership = instance
