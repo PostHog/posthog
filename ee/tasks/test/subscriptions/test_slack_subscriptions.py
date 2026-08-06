@@ -661,9 +661,6 @@ class TestSlackErrorTruncation(APIBaseTest):
         assert ASSET_GENERATION_FAILED_MESSAGE in text
 
     def test_block_for_asset_hides_out_of_memory_cause(self) -> None:
-        # The recipient of a scheduled subscription didn't write the query, so the OOM advice
-        # (shorten the date range / narrow filters) is something they can't act on — surface the
-        # generic failure message instead. The raw text stays on asset.exception for our own logs.
         oom_error = (
             "This query ran out of memory before it could finish, usually because it's scanning too "
             "much data. Try a shorter date range or narrower filters."

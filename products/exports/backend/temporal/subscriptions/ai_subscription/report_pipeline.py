@@ -457,12 +457,7 @@ async def _run_steps(
         )
         if last_exc is not None:
             capture_exception(last_exc, {"trace_correlation_id": trace_correlation_id, "stage": "query"})
-        # Synthesis paraphrases this line into the delivered report, so naming the exception type here
-        # puts it in front of the reader. Undisclosed types stay unnamed; the log line above and error
-        # tracking are where we pick those up instead.
         cause = "" if type_name in UNDISCLOSED_QUERY_ERROR_TYPES else f" ({type_name})"
-        # Explicit failure marker, distinct from a genuinely-empty result, so synthesis reports the
-        # metric as "could not be computed" instead of paraphrasing the failure into "no data".
         return (
             f"### {safe_description}\n\n_{QUERY_FAILED_PREFIX}{cause} — metric not computed, not empty data._",
             QueryStepDiagnostic(

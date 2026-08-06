@@ -151,8 +151,6 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         assert "AI summary skipped" not in mocked_email_messages[0].html_body
 
     def test_hides_out_of_memory_cause_in_failed_asset(self, MockEmailMessage: MagicMock) -> None:
-        # The recipient didn't author the query behind a scheduled asset, so the OOM advice is
-        # unactionable — the email shows the generic failure message instead of the raw exception.
         mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
         oom_error = (
             "This query ran out of memory before it could finish, usually because it's scanning too "

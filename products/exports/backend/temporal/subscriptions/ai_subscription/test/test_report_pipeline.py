@@ -266,9 +266,6 @@ async def test_run_steps_non_retryable_error_degrades_to_placeholder(mock_execut
 
 @patch(f"{_RP}.AssistantQueryExecutor")
 async def test_run_steps_placeholder_omits_undisclosed_error_type(mock_executor_cls: MagicMock) -> None:
-    # Synthesis paraphrases the placeholder into the delivered report, so an out-of-memory failure must
-    # not be named there — the recipient never wrote the query and can't act on the scan size. The type
-    # still has to reach the diagnostic, which is where we debug it.
     mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=ClickHouseQueryMemoryLimitExceeded())
     rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
     assert failed == 1

@@ -113,7 +113,6 @@ class TestSubscriptionAssetErrorMessage(APIBaseTest):
         assert subscription_asset_error_message(asset) == "Unknown table 'nonexistent_table'"
 
     def test_replaces_out_of_memory_text_with_generic_message(self) -> None:
-        # The OOM advice is unactionable for a scheduled recipient — surface the generic message.
         asset = self._asset(
             "This query ran out of memory before it could finish, usually because it's scanning too much data."
         )
