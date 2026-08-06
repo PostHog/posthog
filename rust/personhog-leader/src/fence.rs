@@ -142,6 +142,11 @@ pub async fn rebuild_partition_fences(
     };
     histogram!("personhog_leader_fence_scan_duration_seconds")
         .record(start.elapsed().as_secs_f64());
+    // Read next to installed is the scan's amplification: it reads the
+    // whole live-mark set (the partition is a hash Postgres cannot
+    // compute) and keeps ~1/num_partitions of it. This ratio growing is
+    // the signal that the scan-the-world design needs revisiting.
+    counter!("personhog_leader_fence_scan_rows_read_total").increment(rows.len() as u64);
 
     // Converge rather than accumulate: this partition's fences are
     // exactly what the marks say, not that plus whatever a previous warm
@@ -169,6 +174,7 @@ pub async fn rebuild_partition_fences(
         );
         installed += 1;
     }
+    counter!("personhog_leader_fence_scan_fences_installed_total").increment(installed as u64);
     gauge!("personhog_leader_fences_active").set(fences.len() as f64);
     Ok(installed)
 }
