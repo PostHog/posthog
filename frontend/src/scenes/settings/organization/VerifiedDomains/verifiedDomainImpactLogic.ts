@@ -199,7 +199,7 @@ export const verifiedDomainImpactLogic = kea<verifiedDomainImpactLogicType>([
                     return await api.organizationMembers.list({
                         outside_verified_domains: true,
                         // Owners are never removed, so listing them would overstate the count.
-                        max_level: OrganizationMembershipLevel.Admin,
+                        levels: [OrganizationMembershipLevel.Member, OrganizationMembershipLevel.Admin].join(','),
                         limit: IMPACTED_MEMBERS_FETCH_LIMIT,
                     })
                 },

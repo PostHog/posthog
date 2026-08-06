@@ -906,13 +906,13 @@ export type MembersListParams = {
      */
     email_domain?: string
     /**
+     * Comma-separated membership levels to return, e.g. `1,8`. Levels are 1 member, 8 admin, 15 owner.
+     */
+    levels?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
-    /**
-     * Only return members at or below this membership level (1 member, 8 admin, 15 owner).
-     */
-    max_level?: number
     /**
      * The initial index from which to return the results.
      */

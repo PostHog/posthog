@@ -5,12 +5,12 @@
             "description": "Only return members whose email address is on this domain (case-insensitive).",
             "type": "string"
         },
+        "levels": {
+            "description": "Comma-separated membership levels to return, e.g. `1,8`. Levels are 1 member, 8 admin, 15 owner.",
+            "type": "string"
+        },
         "limit": {
             "description": "Number of results to return per page.",
-            "type": "number"
-        },
-        "max_level": {
-            "description": "Only return members at or below this membership level (1 member, 8 admin, 15 owner).",
             "type": "number"
         },
         "offset": {

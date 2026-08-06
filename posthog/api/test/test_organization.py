@@ -375,7 +375,10 @@ class TestOrganizationAPI(APIBaseTest):
         # there would promise a removal that never happens.
         preview = self.client.get(
             "/api/organizations/@current/members/",
-            {"outside_verified_domains": "true", "max_level": OrganizationMembership.Level.ADMIN},
+            {
+                "outside_verified_domains": "true",
+                "levels": f"{OrganizationMembership.Level.MEMBER},{OrganizationMembership.Level.ADMIN}",
+            },
         )
         self.assertEqual(
             {member["user"]["email"] for member in preview.json()["results"]},

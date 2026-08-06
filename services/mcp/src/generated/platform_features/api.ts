@@ -86,11 +86,11 @@ export const MembersListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe('Only return members whose email address is on this domain (case-insensitive).'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    max_level: zod
-        .number()
+    levels: zod
+        .string()
         .optional()
-        .describe('Only return members at or below this membership level (1 member, 8 admin, 15 owner).'),
+        .describe('Comma-separated membership levels to return, e.g. `1,8`. Levels are 1 member, 8 admin, 15 owner.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order: zod.string().optional().describe('Sort order. Defaults to `-joined_at`.'),
     outside_verified_domains: zod

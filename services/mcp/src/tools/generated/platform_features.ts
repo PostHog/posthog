@@ -528,8 +528,8 @@ const orgMembersList = (): ToolBase<typeof OrgMembersListSchema, Schemas.Paginat
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/members/`,
             query: {
                 email_domain: params.email_domain,
+                levels: params.levels,
                 limit: params.limit,
-                max_level: params.max_level,
                 offset: params.offset,
                 order: params.order,
                 outside_verified_domains: params.outside_verified_domains,
