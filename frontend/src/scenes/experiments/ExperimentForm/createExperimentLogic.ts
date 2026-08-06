@@ -45,7 +45,7 @@ import {
     toExperimentWritePayload,
     toFlagVariantsInput,
 } from '../utils'
-import { EXPOSURE_UNLINKABLE_REASON, loadUnlinkableEventNames } from '../viewRecordingsLinkabilityLogic'
+import { loadUnlinkableEventNames } from '../viewRecordingsLinkabilityLogic'
 import { validateExperimentSubmission } from './experimentSubmissionValidation'
 import type { FeatureFlagKeyValidation } from './variantsPanelLogic'
 import { variantsPanelLogic } from './variantsPanelLogic'
@@ -616,47 +616,38 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateExperiment)
 
                     let replayScannerId: string | null = null
-                    let replayScannerOutcome: 'created' | 'unlinkable' | 'failed' | null = null
+                    let replayScannerCreationFailed = false
                     if (values.createReplayVisionScanner && values.replayVisionEnabled) {
-                        const { filters, usedExposureFallback, exposureUnlinkable } = experimentScannerFilters(
+                        const { filters, usedExposureFallback } = experimentScannerFilters(
                             response,
                             await loadUnlinkableEventNames(response)
                         )
-                        if (exposureUnlinkable) {
-                            replayScannerOutcome = 'unlinkable'
-                        } else {
-                            try {
-                                const replayScanner = await visionScannersCreate(
-                                    String(values.currentProjectId),
-                                    experimentScannerBody(response, filters, usedExposureFallback)
-                                )
-                                replayScannerId = replayScanner.id
-                                replayScannerOutcome = 'created'
-                                actions.addProductIntent({
-                                    product_type: ProductKey.REPLAY_VISION,
-                                    intent_context: ProductIntentContext.EXPERIMENT_REPLAY_VISION_SCANNER_CREATED,
-                                })
-                            } catch (scannerError) {
-                                // Captured rather than swallowed: a systematically failing create (quota, access)
-                                // is otherwise invisible, since the experiment itself still succeeds.
-                                posthog.captureException(scannerError)
-                                replayScannerOutcome = 'failed'
-                            }
+                        try {
+                            const replayScanner = await visionScannersCreate(
+                                String(values.currentProjectId),
+                                experimentScannerBody(response, filters, usedExposureFallback)
+                            )
+                            replayScannerId = replayScanner.id
+                            actions.addProductIntent({
+                                product_type: ProductKey.REPLAY_VISION,
+                                intent_context: ProductIntentContext.EXPERIMENT_REPLAY_VISION_SCANNER_CREATED,
+                            })
+                        } catch (scannerError) {
+                            // Captured rather than swallowed: a systematically failing create (quota, access)
+                            // is otherwise invisible, since the experiment itself still succeeds.
+                            posthog.captureException(scannerError)
+                            replayScannerCreationFailed = true
                         }
                     }
 
-                    if (replayScannerOutcome === 'failed') {
+                    if (replayScannerCreationFailed) {
                         lemonToast.error("Experiment created, but the Replay Vision scanner wasn't.", {
                             button: {
                                 label: 'Set up scanner',
                                 action: () => router.actions.push(urls.replayVisionTemplates()),
                             },
                         })
-                    } else if (replayScannerOutcome === 'unlinkable') {
-                        lemonToast.warning(
-                            `Experiment created without a Replay Vision scanner. ${EXPOSURE_UNLINKABLE_REASON}`
-                        )
-                    } else if (replayScannerOutcome === 'created' && replayScannerId) {
+                    } else if (replayScannerId) {
                         lemonToast.success(
                             'Experiment created. The Replay Vision scanner is off until you turn it on.',
                             {

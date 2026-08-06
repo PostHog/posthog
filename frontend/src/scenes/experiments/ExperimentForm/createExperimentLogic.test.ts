@@ -13,6 +13,8 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { Experiment } from '~/types'
 
+import { DEFAULT_MODEL, DEFAULT_PROVIDER } from 'products/replay_vision/frontend/replay_scanners/types'
+
 import { NEW_EXPERIMENT } from '../constants'
 import { createExperimentLogic, DRAFT_STORAGE_KEY } from './createExperimentLogic'
 
@@ -20,7 +22,6 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
         success: jest.fn(),
         error: jest.fn(),
-        warning: jest.fn(),
     },
 }))
 
@@ -186,6 +187,9 @@ describe('createExperimentLogic', () => {
                 scanner_type: 'classifier',
                 // Enabling starts credit spend, so a created scanner must never arrive switched on
                 enabled: false,
+                // `model` is required by the create serializer — omitting it 400s every create
+                provider: DEFAULT_PROVIDER,
+                model: DEFAULT_MODEL,
                 query: {
                     filter_test_accounts: true,
                     events: [
@@ -213,37 +217,56 @@ describe('createExperimentLogic', () => {
             )
         })
 
-        it('skips the scanner when the exposure event never carries a session ID', async () => {
-            exposureEventSeenWithSessionId = false
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REPLAY_VISION], {
-                [FEATURE_FLAGS.REPLAY_VISION]: true,
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.setCreateReplayVisionScanner(true)
-                logic.actions.setExperiment({
-                    ...NEW_EXPERIMENT,
-                    name: 'Server-side exposure',
-                    description: 'Test hypothesis',
-                    feature_flag_key: 'server-side-exposure',
-                    exposure_criteria: {
-                        exposure_config: {
-                            kind: NodeKind.ExperimentEventExposureConfig,
-                            event: 'backend_assigned',
-                            properties: [],
-                        },
+        it.each([
+            {
+                name: 'falls back to the flag-value filter for a default exposure event',
+                exposure_criteria: undefined,
+                expectedQuery: {
+                    properties: [expect.objectContaining({ key: '$feature/server-side-exposure', type: 'event' })],
+                },
+            },
+            {
+                name: 'keeps the custom exposure filter, never an unfiltered query',
+                exposure_criteria: {
+                    exposure_config: {
+                        kind: NodeKind.ExperimentEventExposureConfig,
+                        event: 'backend_assigned',
+                        properties: [],
                     },
+                },
+                expectedQuery: {
+                    events: [expect.objectContaining({ id: 'backend_assigned' })],
+                },
+            },
+        ])(
+            // The check reports "never seen with a session ID", which for a minutes-old flag is
+            // mostly "never seen at all" — so it must never refuse, and must never leave the query
+            // empty, which would scan every recording in the project.
+            'creates a scoped scanner anyway when the exposure event looks unlinkable: $name',
+            async ({ exposure_criteria, expectedQuery }) => {
+                exposureEventSeenWithSessionId = false
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REPLAY_VISION], {
+                    [FEATURE_FLAGS.REPLAY_VISION]: true,
                 })
-                logic.actions.saveExperiment()
-            })
-                .toDispatchActions(['saveExperiment', 'createExperimentSuccess', 'saveExperimentSuccess'])
-                .toFinishAllListeners()
 
-            // A custom exposure event with no session ID has no fallback filter, so any scanner built
-            // on it would match zero sessions forever while looking healthy.
-            expect(scannerCreateSpy).not.toHaveBeenCalled()
-            expect(lemonToast.warning).toHaveBeenCalledWith(expect.stringContaining('without a Replay Vision scanner'))
-        })
+                await expectLogic(logic, () => {
+                    logic.actions.setCreateReplayVisionScanner(true)
+                    logic.actions.setExperiment({
+                        ...NEW_EXPERIMENT,
+                        name: 'Server-side exposure',
+                        description: 'Test hypothesis',
+                        feature_flag_key: 'server-side-exposure',
+                        ...(exposure_criteria ? { exposure_criteria } : {}),
+                    })
+                    logic.actions.saveExperiment()
+                })
+                    .toDispatchActions(['saveExperiment', 'createExperimentSuccess', 'saveExperimentSuccess'])
+                    .toFinishAllListeners()
+
+                expect(scannerCreateSpy).toHaveBeenCalledTimes(1)
+                expect(scannerRequestBody).toMatchObject({ query: expect.objectContaining(expectedQuery) })
+            }
+        )
 
         it('keeps the created experiment when scanner creation fails', async () => {
             scannerCreateSpy.mockResolvedValueOnce([500, { detail: 'Scanner unavailable' }])

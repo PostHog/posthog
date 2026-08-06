@@ -8,7 +8,11 @@ import {
 } from '~/types'
 
 import type { ReplayScannerApi } from 'products/replay_vision/frontend/generated/api.schemas'
-import { scannerToApiBody } from 'products/replay_vision/frontend/replay_scanners/types'
+import {
+    DEFAULT_MODEL,
+    DEFAULT_PROVIDER,
+    scannerToApiBody,
+} from 'products/replay_vision/frontend/replay_scanners/types'
 
 import { applySessionLinkability, getExposureFallbackFilter, getViewRecordingFiltersForVariant } from './utils'
 
@@ -54,17 +58,24 @@ export function experimentScannerPrompt(experiment: Experiment): string {
  * The scanner's population: the experiment's exposed sessions, with the same session-linkability
  * handling the recordings surfaces use. A server-side exposure event carries no `$session_id`, so
  * without this the query matches zero sessions forever while the scanner looks healthy.
+ *
+ * Advisory only here, unlike on the recordings surfaces: the check reports "never seen with a
+ * session id", which at creation time is mostly "never seen at all" — the flag is minutes old. So
+ * an unlinkable exposure downgrades to the fallback filter where one exists, and otherwise keeps
+ * the exposure filter. It must never fall through to the empty filter list `applySessionLinkability`
+ * returns for that case, which would scan every recording in the project.
  */
 export function experimentScannerFilters(
     experiment: Experiment,
     unlinkableEventNames: Set<string>
-): { filters: UniversalFiltersGroupValue[]; usedExposureFallback: boolean; exposureUnlinkable: boolean } {
+): { filters: UniversalFiltersGroupValue[]; usedExposureFallback: boolean } {
+    const exposureFilters = getViewRecordingFiltersForVariant(experiment)
     const { filters, usedExposureFallback, exposureUnlinkable } = applySessionLinkability(
-        getViewRecordingFiltersForVariant(experiment),
+        exposureFilters,
         unlinkableEventNames,
         getExposureFallbackFilter(experiment)
     )
-    return { filters, usedExposureFallback, exposureUnlinkable }
+    return { filters: exposureUnlinkable ? exposureFilters : filters, usedExposureFallback }
 }
 
 export function experimentScannerBody(
@@ -94,6 +105,9 @@ export function experimentScannerBody(
             tags: [...EXPERIMENT_SCANNER_TAGS],
             multi_label: false,
         },
+        // `model` is required by the create serializer; the rest of the product picks the same defaults.
+        provider: DEFAULT_PROVIDER,
+        model: DEFAULT_MODEL,
         query: convertUniversalFiltersToRecordingsQuery(universalFilters),
         // Enabling starts real credit spend, so that stays a human decision on the scanner itself.
         enabled: false,
