@@ -361,6 +361,47 @@ class TestQuotaResolver:
         assert status.posthog_code_usage["compute_used_usd"] == "0"
 
     @pytest.mark.asyncio
+    async def test_parses_real_quota_limits_wire_shape(self) -> None:
+        # Mirrors the exact Django emission (ee/api/quota_limits.py): QuotaResource
+        # entries render usage as floats via the DRF FloatField, while the Desktop
+        # component entries are merged in as JSON integers with null limits. The
+        # breakdown must be populated from that mixed shape — components as floats
+        # would be silently discarded.
+        resolver = QuotaResolver(
+            redis=None,
+            http_client=_make_http_client(
+                _make_response(
+                    200,
+                    {
+                        "limited": {
+                            "events": {"limited": False, "usage": None, "limit": None},
+                            "ai_credits": {"limited": False, "usage": 50.0, "limit": None},
+                            "posthog_code_credits": {"limited": False, "usage": 57.0, "limit": 1000.0},
+                            "posthog_code_token_credits": {"limited": False, "usage": 33, "limit": None},
+                            "sandbox_compute_credits": {"limited": False, "usage": 24, "limit": None},
+                            "sandbox_compute_cpu_millicore_seconds": {"limited": False, "usage": 0, "limit": None},
+                            "sandbox_compute_memory_mib_seconds": {"limited": False, "usage": None, "limit": None},
+                        },
+                        "code_usage_billing_active": True,
+                    },
+                )
+            ),
+        )
+
+        status = await resolver.get_resource_status("posthog_code_credits", 42, "Bearer phx_test")
+
+        assert status.posthog_code_usage == {
+            "token_credits": 33,
+            "token_used_usd": "0.33",
+            "compute_credits": 24,
+            "compute_used_usd": "0.24",
+            "cpu_millicore_seconds": 0,
+            "memory_mib_seconds": None,
+        }
+        assert status.used_usd == 0.57
+        assert status.limit_usd == 10.0
+
+    @pytest.mark.asyncio
     async def test_fetches_and_parses_unlimited_response(self) -> None:
         http_client = _make_http_client(
             _make_response(200, {"team_id": 1, "limited": {"ai_credits": {"limited": False}}})

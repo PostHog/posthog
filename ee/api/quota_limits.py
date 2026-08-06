@@ -20,7 +20,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.constants import AvailableFeature
 
-from ee.billing.quota_limiting import QuotaResource, get_fresh_team_limited_resources
+from ee.billing.quota_limiting import INFORMATIONAL_USAGE_RESOURCES, QuotaResource, get_fresh_team_limited_resources
 
 
 class QuotaResourceLimitSerializer(serializers.Serializer):
@@ -57,10 +57,25 @@ def _resource_usage(summary: dict[str, Any]) -> float | None:
     return (usage or 0) + (todays_usage or 0)
 
 
+def _component_usage(summary: dict[str, Any]) -> int | None:
+    """`_resource_usage` kept integer: the gateway's Desktop component parser accepts
+    only JSON integers and treats null as unknown-not-zero.
+    """
+    usage = _resource_usage(summary)
+    return None if usage is None else int(usage)
+
+
 class QuotaLimitsResponseSerializer(serializers.Serializer):
     limited = serializers.DictField(
         child=QuotaResourceLimitSerializer(),
-        help_text="Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`.",
+        help_text=(
+            "Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, "
+            "`posthog_code_credits`. Also carries the informational Desktop component resources "
+            "(`posthog_code_token_credits`, `sandbox_compute_credits`, "
+            "`sandbox_compute_cpu_millicore_seconds`, `sandbox_compute_memory_mib_seconds`) with "
+            "integer usage, a null limit, and `limited` always false — they are never "
+            "quota-enforced; only the combined `posthog_code_credits` is."
+        ),
     )
     code_usage_billing_active = serializers.BooleanField(
         help_text=(
@@ -102,13 +117,22 @@ class QuotaLimitsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "usage": _resource_usage(summary),
                 "limit": summary.get("limit"),
             }
-        return Response(
-            QuotaLimitsResponseSerializer(
-                {
-                    "limited": limited,
-                    "code_usage_billing_active": self.team.organization.is_feature_available(
-                        AvailableFeature.POSTHOG_CODE_USAGE
-                    ),
-                }
-            ).data
-        )
+        data = QuotaLimitsResponseSerializer(
+            {
+                "limited": limited,
+                "code_usage_billing_active": self.team.organization.is_feature_available(
+                    AvailableFeature.POSTHOG_CODE_USAGE
+                ),
+            }
+        ).data
+        # Merged after serialization: the QuotaResource child serializer renders usage as a
+        # float, but component usage must reach the gateway as JSON integers or its parser
+        # discards them.
+        for field in INFORMATIONAL_USAGE_RESOURCES:
+            summary = org_usage.get(field) or {}
+            data["limited"][field] = {
+                "limited": False,
+                "usage": _component_usage(summary),
+                "limit": None,
+            }
+        return Response(data)
