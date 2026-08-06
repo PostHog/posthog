@@ -124,6 +124,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
     reap_stale_prewarm_heatmaps,
     report_stuck_heatmap_screenshots,
 )
+from products.workflows.backend.tasks.ses_account_reputation import poll_ses_account_reputation
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -346,6 +347,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/10"),
         reconcile_loop_trigger_schedules_task.s(),
         name="reconcile loop trigger schedules",
+    )
+
+    # AWS SES account reputation → gauges for team-facing alerting (charts alerts/specs/ses.yaml)
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        poll_ses_account_reputation.s(),
+        name="poll SES account reputation",
+        expires_seconds=10 * 60,
     )
 
     # Flags cache sync - hourly
