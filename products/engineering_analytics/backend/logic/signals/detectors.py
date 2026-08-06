@@ -164,6 +164,11 @@ def detect_broken_default_branch(
     now = datetime.now(UTC)
     date_from = now - timedelta(hours=window_hours)
     default_branches = query_default_branches(curated=curated, workload=Workload.OFFLINE)
+    if not default_branches:
+        # The previous source resolved nothing for anyone and the silence read as healthy CI, which
+        # is how it stayed dead. Skipping is still the right call, but it has to be visible.
+        logger.warning("ci_signal_default_branch_unresolved")
+        return []
     findings: list[CISignalFinding] = []
     for branch in sorted(set(default_branches.values())):
         for item in query_workflow_health(
