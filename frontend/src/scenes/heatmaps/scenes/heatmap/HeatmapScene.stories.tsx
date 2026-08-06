@@ -20,6 +20,12 @@ const withLoadBannerTimeout =
 // Large enough that the load-failure banner's timer can never race the snapshot capture.
 const NEVER_BANNER_TIMEOUT_MS = 10 * 60 * 1000
 
+// A 0ms timer can fire before the saved-heatmap load finishes flipping the scene out of its
+// loading state and mounting the iframe, so the timer's own iframe-exists guard swallows the
+// banner. This is short enough to resolve well inside the waitForSelector budget, but late
+// enough to land after the iframe is in the DOM.
+const IMMEDIATE_BANNER_TIMEOUT_MS = 500
+
 const generatingSaved = {
     id: 100,
     short_id: 'hm_gen',
@@ -144,7 +150,7 @@ export const IframeLoadFailed: Story = {
         },
     },
     decorators: [
-        withLoadBannerTimeout(0),
+        withLoadBannerTimeout(IMMEDIATE_BANNER_TIMEOUT_MS),
         mswDecorator({
             get: {
                 '/api/projects/:team_id/saved/hm_iframe_fail/': () => [200, makeIframeLoadFailedSaved()],
