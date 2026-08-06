@@ -7506,6 +7506,14 @@ snapshots:
         hash: v1.k794b7964.aabe99692a6a19e22aacc0cad741a2b20cc97e4a6561b9ff6813d8e51f4f77aa.qIcBPh1akofg3x6zWnlFcCCeKTUDIGR4WKYPL0aMvaM
     scenes-other-billing--billing-without-icon-keys--light:
         hash: v1.k794b7964.6cb8c47887a0fa3fd3f81379090febcc05c3be3610cde5873d507766c595c191.YbRefpyPdf31OQpgZ1GTQTwADlF14qzTEzsk3uGAXNo
+    scenes-other-billing-billinglinegraph--with-billing-period-marker--dark:
+        hash: v1.k794b7964.659ef2a9028cee6b7cce11fb4e474ec2150c73517c90bd58b2f52188a438f2d6.l9cj9-MUsCDWVTb3L3gnWa00mdyg6rS2skRWbP92TGY
+    scenes-other-billing-billinglinegraph--with-billing-period-marker--light:
+        hash: v1.k794b7964.39589e33115d9b6e977d464c2656b0fc2e132017c469f1ad31c2c13cd12c2260.-YE5Bgc3uP4iB9JuUSvQEmgzwDjNWImvSqJg1YgVLuw
+    scenes-other-billing-billinglinegraph--with-marker-at-range-start--dark:
+        hash: v1.k794b7964.5bcd95a5b7d58b483401ea42f0762bc1894ac406beebf5c8b45b89304b908ce9.Ox9Cw0TvU8tIvrVTgeAC92FRtCGjTaLnVOx8S9nRzCA
+    scenes-other-billing-billinglinegraph--with-marker-at-range-start--light:
+        hash: v1.k794b7964.5948fea6ef855d327f6d59f1ed10eb3fd55808540eda078bee5fed552523a4c0.FTXekbDFuL1YE5ad9VyyBtq5lOBiNalah41lHdISQOE
     scenes-other-billing-product--billing-product-inclusion-only-with-addon--dark:
         hash: v1.k794b7964.ce05ab37980f7fc148ea8681fee7b0eeb1f046266e8a7df22fbfc5cc8cefb8e7.hjk8pf9SicO_kBVjVXooUrPaBUj_76AzOPVXuwydGkE
     scenes-other-billing-product--billing-product-inclusion-only-with-addon--light:
