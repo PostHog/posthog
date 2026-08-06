@@ -2643,6 +2643,7 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         "pi/rpc",
         "queue_get",
         "queue_clear",
+        "read_file",
     ]
 
     # Cap on the serialized mcp_response params (docs/cloud-mcp-relay.md): the relayed JSON-RPC
@@ -2733,6 +2734,8 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         elif method == "set_config_option":
             self._require_nonempty_string(params, "configId")
             self._require_nonempty_string(params, "value")
+        elif method == "read_file":
+            self._require_nonempty_string(params, "filePath")
         elif method == "mcp_response":
             self._require_nonempty_string(params, "requestId")
             self._require_nonempty_string(params, "server")

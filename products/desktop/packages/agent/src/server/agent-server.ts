@@ -112,6 +112,7 @@ import {
   checkoutExistingPullRequest,
   type ExistingPrCheckoutResult,
 } from "./pr-checkout";
+import { readWorkspaceFile } from "./read-workspace-file";
 import { resolveRtkSavings } from "./rtk-savings";
 import { RunUsageAccumulator } from "./run-usage";
 import {
@@ -1054,6 +1055,11 @@ export class AgentServer {
     }
 
     switch (method) {
+      case "read_file":
+        return readWorkspaceFile(
+          params.filePath as string,
+          this.config.repositoryPath ?? "/tmp/workspace",
+        );
       case POSTHOG_NOTIFICATIONS.USER_MESSAGE:
       case "user_message": {
         const commandSession = this.session;

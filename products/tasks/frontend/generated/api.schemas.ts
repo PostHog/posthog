@@ -2956,6 +2956,7 @@ export const JsonrpcEnumApi = {
  * * `pi/rpc` - pi/rpc
  * * `queue_get` - queue_get
  * * `queue_clear` - queue_clear
+ * * `read_file` - read_file
  */
 export type TaskRunCommandRequestMethodEnumApi =
     (typeof TaskRunCommandRequestMethodEnumApi)[keyof typeof TaskRunCommandRequestMethodEnumApi]
@@ -2970,6 +2971,7 @@ export const TaskRunCommandRequestMethodEnumApi = {
     PiRpc: 'pi/rpc',
     QueueGet: 'queue_get',
     QueueClear: 'queue_clear',
+    ReadFile: 'read_file',
 } as const
 
 /**
@@ -2990,7 +2992,8 @@ export interface TaskRunCommandRequestApi {
      * * `mcp_response` - mcp_response
      * * `pi/rpc` - pi/rpc
      * * `queue_get` - queue_get
-     * * `queue_clear` - queue_clear */
+     * * `queue_clear` - queue_clear
+     * * `read_file` - read_file */
     method: TaskRunCommandRequestMethodEnumApi
     /** Parameters for the command */
     params?: TaskRunCommandRequestApiParams

@@ -127,6 +127,10 @@ export const closeParamsSchema = z
   })
   .optional();
 
+export const readFileParamsSchema = z.object({
+  filePath: z.string().min(1, "filePath is required"),
+});
+
 export const commandParamsSchemas = {
   user_message: userMessageParamsSchema,
   "posthog/user_message": userMessageParamsSchema,
@@ -144,6 +148,7 @@ export const commandParamsSchemas = {
   mcp_response: mcpResponseParamsSchema,
   "posthog/mcp_response": mcpResponseParamsSchema,
   "_posthog/mcp_response": mcpResponseParamsSchema,
+  read_file: readFileParamsSchema,
 } as const;
 
 export type CommandMethod = keyof typeof commandParamsSchemas;

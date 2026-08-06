@@ -684,7 +684,8 @@ export type CloudRunCommandMethod =
   | "permission_response"
   | "set_config_option"
   | "cancel"
-  | "close";
+  | "close"
+  | "read_file";
 
 export class CloudCommandError extends Error {
   readonly status: number;

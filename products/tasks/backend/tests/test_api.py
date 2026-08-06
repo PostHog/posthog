@@ -9387,6 +9387,33 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_proxies_read_file(self, mock_post):
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(
+            mock_post,
+            {"jsonrpc": "2.0", "id": "req-file", "result": {"content": "file contents"}},
+        )
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "read_file",
+                "params": {"filePath": "src/example.ts"},
+                "id": "req-file",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["result"]["content"], "file contents")
+        self.assertEqual(mock_post.call_args[1]["json"]["params"]["filePath"], "src/example.ts")
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
     def test_command_proxies_mcp_response_with_payload(self, mock_post):
         reset_sandbox_jwt_key_cache()
         self._mock_agent_response(
@@ -9652,6 +9679,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
                 "set_config_option_empty_params",
                 {"jsonrpc": "2.0", "method": "set_config_option", "params": {}},
             ),
+            ("read_file_missing_filePath", {"jsonrpc": "2.0", "method": "read_file", "params": {}}),
             (
                 "mcp_response_missing_requestId",
                 {

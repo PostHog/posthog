@@ -21,6 +21,7 @@ import { resolveLlmGatewayUrl } from "../utils/gateway";
 import { Logger } from "../utils/logger";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
+import { readWorkspaceFile } from "./read-workspace-file";
 import { jsonRpcRequestSchema } from "./schemas";
 import type { AgentServerConfig } from "./types";
 
@@ -59,6 +60,7 @@ const commandSchemas = {
   queue_get: emptySchema,
   queue_clear: emptySchema,
   "pi/rpc": z.object({ command: piRpcCommandSchema }),
+  read_file: z.object({ filePath: z.string().min(1) }),
 } as const;
 
 type PiCommandMethod = keyof typeof commandSchemas;
@@ -569,6 +571,11 @@ export class PiAgentServer {
     }
     const client = runtime.client;
     switch (method) {
+      case "read_file":
+        return readWorkspaceFile(
+          params.filePath as string,
+          this.config.repositoryPath ?? "/tmp/workspace",
+        );
       case "user_message":
         return this.deliverUserMessage(runtime, params);
       case "cancel":
