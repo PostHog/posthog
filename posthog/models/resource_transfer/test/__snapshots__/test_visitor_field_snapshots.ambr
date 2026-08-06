@@ -57,6 +57,21 @@
     'last_modified_at',
   ])
 # ---
+# name: TestVisitorFieldSnapshots.test_excluded_fields_DataWarehouseSavedQuery
+  list([
+    'deleted_name',
+    'expires_at',
+    'external_tables',
+    'folder',
+    'is_test',
+    'last_run_at',
+    'latest_error',
+    'managed_viewset',
+    'semantic_enrichment_hash',
+    'status',
+    'table',
+  ])
+# ---
 # name: TestVisitorFieldSnapshots.test_excluded_fields_EarlyAccessFeature
   list([
     'created_at',
@@ -196,6 +211,21 @@
     'description',
     'name',
     'widget_type',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_primitive_fields_DataWarehouseSavedQuery
+  list([
+    'column_order',
+    'columns',
+    'created_at',
+    'deleted',
+    'deleted_at',
+    'is_materialized',
+    'name',
+    'origin',
+    'query',
+    'sync_frequency_interval',
+    'updated_at',
   ])
 # ---
 # name: TestVisitorFieldSnapshots.test_primitive_fields_EarlyAccessFeature
@@ -365,6 +395,12 @@
   list([
     'created_by',
     'last_modified_by',
+    'team',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_relation_fields_DataWarehouseSavedQuery
+  list([
+    'created_by',
     'team',
   ])
 # ---
@@ -655,6 +691,65 @@
     'last_modified_at',
     'last_modified_by_id',
     'team_id',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_skipped_fields_DataWarehouseSavedQuery
+  list([
+    'DoesNotExist',
+    'MultipleObjectsReturned',
+    'Origin',
+    'Status',
+    '__doc__',
+    '__firstlineno__',
+    '__module__',
+    '__static_attributes__',
+    '_meta',
+    '_start_immediate_materialization',
+    'column_annotations',
+    'created_by_id',
+    'datamodelingjob_set',
+    'datawarehousemodelpath_set',
+    'datawarehousesavedquerydraft_set',
+    'datawarehouseviewlink_set',
+    'deleted_name',
+    'endpoint_versions',
+    'expires_at',
+    'external_tables',
+    'folder',
+    'folder_id',
+    'folder_path',
+    'get_clickhouse_column_type',
+    'get_columns',
+    'get_next_by_created_at',
+    'get_origin_display',
+    'get_previous_by_created_at',
+    'get_s3_tables',
+    'get_status_display',
+    'github_synced_model',
+    'hogql_definition',
+    'id',
+    'is_test',
+    'last_run_at',
+    'latest_error',
+    'managed_viewset',
+    'managed_viewset_id',
+    'name_chain',
+    'node_set',
+    'normalized_name',
+    'objects',
+    'revert_materialization',
+    's3_tables',
+    'save',
+    'schedule_materialization',
+    'semantic_enrichment_hash',
+    'set_columns',
+    'setup_model_paths',
+    'soft_delete',
+    'status',
+    'table',
+    'table_id',
+    'team_id',
+    'url_pattern',
   ])
 # ---
 # name: TestVisitorFieldSnapshots.test_skipped_fields_EarlyAccessFeature
