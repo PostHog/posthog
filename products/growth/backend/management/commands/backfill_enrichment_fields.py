@@ -7,12 +7,18 @@ backfills through this same command with no changes here; only the field registr
 
 Safe to re-run: group_identify overwrites the same keys, and a payload that yields no fields is
 skipped rather than clearing anything already written.
+
+Also deletes stale suppressed-placeholder values (see SUPPRESSED_PLACEHOLDERS) from the Postgres
+record when the current transform no longer derives the key from the same payload. Deletion is
+Postgres-only: group properties cannot be deleted, so ClickHouse keeps any historical placeholder
+-- measure field completeness on this table's warehouse copy, not on group properties.
 """
 
 import time
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
+from django.db import transaction
 
 from posthog.ph_client import get_client
 from posthog.utils import get_instance_region
@@ -20,6 +26,34 @@ from posthog.utils import get_instance_region
 from products.growth.backend.enrichment.labels import recent_latest_fetches_qs
 from products.growth.backend.enrichment.transform import transform_harmonic_company
 from products.growth.backend.enrichment.writer import write_organization_enrichment
+from products.growth.backend.models import OrganizationEnrichment
+
+# Values older transform versions wrote for a key that the current transform deliberately
+# suppresses when the payload can't substantiate them. Only these exact values are ever deleted,
+# so a genuine historical value can't be swept up by an over-eager cleanup.
+SUPPRESSED_PLACEHOLDERS: dict[str, frozenset[str]] = {"funding_stage": frozenset({"VENTURE_UNKNOWN"})}
+
+
+def stale_placeholder_keys(data: dict[str, Any], derived: dict[str, Any]) -> list[str]:
+    return [
+        key
+        for key, placeholders in SUPPRESSED_PLACEHOLDERS.items()
+        if key not in derived and data.get(key) in placeholders
+    ]
+
+
+def _strip_stale_placeholders(organization_id: str, derived: dict[str, Any]) -> list[str]:
+    # Same row lock as the writer's merge, for the same reason: a concurrent live write must not
+    # be clobbered by this read-modify-save.
+    with transaction.atomic():
+        record = OrganizationEnrichment.objects.select_for_update().filter(organization_id=organization_id).first()
+        if record is None:
+            return []
+        stale = stale_placeholder_keys(record.data, derived)
+        if stale:
+            record.data = {key: value for key, value in record.data.items() if key not in stale}
+            record.save(update_fields=["data", "updated_at"])
+        return stale
 
 
 class Command(BaseCommand):
@@ -50,7 +84,7 @@ class Command(BaseCommand):
         if limit is not None:
             fetches = fetches[:limit]
 
-        considered = written = skipped_no_match = skipped_empty = 0
+        considered = written = skipped_no_match = skipped_empty = stripped_stale = 0
         for fetch in fetches.iterator():
             considered += 1
             payload = fetch.payload
@@ -73,19 +107,29 @@ class Command(BaseCommand):
 
             written += 1
             if dry_run:
-                self.stdout.write(f"would write {fetch.organization_id}: {sorted(values)}")
+                record = OrganizationEnrichment.objects.filter(organization_id=fetch.organization_id).first()
+                stale = stale_placeholder_keys(record.data, values) if record else []
+                if stale:
+                    stripped_stale += 1
+                suffix = f", would strip {stale}" if stale else ""
+                self.stdout.write(f"would write {fetch.organization_id}: {sorted(values)}{suffix}")
                 continue
 
             write_organization_enrichment(
                 organization_id=str(fetch.organization_id), fields=fields, pha_client=pha_client
             )
-            self.stdout.write(f"wrote {fetch.organization_id}: {sorted(values)}")
+            stale = _strip_stale_placeholders(str(fetch.organization_id), values)
+            if stale:
+                stripped_stale += 1
+            suffix = f", stripped {stale}" if stale else ""
+            self.stdout.write(f"wrote {fetch.organization_id}: {sorted(values)}{suffix}")
             if delay:
                 time.sleep(delay)
 
         verb = "would write" if dry_run else "wrote"
         summary = (
             f"considered {considered}, {verb} {written}, "
-            f"skipped_no_match {skipped_no_match}, skipped_empty {skipped_empty}"
+            f"skipped_no_match {skipped_no_match}, skipped_empty {skipped_empty}, "
+            f"stripped_stale {stripped_stale}"
         )
         self.stdout.write(self.style.SUCCESS(summary))

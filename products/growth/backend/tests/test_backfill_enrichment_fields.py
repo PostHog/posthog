@@ -6,8 +6,11 @@ from unittest.mock import MagicMock, patch
 from django.core.management import CommandError, call_command
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models.organization import Organization
 
+from products.growth.backend.management.commands.backfill_enrichment_fields import stale_placeholder_keys
 from products.growth.backend.models import OrganizationEnrichment, OrganizationEnrichmentFetch
 
 _COMMAND_MODULE = "products.growth.backend.management.commands.backfill_enrichment_fields"
@@ -43,6 +46,9 @@ class TestBackfillEnrichmentFields(BaseTest):
 
     def test_dry_run_writes_nothing(self):
         self._fetch()
+        OrganizationEnrichment.objects.create(
+            organization=self.organization, data={"funding_stage": "VENTURE_UNKNOWN", "headcount": 5}
+        )
         pha_client = MagicMock()
         with (
             patch(f"{_COMMAND_MODULE}.get_instance_region", return_value="US"),
@@ -51,7 +57,8 @@ class TestBackfillEnrichmentFields(BaseTest):
             call_command("backfill_enrichment_fields", "--dry-run")
 
         pha_client.group_identify.assert_not_called()
-        assert not OrganizationEnrichment.objects.filter(organization=self.organization).exists()
+        record = OrganizationEnrichment.objects.get(organization=self.organization)
+        assert record.data == {"funding_stage": "VENTURE_UNKNOWN", "headcount": 5}
 
     def test_writes_derived_fields_from_the_latest_fetch_per_org(self):
         older_payload = {**_PAYLOAD, "tractionMetrics": {"webTraffic": {"latestMetricValue": 100}}}
@@ -95,6 +102,47 @@ class TestBackfillEnrichmentFields(BaseTest):
             call_command("backfill_enrichment_fields", "--delay=0")
 
         pha_client.group_identify.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("placeholder_no_longer_derived", {"funding_stage": "VENTURE_UNKNOWN"}, {}, ["funding_stage"]),
+            ("real_value_never_stripped", {"funding_stage": "SEED"}, {}, []),
+            (
+                "still_derived_kept",
+                {"funding_stage": "VENTURE_UNKNOWN"},
+                {"funding_stage": "VENTURE_UNKNOWN"},
+                [],
+            ),
+        ]
+    )
+    def test_stale_placeholder_keys(self, _name, data, derived, expected):
+        assert stale_placeholder_keys(data, derived) == expected
+
+    @parameterized.expand(
+        [
+            ("placeholder_stripped", "VENTURE_UNKNOWN", False),
+            ("real_stage_preserved", "SEED", True),
+        ]
+    )
+    def test_command_strips_only_stale_placeholders_from_the_record(self, _name, stored_stage, survives):
+        # _PAYLOAD carries no funding data, so the re-derived fields have no funding_stage.
+        self._fetch()
+        OrganizationEnrichment.objects.create(
+            organization=self.organization,
+            data={"funding_stage": stored_stage, "company_type_deterministic": "startup"},
+        )
+        pha_client = MagicMock()
+
+        with (
+            patch(f"{_COMMAND_MODULE}.get_instance_region", return_value="US"),
+            patch(f"{_COMMAND_MODULE}.get_client", return_value=pha_client),
+        ):
+            call_command("backfill_enrichment_fields", "--delay=0")
+
+        record = OrganizationEnrichment.objects.get(organization=self.organization)
+        assert ("funding_stage" in record.data) is survives
+        assert record.data["company_type_deterministic"] == "startup"
+        assert record.data["web_traffic"] == 551400
 
     def test_missing_keys_skip_cleanly_without_placeholder_values(self):
         self._fetch(payload={"companyType": "ENTERPRISE"})
