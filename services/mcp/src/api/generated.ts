@@ -3522,6 +3522,8 @@ export namespace Schemas {
     }
 
     export interface PathsV2Edge {
+      /** Unique actors who transition from source to target at any step of any of their whole journeys, the position-free count behind "went source → target at any step". Equals the two-step item-strict funnel's converted count. Only set in open mode on edges between two named items. */
+      anyStepCount?: number | null;
       /** Unique actors with a journey that transitions from source to target between these steps. */
       count: number;
       /** Source path item, or null for the source column's "other" row. */
@@ -4534,6 +4536,46 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type PathsV2ElementType = typeof PathsV2ElementType[keyof typeof PathsV2ElementType];
+
+
+    export const PathsV2ElementType = {
+      Node: 'node',
+      Edge: 'edge',
+      DropOff: 'dropOff',
+      Other: 'other',
+      Chain: 'chain',
+    } as const;
+
+    export interface PathsV2ElementSelector {
+      /** Match the source → target transition at any step of any whole journey instead of at one step pair: the position-free set behind an edge's anyStepCount. Requires a named source and target and open mode. Edge elements only. */
+      anyStep?: boolean | null;
+      /** The chain's path items in order from the anchor. Returns the actors whose anchored sequence begins with exactly these items, the set behind a hover preview's per-chain counts. Chain elements only, anchored mode only. */
+      chain?: PathsV2Item[] | null;
+      elementType: PathsV2ElementType;
+      /** The node card's path item. Node elements only. */
+      item?: PathsV2Item | null;
+      /** The edge's source path item; omit for the source column's "other" row. Edge elements only. */
+      source?: PathsV2Item | null;
+      /** 0-based step index (column) of the element; for an edge, its source column. Required for node, other, dropOff, and positional edge elements. */
+      stepIndex?: number | null;
+      /** The edge's target path item; omit for the target column's "other" row. Edge elements only. */
+      target?: PathsV2Item | null;
+    }
+
+    export interface PathsV2ActorsQuery {
+      element: PathsV2ElementSelector;
+      includeRecordings?: boolean | null;
+      kind?: 'PathsV2ActorsQuery';
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      response?: ActorsQueryResponse | null;
+      source: PathsV2Query;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
     export interface HogQLFilters {
       dateRange?: DateRange | null;
       filterTestAccounts?: boolean | null;
@@ -4659,7 +4701,7 @@ export namespace Schemas {
       response?: ActorsQueryResponse | null;
       search?: string | null;
       select?: string[] | null;
-      source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | ExperimentActorsQuery | StickinessActorsQuery | HogQLQuery | null;
+      source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | ExperimentActorsQuery | StickinessActorsQuery | PathsV2ActorsQuery | HogQLQuery | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -34253,7 +34295,7 @@ export namespace Schemas {
     export interface InsightActorsQueryOptions {
       kind?: 'InsightActorsQueryOptions';
       response?: InsightActorsQueryOptionsResponse | null;
-      source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | StickinessActorsQuery | ExperimentActorsQuery;
+      source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | StickinessActorsQuery | ExperimentActorsQuery | PathsV2ActorsQuery;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
