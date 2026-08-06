@@ -2953,6 +2953,23 @@ implement what is worth doing and safe to do unattended, answer what isn't, and 
    (`load_resolution_skill_for_run(…, None)`) — a borrowed account's personal selection never governs someone
    else's PR, the same principle as the review path's borrowed-toggle rules. The workflow no longer coerces
    `acting_user_id or user_id`.
+   _Same date (off the reply-idempotency escalation):_ the duplicate-reply crash window is **accepted as
+   by-design** (maintainer decision): the reply mutation has no idempotency key; the window is a process death
+   between the GitHub post and the DB persist; the cost when hit is one visible duplicate comment plus one
+   re-judged turn, self-correcting on the next persist. Reply-first stays chosen — fail toward a visible
+   duplicate rather than a lost reply. Revisit only if the comment-reply trigger's self-skip lands a
+   reply-identity marker, which would make dedup nearly free.
+   _Same date (off the injection-surface security cluster — maintainer decision):_ of the three e2e-escalated
+   hardening items, the deterministic piece is **built** and the two design-heavy pieces are **deferred as
+   BLOCKING pre-public-release gates** (ARCHITECTURE.md carries the blocking TODOs). Built: the **hard-floor
+   path backstop** — after `commit_on_branch` proves a FIXED commit real, `commit_restricted_paths` fetches its
+   changed files server-side (failing closed on GitHub's 300-file cap) and a commit touching `.github/`,
+   CODEOWNERS, or dependency manifests/lockfiles is never presented as settled: the reply carries a human-review
+   warning instead of the commit link, `thread_verdict.commit_restricted` persists, and `should_resolve` refuses
+   it (delivered verdict settles as SKIP, thread stays open). Security-sensitive _code_ stays prompt-judged —
+   it is not path-derivable. Deferred to pre-GA: structural (JSON) comment rendering in the resolution prompt
+   (e2e-gated — forged author headers / fake SAFE TO FIX), and the author-permission gate policy (which
+   `author_association`s may drive a write turn; naive filters drop the bot threads the stage exists for).
 9. **Persistence & budget** — home is the living `ReviewReport`; runs append `thread_verdict` (net-new content
    schema, latest-wins per thread) plus `commit` / `task_run` / `note` artefacts (their first writers). Idempotency
    is per-thread: unchanged state skips deterministically, any new reply re-opens that thread's triage (pushback on

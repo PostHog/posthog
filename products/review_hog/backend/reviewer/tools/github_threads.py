@@ -257,6 +257,61 @@ def resolve_thread(*, token: str, thread_id: str, installation_id: str | None = 
     return bool(thread.get("isResolved"))
 
 
+# Deterministic backstop behind the prompt's <hard_limits>: paths a resolution fix commit may
+# never touch on comment say-so. The prompt is the first line of defense; this gates DELIVERY —
+# a violating commit is never linked or auto-resolved, and the reply flags it for a human.
+# Security-sensitive *code* (auth, secrets, crypto) stays prompt-judged: it isn't path-derivable.
+_RESTRICTED_PATH_PREFIXES = (".github/",)
+_RESTRICTED_BASENAMES = frozenset(
+    {
+        "CODEOWNERS",
+        "package.json",
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "pyproject.toml",
+        "uv.lock",
+        "requirements.txt",
+        "requirements.in",
+        "Cargo.toml",
+        "Cargo.lock",
+        "go.mod",
+        "go.sum",
+        "Gemfile",
+        "Gemfile.lock",
+    }
+)
+
+
+def is_restricted_fix_path(path: str) -> bool:
+    normalized = path.lstrip("/")
+    if normalized.startswith(_RESTRICTED_PATH_PREFIXES):
+        return True
+    return normalized.rsplit("/", 1)[-1] in _RESTRICTED_BASENAMES
+
+
+def commit_restricted_paths(
+    *, token: str, owner: str, repo: str, sha: str, installation_id: str | None = None
+) -> list[str]:
+    """Restricted paths a commit touches (empty = clean).
+
+    Fails closed on GitHub's 300-file cap: a files list that may be truncated reports the commit as
+    unverifiable rather than clean — a comment-driven fix that big deserves human eyes anyway.
+    """
+    response = github_api_request(
+        "GET",
+        f"/repos/{owner}/{repo}/commits/{sha}",
+        token=token,
+        endpoint="/repos/{owner}/{repo}/commits/{ref}",
+        installation_id=installation_id,
+    )
+    files = response.json().get("files") or []
+    hits = [f.get("filename") or "" for f in files if is_restricted_fix_path(f.get("filename") or "")]
+    if len(files) >= 300 and not hits:
+        return ["(files list truncated at 300; cannot verify)"]
+    return hits
+
+
 def commit_on_branch(
     *, token: str, owner: str, repo: str, sha: str, branch: str, installation_id: str | None = None
 ) -> bool:
@@ -323,8 +378,10 @@ def should_resolve(verdict: ThreadVerdictArtefact) -> bool:
     thread — and ESCALATE never resolves, for any author (see CONTEXT.md — "Resolution etiquette").
     A FIXED verdict whose commit failed server-side verification never resolves either: the model's
     claim is unproven, so the thread stays open for a human. None (unchecked) keeps legacy behavior.
+    The same holds for a commit touching restricted paths (`commit_restricted`) — the hard-floor
+    backstop leaves it for a human.
     """
-    if verdict.outcome == "fixed" and verdict.commit_verified is False:
+    if verdict.outcome == "fixed" and (verdict.commit_verified is False or verdict.commit_restricted):
         return False
     return verdict.author_is_bot and verdict.outcome != "escalate"
 

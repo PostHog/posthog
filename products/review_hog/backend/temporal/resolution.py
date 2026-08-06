@@ -63,6 +63,7 @@ from products.review_hog.backend.reviewer.tools.github_threads import (
     ThreadAction,
     classify_thread,
     commit_on_branch,
+    commit_restricted_paths,
     fetch_unresolved_threads,
     order_threads,
     reply_to_thread,
@@ -256,7 +257,10 @@ def _deliver_side_effects(
     can outlive the ~1h token TTL, and `_installation_auth` auto-refreshes an expired one.
     A FIXED verdict's `commit_sha` is the model's echo, so it is verified server-side first
     (`commit_on_branch`, persisted as `commit_verified`): an unproven SHA delivers the reply without
-    the public commit link and never auto-resolves — the thread stays open for a human.
+    the public commit link and never auto-resolves — the thread stays open for a human. A real commit
+    is then checked against the hard-floor path backstop (`commit_restricted_paths`): one touching
+    CI/CODEOWNERS/dependency files delivers a human-review warning instead of the link and never
+    auto-resolves either.
     The reply lands first (the outcome must be readable even if resolving then fails); the watermark
     advances to our own posted reply so it doesn't re-open triage. A crash between posting the reply
     and recording it (the persist below) leaves the watermark un-advanced, so the retry re-triages the
@@ -275,6 +279,7 @@ def _deliver_side_effects(
             branch=branch,
             installation_id=installation_id,
         )
+        restricted = False
         if not verified:
             logger.error(
                 "Fix commit %s claimed for thread %s is not on %s; delivering without the link and leaving the thread open",
@@ -282,12 +287,35 @@ def _deliver_side_effects(
                 updated.thread_id,
                 branch,
             )
-        updated = updated.model_copy(update={"commit_verified": verified})
+        else:
+            restricted_hits = commit_restricted_paths(
+                token=token,
+                owner=input.owner,
+                repo=input.repo,
+                sha=updated.commit_sha,
+                installation_id=installation_id,
+            )
+            restricted = bool(restricted_hits)
+            if restricted:
+                logger.error(
+                    "Fix commit %s for thread %s touches restricted paths %s; withholding the link and leaving the thread open",
+                    updated.commit_sha,
+                    updated.thread_id,
+                    restricted_hits,
+                )
+        updated = updated.model_copy(update={"commit_verified": verified, "commit_restricted": restricted})
         persist_thread_verdict(team_id=input.team_id, report_id=report_id, verdict=updated)
     if not updated.reply_posted:
         body = updated.reply
-        if updated.outcome == ThreadOutcome.FIXED.value and updated.commit_sha and updated.commit_verified:
-            body += f"\n\nFix commit: https://github.com/{input.owner}/{input.repo}/commit/{updated.commit_sha}"
+        if updated.outcome == ThreadOutcome.FIXED.value and updated.commit_sha:
+            if updated.commit_restricted:
+                body += (
+                    "\n\n⚠️ This fix commit touches protected files (CI workflows, CODEOWNERS, or dependency "
+                    "files). A human needs to review the commit on the branch before trusting it. "
+                    "The thread stays open."
+                )
+            elif updated.commit_verified:
+                body += f"\n\nFix commit: https://github.com/{input.owner}/{input.repo}/commit/{updated.commit_sha}"
         comment_id, comment_url = reply_to_thread(
             token=token, thread_id=updated.thread_id, body=body, installation_id=installation_id
         )

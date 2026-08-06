@@ -50,13 +50,30 @@ live-qualified** (e2e on its own PR #72074, 2026-07-18 — verdicts, findings, a
 session per PR (one thread per turn, humans → ReviewHog → other bots), persists per-thread `thread_verdict`
 artefacts on the living report, replies/resolves server-side from verdicts (bot threads only; humans keep the
 final word). A FIXED verdict's echoed commit SHA is verified server-side before delivery (`commit_on_branch`);
-an unproven SHA posts the reply without the commit link and never auto-resolves. **Reviewing includes resolving**: a published review chains into the stage when the acting user's
-`resolve_comments` setting is on (default on; the toggle sits with the trigger opt-outs on the Code review scene,
-which also carries a single-active resolution-criteria skill block and a split Review button with
-review-without-resolving / resolve-only side actions). Standalone entry: `POST /api/review_hog/resolve`, the
-`run_resolution` command, or the UI's resolve-only action. Design + decision record: DECISIONS.md Stage 7;
-vocabulary: CONTEXT.md; the live-e2e qualification plan (the resolver fixes its own PR):
-`eval/experiments/2026-07-resolution-e2e/PLAN.md`.
+an unproven SHA posts the reply without the commit link and never auto-resolves. A real commit is then checked
+against the hard-floor **path backstop** (`commit_restricted_paths`): one touching `.github/`, CODEOWNERS, or
+dependency manifests delivers a human-review warning instead of the link and never auto-resolves either.
+
+**TODO (BLOCKING — before any rollout beyond the dogfood team / public release) — the two remaining
+injection-surface hardening items from the July e2e GO conditions.** The path backstop above is built; these two
+are deliberately deferred (maintainer decision 2026-08-06, recorded in DECISIONS.md Stage 7) and MUST land before
+the resolution stage runs on PRs the team does not own:
+
+1. **Structural comment rendering** — thread comments still render as flat text in the resolution prompt, so a
+   commenter can forge an "OWNER" header or a fake "SAFE TO FIX" verdict inside their own comment
+   (`tools/thread_resolution.py::render_thread`). Fix: JSON-encode the conversation like the review stage's
+   `PR_COMMENTS` (and decide whether to expose the real comment `databaseId` as ground truth). Prompt-content
+   change → validate with a live e2e run.
+2. **Author-permission gate** — no code rule restricts whose comment may drive a write turn; the policy is the
+   hard part (review bots and external contributors both carry `author_association: NONE`, so a naive filter
+   drops exactly the bot threads the stage exists to resolve). Decide which associations may drive write turns
+   and how trusted bots stay in scope. **Reviewing includes resolving**: a published review chains into the stage when the acting user's
+   `resolve_comments` setting is on (default on; the toggle sits with the trigger opt-outs on the Code review scene,
+   which also carries a single-active resolution-criteria skill block and a split Review button with
+   review-without-resolving / resolve-only side actions). Standalone entry: `POST /api/review_hog/resolve`, the
+   `run_resolution` command, or the UI's resolve-only action. Design + decision record: DECISIONS.md Stage 7;
+   vocabulary: CONTEXT.md; the live-e2e qualification plan (the resolver fixes its own PR):
+   `eval/experiments/2026-07-resolution-e2e/PLAN.md`.
 
 **TODO (SOON) — react to thread replies: answer and act when a human responds to an escalated (or any settled) thread.**
 The per-thread mechanics already exist and are e2e-proven: a new human comment beats the verdict watermark and
@@ -102,7 +119,8 @@ the experiment backlog — is in [DECISIONS.md](./DECISIONS.md) (start at its "�
 (`RUN_LOG.md`, `POTENTIAL_EXPERIMENTS.md`, `experiments/`).
 
 **Before real users:** settle the "ReviewHog Alpha" published-comment wording (see
-[Known issues](#known-issues--tech-debt)).
+[Known issues](#known-issues--tech-debt)), and land the two BLOCKING resolution-stage hardening TODOs above
+(structural comment rendering + author-permission gate) — they gate any rollout beyond the dogfood team.
 
 ---
 
@@ -583,3 +601,8 @@ fallback for pre-column rows — and its first tab reads "Published" only when t
   "valid"/"invalid" (`reviewer/tools/publish_review.py`, the `post_promo` block). Publish is now live
   per-run (the trigger endpoint posts with `publish=true`), so settle the prod wording before real users
   see it.
+- **TODO (BLOCKING public release) — resolution-stage injection hardening, deferred by decision.** Structural
+  (JSON) comment rendering in the resolution prompt and the author-permission gate are NOT built; only the
+  prompt floors + the delivery path backstop stand between a hostile PR comment and a write turn. Do not widen
+  `REVIEWHOG_TEAM_IDS` or ship the resolution stage publicly before both land — see the BLOCKING TODO in
+  [Status & next](#status--next) and DECISIONS.md Stage 7.

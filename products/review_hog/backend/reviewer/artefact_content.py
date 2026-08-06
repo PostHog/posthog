@@ -171,6 +171,12 @@ class ThreadVerdictArtefact(BaseModel):
         description="Server-side check that commit_sha is on the PR head branch; None = not checked yet. "
         "False withholds the public commit link and the auto-resolve — the model's echo is unproven.",
     )
+    commit_restricted: bool | None = Field(
+        default=None,
+        description="Server-side hard-floor backstop: the fix commit touches restricted paths "
+        "(.github/, CODEOWNERS, dependency manifests). True withholds the link and the auto-resolve "
+        "and flags the reply for human review; None = not checked (pre-backstop rows).",
+    )
     verification: str | None = Field(default=None, description="What was run to verify a fix, and the honest result.")
     latest_comment_id: int | None = Field(
         default=None, description="Newest thread comment databaseId known at verdict time (the watermark)."

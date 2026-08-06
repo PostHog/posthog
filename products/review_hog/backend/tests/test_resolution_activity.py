@@ -141,6 +141,7 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, "https://github.com/x")) as reply,
             patch(f"{_RESOLUTION}.resolve_thread", return_value=True) as resolve,
             patch(f"{_RESOLUTION}.commit_on_branch", return_value=True),
+            patch(f"{_RESOLUTION}.commit_restricted_paths", return_value=[]),
             patch(f"{_RESOLUTION}._installation_auth", return_value=("token", None)),
         ):
             _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature")
@@ -160,6 +161,7 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, None)) as reply,
             patch(f"{_RESOLUTION}.resolve_thread", return_value=True),
             patch(f"{_RESOLUTION}.commit_on_branch", return_value=True),
+            patch(f"{_RESOLUTION}.commit_restricted_paths", return_value=[]),
             patch(f"{_RESOLUTION}._installation_auth", return_value=("token", None)),
         ):
             _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature")
@@ -251,6 +253,29 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         assert isinstance(prepared, _PreparedRun)
         assert prepared.skill_name == "review-hog-resolution-authors-own"
 
+    def test_restricted_commit_delivers_warning_and_never_resolves(self) -> None:
+        # The hard-floor backstop: a real commit touching CI/CODEOWNERS/dependency files must not be
+        # presented as settled — no link, no auto-resolve, a human-review warning instead.
+        report = self._report()
+        verdict = _verdict(author_is_bot=True, outcome="fixed", commit_sha="abc123")
+        with (
+            patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, None)) as reply,
+            patch(f"{_RESOLUTION}.resolve_thread", return_value=True) as resolve,
+            patch(f"{_RESOLUTION}.commit_on_branch", return_value=True),
+            patch(f"{_RESOLUTION}.commit_restricted_paths", return_value=[".github/workflows/ci.yml"]),
+            patch(f"{_RESOLUTION}._installation_auth", return_value=("token", None)),
+        ):
+            _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature")
+
+        body = reply.call_args.kwargs["body"]
+        assert "Fix commit:" not in body
+        assert "protected files" in body
+        assert resolve.call_count == 0
+        stored = load_thread_verdicts(team_id=self.team.id, report_id=str(report.id))["PRRT_1"]
+        assert stored.commit_verified is True
+        assert stored.commit_restricted is True
+        assert stored.resolved is False
+
     def test_run_note_names_delivery_failures(self) -> None:
         # A token-expiry tail must be visible in the durable run note, not just worker logs.
         report = self._report()
@@ -269,6 +294,7 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, None)),
             patch(f"{_RESOLUTION}.resolve_thread", side_effect=RuntimeError("token cannot resolve")),
             patch(f"{_RESOLUTION}.commit_on_branch", return_value=True),
+            patch(f"{_RESOLUTION}.commit_restricted_paths", return_value=[]),
             patch(f"{_RESOLUTION}._installation_auth", return_value=("token", None)),
         ):
             _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature")

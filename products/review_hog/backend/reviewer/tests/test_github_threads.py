@@ -15,6 +15,7 @@ from products.review_hog.backend.reviewer.tools.github_threads import (
     classify_thread,
     fetch_unresolved_threads,
     github_graphql_request,
+    is_restricted_fix_path,
     order_threads,
     should_resolve,
 )
@@ -54,6 +55,7 @@ def _verdict(
     reply_posted: bool = True,
     resolved: bool = False,
     commit_verified: bool | None = None,
+    commit_restricted: bool | None = None,
 ) -> ThreadVerdictArtefact:
     return ThreadVerdictArtefact(
         thread_id=thread_id,
@@ -65,6 +67,7 @@ def _verdict(
         reply_posted=reply_posted,
         resolved=resolved,
         commit_verified=commit_verified,
+        commit_restricted=commit_restricted,
     )
 
 
@@ -107,6 +110,19 @@ class TestGitHubThreads:
                 [100],
                 ThreadAction.SKIP,
             ),
+            # Same settling for the hard-floor backstop: a restricted fix stays open for a human.
+            (
+                "bot_fixed_restricted_delivered_skips",
+                {
+                    "author_is_bot": True,
+                    "outcome": "fixed",
+                    "commit_verified": True,
+                    "commit_restricted": True,
+                    "resolved": False,
+                },
+                [100],
+                ThreadAction.SKIP,
+            ),
         ]
     )
     def test_classify_thread(self, _name: str, verdict_kwargs: dict | None, comment_ids: list, expected: str) -> None:
@@ -128,6 +144,24 @@ class TestGitHubThreads:
     ) -> None:
         verdict = _verdict(author_is_bot=author_is_bot, outcome=outcome, commit_verified=commit_verified)
         assert should_resolve(verdict) is expected
+
+    def test_should_resolve_restricted_fixed_never(self) -> None:
+        verdict = _verdict(author_is_bot=True, outcome="fixed", commit_verified=True, commit_restricted=True)
+        assert should_resolve(verdict) is False
+
+    @parameterized.expand(
+        [
+            ("workflows", ".github/workflows/ci.yml", True),
+            ("anything_under_dot_github", ".github/dependabot.yml", True),
+            ("codeowners_anywhere", "docs/CODEOWNERS", True),
+            ("lockfile", "products/foo/pnpm-lock.yaml", True),
+            ("manifest", "package.json", True),
+            ("normal_source_file", "products/foo/backend/api.py", False),
+            ("name_containing_lookalike", "src/package.json.md", False),
+        ]
+    )
+    def test_is_restricted_fix_path(self, _name: str, path: str, expected: bool) -> None:
+        assert is_restricted_fix_path(path) is expected
 
     def test_order_threads_ranks_humans_then_reviewhog_then_other_bots_oldest_first(self) -> None:
         other_bot = _thread(
