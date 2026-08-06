@@ -27118,6 +27118,10 @@
                     "enum": ["disabled", "optimized"],
                     "type": "string"
                 },
+                "mergeFederatedAggregateJoins": {
+                    "description": "Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap",
+                    "type": "boolean"
+                },
                 "optimizeJoinedFilters": {
                     "type": "boolean"
                 },

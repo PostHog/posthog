@@ -5114,6 +5114,13 @@ class HogQLQueryModifiers(BaseModel):
     inlineCohortCalculation: InlineCohortCalculation | None = None
     materializationMode: MaterializationMode | None = None
     materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | None = None
+    mergeFederatedAggregateJoins: bool | None = Field(
+        default=None,
+        description=(
+            "Merge sibling aggregating LEFT JOINs over federated Postgres tables into"
+            " one UNION ALL join, so their scans overlap"
+        ),
+    )
     optimizeJoinedFilters: bool | None = None
     optimizeProjections: bool | None = None
     parserMode: ParserMode | None = Field(

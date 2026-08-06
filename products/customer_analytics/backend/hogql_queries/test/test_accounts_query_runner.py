@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.schema import AccountsQuery, AccountsQueryResponse
+from posthog.schema import AccountsQuery, AccountsQueryResponse, HogQLQueryModifiers
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -652,6 +652,7 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
             ),
             team=self.team,
             user=self.user,
+            modifiers=HogQLQueryModifiers(mergeFederatedAggregateJoins=True),
         )
         response = runner.calculate()
         rows = {str(row[runner.columns.index("id")]): row for row in response.results}
@@ -709,6 +710,34 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
             user=self.user,
         )
         sql, _context = HogQLQueryExecutor(
-            query=runner.to_query(), team=self.team, query_type="AccountsQuery", user=self.user
+            query=runner.to_query(),
+            team=self.team,
+            query_type="AccountsQuery",
+            user=self.user,
+            modifiers=HogQLQueryModifiers(mergeFederatedAggregateJoins=True),
         ).generate_clickhouse_sql()
         self.assertIn("account_list", sql)
+
+    def test_join_merge_requires_modifier(self):
+        # The merge transform must stay behind the modifier: without it the printed
+        # SQL keeps the original per-join shape. The modifier-on run guards against
+        # the query silently becoming ineligible for the merge.
+        from posthog.hogql.query import HogQLQueryExecutor
+
+        query = AccountsQuery(
+            select=["id", "accounts.tags.names AS tag_names", "accounts.notebooks.count AS notebook_count"]
+        )
+
+        def generate_sql(modifiers: HogQLQueryModifiers | None) -> str:
+            runner = AccountsQueryRunner(query=query, team=self.team, user=self.user, modifiers=modifiers)
+            sql, _context = HogQLQueryExecutor(
+                query=runner.to_query(),
+                team=self.team,
+                query_type="AccountsQuery",
+                user=self.user,
+                modifiers=runner.modifiers,
+            ).generate_clickhouse_sql()
+            return sql
+
+        self.assertNotIn("__merged_aggregates", generate_sql(None))
+        self.assertIn("__merged_aggregates", generate_sql(HogQLQueryModifiers(mergeFederatedAggregateJoins=True)))

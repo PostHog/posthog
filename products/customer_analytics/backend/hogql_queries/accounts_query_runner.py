@@ -1,3 +1,5 @@
+import posthoganalytics
+
 from posthog.schema import AccountsQuery, AccountsQueryResponse, CachedAccountsQueryResponse
 
 from posthog.hogql import ast
@@ -23,6 +25,8 @@ DEFAULT_ORDER_BY = "created_at DESC"
 # for enough threads that the scans overlap.
 QUERY_SETTINGS = HogQLGlobalSettings(max_threads=16)
 
+JOIN_MERGE_FLAG = "customer-analytics-accounts-perf"
+
 
 def _normalize_order_clause(raw: str) -> str:
     """Allow Django-style `-col` shorthand alongside native HogQL `col DESC`."""
@@ -38,6 +42,9 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        if self._join_merge_enabled():
+            self.modifiers.mergeFederatedAggregateJoins = True
 
         # Metrics-only callers (just aggregations, no `select`) skip column
         # resolution. A combined query carries both `select` and `metrics`.
@@ -64,6 +71,29 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             limit=self.query.limit,
             offset=self.query.offset,
         )
+
+    def _join_merge_enabled(self) -> bool:
+        # only_evaluate_locally keeps this flag check off the network — it runs on the query
+        # hot path, so an inconclusive local evaluation must mean "off", never an HTTP call.
+        try:
+            return bool(
+                posthoganalytics.feature_enabled(
+                    JOIN_MERGE_FLAG,
+                    str(self.team.uuid),
+                    groups={
+                        "organization": str(self.team.organization_id),
+                        "project": str(self.team.pk),
+                    },
+                    group_properties={
+                        "organization": {"id": str(self.team.organization_id)},
+                        "project": {"id": str(self.team.pk)},
+                    },
+                    only_evaluate_locally=True,
+                    send_feature_flag_events=False,
+                )
+            )
+        except Exception:
+            return False
 
     def validate_query_runner_access(self, user: User) -> bool:
         return UserAccessControl(user=user, team=self.team).assert_access_level_for_resource(
