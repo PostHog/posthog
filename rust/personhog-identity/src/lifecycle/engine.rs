@@ -32,6 +32,7 @@ pub const STEP_ABORTED: &str = "aborted";
 
 const OPS_COMPLETED_TOTAL: &str = "personhog_lifecycle_ops_completed_total";
 const SWEEPER_RESUMED_TOTAL: &str = "personhog_lifecycle_sweeper_resumed_total";
+const STEP_FAILURES_TOTAL: &str = "personhog_lifecycle_step_failures_total";
 
 /// How many abandoned ops one sweep pass will pick up.
 const SWEEP_BATCH_SIZE: i64 = 100;
@@ -48,6 +49,11 @@ pub enum SagaError {
     /// Another instance held the lease past our deadline.
     #[error("another instance is driving this operation")]
     Busy,
+    /// A leader RPC (fence, release, fold) failed transiently. The step made
+    /// no durable progress; a retry with the same op_id re-drives it. Boxed
+    /// so the rare failure does not widen every step's Result.
+    #[error("leader call failed: {0}")]
+    Leader(Box<Status>),
     /// State this engine or driver cannot interpret.
     #[error("corrupt saga state: {0}")]
     CorruptState(String),
@@ -61,6 +67,11 @@ impl From<SagaError> for Status {
             SagaError::Busy => Status::unavailable(
                 "another instance is driving this operation; retry with the same op_id",
             ),
+            SagaError::Leader(status) => Status::unavailable(format!(
+                "leader call failed ({}: {}); retry with the same op_id",
+                status.code(),
+                status.message()
+            )),
             SagaError::CorruptState(msg) => Status::internal(msg),
         }
     }
@@ -248,6 +259,26 @@ impl Engine {
             }
 
             if let Err(err) = driver.run_step(&self.pool, &row).await {
+                // Attributable escalation: a persistently failing op (a
+                // corrupt row, a wedged leader call) shows up as this
+                // counter climbing for one op_type/kind, not as generic
+                // retry noise. Alert on it — a wedged op can hold fences.
+                let kind = match &err {
+                    SagaError::Db(_) => "db",
+                    SagaError::Leader(_) => "leader",
+                    SagaError::CorruptState(_) => "corrupt_state",
+                    // Not constructed by drivers; collapsed so dashboards
+                    // never chase dead labels.
+                    SagaError::RequestMismatch(_) | SagaError::Busy => "other",
+                };
+                common_metrics::inc(
+                    STEP_FAILURES_TOTAL,
+                    &[
+                        ("op_type".to_string(), row.op_type.clone()),
+                        ("kind".to_string(), kind.to_string()),
+                    ],
+                    1,
+                );
                 // Drop the lease so an immediate retry doesn't wait it out.
                 if let Some(attempt) = claim_attempt {
                     self.release_lease(op_id, attempt).await.ok();

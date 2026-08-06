@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT person_id as \"person_id!\", count(*) as \"count!\"\n                FROM posthog_persondistinctid\n                WHERE team_id = $1 AND person_id = ANY($2) AND is_deleted = false\n                GROUP BY person_id\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "person_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "4b8aad8fd90822a1ff949467c22c7e93bde50c57b90598c31e4c4bf464f5e79a"
+}
