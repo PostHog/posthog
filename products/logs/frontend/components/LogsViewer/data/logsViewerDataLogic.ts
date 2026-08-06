@@ -994,7 +994,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         },
     })),
 
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values, cache, props }) => ({
         handleQueryChange: ({ filterType, extraProps }) => {
             if (values.hasRunQuery) {
                 posthog.capture('logs filter changed', { filter_type: filterType, ...extraProps })
@@ -1170,6 +1170,14 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                 })
                 duration = Date.now() - start
 
+                // The component can unmount (e.g. navigating away from /logs) while this request
+                // is in flight. `signal.aborted` only catches requests killed by that unmount —
+                // a response that lands in the same tick as the abort can still resolve here, and
+                // every action/value access below would throw "[KEA] Can not find path in the store".
+                if (!logsViewerDataLogic.findMounted(props)) {
+                    return
+                }
+
                 if (response.results.length > 0) {
                     // the live_logs_checkpoint is the latest known timestamp for which we know we have all logs up to that point
                     // it's returned from clickhouse as a value on every log row - but the value is fixed per query
@@ -1201,7 +1209,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     actions.setNewLogUuids([])
                 }
             } catch (error) {
-                if (signal.aborted) {
+                if (signal.aborted || !logsViewerDataLogic.findMounted(props)) {
                     return
                 }
                 console.error('Live tail polling error:', error)
@@ -1214,17 +1222,21 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                 })
                 actions.setLiveTailRunning(false)
             } finally {
-                actions.setLiveTailAbortController(null)
-                if (values.liveTailRunning) {
-                    cache.disposables.add(() => {
-                        const timerId = setTimeout(
-                            () => {
-                                actions.pollForNewLogs()
-                            },
-                            Math.max(duration, values.liveTailPollInterval)
-                        )
-                        return () => clearTimeout(timerId)
-                    }, 'liveTailTimer')
+                // Same unmount race as above — `finally` always runs, even after the early
+                // `return`s, so it needs its own guard rather than inheriting the one above.
+                if (logsViewerDataLogic.findMounted(props)) {
+                    actions.setLiveTailAbortController(null)
+                    if (values.liveTailRunning) {
+                        cache.disposables.add(() => {
+                            const timerId = setTimeout(
+                                () => {
+                                    actions.pollForNewLogs()
+                                },
+                                Math.max(duration, values.liveTailPollInterval)
+                            )
+                            return () => clearTimeout(timerId)
+                        }, 'liveTailTimer')
+                    }
                 }
             }
         },

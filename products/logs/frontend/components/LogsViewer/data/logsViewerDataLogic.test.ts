@@ -422,6 +422,49 @@ describe('logsViewerDataLogic', () => {
         })
     })
 
+    describe('live-tail unmount race', () => {
+        it('does not touch actions/values after the logic unmounts mid live-tail poll', async () => {
+            // Regression test: a live-tail poll response landing after the logic unmounted (the
+            // user navigated away from /logs while a poll was in flight) used to throw "[KEA] Can
+            // not find path in the store" from the listener's `finally` block — an unhandled error
+            // reported repeatedly in production error tracking.
+            const unhandledRejections: unknown[] = []
+            const onUnhandledRejection = (reason: unknown): void => {
+                unhandledRejections.push(reason)
+            }
+            process.on('unhandledRejection', onUnhandledRejection)
+
+            let resolveQuery: () => void = () => {}
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/logs/query/': () =>
+                        new Promise((resolve) => {
+                            resolveQuery = () => resolve([200, { results: [], maxExportableLogs: 5000 }])
+                        }),
+                    '/api/environments/:team_id/logs/sparkline/': () => [200, []],
+                },
+            })
+
+            try {
+                logic.actions.setLiveTailRunning(true)
+                // Dispatched synchronously inside pollForNewLogs, before it awaits the query —
+                // by this point the request is in flight and can be unmounted out from under it.
+                await expectLogic(logic).toDispatchActions(['cancelInProgressLiveTail'])
+
+                logic.unmount()
+                resolveQuery()
+
+                // Flush microtasks so the poll's continuation (now referencing an unmounted logic)
+                // runs to completion.
+                await new Promise((resolve) => setTimeout(resolve, 0))
+            } finally {
+                process.off('unhandledRejection', onUnhandledRejection)
+            }
+
+            expect(unhandledRejections).toEqual([])
+        })
+    })
+
     describe('custom column aliases', () => {
         // Aliases must key by expression, not request position: moveColumn reorders columns without
         // re-fetching, so a positional zip would render each custom column another column's values.
