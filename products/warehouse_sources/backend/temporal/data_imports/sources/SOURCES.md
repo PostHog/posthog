@@ -965,6 +965,7 @@ doesn't conflict with concurrent PRs.
 - formbricks
 - fortnox
 - fourthwall
+- framer
 - fred
 - freeagent
 - freightview

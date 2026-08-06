@@ -8682,6 +8682,7 @@ export const externalDataSources = [
     'Wix',
     'Sevalla',
     'Motion',
+    'Framer',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

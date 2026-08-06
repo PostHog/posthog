@@ -24800,7 +24800,8 @@
                 "WindsorAi",
                 "Wix",
                 "Sevalla",
-                "Motion"
+                "Motion",
+                "Framer"
             ],
             "type": "string"
         },

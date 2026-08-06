@@ -437,6 +437,7 @@ from .fly_io.source import FlyIoSource
 from .formbricks.source import FormbricksSource
 from .fortnox.source import FortnoxSource
 from .fourthwall.source import FourthwallSource
+from .framer.source import FramerSource
 from .fred.source import FredSource
 from .freeagent.source import FreeAgentSource
 from .freightview.source import FreightviewSource
