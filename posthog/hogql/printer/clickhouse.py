@@ -1014,7 +1014,9 @@ class ClickHousePrinter(BasePrinter):
 
         if (
             isinstance(table, PostgresTable)
-            and not isinstance(table, DANGEROUS_NoTeamIdCheckTable)
+            # mypy proves this intersection impossible from signatures, but subclasses of
+            # both exist at runtime (customer_analytics _AccountScopedPostgresTable).
+            and not isinstance(table, DANGEROUS_NoTeamIdCheckTable)  # type: ignore[unreachable]
             and "team_id" in table.fields
             and not table.get_predicates()
             and self.context.team_id is not None

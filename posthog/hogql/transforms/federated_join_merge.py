@@ -25,6 +25,7 @@ from typing import Literal
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
+from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.resolver import ResolverFactory, resolve_types
@@ -53,7 +54,7 @@ class _Candidate:
 def merge_federated_aggregate_joins(
     node: _T_AST,
     context: HogQLContext,
-    dialect: str,
+    dialect: HogQLDialect,
     stack: list[ast.SelectQuery] | None = None,
     resolver_factory: ResolverFactory | None = None,
 ) -> _T_AST:
@@ -185,7 +186,7 @@ def _pad_expr(kind: str) -> ast.Expr:
 def _merge_in_select(
     node: ast.SelectQuery,
     context: HogQLContext,
-    dialect: str,
+    dialect: HogQLDialect,
     resolver_factory: ResolverFactory | None,
 ) -> bool:
     if node.select_from is None or node.select_from.next_join is None or node.type is None:
@@ -271,7 +272,7 @@ def _merge_in_select(
     # recreate LazyJoinTypes for sibling lazy joins (e.g. warehouse tables) that
     # resolve_lazy_tables has already run for and won't expand again.
     merged_join = resolve_types(merged_join, context, dialect, [node.type], resolver_factory=resolver_factory)
-    if merged_join.type is None:
+    if not isinstance(merged_join.type, ast.SelectQueryAliasType):
         return False
 
     _splice_merged_join(node.select_from, candidates, merged_join)
@@ -299,7 +300,7 @@ def _splice_merged_join(select_from: ast.JoinExpr, candidates: list[_Candidate],
 class _AliasRewriter(TraversingVisitor):
     """Repoint outer references from the merged joins' aliases to the combined alias."""
 
-    def __init__(self, aliases: set[str], merged_type: ast.Type, skip: ast.SelectQuery) -> None:
+    def __init__(self, aliases: set[str], merged_type: ast.SelectQueryAliasType, skip: ast.SelectQuery) -> None:
         super().__init__()
         self.aliases = aliases
         self.merged_type = merged_type
