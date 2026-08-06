@@ -105,10 +105,11 @@ def publish(paths: Sequence[Path], *, message: str) -> list[str]:
             "no GitHub token found. Set GH_TOKEN or GITHUB_TOKEN, or install gh "
             "(https://cli.github.com/) and run `gh auth login`."
         )
-    keys = [make_key(path.suffix.lower().lstrip(".")) for path in paths]
-    additions = [{"path": key, "contents": _encode_base64(path)} for key, path in zip(keys, paths, strict=True)]
+    additions = [
+        {"path": make_key(path.suffix.lower().lstrip(".")), "contents": _encode_base64(path)} for path in paths
+    ]
     oid = _commit(requests.Session(), token, additions, message)
-    return [f"https://raw.githubusercontent.com/{REPO}/{oid}/{key}" for key in keys]
+    return [f"https://raw.githubusercontent.com/{REPO}/{oid}/{addition['path']}" for addition in additions]
 
 
 def _encode_base64(path: Path) -> str:
