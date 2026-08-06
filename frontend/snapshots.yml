@@ -5907,25 +5907,25 @@ snapshots:
     scenes-app-experiments--draft-experiment--light:
         hash: v1.k794b7964.74192966b20280489fdc67329370f7c5b675e67a8e18512b61ac71e6c982c0f7.NrgEIHQRT87ytfEBzJVtAVuW3Wn06aWA8erEOgDlmpE
     scenes-app-experiments--experiment-asymmetric-intervals--dark:
-        hash: v1.k794b7964.5467f631734e8f360299aa3d5e4a8da5d7ecc2dbe47a5d0727ddfb0dbc9e7ce6.ZGcS-wnQsOO1G4M5I_hw9Aba6YZ1hKpvya9gfWsZvCs
+        hash: v1.k794b7964.49105844a48e3c23386a1bea3720b6a2e4722f6d49afb4125c38351e132a53eb.ljI08w6HZnct_K7roF_S_nuqQ-MA6ChK2Tca7dh9hsI
     scenes-app-experiments--experiment-asymmetric-intervals--light:
         hash: v1.k794b7964.b2bc93939d938d962fbd42530c5c06ea637feef8192291232d4726aed5805cb4.Hl0K2n_pRnLrochHVl4MEGZG6PcHg72tGPuBxwQc9J8
     scenes-app-experiments--experiment-exposures-expanded--dark:
-        hash: v1.k794b7964.56095d76684633d164b2bd7f3e3da2aefefba1272f2818e3c8f2e4d1bff595c7.jIZ5N9SItEnQIRj-axX2BfRM21O5JSz_MSSH3JyLAd4
+        hash: v1.k794b7964.268a400ea2d747cba63eb6270af752f62080036c7cb16b2f7470794ba91d2253.h20Em9fXRb9O71IYCdZV5l5m4fxF8NfPgiMIl2yvkYM
     scenes-app-experiments--experiment-exposures-expanded--light:
-        hash: v1.k794b7964.724a28250f085bea69008b564ca8266298b8f927f6231d8c3ee40571356c99b5.hX_fvUeWfYI85mX0qLAi3WWzB-bHfef61kIPRKsrw8U
+        hash: v1.k794b7964.ba7d43c183d3d97f0f4056b4293ef15d323c56be131957881cae031d5c654fa9.QfVezRYgy-vWVpeyh5JBZ4B7diInR6UsdbNEMfaB3Ik
     scenes-app-experiments--experiment-frequentist-five-variants--dark:
-        hash: v1.k794b7964.e8a5b05a1e2fac506182f04dd0fb26649c927ca30a0166fd6dedefc6db83a3e7.bpIufNF51-pPDeWrq6e-Hu3o6Au6R9QlRzAUNeOcYgE
+        hash: v1.k794b7964.64907f2bf773632ae842870dd967079496c161171ca264af1d4e00e4e5c1195f.7yK2Tx9IC-ddtEvHbF__sgBr9ivvBShPMx7VUiyT2H8
     scenes-app-experiments--experiment-frequentist-five-variants--light:
-        hash: v1.k794b7964.ca65930ed4fba58aa886be84c0489a0702ef118abac3516ed530db42a772ad71.fp95LwvCUvwV1spa0Back9q7nUlZVypBoc4UMXJh9qc
+        hash: v1.k794b7964.f478981f562a501e410ad9dcdcbdd71d073a180997aab12894e41512932b1d2f.h8YEuihISGANeWkHFNbbJMm1TtmMLzXRPRLq3twoCD8
     scenes-app-experiments--experiment-frequentist-two-variants--dark:
-        hash: v1.k794b7964.045c33562841fedac0650c2b70ad4fda3b5bac5a2f43fc01310759ba3347a24f.ZwvpM3E6g3mcUx0ZrbltZHnAWoaSX7wlgu79kfGkRb8
+        hash: v1.k794b7964.bb18212dddff7df860cbea51f78d888106dcd91d28a43c72942f4377582b2f9e.m9EZYBw6L48FQNPBH9ilA5oAyaXj1uCwARaznfavowk
     scenes-app-experiments--experiment-frequentist-two-variants--light:
-        hash: v1.k794b7964.78c1d7249257f5c718f08f0891a67457acd2dd9db209f029e07e6b40032bc0f2.1OlEHxGwB9WRLVeWyifax0PiHjsUA46RUx0np37kSjM
+        hash: v1.k794b7964.f92ae3b1acfa8fc4f98babb18e7c944e30b5749400dd382d43fa702b1bc0727b.v7qRnZU8furIdj048Ap7rBb0QbVoNS88_de-FqorlF8
     scenes-app-experiments--experiment-with-funnel-metric--dark:
         hash: v1.k794b7964.96b1395012157c8db6f8b7c202fde3bc61fe5eac1ffc69e94e6aa7555d7aa761.Li7ufJd8K-fsREg0jONxzGhDJuDnuWcatmvY5cvdJRI
     scenes-app-experiments--experiment-with-funnel-metric--light:
-        hash: v1.k794b7964.8c14414398b3c6b47e0968adeea6d040b7a48c8f7f72d15bcd33392a005ca439.0tOTaEYTCs0PMiFDlR1l4QI6xLkEBXJE6o_kYkPV1BI
+        hash: v1.k794b7964.251dc04d7466461679393d7cad275a9afb66b3d3b562c86078e25db37349150e.laYWvinsU-fNhfqh4ZAewzsgi6u563HDsMVraFRbXMw
     scenes-app-experiments--experiment-with-legacy-funnels-query--dark:
         hash: v1.k794b7964.6503cdfd33ae5f9d525d14dc8d43b047e8469beca7e5e489534347904efe1dec.2CtGz-wQvIwr_SQDthwlGJI5bVcJ7bFpetJricY-Lps
     scenes-app-experiments--experiment-with-legacy-funnels-query--light:
@@ -5939,13 +5939,13 @@ snapshots:
     scenes-app-experiments--experiment-with-mean-metric--light:
         hash: v1.k794b7964.2bd044c1fb951cc5280c8befc03b7534774e703e92aa268f228ab20bd2522411.AFij815dd9946fOpsJgW7T2G_FjYM3Njr7LJ87amVrQ
     scenes-app-experiments--experiment-with-multiple-metrics--dark:
-        hash: v1.k794b7964.1c6ec257ea31fe08adfd5f72270032c58fb9eea0c8a68409fb954152035a41ca.6PcGl1qAelTN8aq72lqgcYZw_sGKGunuXghGOUhkdVk
+        hash: v1.k794b7964.c2b2dfac0dcf77fefa7bfcd55ad0022ee6a8f461f3c03d74448bab270ba7dd7b.DgmRBGi8wUsgVlPWENMllouOKXKtCawcdVWsU6Srd5U
     scenes-app-experiments--experiment-with-multiple-metrics--light:
-        hash: v1.k794b7964.6b5d896de6354dd8b5f191d4fbb2b87d167a3f3cc93f62c62284a782ec430bc6.7-LXuxxEUV_5ZlG5tUbyAmm4K2yP4rMwOiTDpAZkeTU
+        hash: v1.k794b7964.bd0c9df6ac5649eb99e8fe4b2c4a3ecd5967e86390934fbcaa90d6a98298e62a.CaaUkkkx-ak0cHKyZjYvANiqHcEeRLVUfiYWbGBEGa0
     scenes-app-experiments--experiment-with-multiple-metrics-reordered--dark:
-        hash: v1.k794b7964.0aa35284172e036a686089dc570689700b128d0f606e100d0c8ae087cb712e93.aN_1UIRF5SlRbAPWl6PYs5zLUdQVQRB4CoKp5FXX0ww
+        hash: v1.k794b7964.bf78a31867b98f4d38802a891ff6806070a45a51f2cab47681dd0dbfd2c520bd.wua8m3TWJX-zNOg4_kEde_UoBl7SZ3qdtnPkIM_yTxk
     scenes-app-experiments--experiment-with-multiple-metrics-reordered--light:
-        hash: v1.k794b7964.0ca14c6de1840b81c5389bd9b544ec815c845027a909e002090ead17d6d82b45.aqoPvTeNXn14TqXpZO-ZxNgWLw4tzzHYaHrTib8pHbM
+        hash: v1.k794b7964.8a4ba7f6b3940090235189423acb5815d3950a5e7e6c04020d1eef1f90ac74f6.F5ZLNpXgvKczk05Mkzg_cN_KZgfsEZ-fs0Gnv9pYo0M
     scenes-app-experiments--experiment-with-ratio-metric--dark:
         hash: v1.k794b7964.f7d50e2c065ff1b918c01fae91091f1e6e7ac248a375529d04316a6e5a6ec521.0EZJzXkY1jfkXaoPiKnv3j5o8CNzqI0VBR8Wxs9JC0Y
     scenes-app-experiments--experiment-with-ratio-metric--light:
