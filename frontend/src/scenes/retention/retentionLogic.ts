@@ -36,6 +36,7 @@ import type {
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '../../queries/schema/schema-general'
+import type { PathsV2Query } from '../../queries/schema/schema-general'
 import type { QuerySourceUpdate } from '../insights/insightVizDataLogic'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
@@ -69,6 +70,7 @@ export interface retentionLogicValues {
         | FunnelsQuery
         | LifecycleQuery
         | PathsQuery
+        | PathsV2Query
         | RetentionQuery
         | StickinessQuery
         | TrendsQuery
@@ -167,12 +169,13 @@ export interface retentionLogicMeta {
             cohortsById: Partial<Record<number | string, CohortType>>
         ) => Record<string, string>
         getRetentionColorToken: (
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null, // insightVizDataLogic
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null,
             breakdownFilter: BreakdownFilter | null | undefined,
             querySource:
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
