@@ -1363,10 +1363,14 @@ impl PersonHogLeader for PersonHogLeaderService {
                     )),
                 };
                 self.commit_document(partition, &cache_key, death).await?;
-                // The death document closes the person's stream: drop the
-                // entry; a later read recovers the death record via the
-                // dirty mark and answers not-found.
-                self.cache.remove(partition, &cache_key);
+                // The death document stays in the cache (commit_document
+                // put it there): an is_deleted entry answers reads and
+                // writes with an authoritative not-found from memory, the
+                // same way a recovered death document does. Removing it
+                // would only re-derive it — the next attempt recovers the
+                // death record via the dirty mark and re-installs it — and
+                // once the mark is pruned every attempt would fall through
+                // to a PG read instead.
                 self.fences.remove(&cache_key);
                 counter!("personhog_leader_fences_total", "action" => "released_committed")
                     .increment(1);

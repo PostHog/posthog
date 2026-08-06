@@ -384,8 +384,20 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
         "death documents carry no properties"
     );
 
-    // The entry is evicted; the dirty mark recovers the death document from
-    // the changelog and reads answer an authoritative not-found.
+    // The death document stays cached, so reads answer an authoritative
+    // not-found from memory — no changelog recovery, no PG fallback.
+    match harness.cache.get(
+        partition,
+        &personhog_leader::cache::PersonCacheKey {
+            team_id: TEAM_ID,
+            person_id,
+        },
+    ) {
+        personhog_leader::cache::CacheLookup::Found(entry) => {
+            assert!(entry.is_deleted, "the cached entry is the death document")
+        }
+        _ => panic!("the death document must stay cached"),
+    }
     let status = harness
         .client
         .get_person(with_partition(
