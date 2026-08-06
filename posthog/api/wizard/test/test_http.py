@@ -651,6 +651,31 @@ class SetupWizardCloudRunTests(APIBaseTest):
     LIST_URL = "/api/wizard/repository_detections"
     KIND = "error-tracking-source-maps"
 
+    @patch("posthog.api.wizard.http.WIZARD_REPOSITORY_DETECTION_DAILY_ATTEMPT_CAP", 1)
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_repository_detection_run")
+    def test_detection_rejects_concurrent_scan_without_consuming_the_daily_budget(self, mock_create):
+        live_run = self._detection_run(self.team)
+        wizard_facade.record_wizard_repository_detection_run(
+            team_id=self.team.id,
+            repository="acme/app",
+            kind=self.KIND,
+            task_run_id=str(live_run.id),
+            created_by_id=self.user.id,
+        )
+
+        rejected = self.client.post(self.DETECTION_URL, data=self._detection_body(), format="json")
+        assert rejected.status_code == status.HTTP_409_CONFLICT
+        mock_create.assert_not_called()
+
+        # A terminal run frees the (repository, kind) slot, and the 409 above must not have
+        # charged the cap of 1.
+        apps.get_model("tasks", "TaskRun").objects.filter(id=live_run.id).update(status="completed")
+        mock_create.return_value = MagicMock(
+            task_id="task-uuid", latest_run=MagicMock(id=str(uuid4()), status="queued")
+        )
+        accepted = self.client.post(self.DETECTION_URL, data=self._detection_body(), format="json")
+        assert accepted.status_code == status.HTTP_200_OK, accepted.content
+
     @patch("posthog.api.wizard.http.tasks_facade.create_wizard_repository_detection_run")
     def test_detection_trigger_stamps_the_row_and_keeps_the_previous_report(self, mock_create):
         run_1, run_2 = str(uuid4()), str(uuid4())
@@ -713,6 +738,9 @@ class SetupWizardCloudRunTests(APIBaseTest):
                     task_run_id=None,
                 )
             )
+
+        # Query-serializer wiring guard: a missing project_id must 400, not 500 or leak.
+        assert self.client.get(self.LIST_URL).status_code == status.HTTP_400_BAD_REQUEST
 
         response = self.client.get(self.LIST_URL, {"project_id": self.team.id})
         assert response.status_code == status.HTTP_200_OK, response.content

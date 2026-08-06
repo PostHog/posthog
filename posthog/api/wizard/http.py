@@ -10,7 +10,7 @@ from django.core.cache import cache
 from django.utils.crypto import get_random_string
 
 import posthoganalytics
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from google.genai.types import GenerateContentConfig, Schema
 from openai.types.chat import (
     ChatCompletionMessageParam,
@@ -20,13 +20,14 @@ from openai.types.chat import (
 from posthoganalytics.ai.gemini import genai
 from posthoganalytics.ai.openai import OpenAI
 from prometheus_client import Counter
-from rest_framework import exceptions, response, serializers, viewsets
+from rest_framework import exceptions, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.mixins import validated_request
 from posthog.api.wizard.utils import json_schema_to_gemini_schema
 from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.cloud_utils import get_api_host
@@ -65,6 +66,14 @@ WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP = 15
 # The only limit on detection scans, on its own counter: every attempt counts regardless of
 # outcome, and a user scanning several repositories must not exhaust their onboarding budget.
 WIZARD_REPOSITORY_DETECTION_DAILY_ATTEMPT_CAP = 30
+
+# A run in one of these states still occupies its (repository, kind) scan slot; a failed,
+# cancelled, or completed run frees it.
+_LIVE_TASK_RUN_STATUSES = (
+    tasks_facade.TaskRunStatus.NOT_STARTED,
+    tasks_facade.TaskRunStatus.QUEUED,
+    tasks_facade.TaskRunStatus.IN_PROGRESS,
+)
 
 WIZARD_CLOUD_RUN_REQUESTS_TOTAL = Counter(
     "posthog_wizard_cloud_run_requests_total",
@@ -217,6 +226,16 @@ class SetupWizardRepositoryDetectionStatusSerializer(serializers.Serializer):
         help_text="{type, message} describing the last failed scan. Null when the last scan succeeded.",
     )
     updated_at = serializers.DateTimeField(help_text="When this row last changed (trigger or completion).")
+
+
+class SetupWizardRepositoryDetectionListQuerySerializer(serializers.Serializer):
+    project_id = serializers.IntegerField(
+        help_text="ID of the PostHog project whose detections to list. The authenticated user must have access to it."
+    )
+    kind = serializers.CharField(
+        required=False,
+        help_text="Filter to a single detection flavor, e.g. 'error-tracking-source-maps'.",
+    )
 
 
 class SetupWizardViewSet(viewsets.ViewSet):
@@ -638,7 +657,10 @@ class SetupWizardViewSet(viewsets.ViewSet):
 
     @extend_schema(
         request=SetupWizardRepositoryDetectionSerializer,
-        responses={200: SetupWizardRepositoryDetectionResponseSerializer},
+        responses={
+            200: SetupWizardRepositoryDetectionResponseSerializer,
+            409: OpenApiResponse(description="A scan for this repository and kind is already running."),
+        },
     )
     @action(
         methods=["POST"],
@@ -654,7 +676,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
         program the kind selects. The wizard posts the resulting report to the wizard product's
         repository-detections API under the same kind; the app reads it from there later. No
         agent runs and no pull request is opened. Bounded by a daily per-user attempt cap,
-        separate from the cloud wizard run's budget.
+        separate from the cloud wizard run's budget. One scan per (repository, kind) at a
+        time: a trigger while the previous scan is still running returns 409.
         """
         if not bool(settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID):
             raise exceptions.NotFound("Running the setup wizard in the cloud is not available.")
@@ -662,6 +685,21 @@ class SetupWizardViewSet(viewsets.ViewSet):
         serializer = SetupWizardRepositoryDetectionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         project = self._resolve_visible_project(request, serializer.validated_data["project_id"])
+        team_id = project.passthrough_team.pk
+        repository = serializer.validated_data["repository"]
+        kind = serializer.validated_data["kind"]
+
+        # One scan per (repository, kind) at a time: overlapping scans race their completion
+        # posts, so the older scan could overwrite the newer stamp with stale results. Checked
+        # before the attempt reservation so a rejected trigger never charges the daily budget.
+        existing = wizard_facade.get_wizard_repository_detection(team_id, repository, kind)
+        if existing is not None and existing.task_run_id is not None:
+            run_status = tasks_facade.task_run_statuses(team_id, [existing.task_run_id]).get(existing.task_run_id)
+            if run_status in _LIVE_TASK_RUN_STATUSES:
+                return Response(
+                    {"detail": "A scan for this repository is already running. Wait for it to finish."},
+                    status=status.HTTP_409_CONFLICT,
+                )
 
         self._reserve_wizard_repository_detection_attempt(cast(User, request.user).id)
 
@@ -669,8 +707,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
             result = tasks_facade.create_wizard_repository_detection_run(
                 team=project.passthrough_team,
                 user_id=cast(User, request.user).id,
-                repository=serializer.validated_data["repository"],
-                kind=serializer.validated_data["kind"],
+                repository=repository,
+                kind=kind,
             )
         except ValueError as e:
             # e.g. unknown kind, or no GitHub integration with access to the repository.
@@ -682,9 +720,9 @@ class SetupWizardViewSet(viewsets.ViewSet):
             # scan that is already dispatched.
             try:
                 wizard_facade.record_wizard_repository_detection_run(
-                    team_id=project.passthrough_team.pk,
-                    repository=serializer.validated_data["repository"],
-                    kind=serializer.validated_data["kind"],
+                    team_id=team_id,
+                    repository=repository,
+                    kind=kind,
                     task_run_id=str(latest_run.id),
                     created_by_id=cast(User, request.user).id,
                 )
@@ -699,24 +737,14 @@ class SetupWizardViewSet(viewsets.ViewSet):
             }
         )
 
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                name="project_id",
-                required=True,
-                type=int,
-                location=OpenApiParameter.QUERY,
-                description="ID of the PostHog project whose detections to list. The authenticated user must have access to it.",
-            ),
-            OpenApiParameter(
-                name="kind",
-                required=False,
-                type=str,
-                location=OpenApiParameter.QUERY,
-                description="Filter to a single detection flavor, e.g. 'error-tracking-source-maps'.",
-            ),
-        ],
-        responses={200: SetupWizardRepositoryDetectionStatusSerializer(many=True)},
+    @validated_request(
+        query_serializer=SetupWizardRepositoryDetectionListQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=SetupWizardRepositoryDetectionStatusSerializer(many=True),
+                description="The project's detection rows with live run statuses.",
+            )
+        },
     )
     @action(
         methods=["GET"],
@@ -733,19 +761,11 @@ class SetupWizardViewSet(viewsets.ViewSet):
         scan, so the app can show both the previous result and whether a rescan is running.
         Rows also exist for scans the wizard ran locally; those carry no run to track.
         """
-        raw_project_id = request.query_params.get("project_id")
-        try:
-            project_id = int(raw_project_id) if raw_project_id is not None else None
-        except (TypeError, ValueError):
-            project_id = None
-        if project_id is None:
-            raise exceptions.ValidationError({"project_id": ["A valid integer is required."]})
-        project = self._resolve_visible_project(request, project_id)
+        query = request.validated_query_data
+        project = self._resolve_visible_project(request, query["project_id"])
         team_id = project.passthrough_team.pk
 
-        detections = wizard_facade.list_wizard_repository_detections(
-            team_id, kind=request.query_params.get("kind") or None
-        )
+        detections = wizard_facade.list_wizard_repository_detections(team_id, kind=query.get("kind") or None)
         statuses = tasks_facade.task_run_statuses(
             team_id, [detection.task_run_id for detection in detections if detection.task_run_id]
         )

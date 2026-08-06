@@ -59,6 +59,12 @@ def record_wizard_repository_detection_run(
     return _to_dto(instance)
 
 
+def get_wizard_repository_detection(team_id: int, repository: str, kind: str) -> WizardRepositoryDetectionDTO | None:
+    """The (repository, kind) row, or None. `for_team` because callers run outside ambient team scope."""
+    instance = WizardRepositoryDetection.objects.for_team(team_id).filter(repository=repository, kind=kind).first()
+    return _to_dto(instance) if instance is not None else None
+
+
 def list_wizard_repository_detections(
     team_id: int, *, kind: str | None = None, limit: int = 200
 ) -> list[WizardRepositoryDetectionDTO]:
