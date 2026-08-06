@@ -186,8 +186,10 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         assert all(not comment["content_truncated"] for comment in detail.json()["comments"])
         assert all(comment["content_next_offset"] is None for comment in detail.json()["comments"])
         assert detail.json()["comments"][0]["anchor"] == {
+            "end": 16,
             "kind": "text",
             "quote": "important output",
+            "start": 0,
         }
         assert detail.json()["comments"][0]["canvas_version_id"] == "version-2"
         assert detail.json()["next"] is None

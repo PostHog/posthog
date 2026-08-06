@@ -319,7 +319,9 @@ class CommentSerializer(serializers.ModelSerializer):
         if source_comment is not None:
             if source_comment.team_id != self.context["team_id"]:
                 raise exceptions.ValidationError({"source_comment": "Comment not found."})
-            if source_comment.scope != scope:
+            if source_comment.scope != scope and (
+                source_comment.scope in TICKET_COMMENT_SCOPES or scope in TICKET_COMMENT_SCOPES
+            ):
                 raise exceptions.ValidationError(
                     {"scope": "A reply must use the same scope as the comment it replies to."}
                 )
