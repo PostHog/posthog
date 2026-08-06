@@ -69,7 +69,7 @@ export function BannerRow({
   };
 
   return (
-    <div className="no-drag shrink-0 px-2 py-2">
+    <div className="no-drag shrink-0 px-2 pt-2 pb-1">
       <div className="flex w-full items-center gap-2.5 rounded-md border border-(--accent-6) bg-(--accent-3) px-3 py-2 text-(--accent-11) text-[13px]">
         <MegaphoneIcon size={16} weight="duotone" className="shrink-0" />
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
