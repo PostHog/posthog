@@ -1,21 +1,11 @@
-import json
-import time
-from dataclasses import dataclass
-from typing import Any, Optional
-
-from django.conf import settings
-
-from posthog.schema import AccountsQuery, AccountsQueryResponse, CachedAccountsQueryResponse, HogQLQueryResponse
+from posthog.schema import AccountsQuery, AccountsQueryResponse, CachedAccountsQueryResponse
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.errors import BaseHogQLError, ExposedHogQLError
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
-from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
+from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
@@ -32,27 +22,6 @@ DEFAULT_ORDER_BY = "created_at DESC"
 # CPU; the cluster's effective thread cap keeps those branches from running wide, so ask
 # for enough threads that the scans overlap.
 QUERY_SETTINGS = HogQLGlobalSettings(max_threads=16)
-
-
-@dataclass(frozen=True, kw_only=True)
-class _CompiledQuery:
-    expires_at: float
-    sql: str
-    values: dict[str, Any]
-    workload: Optional[Workload]
-    hogql: str
-
-
-# Compiled-SQL cache: HogQL compilation (two prepare passes, database build, lazy-join
-# resolution) costs ~45ms and is fully determined by the cache key below, so repeated
-# list views skip it. Results are NOT cached — every request executes the SQL against
-# ClickHouse. The TTL bounds staleness from out-of-key schema changes (a warehouse table
-# or join edited mid-window); the key covers everything else that shapes the SQL: the
-# full query model, team, user (access control guards print per user), timezone, and
-# modifiers. Disabled under TEST so tests always exercise fresh compilation.
-_COMPILED_CACHE: dict[str, _CompiledQuery] = {}
-_COMPILED_CACHE_TTL_SECONDS = 120
-_COMPILED_CACHE_MAX_ENTRIES = 256
 
 
 def _normalize_order_clause(raw: str) -> str:
@@ -228,7 +197,15 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
                 offset=self.query.offset or 0,
             )
 
-        response = self._execute_list_query()
+        response = self.paginator.execute_hogql_query(
+            query_type="AccountsQuery",
+            query=self.to_query(),
+            team=self.team,
+            user=self.user,
+            timings=self.timings,
+            modifiers=self.modifiers,
+            settings=QUERY_SETTINGS,
+        )
 
         name_index = self.columns.index(NAME_COLUMN)
         results = [
@@ -249,78 +226,6 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             timings=response.timings,
             modifiers=self.modifiers,
             **self.paginator.response_params(),
-        )
-
-    def _execute_list_query(self) -> HogQLQueryResponse:
-        cache_key = self._compiled_cache_key()
-        compiled = None if cache_key is None else _COMPILED_CACHE.get(cache_key)
-        if compiled is not None and compiled.expires_at > time.monotonic():
-            response = self._execute_compiled(compiled)
-        else:
-            response = self._compile_and_execute(cache_key)
-        # What paginator.execute_hogql_query would have done with the response.
-        self.paginator.response = response
-        self.paginator.results = self.paginator.trim_results()
-        return response
-
-    def _compiled_cache_key(self) -> str | None:
-        if settings.TEST:
-            return None
-        return json.dumps(
-            [
-                self.team.pk,
-                self.user.pk if self.user else None,
-                self.query.model_dump_json(),
-                self.modifiers.model_dump_json() if self.modifiers else None,
-                str(self.limit_context),
-                self.team.timezone,
-                self.paginator.limit,
-                self.paginator.offset,
-            ]
-        )
-
-    def _compile_and_execute(self, cache_key: str | None) -> HogQLQueryResponse:
-        executor = HogQLQueryExecutor(
-            query=self.paginator.paginate(self.to_query()),
-            team=self.team,
-            query_type="AccountsQuery",
-            user=self.user,
-            timings=self.timings,
-            modifiers=self.modifiers,
-            settings=QUERY_SETTINGS,
-            limit_context=self.limit_context,
-        )
-        response = executor.execute()
-        if cache_key is not None and executor.clickhouse_sql and executor.clickhouse_context is not None:
-            if len(_COMPILED_CACHE) >= _COMPILED_CACHE_MAX_ENTRIES:
-                _COMPILED_CACHE.clear()
-            _COMPILED_CACHE[cache_key] = _CompiledQuery(
-                expires_at=time.monotonic() + _COMPILED_CACHE_TTL_SECONDS,
-                sql=executor.clickhouse_sql,
-                values=dict(executor.clickhouse_context.values),
-                workload=executor.clickhouse_context.workload,
-                hogql=executor.hogql or "",
-            )
-        return response
-
-    def _execute_compiled(self, compiled: _CompiledQuery) -> HogQLQueryResponse:
-        tag_queries(team_id=self.team.pk, query_type="AccountsQuery")
-        with self.timings.measure("clickhouse_execute_compiled"):
-            results, types = sync_execute(
-                compiled.sql,
-                compiled.values,
-                with_column_types=True,
-                workload=compiled.workload or Workload.DEFAULT,
-                team_id=self.team.pk,
-                readonly=True,
-            )
-        return HogQLQueryResponse(
-            results=results,
-            types=types,
-            hogql=compiled.hogql,
-            clickhouse=compiled.sql,
-            timings=self.timings.to_list(),
-            modifiers=self.modifiers,
         )
 
     def _compute_metrics_results(self, metrics: list[str]) -> list[float | int | None]:
