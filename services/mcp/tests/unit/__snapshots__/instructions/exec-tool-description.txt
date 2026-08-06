@@ -1,6 +1,6 @@
 ### Using the `posthog` tool
 
-PostHog: dashboards, insights, funnels, SQL, experiments, surveys, replay, error tracking, flags.
+PostHog makes your product self-driving — it reads your product's data and ships changes with you, never without you. This tool surface spans analytics (insights, funnels, SQL), dashboards, experiments, feature flags, surveys, session replay, error tracking, and more.
 
 Pass CLI-style commands in the `command` parameter for all PostHog interactions.
 
