@@ -50,6 +50,10 @@ PRIORITY_INSIGHTS_COUNTER = Counter(
 LAST_VIEWED_THRESHOLD = timedelta(days=7)
 SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD = timedelta(days=3)
 
+# Upper bound on insights re-warmed after a settings change, mirroring the per-run limit warming
+# already applies in get_stale_insights.
+SETTINGS_CHANGE_WARMING_LIMIT = 500
+
 # ClickHouse capacity/concurrency errors that should retry with backoff rather than fail the task.
 # ClickHouseAtCapacity is included via CH_TRANSIENT_ERRORS (it's what codes 202/439 surface as).
 RETRIABLE_WARMING_ERRORS = (*CH_TRANSIENT_ERRORS, ConcurrencyLimitExceeded)
@@ -140,6 +144,80 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
         .values_list("insight_id", "dashboard_id")
     )
     yield from dashboard_tiles
+
+
+def insights_to_rewarm_after_settings_change(team: Team) -> Generator[tuple[int, Optional[int]]]:
+    """Recently-viewed insights and dashboard tiles for a team, seeded from view/access times rather
+    than the freshness index.
+
+    A timezone or week-start change rewrites every insight cache key. The freshness index is keyed by
+    insight/dashboard, not by cache key, so it keeps reporting the old entries as fresh even though the
+    new key is empty — meaning the index-based path (insights_to_keep_fresh) would skip exactly the
+    insights that just lost their cache. Enumerating from recent activity instead is what lets warming
+    recompute those orphaned results.
+    """
+    threshold = datetime.now(UTC) - LAST_VIEWED_THRESHOLD
+    seen = 0
+
+    single_insights = (
+        team.insight_set.filter(insightviewed__last_viewed_at__gte=threshold, deleted=False)
+        .distinct()
+        .values_list("id", flat=True)
+    )
+    for insight_id in single_insights:
+        yield insight_id, None
+        seen += 1
+        if seen >= SETTINGS_CHANGE_WARMING_LIMIT:
+            return
+
+    dashboard_tiles = (
+        DashboardTile.objects.filter(
+            dashboard__team=team,
+            dashboard__last_accessed_at__gte=threshold,
+            insight__isnull=False,
+            deleted=False,
+        )
+        .exclude(insight__deleted=True)
+        .distinct()
+        .values_list("insight_id", "dashboard_id")
+    )
+    for insight_id, dashboard_id in dashboard_tiles:
+        yield insight_id, dashboard_id
+        seen += 1
+        if seen >= SETTINGS_CHANGE_WARMING_LIMIT:
+            return
+
+
+@shared_task(ignore_result=True, expires=60 * 15)
+@skip_team_scope_audit
+def schedule_warming_for_team_task(team_id: int):
+    """Re-warm a single team's cached insights after a change that rewrites every insight cache key
+    (project timezone or week start day).
+
+    Runs the same per-insight warming path used hourly, so the settings save absorbs the recompute
+    instead of the next person to open a dashboard hitting a cold, orphaned cache.
+    """
+    from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
+
+    kill_switch_level = get_kill_switch_level()
+    if kill_switch_level != KillSwitchLevel.OFF:
+        logger.info("kill_switch_on_skipping_cache_warming", level=kill_switch_level)
+        return
+
+    team = Team.objects.filter(pk=team_id).first()
+    if team is None:
+        return
+
+    insight_tuples = list(insights_to_rewarm_after_settings_change(team))
+    if not insight_tuples:
+        return
+
+    # Use a fixed expiration time since tasks in the chain are executed sequentially
+    expire_after = datetime.now(UTC) + timedelta(minutes=50)
+
+    # Chain the warm tasks so a single team's queries run sequentially rather than all at once,
+    # matching schedule_warming_for_teams_task and keeping ClickHouse load bounded.
+    chain(*(warm_insight_cache_task.si(*insight_tuple).set(expires=expire_after) for insight_tuple in insight_tuples))()
 
 
 @shared_task(ignore_result=True, expires=60 * 15)

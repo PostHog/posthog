@@ -281,6 +281,36 @@ def team_api_test_factory():
                 ]
             )
 
+        @patch("posthog.api.team.schedule_warming_for_team_task.delay")
+        def test_changing_timezone_triggers_cache_rewarm(self, mock_rewarm: MagicMock):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.patch("/api/environments/@current/", {"timezone": "Europe/Lisbon"})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            mock_rewarm.assert_called_once_with(self.team.pk)
+
+        @patch("posthog.api.team.schedule_warming_for_team_task.delay")
+        def test_changing_week_start_day_triggers_cache_rewarm(self, mock_rewarm: MagicMock):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.patch("/api/environments/@current/", {"week_start_day": 1})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            mock_rewarm.assert_called_once_with(self.team.pk)
+
+        @patch("posthog.api.team.schedule_warming_for_team_task.delay")
+        def test_unrelated_setting_change_does_not_trigger_cache_rewarm(self, mock_rewarm: MagicMock):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.patch(
+                    "/api/environments/@current/", {"test_account_filters_default_checked": "true"}
+                )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            mock_rewarm.assert_not_called()
+
+        @patch("posthog.api.team.schedule_warming_for_team_task.delay")
+        def test_setting_timezone_to_same_value_does_not_trigger_cache_rewarm(self, mock_rewarm: MagicMock):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.patch("/api/environments/@current/", {"timezone": self.team.timezone})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            mock_rewarm.assert_not_called()
+
         def test_update_test_filter_default_checked(self):
             response = self.client.patch(
                 "/api/environments/@current/", {"test_account_filters_default_checked": "true"}

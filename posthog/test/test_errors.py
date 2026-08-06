@@ -2,6 +2,7 @@ from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
 from posthog.errors import (
+    QUERY_TOO_COMPLEX_MESSAGE,
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
@@ -54,6 +55,27 @@ class TestWrapClickhouseQueryError:
 
         assert isinstance(wrapped, ExposedCHQueryError)
         assert str(wrapped) == message
+
+    @parameterized.expand(
+        [
+            # These "query too complex/large" codes carried no user_safe copy, so they fell through to a
+            # raw ClickHouse internal string with no suggested next step. They now expose a fixed,
+            # actionable message and stay categorized as a performance error. Dropping user_safe again
+            # would revert both.
+            (161, "TOO_MANY_COLUMNS"),
+            (166, "TOO_MANY_TEMPORARY_NON_CONST_COLUMNS"),
+            (167, "TOO_DEEP_AST"),
+            (168, "TOO_BIG_AST"),
+        ]
+    )
+    def test_query_too_complex_codes_expose_actionable_message(self, code: int, name: str) -> None:
+        err = ServerException(f"DB::Exception: {name}: some internal detail. Stack trace:\nfoo", code=code)
+
+        wrapped = wrap_clickhouse_query_error(err)
+
+        assert isinstance(wrapped, ExposedCHQueryError)
+        assert str(wrapped) == QUERY_TOO_COMPLEX_MESSAGE
+        assert look_up_clickhouse_error_code_meta(err).get_category() == QueryErrorCategory.QUERY_PERFORMANCE_ERROR
 
     @parameterized.expand(
         [

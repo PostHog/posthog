@@ -84,6 +84,13 @@ def clickhouse_error_type(e: Exception) -> str:
 
 STORAGE_FILE_URI_PATTERN = re.compile(r"\(in file/uri ([^)]+)\)")
 
+QUERY_TOO_COMPLEX_MESSAGE = (
+    "This query has too many parts for us to run, usually because it spans too many columns, "
+    "breakdowns, or series. Try a shorter date range, fewer breakdowns or series, or narrower "
+    "filters, or see our docs for more ways to speed it up: "
+    "https://posthog.com/docs/product-analytics/troubleshooting#how-do-i-speed-up-my-insights-and-queries"
+)
+
 CORRUPTED_PARQUET_METADATA_MESSAGE = (
     "A Parquet file backing this table has corrupted or oversized metadata and can't be read. "
     "This usually means the file wasn't written correctly during import. Re-sync the source (or "
@@ -483,15 +490,29 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     160: ErrorCodeMeta(
         "TOO_SLOW", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR
     ),  # estimated execution time exceeds threshold
-    161: ErrorCodeMeta("TOO_MANY_COLUMNS", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR),
+    161: ErrorCodeMeta(
+        "TOO_MANY_COLUMNS",
+        user_safe=QUERY_TOO_COMPLEX_MESSAGE,
+        category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
+    ),
     162: ErrorCodeMeta("TOO_DEEP_SUBQUERIES", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR),
     164: ErrorCodeMeta("READONLY"),
     165: ErrorCodeMeta("TOO_MANY_TEMPORARY_COLUMNS", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR),
     166: ErrorCodeMeta(
-        "TOO_MANY_TEMPORARY_NON_CONST_COLUMNS", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR
+        "TOO_MANY_TEMPORARY_NON_CONST_COLUMNS",
+        user_safe=QUERY_TOO_COMPLEX_MESSAGE,
+        category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
     ),  # too many per-row intermediate columns during expression evaluation
-    167: ErrorCodeMeta("TOO_DEEP_AST", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR),
-    168: ErrorCodeMeta("TOO_BIG_AST", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR),
+    167: ErrorCodeMeta(
+        "TOO_DEEP_AST",
+        user_safe=QUERY_TOO_COMPLEX_MESSAGE,
+        category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
+    ),
+    168: ErrorCodeMeta(
+        "TOO_BIG_AST",
+        user_safe=QUERY_TOO_COMPLEX_MESSAGE,
+        category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
+    ),
     169: ErrorCodeMeta("BAD_TYPE_OF_FIELD"),
     170: ErrorCodeMeta("BAD_GET"),
     172: ErrorCodeMeta("CANNOT_CREATE_DIRECTORY"),

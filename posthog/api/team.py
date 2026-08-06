@@ -44,6 +44,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action, validate_authorized_url_wildcards
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.caching.warming import schedule_warming_for_team_task
 from posthog.constants import LOGS_RETENTION_FEATURES_BY_DAYS, AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
@@ -1827,6 +1828,17 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             before_update.get("conversations_settings"),
             updated_team,
         )
+
+        # Changing the project timezone or week start day rewrites every insight cache key, orphaning
+        # all cached results at once. Re-warm proactively so the settings save absorbs the recompute
+        # instead of the next person to open a dashboard hitting a cold cache full of query errors.
+        cache_key_settings_changed = any(
+            field in validated_data and before_update.get(field) != after_update.get(field)
+            for field in ("timezone", "week_start_day")
+        )
+        if cache_key_settings_changed:
+            team_id = instance.pk
+            transaction.on_commit(lambda: schedule_warming_for_team_task.delay(team_id))
 
         return updated_team
 

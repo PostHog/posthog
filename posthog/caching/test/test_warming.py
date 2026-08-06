@@ -3,7 +3,13 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from posthog.caching.warming import insights_to_keep_fresh, schedule_warming_for_teams_task, warm_insight_cache_task
+from posthog.caching.warming import (
+    insights_to_keep_fresh,
+    insights_to_rewarm_after_settings_change,
+    schedule_warming_for_team_task,
+    schedule_warming_for_teams_task,
+    warm_insight_cache_task,
+)
 from posthog.exceptions import ClickHouseAtCapacity
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -119,6 +125,15 @@ class TestWarming(APIBaseTest):
         ]
         self.assertEqual(insights, expected_results)
 
+    def test_insights_to_rewarm_after_settings_change_ignores_freshness_index(self):
+        # A timezone/week-start change orphans the cache but leaves the freshness index untouched, so a
+        # recently-warmed insight still looks fresh. This enumeration must come from recent view/access
+        # activity, not get_stale_insights — otherwise those orphaned-but-fresh insights are skipped.
+        # insight2 (viewed 2d ago) and insight5 (viewed 1d ago) are recent; insight4 (35d) is not.
+        # dashboard2 (accessed 5d ago) carries insight3; dashboard1 (10d) and dashboard3 (40d) are not.
+        insights = set(insights_to_rewarm_after_settings_change(self.team))
+        self.assertEqual(insights, {(2345, None), (5678, None), (3456, 7890)})
+
 
 class TestScheduleWarmingForTeamsTask(APIBaseTest):
     def setUp(self) -> None:
@@ -157,6 +172,26 @@ class TestScheduleWarmingForTeamsTask(APIBaseTest):
         self.assertEqual(mock_warm_insight_cache_task_si.call_args_list[0][0][0], "1234")
         self.assertEqual(mock_warm_insight_cache_task_si.call_args_list[0][0][1], "5678")
         self.assertEqual(mock_warm_insight_cache_task_si.call_args_list[1][0][0], "2345")
+
+    @patch("posthog.caching.warming.insights_to_rewarm_after_settings_change")
+    @patch("posthog.caching.warming.warm_insight_cache_task.si")
+    def test_schedule_warming_for_team_task_enqueues_each_insight(
+        self, mock_warm_insight_cache_task_si, mock_insights_to_rewarm
+    ):
+        mock_insights_to_rewarm.return_value = iter([(1234, 5678), (2345, None)])
+
+        schedule_warming_for_team_task(self.team1.pk)
+
+        mock_insights_to_rewarm.assert_called_once()
+        self.assertEqual(mock_warm_insight_cache_task_si.call_count, 2)
+        self.assertEqual(mock_warm_insight_cache_task_si.call_args_list[0][0], (1234, 5678))
+        self.assertEqual(mock_warm_insight_cache_task_si.call_args_list[1][0], (2345, None))
+
+    @patch("posthog.caching.warming.warm_insight_cache_task.si")
+    def test_schedule_warming_for_team_task_missing_team_is_noop(self, mock_warm_insight_cache_task_si):
+        schedule_warming_for_team_task(999_999_999)
+
+        mock_warm_insight_cache_task_si.assert_not_called()
 
 
 class TestWarmInsightCacheTask(APIBaseTest):
