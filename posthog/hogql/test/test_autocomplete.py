@@ -389,6 +389,38 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert suggestion.label == "created_at"
         assert suggestion.insertText == "created_at"
 
+    def test_autocomplete_ranks_functions_by_comparison_fit(self):
+        # Without ranking the function list is alphabetical, so `xor` and `varSamp` sit alongside
+        # `now` when the user is completing the right side of a timestamp comparison.
+        query = "select * from events where timestamp > "
+        results = self._select(query=query, start=len(query), end=len(query))
+
+        sort_text = {
+            suggestion.label: suggestion.sortText
+            for suggestion in results.suggestions
+            if suggestion.kind == AutocompleteCompletionItemKind.FUNCTION
+        }
+
+        assert sort_text["now"] is not None
+        assert sort_text["toDateTime"] is not None
+        assert sort_text["now"] < sort_text["xor"]
+        assert sort_text["toDateTime"] < sort_text["xor"]
+
+    def test_autocomplete_leaves_functions_unranked_without_an_expected_type(self):
+        # No comparison means no expectation, so ranking stays off and the editor keeps its own
+        # ordering. Guards against emitting a confident order we cannot justify.
+        query = "select  from events"
+        results = self._select(query=query, start=7, end=7)
+
+        functions = [
+            suggestion
+            for suggestion in results.suggestions
+            if suggestion.kind == AutocompleteCompletionItemKind.FUNCTION
+        ]
+
+        assert len(functions) > 0
+        assert all(suggestion.sortText is None for suggestion in functions)
+
     def test_autocomplete_details_carry_nullability(self):
         # Completions read the structured runtime type, so a nullable column is visibly nullable in
         # the editor. Reverting to a DatabaseField isinstance ladder flattens `Nullable(Boolean)` to

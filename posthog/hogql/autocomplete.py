@@ -1,6 +1,7 @@
 import json
 from collections.abc import Callable
 from copy import deepcopy
+from functools import lru_cache
 from typing import Optional, cast
 
 from django.db import models
@@ -37,12 +38,18 @@ from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPers
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.filters import replace_filters
-from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES
+from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES, find_hogql_aggregation, find_hogql_function
 from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
 from posthog.hogql.resolver import resolve_types, resolve_types_from_table
 from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql.type_system import runtime_type_from_constant_type, runtime_type_from_database_field
+from posthog.hogql.type_system import (
+    ComparisonCompatibility,
+    comparison_compatibility,
+    infer_function_return_type,
+    runtime_type_from_constant_type,
+    runtime_type_from_database_field,
+)
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.exceptions_capture import capture_exception
@@ -100,8 +107,75 @@ def get_direct_table_function_names(context: HogQLContext) -> list[str]:
     return sorted({name for name in available_table_functions if isinstance(name, str)})
 
 
+# Ranking buckets for function suggestions, lowest sorts first. Monaco orders by `sortText`, so the
+# prefix decides position and the name breaks ties within a bucket.
+_FUNCTION_RANK_BY_COMPATIBILITY: dict[ComparisonCompatibility, str] = {
+    ComparisonCompatibility.DEFINITELY_COMPATIBLE: "0",
+    ComparisonCompatibility.CHEAP_CAST: "1",
+    ComparisonCompatibility.UNKNOWN: "2",
+    ComparisonCompatibility.EXPENSIVE_CAST: "3",
+    ComparisonCompatibility.INCOMPATIBLE: "4",
+}
+_UNRANKED_FUNCTION_PREFIX = "2"
+
+
+@lru_cache(maxsize=2048)
+def _declared_function_return_type(function_name: str) -> ast.ConstantType | None:
+    """The return type a function declares before its arguments are known.
+
+    Completion runs before the user types any arguments, so ask for inference over unknown
+    arguments. Functions whose return type depends on those arguments answer UnknownType, which
+    ranks in the middle rather than being pushed down.
+    """
+    meta = find_hogql_function(function_name) or find_hogql_aggregation(function_name)
+    if meta is None:
+        return None
+    arg_types: list[ast.ConstantType] = [ast.UnknownType(nullable=False) for _ in range(meta.min_args or 0)]
+    try:
+        return infer_function_return_type(function_name, arg_types, meta=meta).return_type
+    except Exception:
+        return None
+
+
+def expected_type_at_position(
+    node: Optional[AST], parent_node: Optional[AST], table: Table, context: HogQLContext
+) -> ast.ConstantType | None:
+    """The type the expression under the cursor is being compared against, when there is one.
+
+    Only handles a comparison with a resolvable other side, which is where a type expectation is
+    unambiguous. Everything else returns None and leaves suggestions unranked.
+    """
+    if not isinstance(parent_node, ast.CompareOperation):
+        return None
+    other_side = parent_node.left if parent_node.right is node else parent_node.right
+    if other_side is node:
+        return None
+    try:
+        table_chain = table.to_printed_hogql().replace("`", "").split(".")
+        resolved = resolve_types_from_table(other_side, table_chain, context, "hogql")
+        if resolved.type is None:
+            return None
+        return resolved.type.resolve_constant_type(context)
+    except Exception:
+        # A half-typed comparison often will not resolve. Ranking is an enhancement, so fall back
+        # to the unranked list rather than failing the completion request.
+        return None
+
+
+def _function_sort_text(function_name: str, expected_type: ast.ConstantType) -> str:
+    return_type = _declared_function_return_type(function_name)
+    if return_type is None:
+        return f"{_UNRANKED_FUNCTION_PREFIX}-{function_name}"
+    compatibility = comparison_compatibility(expected_type, return_type)
+    return f"{_FUNCTION_RANK_BY_COMPATIBILITY[compatibility]}-{function_name}"
+
+
 def append_function_suggestions(
-    suggestions: list[AutocompleteCompletionItem], language: str, context: HogQLContext, prefix: str = ""
+    suggestions: list[AutocompleteCompletionItem],
+    language: str,
+    context: HogQLContext,
+    prefix: str = "",
+    expected_type: ast.ConstantType | None = None,
 ) -> None:
     available_functions = get_available_functions(language, context)
     if prefix:
@@ -112,11 +186,16 @@ def append_function_suggestions(
             if function_name.lower().startswith(normalized_prefix)
         ]
 
+    sort_texts: Optional[list[str]] = None
+    if expected_type is not None:
+        sort_texts = [_function_sort_text(function_name, expected_type) for function_name in available_functions]
+
     extend_responses(
         available_functions,
         suggestions,
         AutocompleteCompletionItemKind.FUNCTION,
         insert_text=lambda key: f"{key}()",
+        sort_texts=sort_texts,
     )
 
 
@@ -355,7 +434,12 @@ def resolve_table_field_traversers(table: Table, context: HogQLContext) -> Table
 
 
 def append_table_field_to_response(
-    table: Table, suggestions: list[AutocompleteCompletionItem], language: str, context: HogQLContext
+    table: Table,
+    suggestions: list[AutocompleteCompletionItem],
+    language: str,
+    context: HogQLContext,
+    node: Optional[AST] = None,
+    parent_node: Optional[AST] = None,
 ) -> None:
     keys: list[str] = []
     details: list[str | None] = []
@@ -375,7 +459,12 @@ def append_table_field_to_response(
         insert_text=lambda key: f"`{key}`" if any(n in key for n in HOGQL_CHARACTERS_TO_BE_WRAPPED) else key,
     )
 
-    append_function_suggestions(suggestions=suggestions, language=language, context=context)
+    append_function_suggestions(
+        suggestions=suggestions,
+        language=language,
+        context=context,
+        expected_type=expected_type_at_position(node, parent_node, table, context),
+    )
 
 
 def extend_responses(
@@ -384,6 +473,7 @@ def extend_responses(
     kind: AutocompleteCompletionItemKind = AutocompleteCompletionItemKind.VARIABLE,
     insert_text: Optional[Callable[[str], str]] = None,
     details: Optional[list[str | None]] = None,
+    sort_texts: Optional[list[str]] = None,
 ) -> None:
     suggestions.extend(
         [
@@ -392,6 +482,7 @@ def extend_responses(
                 label=key,
                 kind=kind,
                 detail=details[index] if details is not None else None,
+                sortText=sort_texts[index] if sort_texts is not None else None,
             )
             for index, key in enumerate(keys)
         ]
@@ -654,6 +745,8 @@ def get_hogql_autocomplete(
                                     suggestions=response.suggestions,
                                     language=query.language,
                                     context=context,
+                                    node=node,
+                                    parent_node=parent_node,
                                 )
                                 break
 

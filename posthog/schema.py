@@ -4288,6 +4288,14 @@ class AutocompleteCompletionItem(BaseModel):
             " is inserted when selecting this completion."
         ),
     )
+    sortText: str | None = Field(
+        default=None,
+        description=(
+            "Overrides the editor's default ordering for this item. Set when the"
+            " backend can rank a suggestion, for example a function whose return type"
+            " fits the comparison being written."
+        ),
+    )
 
 
 class BoxPlotDatum(BaseModel):
