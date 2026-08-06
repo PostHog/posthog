@@ -10,6 +10,7 @@ import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 
 import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
 import { PullRequestPreview, ReportPreview } from './InboxOnboardingPreviews'
+import { SETUP_COMMAND_CARD_ID } from './setupCommandFocus'
 
 /** The one command that sets up self-driving. The whole onboarding orbits this string. */
 export const SELF_DRIVING_WIZARD_COMMAND = 'npx -y @posthog/wizard@latest self-driving'
@@ -121,7 +122,10 @@ function Hero(): JSX.Element {
 
 function CommandCard(): JSX.Element {
     return (
-        <div className="flex flex-col gap-3 rounded-lg border border-primary bg-surface-primary p-5">
+        <div
+            id={SETUP_COMMAND_CARD_ID}
+            className="flex flex-col gap-3 rounded-lg border border-primary bg-surface-primary p-5"
+        >
             <div>
                 <h2 className="-mt-1 mb-1 text-base font-semibold">One command. That's the whole setup.</h2>
                 <p className="m-0 text-sm text-secondary">

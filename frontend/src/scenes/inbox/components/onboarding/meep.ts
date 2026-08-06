@@ -1,15 +1,14 @@
-import { lemonToast } from '@posthog/lemon-ui'
-
 import meepUrl from 'public/sounds/meep.mp3'
 
 let audio: HTMLAudioElement | null = null
 
 /**
- * Cheeky easter egg for the onboarding previews: clicking the (otherwise inert) sample cards plays
- * a "meep" and pops a matching toast – a nod to PostHog Desktop. Pure flair; nothing else depends on it.
+ * Cheeky audio easter egg for the onboarding previews: clicking an (otherwise inert) sample card
+ * plays a "meep" – a nod to PostHog Desktop. Pure flair. The visible response to the click (scrolling
+ * to and flashing the setup command) is the caller's job, so this no longer pops a corner toast the
+ * user isn't looking at.
  */
 export function playMeep(): void {
-    lemonToast.info('Meep')
     try {
         // Reuse one element across clicks; rewind so rapid clicks restart the sound rather than overlap.
         if (!audio) {

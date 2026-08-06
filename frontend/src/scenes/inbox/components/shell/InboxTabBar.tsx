@@ -16,6 +16,7 @@ import {
     InboxFlatListTabKey,
     InboxTabKey,
 } from '../../types'
+import { focusSetupCommand } from '../onboarding/setupCommandFocus'
 
 function isFlatListTabKey(tab: InboxTabKey): tab is InboxFlatListTabKey {
     return (INBOX_FLAT_LIST_TAB_KEYS as readonly string[]).includes(tab)
@@ -56,7 +57,9 @@ type InboxTabBarKey = InboxTabKey | typeof WELCOME_TAB_KEY
  * In `onboarding` mode (self-driving not set up, empty inbox) a locked "Welcome" tab is shown and
  * selected, while the real tabs stay visible but disabled – the user can see what's coming, but the
  * inbox only opens up once self-driving is set up. Code review is the exception: it works without
- * self-driving, so its tab stays clickable.
+ * self-driving, so its tab stays clickable. A click on a locked tab still lands somewhere: the
+ * disabled tab's `disabledReason` shows on hover, and the click jumps to and flashes the one setup
+ * command, so the click isn't swallowed silently.
  */
 export function InboxTabBar({
     showConfigTab,
@@ -92,7 +95,18 @@ export function InboxTabBar({
         ? [{ key: WELCOME_TAB_KEY as InboxTabBarKey, label: <span>Welcome</span>, content: <></> }, ...realTabs]
         : realTabs
 
-    return (
+    // LemonTabs drops the click handler on a disabled tab, so a click on a locked onboarding tab is
+    // otherwise swallowed. Catch the bubbled click here (disabled tabs carry `aria-disabled`) and send
+    // the user to the one thing that unlocks them – the setup command below.
+    const onLockedTabClick = onboarding
+        ? (e: React.MouseEvent<HTMLDivElement>): void => {
+              if ((e.target as HTMLElement).closest('[aria-disabled="true"]')) {
+                  focusSetupCommand()
+              }
+          }
+        : undefined
+
+    const tabBar = (
         <LemonTabs<InboxTabBarKey>
             activeKey={onboarding ? WELCOME_TAB_KEY : activeTab}
             // min-w-0 lets the tab bar shrink inside the header flex row so its own overflow-x scroll
@@ -109,5 +123,14 @@ export function InboxTabBar({
             }}
             tabs={tabs}
         />
+    )
+
+    return onboarding ? (
+        // eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events
+        <div className="contents" onClick={onLockedTabClick}>
+            {tabBar}
+        </div>
+    ) : (
+        tabBar
     )
 }

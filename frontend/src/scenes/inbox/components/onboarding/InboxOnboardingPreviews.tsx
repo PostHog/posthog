@@ -5,6 +5,7 @@ import { dayjs } from 'lib/dayjs'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { ReportCard } from '../cards/ReportCard'
 import { playMeep } from './meep'
+import { focusSetupCommand } from './setupCommandFocus'
 
 /**
  * Onboarding previews that render the *real* inbox `ReportCard` (the very component the Pull
@@ -62,8 +63,9 @@ const REPORT_SAMPLE: Omit<SignalReport, 'created_at' | 'updated_at'> = {
  * Wraps a real `ReportCard` and makes it legibly a sample. The card is rendered non-interactive
  * (`pointer-events-none`, `aria-hidden`) so its Review/Archive buttons and links no longer offer
  * live hover states or misleading tooltips ("Archive this report") that invite dead clicks. An
- * "Example" tag labels it at a glance, and a single click surface on top plays the meep flair while
- * a tooltip explains that real work lands here once the setup command runs.
+ * "Example" tag labels it at a glance, and a single click surface on top responds in place: it
+ * scrolls to and flashes the setup command (the one real action on the page) and plays the meep as
+ * flair, so a click does something visible next to the card rather than only a corner toast.
  */
 function PreviewCard({ report, tabKey }: { report: SignalReport; tabKey: 'pulls' | 'reports' }): JSX.Element {
     return (
@@ -81,14 +83,18 @@ function PreviewCard({ report, tabKey }: { report: SignalReport; tabKey: 'pulls'
                 Example
             </LemonTag>
 
-            {/* One interactive surface over the whole card: a click plays the meep flair, and the
-                tooltip is the real signal – it says this is a preview and how to get the real thing. */}
-            <Tooltip title="This is an example. Run the command above to get real ones in your inbox.">
+            {/* One interactive surface over the whole card: a click jumps to and flashes the setup
+                command (real work lands once it runs) and plays the meep flair. The tooltip says the
+                same, so the click is never dead. */}
+            <Tooltip title="This is an example. Tap to jump to the setup command – run it to get real ones in your inbox.">
                 <button
                     type="button"
-                    aria-label="Example card – run the setup command to get real ones in your inbox"
+                    aria-label="Example card – jump to the setup command to get real ones in your inbox"
                     className="absolute inset-0 z-10 h-full w-full cursor-pointer"
-                    onClick={() => playMeep()}
+                    onClick={() => {
+                        focusSetupCommand()
+                        playMeep()
+                    }}
                 />
             </Tooltip>
         </div>
