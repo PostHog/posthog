@@ -12,7 +12,8 @@ import {
     validateProposedUrl,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
+
+import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 
 const HOST_WILDCARD_REGEX = /^https?:\/\/[^/]*\*/
 
