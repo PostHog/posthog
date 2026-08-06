@@ -153,6 +153,7 @@ from posthog.schema_enums import (
     LogSeverityLevel as LogSeverityLevel,
     LogsOrderBy as LogsOrderBy,
     LogsSparklineBreakdownBy as LogsSparklineBreakdownBy,
+    LogsSparklineRankBy as LogsSparklineRankBy,
     ManualMetricType as ManualMetricType,
     MarketingAnalyticsAttributionBreakdown as MarketingAnalyticsAttributionBreakdown,
     MarketingAnalyticsBaseColumns as MarketingAnalyticsBaseColumns,
@@ -237,7 +238,6 @@ from posthog.schema_enums import (
     SessionTableVersion as SessionTableVersion,
     SidebarDensity as SidebarDensity,
     SlackIntegrationScope as SlackIntegrationScope,
-    SlackIntegrationScopeInReview as SlackIntegrationScopeInReview,
     SlashCommandName as SlashCommandName,
     SliceContent as SliceContent,
     SnapchatAdsConversionFields as SnapchatAdsConversionFields,
@@ -26383,6 +26383,14 @@ class LogsQuery(BaseModel):
     sparklineBreakdownBy: LogsSparklineBreakdownBy | None = Field(
         default=None,
         description=("Field to break down sparkline data by (used only by sparkline endpoint)"),
+    )
+    sparklineRankBy: LogsSparklineRankBy | None = Field(
+        default=None,
+        description=(
+            "Metric used to rank breakdown values before the tail is collapsed into a"
+            ' single "other" bucket, so the returned row count stays bounded (used only'
+            " by sparkline endpoint). Defaults to ranking by log count."
+        ),
     )
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")

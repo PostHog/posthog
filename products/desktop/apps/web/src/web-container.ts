@@ -511,6 +511,7 @@ container.bind(FEATURE_FLAGS).toConstantValue({
   // same behavior as the old stub, but real flags light up once a key is set.
   isEnabled: (flagKey: string) =>
     flagKey === SYNC_CLOUD_TASKS_FLAG || posthogFeatureFlags.isEnabled(flagKey),
+  getPayload: posthogFeatureFlags.getPayload,
   onFlagsLoaded: posthogFeatureFlags.onFlagsLoaded,
 });
 

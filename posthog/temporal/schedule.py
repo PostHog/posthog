@@ -391,7 +391,7 @@ async def create_sync_events_retention_schedule(client: Client):
                 ),
             ),
             id="sync-events-retention-schedule",
-            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
             retry_policy=common.RetryPolicy(
                 maximum_attempts=1,
             ),
@@ -462,7 +462,7 @@ async def create_wa_weekly_digest_schedule(client: Client):
             "wa-weekly-digest",
             WAWeeklyDigestInput(),
             id="wa-weekly-digest-schedule",
-            task_queue=settings.MESSAGING_TASK_QUEUE,
+            task_queue=settings.WEEKLY_DIGEST_TASK_QUEUE,
             retry_policy=common.RetryPolicy(
                 maximum_attempts=1,
             ),
@@ -497,7 +497,7 @@ async def create_wa_digest_notification_schedule(client: Client):
             "wa-digest-notification",
             WADigestNotificationInput(),
             id="wa-digest-notification-schedule",
-            task_queue=settings.MESSAGING_TASK_QUEUE,
+            task_queue=settings.WEEKLY_DIGEST_TASK_QUEUE,
             retry_policy=common.RetryPolicy(
                 maximum_attempts=1,
             ),
@@ -645,8 +645,8 @@ async def cleanup_cohort_calculation_schedules(client: Client):
     and owns reconciliation too (its workers/reconcile.rs and sweep/reconcile.rs), so nothing here
     needs to run on a cadence any more.
 
-    The workflows stay registered on the messaging worker only until the Python implementation is
-    deleted. In-flight executions finish on their own; deleting a schedule doesn't cancel them.
+    The Python implementation is gone; this remains only to reap schedules in regions that
+    haven't converged yet, and is safe to delete once they all have.
     """
     legacy_schedule_ids = [
         "realtime-cohort-calculation-p0-p50",

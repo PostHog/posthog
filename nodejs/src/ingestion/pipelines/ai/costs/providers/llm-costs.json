@@ -1618,9 +1618,9 @@
         "model": "deepseek/deepseek-v4-flash",
         "cost": {
             "default": {
-                "prompt_token": 1.4e-7,
-                "completion_token": 2.8e-7,
-                "cache_read_token": 2.8e-8
+                "prompt_token": 8.82e-8,
+                "completion_token": 1.764e-7,
+                "cache_read_token": 1.764e-8
             },
             "alibaba-fp8": {
                 "prompt_token": 1.34e-7,
@@ -1683,7 +1683,8 @@
             },
             "morph": {
                 "prompt_token": 1.39e-7,
-                "completion_token": 2.78e-7
+                "completion_token": 2.78e-7,
+                "cache_read_token": 7e-8
             },
             "novita-fp8": {
                 "prompt_token": 1.4e-7,
@@ -1765,6 +1766,11 @@
                 "completion_token": 2.8e-7,
                 "cache_read_token": 2.8e-8
             },
+            "coreweave-fp8": {
+                "prompt_token": 1.3e-7,
+                "completion_token": 2.8e-7,
+                "cache_read_token": 7e-8
+            },
             "deepinfra-fp4": {
                 "prompt_token": 9e-8,
                 "completion_token": 1.8e-7,
@@ -1801,7 +1807,8 @@
             },
             "morph": {
                 "prompt_token": 1.39e-7,
-                "completion_token": 2.78e-7
+                "completion_token": 2.78e-7,
+                "cache_read_token": 7e-8
             },
             "novita-fp8": {
                 "prompt_token": 1.4e-7,
@@ -1817,6 +1824,11 @@
                 "prompt_token": 2e-7,
                 "completion_token": 4e-7,
                 "cache_read_token": 7e-8
+            },
+            "sail-research-fp4": {
+                "prompt_token": 9e-8,
+                "completion_token": 1.8e-7,
+                "cache_read_token": 2e-8
             },
             "siliconflow-fp8": {
                 "prompt_token": 1.4e-7,
@@ -1864,9 +1876,9 @@
                 "cache_read_token": 1.45e-7
             },
             "cloudflare": {
-                "prompt_token": 0.00000174,
-                "completion_token": 0.00000348,
-                "cache_read_token": 1.45e-7
+                "prompt_token": 0.000001168,
+                "completion_token": 0.000002336,
+                "cache_read_token": 3.3e-7
             },
             "coreweave-fp8": {
                 "prompt_token": 0.00000174,
@@ -3578,6 +3590,21 @@
         }
     },
     {
+        "model": "inclusionai/ling-3.0-flash",
+        "cost": {
+            "default": {
+                "prompt_token": 7.5e-8,
+                "completion_token": 2.2e-7,
+                "cache_read_token": 1.5e-8
+            },
+            "deepinfra-bf16": {
+                "prompt_token": 7.5e-8,
+                "completion_token": 2.2e-7,
+                "cache_read_token": 1.5e-8
+            }
+        }
+    },
+    {
         "model": "inclusionai/ling-3.0-flash:free",
         "cost": {
             "default": {
@@ -3923,6 +3950,23 @@
         }
     },
     {
+        "model": "meta/muse-spark-1.2",
+        "cost": {
+            "default": {
+                "prompt_token": 0.00000125,
+                "completion_token": 0.00000425,
+                "cache_read_token": 1.5e-7,
+                "web_search": 0.0025
+            },
+            "meta": {
+                "prompt_token": 0.00000125,
+                "completion_token": 0.00000425,
+                "cache_read_token": 1.5e-7,
+                "web_search": 0.0025
+            }
+        }
+    },
+    {
         "model": "microsoft/phi-4",
         "cost": {
             "default": {
@@ -4044,7 +4088,7 @@
         "model": "minimax/minimax-m2.5",
         "cost": {
             "default": {
-                "prompt_token": 1.5e-7,
+                "prompt_token": 2.2e-7,
                 "completion_token": 9e-7,
                 "cache_read_token": 5e-8
             },
@@ -4064,7 +4108,7 @@
                 "cache_read_token": 6e-8
             },
             "inceptron-fp8": {
-                "prompt_token": 1.5e-7,
+                "prompt_token": 2.2e-7,
                 "completion_token": 9e-7,
                 "cache_read_token": 5e-8
             },
@@ -4082,11 +4126,6 @@
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000012,
                 "cache_read_token": 3e-8
-            },
-            "phala": {
-                "prompt_token": 2e-7,
-                "completion_token": 0.00000138,
-                "cache_read_token": 7.5e-8
             },
             "siliconflow-fp8": {
                 "prompt_token": 3e-7,
@@ -4738,7 +4777,7 @@
         "model": "moonshotai/kimi-k2.7-code",
         "cost": {
             "default": {
-                "prompt_token": 7.3e-7,
+                "prompt_token": 7e-7,
                 "completion_token": 0.0000035,
                 "cache_read_token": 1.5e-7
             },
@@ -4748,7 +4787,7 @@
                 "cache_read_token": 1.9e-7
             },
             "ambient-int4": {
-                "prompt_token": 7.3e-7,
+                "prompt_token": 7e-7,
                 "completion_token": 0.0000035,
                 "cache_read_token": 1.5e-7
             },
@@ -7089,8 +7128,8 @@
         "model": "qwen/qwen3-235b-a22b-2507",
         "cost": {
             "default": {
-                "prompt_token": 1.495e-7,
-                "completion_token": 5.98e-7
+                "prompt_token": 9e-8,
+                "completion_token": 5.5e-7
             },
             "alibaba-fp8": {
                 "prompt_token": 1.495e-7,
@@ -7861,8 +7900,9 @@
         "model": "qwen/qwen3.6-27b",
         "cost": {
             "default": {
-                "prompt_token": 2.89e-7,
-                "completion_token": 0.0000024
+                "prompt_token": 6e-7,
+                "completion_token": 0.0000036,
+                "cache_read_token": 1.2e-7
             },
             "alibaba-fp8": {
                 "prompt_token": 4.5e-7,
@@ -8424,7 +8464,7 @@
                 "completion_token": 6e-7,
                 "cache_read_token": 1.5e-8
             },
-            "upstage": {
+            "upstage-fp4": {
                 "prompt_token": 1.5e-7,
                 "completion_token": 6e-7,
                 "cache_read_token": 1.5e-8
@@ -8678,9 +8718,9 @@
                 "cache_read_token": 2e-7
             },
             "digitalocean": {
-                "prompt_token": 8e-7,
-                "completion_token": 0.000003,
-                "cache_read_token": 1.6e-7
+                "prompt_token": 4e-7,
+                "completion_token": 0.0000015,
+                "cache_read_token": 8e-8
             },
             "gmicloud-bf16": {
                 "prompt_token": 4.35e-7,
@@ -8845,6 +8885,10 @@
                 "prompt_token": 6e-7,
                 "completion_token": 0.0000022
             },
+            "mancer-fp4": {
+                "prompt_token": 7e-7,
+                "completion_token": 0.0000025
+            },
             "novita-fp8": {
                 "prompt_token": 6e-7,
                 "completion_token": 0.0000022,
@@ -8983,9 +9027,9 @@
         "model": "z-ai/glm-5.1",
         "cost": {
             "default": {
-                "prompt_token": 9.66e-7,
-                "completion_token": 0.000003036,
-                "cache_read_token": 1.794e-7
+                "prompt_token": 9.52e-7,
+                "completion_token": 0.000002992,
+                "cache_read_token": 1.768e-7
             },
             "alibaba-fp8": {
                 "prompt_token": 0.00000133,
@@ -9126,11 +9170,6 @@
                 "completion_token": 0.0000044,
                 "cache_read_token": 1.4e-7
             },
-            "chutes-fp4": {
-                "prompt_token": 0.00000125,
-                "completion_token": 0.00000395,
-                "cache_read_token": 1.25e-7
-            },
             "cloudflare": {
                 "prompt_token": 0.0000014,
                 "completion_token": 0.0000044,
@@ -9212,9 +9251,9 @@
                 "cache_read_token": 2.34e-7
             },
             "sail-research-fp8": {
-                "prompt_token": 0.000001,
-                "completion_token": 0.0000035,
-                "cache_read_token": 2e-7
+                "prompt_token": 9e-7,
+                "completion_token": 0.00000315,
+                "cache_read_token": 1.8e-7
             },
             "siliconflow-fp8": {
                 "prompt_token": 0.0000014,

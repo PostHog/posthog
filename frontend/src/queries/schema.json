@@ -24699,7 +24699,8 @@
                 "Raisely",
                 "WindsorAi",
                 "Wix",
-                "Sevalla"
+                "Sevalla",
+                "Motion"
             ],
             "type": "string"
         },
@@ -29527,6 +29528,10 @@
                     "$ref": "#/definitions/LogsSparklineBreakdownBy",
                     "description": "Field to break down sparkline data by (used only by sparkline endpoint)"
                 },
+                "sparklineRankBy": {
+                    "$ref": "#/definitions/LogsSparklineRankBy",
+                    "description": "Metric used to rank breakdown values before the tail is collapsed into a single \"other\" bucket, so the returned row count stays bounded (used only by sparkline endpoint). Defaults to ranking by log count."
+                },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
@@ -29620,6 +29625,11 @@
         "LogsSparklineBreakdownBy": {
             "description": "Field to break down sparkline data by",
             "enum": ["severity", "service"],
+            "type": "string"
+        },
+        "LogsSparklineRankBy": {
+            "description": "Metric the sparkline ranks breakdown values by before collapsing the tail into an \"other\" bucket",
+            "enum": ["count", "bytes"],
             "type": "string"
         },
         "MADDetectorConfig": {
@@ -47420,33 +47430,28 @@
         "SlackIntegrationScope": {
             "enum": [
                 "app_mentions:read",
+                "assistant:write",
+                "canvases:write",
                 "channels:history",
+                "channels:manage",
                 "channels:read",
                 "chat:write",
                 "chat:write.customize",
+                "commands",
+                "files:read",
+                "files:write",
                 "groups:history",
                 "groups:read",
+                "im:history",
                 "links:read",
                 "links:write",
+                "mpim:history",
+                "mpim:read",
                 "reactions:read",
                 "reactions:write",
                 "team:read",
                 "users:read",
                 "users:read.email"
-            ],
-            "type": "string"
-        },
-        "SlackIntegrationScopeInReview": {
-            "enum": [
-                "assistant:write",
-                "canvases:write",
-                "channels:manage",
-                "commands",
-                "files:read",
-                "files:write",
-                "im:history",
-                "mpim:history",
-                "mpim:read"
             ],
             "type": "string"
         },
