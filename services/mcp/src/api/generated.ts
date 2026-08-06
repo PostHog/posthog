@@ -54652,6 +54652,21 @@ export namespace Schemas {
       label?: string | null;
     }
 
+    export type PathsV2AnchorType = typeof PathsV2AnchorType[keyof typeof PathsV2AnchorType];
+
+
+    export const PathsV2AnchorType = {
+      Start: 'start',
+      End: 'end',
+    } as const;
+
+    export interface PathsV2Anchor {
+      /** The path item the chart anchors on. Its event must be one of the step sources. */
+      item: PathsV2Item;
+      /** `start` runs each actor's single sequence forward from the anchor item; `end` runs it up to the anchor item. Either way the anchor is the grid's single 100% node. */
+      type: PathsV2AnchorType;
+    }
+
     export interface PathsV2Edge {
       /** Unique actors with a journey that transitions from source to target between these steps. */
       count: number;
@@ -54671,8 +54686,13 @@ export namespace Schemas {
     }
 
     export interface PathsV2Filter {
+      /** Anchor selecting anchored mode. When set, each actor contributes exactly one sequence bounded by the conversion window, so every displayed segment equals a plain funnel. Absent selects open mode, which splits an actor's events into journeys on the inactivity gap instead. */
+      anchor?: PathsV2Anchor | null;
       /** Merge immediate repeats of the same path item within a journey. */
       collapseRepeats?: boolean | null;
+      /** Anchored mode's single conversion window W, anchored at the anchor and reused verbatim as the emitted funnel's window. Bounds per unit are validated server-side against CONVERSION_WINDOW_INTERVAL_BOUNDS, the same funnel conversion window bounds as the gap. */
+      conversionWindowInterval?: number | null;
+      conversionWindowIntervalUnit?: FunnelConversionWindowTimeUnit | null;
       /** Inactivity gap that splits an actor's events into journeys. Bounds per unit are validated server-side against CONVERSION_WINDOW_INTERVAL_BOUNDS, the funnel conversion window bounds. */
       gapInterval?: number | null;
       gapIntervalUnit?: FunnelConversionWindowTimeUnit | null;
@@ -54682,6 +54702,13 @@ export namespace Schemas {
       maxSteps?: number | null;
       /** Step sources defining which events can become path items. Defaults to the pageviews preset: `$pageview` named by `$pathname`. */
       stepSources?: PathsV2StepSource[] | null;
+    }
+
+    export interface PathsV2Prefix {
+      /** Unique actors whose anchored sequence begins with exactly these items. */
+      count: number;
+      /** The chain's path items in order, starting at the anchor. */
+      items: PathsV2Item[];
     }
 
     export interface PathsV2Row {
@@ -54703,6 +54730,8 @@ export namespace Schemas {
 
     export interface PathsV2Results {
       edges: PathsV2Edge[];
+      /** Concrete anchored chains with per-chain unique-actor counts, ordered by descending count. Empty in open mode; in anchored mode it carries the counts the hover funnel preview reads per chain. */
+      prefixes: PathsV2Prefix[];
       steps: PathsV2Step[];
     }
 
