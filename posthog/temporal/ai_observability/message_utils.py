@@ -66,11 +66,17 @@ def _flatten_parts_message(msg: dict) -> list[dict]:
       follow-up `role: "tool"` message so the existing `tool[<id>]:` correlation applies
     - `reasoning` and other non-text parts are dropped, matching the trace view
 
+    Like the recipe, this only applies to dicts with a string `role` alongside the
+    `parts` list, so a structured-output payload that happens to have its own `parts`
+    array still reaches the JSON-stringify fallback in `_render_message`.
+
     Messages that already carry `content` or `tool_calls`, or have no `parts` list,
     pass through unchanged.
     """
     parts = msg.get("parts")
-    if not isinstance(parts, list) or msg.get("content") or msg.get("tool_calls"):
+    if not isinstance(msg.get("role"), str) or not isinstance(parts, list):
+        return [msg]
+    if msg.get("content") or msg.get("tool_calls"):
         return [msg]
 
     text_chunks: list[str] = []

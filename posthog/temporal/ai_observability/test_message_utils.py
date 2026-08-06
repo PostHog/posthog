@@ -327,6 +327,21 @@ class TestExtractTextFromMessages:
         assert "user: Extract brands." in result
         assert "Google Ads" in result
 
+    @pytest.mark.parametrize(
+        "message",
+        [
+            pytest.param({"parts": ["wheel", "tire"]}, id="string_parts"),
+            pytest.param({"parts": [{"name": "wheel", "qty": 2}]}, id="dict_parts"),
+            pytest.param({"parts": [{"type": "text", "content": "wheel"}]}, id="otel_shaped_parts"),
+        ],
+    )
+    def test_structured_output_with_parts_key_is_json_stringified(self, message):
+        # A structured-output schema can have its own `parts` array. Parts flattening
+        # is keyed on a string `role` (as the trace UI's otel.yaml recipe is) so these
+        # still reach the JSON-stringify fallback instead of rendering as empty.
+        result = extract_text_from_messages(message)
+        assert result == json.dumps(message, default=str)
+
     def test_otel_parts_text_message(self):
         messages = [{"role": "user", "parts": [{"type": "text", "content": "How long is the warranty?"}]}]
         assert extract_text_from_messages(messages) == "user: How long is the warranty?"
