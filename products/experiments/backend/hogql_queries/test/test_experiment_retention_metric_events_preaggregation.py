@@ -325,6 +325,9 @@ class TestExperimentRetentionMetricEventsPreaggregation(ExperimentQueryRunnerBas
                 _retention_metric(breakdown_filter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")])),
                 False,
             ),
+            # retention_window_end is an unrestricted user input; an absurd window must
+            # not stretch the precompute horizon into thousands of daily build jobs
+            ("window_beyond_precompute_horizon", _retention_metric(retention_window_end=10_000), False),
         ]
     )
     def test_retention_metric_events_precompute_gate(self, _name, metric, applicable):

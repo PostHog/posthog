@@ -53,12 +53,14 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.base_query_utils import (
+    conversion_window_to_seconds,
     experiment_window,
     experiment_window_end,
     is_session_property_metric,
 )
 from products.experiments.backend.hogql_queries.cuped_config import get_cuped_config
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
+from products.experiments.backend.hogql_queries.experiment_metric_values import get_conversion_window_seconds
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
     ExperimentQueryBuilder,
     get_exposure_config_params_for_builder,
@@ -105,6 +107,12 @@ DEFAULT_EXPOSURE_TTL_SECONDS = {
 # chunks. Completed chunks persist, so a wide backfill converges across runs
 # instead of failing atomically on every attempt.
 PRECOMPUTE_MAX_WINDOW_DAYS = 7
+
+# Upper bound on how far past the experiment end a metric-events build may scan.
+# retention_window_end is an unrestricted user-supplied integer; without a cap, a huge
+# window would stretch the precompute horizon into thousands of daily jobs before the
+# executor's timeout check. Past the cap the metric falls back to the direct scan.
+METRIC_EVENTS_MAX_WINDOW_EXTENSION_SECONDS = 90 * 24 * 60 * 60  # 90 days
 
 
 def experiment_precompute_ttl_schedule(team_timezone: str) -> TtlSchedule:
@@ -481,6 +489,11 @@ class ExperimentQueryRunner(QueryRunner):
             if not isinstance(self.metric.start_event, (EventsNode, ActionsNode)) or not isinstance(
                 self.metric.completion_event, (EventsNode, ActionsNode)
             ):
+                return False
+            extension_seconds = get_conversion_window_seconds(self.metric) + conversion_window_to_seconds(
+                self.metric.retention_window_end, self.metric.retention_window_unit
+            )
+            if extension_seconds > METRIC_EVENTS_MAX_WINDOW_EXTENSION_SECONDS:
                 return False
             return self._retention_metric_events_precomputation_enabled()
         return False
