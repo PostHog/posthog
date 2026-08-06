@@ -369,13 +369,28 @@ def register_missing_resolution_config(team_id: int, user_id: int) -> None:
     _register_missing_configs(team_id, user_id, CANONICAL_RESOLUTION_SKILL_NAMES)
 
 
-def load_resolution_skill_for_run(team_id: int, acting_user_id: int) -> LoadedResolutionSkill:
+def load_resolution_skill_for_run(team_id: int, acting_user_id: int | None) -> LoadedResolutionSkill:
     """Resolve the acting user's selected resolution criteria, pinned to its current latest version.
 
     Mirrors `load_validation_skill_for_run`: seeds the canonical config, then resolves the user's one
     enabled `review-hog-resolution-*` row (canonical fallback when none is enabled or the selection's
     row is dead; loud `ResolutionSkillNotFoundError` only when the canonical itself is missing).
+    A `None` acting user (an unmapped PR author on the standalone path) pins the canonical directly —
+    nobody's personal selection applies to someone else's PR.
     """
+    if acting_user_id is None:
+        version = (
+            LLMSkill.objects.filter(
+                team_id=team_id, name=REVIEW_HOG_RESOLUTION_SKILL_NAME, deleted=False, is_latest=True
+            )
+            .values_list("version", flat=True)
+            .first()
+        )
+        if version is None:
+            raise ResolutionSkillNotFoundError(
+                f"No live skill '{REVIEW_HOG_RESOLUTION_SKILL_NAME}' on team {team_id} — the canonical sync has not seeded it"
+            )
+        return LoadedResolutionSkill(skill_name=REVIEW_HOG_RESOLUTION_SKILL_NAME, version=version)
     register_missing_resolution_config(team_id, acting_user_id)
     skill_name, version = _load_single_active_skill(
         team_id,

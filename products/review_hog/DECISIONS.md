@@ -2946,6 +2946,13 @@ implement what is worth doing and safe to do unattended, answer what isn't, and 
    can't block the PR's resolution forever. Residual (accepted): a poison thread at position 0 with zero other
    work is indistinguishable from an outage and still fails the run; the recorded follow-up is typed sandbox
    errors from the Tasks facade (infra vs turn) to close that corner.
+   _Same date (off the /resolve criteria-borrowing escalation):_ `ResolveThreadsInput.acting_user_id` is now
+   tri-state — `None` (the shared-secret `/resolve` path, which pins nobody) means **the PR author**: prepare maps
+   the fetched author login to a PostHog user (`_login_to_user_id`, the review path's own mapping) and applies
+   their criteria selection; an unmapped author pins the **canonical** bar directly
+   (`load_resolution_skill_for_run(…, None)`) — a borrowed account's personal selection never governs someone
+   else's PR, the same principle as the review path's borrowed-toggle rules. The workflow no longer coerces
+   `acting_user_id or user_id`.
 9. **Persistence & budget** — home is the living `ReviewReport`; runs append `thread_verdict` (net-new content
    schema, latest-wins per thread) plus `commit` / `task_run` / `note` artefacts (their first writers). Idempotency
    is per-thread: unchanged state skips deterministically, any new reply re-opens that thread's triage (pushback on

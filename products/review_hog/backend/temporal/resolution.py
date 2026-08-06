@@ -79,6 +79,7 @@ from products.review_hog.backend.temporal.activities import (
     SyncReviewSkillsInput,
     ValidateIntegrationInput,
     _installation_auth,
+    _login_to_user_id,
     _sandbox_workflow_id_prefix,
     generate_schemas_activity,
     sync_review_skills_activity,
@@ -105,8 +106,11 @@ _RESOLUTION_RETRY = RetryPolicy(maximum_attempts=RESOLUTION_MAX_ATTEMPTS)
 class ResolveThreadsInput:
     team_id: int
     user_id: int
-    # Whose selected resolution-criteria skill applies to this run.
-    acting_user_id: int
+    # Whose selected resolution-criteria skill applies to this run. None (the shared-secret
+    # /resolve path) means "the PR author": prepare maps the fetched author login to a PostHog
+    # user; an unmapped author pins the canonical bar — a borrowed account's personal selection
+    # never governs someone else's PR.
+    acting_user_id: int | None
     owner: str
     repo: str
     pr_number: int
@@ -214,7 +218,18 @@ def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResu
         _idle_report(input.team_id, report_id)
         return result
 
-    skill = load_resolution_skill_for_run(input.team_id, input.acting_user_id)
+    acting_user_id = input.acting_user_id
+    if acting_user_id is None:
+        acting_user_id = _login_to_user_id(input.team_id, pr_metadata.author)
+        logger.info(
+            "Resolution acting user for %s/%s#%s: author %r -> %s",
+            input.owner,
+            input.repo,
+            input.pr_number,
+            pr_metadata.author,
+            acting_user_id if acting_user_id is not None else "unmapped (canonical criteria)",
+        )
+    skill = load_resolution_skill_for_run(input.team_id, acting_user_id)
     return _PreparedRun(
         report_id=report_id,
         pr_metadata=pr_metadata,
@@ -564,7 +579,7 @@ class ResolvePRWorkflow:
             ResolveThreadsInput(
                 team_id=inputs.team_id,
                 user_id=inputs.user_id,
-                acting_user_id=inputs.acting_user_id or inputs.user_id,
+                acting_user_id=inputs.acting_user_id,
                 owner=inputs.owner,
                 repo=inputs.repo,
                 pr_number=inputs.pr_number,

@@ -6,16 +6,19 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from social_django.models import UserSocialAuth
 
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
+from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewSkillConfig
 from products.review_hog.backend.reviewer.artefact_content import ThreadVerdictArtefact
+from products.review_hog.backend.reviewer.lazy_seed import sync_canonical_resolution
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.thread_resolution import ThreadResolution
 from products.review_hog.backend.reviewer.persistence import load_thread_verdicts, persist_thread_verdict
+from products.review_hog.backend.reviewer.skill_loader import REVIEW_HOG_RESOLUTION_SKILL_NAME
 from products.review_hog.backend.reviewer.tools.github_threads import ReviewThread, ThreadComment
 from products.review_hog.backend.temporal.resolution import (
     ResolutionRunResult,
@@ -24,8 +27,10 @@ from products.review_hog.backend.temporal.resolution import (
     _append_task_run,
     _deliver_side_effects,
     _prepare_run,
+    _PreparedRun,
     resolve_threads_activity,
 )
+from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import Task
 
 
@@ -179,6 +184,72 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         assert stored.commit_verified is False
         assert stored.reply_posted is True
         assert stored.resolved is False
+
+    def _prepare_unpinned(self) -> object:
+        thread = ReviewThread(
+            thread_id="PRRT_1",
+            path="f.py",
+            comments=[ThreadComment(id=1, author_login="greptile", author_is_bot=True, body="b")],
+        )
+        with (
+            patch(f"{_RESOLUTION}._installation_auth", return_value=("token", "inst-1")),
+            patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=_pr_metadata()),
+            patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=[thread]),
+        ):
+            return _prepare_run(
+                ResolveThreadsInput(
+                    team_id=self.team.id,
+                    user_id=self.user.id,
+                    acting_user_id=None,
+                    owner="posthog",
+                    repo="posthog",
+                    pr_number=123,
+                )
+            )
+
+    def test_unpinned_acting_user_with_unmapped_author_pins_canonical_criteria(self) -> None:
+        # The /resolve landmine: with no acting user pinned and an unmapped author, the RUN user's
+        # personal selection must not govern someone else's PR — the canonical bar applies.
+        sync_canonical_resolution(self.team)
+        LLMSkill.objects.create(
+            team=self.team,
+            name="review-hog-resolution-run-users-own",
+            description="d",
+            body="x" * 250,
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        ReviewSkillConfig.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, skill_name="review-hog-resolution-run-users-own", enabled=True
+        )
+
+        prepared = self._prepare_unpinned()
+
+        assert isinstance(prepared, _PreparedRun)
+        assert prepared.skill_name == REVIEW_HOG_RESOLUTION_SKILL_NAME
+
+    def test_unpinned_acting_user_maps_the_pr_author(self) -> None:
+        sync_canonical_resolution(self.team)
+        author = User.objects.create_and_join(self.organization, "author@example.com", None)
+        UserSocialAuth.objects.create(user=author, provider="github", uid="gh-octocat", extra_data={"login": "octocat"})
+        LLMSkill.objects.create(
+            team=self.team,
+            name="review-hog-resolution-authors-own",
+            description="d",
+            body="x" * 250,
+            version=1,
+            is_latest=True,
+            created_by=author,
+        )
+        ReviewSkillConfig.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=author.id, skill_name="review-hog-resolution-authors-own", enabled=True
+        )
+
+        prepared = self._prepare_unpinned()
+
+        assert isinstance(prepared, _PreparedRun)
+        assert prepared.skill_name == "review-hog-resolution-authors-own"
 
     def test_run_note_names_delivery_failures(self) -> None:
         # A token-expiry tail must be visible in the durable run note, not just worker logs.
