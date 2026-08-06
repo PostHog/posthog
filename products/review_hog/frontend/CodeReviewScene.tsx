@@ -268,7 +268,8 @@ function PipelineSection(): JSX.Element {
                     </LemonButton>
                 }
             >
-                Every review runs through the same steps before it's published.
+                Every review runs through the same steps before it's published, then works through the comment threads
+                it leaves open.
             </SectionHeader>
             <div className="flex flex-wrap items-stretch gap-2.5">
                 {PIPELINE_PHASES.map((phase, i) => (
