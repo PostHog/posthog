@@ -85,22 +85,11 @@ def convert_pyformat_placeholders(sql: str, values: dict[str, object] | None) ->
 
 def duckdb_type_to_clickhouse_type(duckdb_type: object | None) -> str:
     # Function-local: keeps warehouse_sources model imports off this module's import path.
-    from products.warehouse_sources.backend.models.util import (  # noqa: PLC0415
-        DUCKDB_TO_CLICKHOUSE_TYPE,
-        normalize_duckdb_type,
-    )
+    from products.warehouse_sources.backend.models.util import duckdb_to_clickhouse_type  # noqa: PLC0415
 
     if duckdb_type is None:
         return "String"
-    normalized = normalize_duckdb_type(str(duckdb_type))
-    clickhouse_type = DUCKDB_TO_CLICKHOUSE_TYPE.get(normalized)
-    if clickhouse_type is not None:
-        return clickhouse_type
-    if normalized.startswith(("decimal", "numeric")):
-        return "Decimal"
-    if normalized.startswith("timestamp"):
-        return "DateTime64(6)"
-    return "String"
+    return duckdb_to_clickhouse_type(str(duckdb_type))
 
 
 def motherduck_error_to_message(error: Exception) -> str:

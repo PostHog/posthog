@@ -173,9 +173,12 @@ class TestDuckDBTypeMapping(SimpleTestCase):
             ("TIMESTAMP", "DateTime64(6)"),
             ("TIMESTAMP WITH TIME ZONE", "DateTime64(6, 'UTC')"),
             ("UUID", "UUID"),
-            # Nested / exotic types round-trip as strings.
+            # Nested / exotic types round-trip as strings, including arrays whose element
+            # type would otherwise match the scalar decimal/timestamp fallbacks.
             ("STRUCT(a INTEGER)", "String"),
             ("INTEGER[]", "String"),
+            ("DECIMAL(18,3)[]", "String"),
+            ("TIMESTAMP[]", "String"),
             ("JSON", "String"),
             (None, "String"),
         ]

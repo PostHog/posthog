@@ -21,12 +21,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import (
     reconcile_source_schema_metadata,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
+    compute_projected_columns,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.motherduck import (
     MotherduckSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.motherduck import (
     MotherDuckConnectionError,
+    check_duplicate_primary_keys,
     closing_connection,
     filter_motherduck_incremental_fields,
     get_connection_metadata as get_motherduck_connection_metadata,
@@ -48,6 +52,7 @@ GENERIC_CONNECTION_ERROR = (
 @SourceRegistry.register
 class MotherduckSource(SimpleSource[MotherduckSourceConfig]):
     api_docs_url = "https://motherduck.com/docs/"
+    supports_column_selection = True
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -123,17 +128,15 @@ class MotherduckSource(SimpleSource[MotherduckSourceConfig]):
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         database = self.normalized_database(config)
-        discovered = get_motherduck_schemas(
-            config.motherduck_token,
-            database,
-            names=names,
-            with_counts=with_counts,
-        )
-
-        locations = [(entry["database"], entry["schema"], entry["table"]) for entry in discovered.values()]
-        detected_pks = get_motherduck_primary_keys(
-            lambda: closing_connection(config.motherduck_token, database), locations
-        )
+        with closing_connection(config.motherduck_token, database) as connection:
+            discovered = get_motherduck_schemas(
+                connection,
+                database,
+                names=names,
+                with_counts=with_counts,
+            )
+            locations = [(entry["database"], entry["schema"], entry["table"]) for entry in discovered.values()]
+            detected_pks = get_motherduck_primary_keys(connection, locations)
 
         schemas: list[SourceSchema] = []
         for display_name, entry in discovered.items():
@@ -221,15 +224,33 @@ class MotherduckSource(SimpleSource[MotherduckSourceConfig]):
         if isinstance(primary_key_columns, list) and primary_key_columns:
             primary_keys = [str(column) for column in primary_key_columns]
 
+        location = (source_catalog, source_schema, source_table_name)
+        has_duplicate_pks: bool | None = None
+        # One build-time connection covers both probes: re-detect primary keys live when
+        # nothing is persisted (a transiently failed discovery probe would otherwise break
+        # incremental sync until a manual refresh), and check the effective key for
+        # duplicates so a non-unique override fails loudly instead of merging rows away.
+        needs_live_pk_detection = primary_keys is None
+        needs_duplicate_check = schema_model.is_incremental
+        if needs_live_pk_detection or needs_duplicate_check:
+            with closing_connection(config.motherduck_token, database) as connection:
+                if needs_live_pk_detection:
+                    primary_keys = get_motherduck_primary_keys(connection, [location]).get(location)
+                if needs_duplicate_check and primary_keys:
+                    has_duplicate_pks = check_duplicate_primary_keys(connection, location, primary_keys)
+
         return motherduck_source(
             token=config.motherduck_token,
             database=database,
             display_name=inputs.schema_name,
-            location=(source_catalog, source_schema, source_table_name),
+            location=location,
             primary_keys=primary_keys,
             should_use_incremental_field=inputs.should_use_incremental_field,
             incremental_field=inputs.incremental_field,
+            incremental_field_type=inputs.incremental_field_type,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+            projected_columns=compute_projected_columns(inputs.enabled_columns, primary_keys, inputs.incremental_field),
+            has_duplicate_primary_keys=has_duplicate_pks,
         )
 
     def reconcile_schema_metadata(

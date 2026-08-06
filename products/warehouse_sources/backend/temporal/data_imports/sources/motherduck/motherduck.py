@@ -12,7 +12,7 @@ Two connection-string guards matter because of that in-process half:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from typing import Any
 from urllib.parse import quote
 
@@ -21,6 +21,8 @@ import pyarrow as pa
 import structlog
 
 from products.warehouse_sources.backend.models.util import normalize_duckdb_type
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_operator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import log_connection_open
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
@@ -65,6 +67,7 @@ def build_connection_string(token: str, database: str | None = None) -> str:
 
 def connect(token: str, database: str | None = None, *, read_only: bool = True) -> duckdb.DuckDBPyConnection:
     """Open a MotherDuck connection, translating driver errors to `MotherDuckConnectionError`."""
+    log_connection_open(db_host="motherduck", via="websocket")
     try:
         return duckdb.connect(build_connection_string(token, database), read_only=read_only)
     except duckdb.Error as e:
@@ -104,7 +107,7 @@ def display_table_name(database: str, schema: str, table: str, *, configured_dat
 
 
 def get_schemas(
-    token: str,
+    connection: duckdb.DuckDBPyConnection,
     database: str | None,
     *,
     names: list[str] | None = None,
@@ -115,28 +118,39 @@ def get_schemas(
     Returns display name -> {"database", "schema", "table", "columns": [(name, type, nullable)],
     "row_count"} across every non-system database, or just the configured one.
     """
-    with closing_connection(token, database) as connection:
-        rows = connection.execute(
-            """
-            SELECT table_catalog, table_schema, table_name, column_name, data_type, is_nullable
-            FROM information_schema.columns
-            ORDER BY table_catalog, table_schema, table_name, ordinal_position
-            """
-        ).fetchall()
+    # MotherDuck attaches every database in the workspace even when the connection string
+    # names one (the named database only becomes the *current* one), and DuckDB's
+    # information_schema spans all attached catalogs. A pinned database therefore has to be
+    # enforced as a predicate, or discovery leaks the whole workspace and same-named tables
+    # from other databases collide under one display name.
+    columns_query = """
+        SELECT table_catalog, table_schema, table_name, column_name, data_type, is_nullable
+        FROM information_schema.columns
+        {where}
+        ORDER BY table_catalog, table_schema, table_name, ordinal_position
+        """
+    params: dict[str, Any] | None = None
+    if database:
+        columns_query = columns_query.format(where="WHERE lower(table_catalog) = lower($database)")
+        params = {"database": database}
+    else:
+        columns_query = columns_query.format(where="")
+    rows = connection.execute(columns_query, params).fetchall()
 
-        estimated_sizes: dict[tuple[str, str, str], int] = {}
-        if with_counts:
-            try:
-                size_rows = connection.execute(
-                    "SELECT database_name, schema_name, table_name, estimated_size FROM duckdb_tables()"
-                ).fetchall()
-                estimated_sizes = {
-                    (str(db), str(schema), str(table)): int(size)
-                    for db, schema, table, size in size_rows
-                    if size is not None
-                }
-            except duckdb.Error:
-                logger.warning("motherduck.get_schemas.estimated_sizes_failed", exc_info=True)
+    estimated_sizes: dict[tuple[str, str, str], int] = {}
+    if with_counts:
+        sizes_query = "SELECT database_name, schema_name, table_name, estimated_size FROM duckdb_tables()"
+        if database:
+            sizes_query += " WHERE lower(database_name) = lower($database)"
+        try:
+            size_rows = connection.execute(sizes_query, params).fetchall()
+            estimated_sizes = {
+                (str(db), str(schema), str(table)): int(size)
+                for db, schema, table, size in size_rows
+                if size is not None
+            }
+        except duckdb.Error:
+            logger.warning("motherduck.get_schemas.estimated_sizes_failed", exc_info=True)
 
     schemas: dict[str, dict[str, Any]] = {}
     for table_catalog, table_schema, table_name, column_name, data_type, is_nullable in rows:
@@ -207,19 +221,56 @@ def _build_sync_query(
     *,
     should_use_incremental_field: bool,
     incremental_field: str | None,
+    incremental_field_type: IncrementalFieldType | None,
     db_incremental_field_last_value: Any,
+    projected_columns: list[str] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     database, schema, table = location
-    query = f"SELECT * FROM {qualified_table_name(database, schema, table)}"
+    if projected_columns is None:
+        select_list = "*"
+    else:
+        select_list = ", ".join(_quote_identifier(column) for column in projected_columns)
+    query = f"SELECT {select_list} FROM {qualified_table_name(database, schema, table)}"
     params: dict[str, Any] = {}
     if should_use_incremental_field and incremental_field is not None:
         if db_incremental_field_last_value is not None:
-            # `>=` re-reads the boundary row; the pipeline's merge-by-primary-key dedupes it,
-            # and it can't skip rows that share the previous run's max value.
-            query += f" WHERE {_quote_identifier(incremental_field)} >= $incremental_last_value"
+            # Without a field type (legacy rows) fall back to `>=`: it only re-ships the
+            # boundary row, which the incremental merge dedupes by primary key.
+            operator = incremental_type_to_operator(incremental_field_type) if incremental_field_type else ">="
+            query += f" WHERE {_quote_identifier(incremental_field)} {operator} $incremental_last_value"
             params["incremental_last_value"] = db_incremental_field_last_value
         query += f" ORDER BY {_quote_identifier(incremental_field)} ASC"
     return query, params
+
+
+# Bounded duplicate-primary-key probe: DuckDB constraints are the only *proven* unique keys,
+# but the effective key can be user-overridden, so mirror the ClickHouse source's prefix probe
+# rather than scanning the whole (compute-metered) table every sync.
+DUPLICATE_PK_CHECK_ROW_BUDGET = 1_000_000
+
+
+def check_duplicate_primary_keys(
+    connection: duckdb.DuckDBPyConnection,
+    location: tuple[str, str, str],
+    primary_keys: list[str],
+) -> bool | None:
+    """Whether the effective primary key shows duplicates within a bounded table prefix.
+
+    Returns None when the probe itself fails, so the caller doesn't block a sync on a
+    diagnostic query."""
+    quoted_keys = ", ".join(_quote_identifier(key) for key in primary_keys)
+    database, schema, table = location
+    query = (
+        f"SELECT 1 FROM (SELECT {quoted_keys} FROM {qualified_table_name(database, schema, table)}"
+        f" LIMIT {DUPLICATE_PK_CHECK_ROW_BUDGET})"
+        f" GROUP BY {quoted_keys} HAVING count(*) > 1 LIMIT 1"
+    )
+    try:
+        row = connection.execute(query).fetchone()
+    except duckdb.Error:
+        logger.warning("motherduck.check_duplicate_primary_keys_failed", exc_info=True)
+        return None
+    return row is not None
 
 
 def motherduck_source(
@@ -231,14 +282,19 @@ def motherduck_source(
     primary_keys: list[str] | None,
     should_use_incremental_field: bool = False,
     incremental_field: str | None = None,
+    incremental_field_type: IncrementalFieldType | None = None,
     db_incremental_field_last_value: Any = None,
+    projected_columns: list[str] | None = None,
+    has_duplicate_primary_keys: bool | None = None,
     chunk_size: int = DEFAULT_SYNC_CHUNK_SIZE,
 ) -> SourceResponse:
     query, params = _build_sync_query(
         location,
         should_use_incremental_field=should_use_incremental_field,
         incremental_field=incremental_field,
+        incremental_field_type=incremental_field_type,
         db_incremental_field_last_value=db_incremental_field_last_value,
+        projected_columns=projected_columns,
     )
 
     def get_rows() -> Iterator[pa.Table]:
@@ -252,30 +308,30 @@ def motherduck_source(
         name=display_name,
         items=get_rows,
         primary_keys=primary_keys,
+        has_duplicate_primary_keys=has_duplicate_primary_keys,
         sort_mode="asc",
     )
 
 
 def get_primary_keys(
-    connection_factory: Callable[[], closing_connection],
+    connection: duckdb.DuckDBPyConnection,
     locations: list[tuple[str, str, str]],
 ) -> dict[tuple[str, str, str], list[str]]:
     """Primary-key columns per (database, schema, table), from duckdb_constraints()."""
     if not locations:
         return {}
     results: dict[tuple[str, str, str], list[str]] = {}
-    with connection_factory() as connection:
-        try:
-            rows = connection.execute(
-                """
-                SELECT database_name, schema_name, table_name, constraint_column_names
-                FROM duckdb_constraints()
-                WHERE constraint_type = 'PRIMARY KEY'
-                """
-            ).fetchall()
-        except duckdb.Error:
-            logger.warning("motherduck.get_primary_keys_failed", exc_info=True)
-            return {}
+    try:
+        rows = connection.execute(
+            """
+            SELECT database_name, schema_name, table_name, constraint_column_names
+            FROM duckdb_constraints()
+            WHERE constraint_type = 'PRIMARY KEY'
+            """
+        ).fetchall()
+    except duckdb.Error:
+        logger.warning("motherduck.get_primary_keys_failed", exc_info=True)
+        return {}
     wanted = set(locations)
     for db, schema, table, column_names in rows:
         location = (str(db), str(schema), str(table))

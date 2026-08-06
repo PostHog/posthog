@@ -323,14 +323,21 @@ CLICKHOUSE_TYPE_TO_HOGQL_LABEL = {
     "Int16": "integer",
     "Int32": "integer",
     "Int64": "integer",
+    "Int128": "integer",
+    "UInt8": "integer",
+    "UInt16": "integer",
+    "UInt32": "integer",
     "UInt64": "integer",
+    "UInt128": "integer",
     "Float32": "float",
     "Float64": "float",
     "Bool": "boolean",
     "Date": "date",
+    "Date32": "date",
     "DateTime": "datetime",
     "DateTime64": "datetime",
     "String": "string",
+    "UUID": "string",
     "Decimal": "numeric",
 }
 
@@ -621,18 +628,25 @@ def normalize_duckdb_type(duckdb_type: str) -> str:
     return base
 
 
-def motherduck_column_to_dwh_column(_column_name: str, duckdb_type: str, nullable: bool) -> dict[str, Any]:
+def duckdb_to_clickhouse_type(duckdb_type: str) -> str:
     normalized_type = normalize_duckdb_type(duckdb_type)
     clickhouse_type = DUCKDB_TO_CLICKHOUSE_TYPE.get(normalized_type)
-    if clickhouse_type is None:
-        if normalized_type.startswith(("decimal", "numeric")):
-            clickhouse_type = "Decimal"
-        elif normalized_type.startswith("timestamp"):
-            clickhouse_type = "DateTime64(6)"
-        else:
-            # JSON/INTERVAL/BLOB/ENUM and nested LIST/STRUCT/MAP/UNION render as String.
-            clickhouse_type = "String"
+    if clickhouse_type is not None:
+        return clickhouse_type
+    # Arrays keep their `[]` suffix through normalization, so check before the scalar
+    # prefix fallbacks below or `DECIMAL(18,3)[]` would come out as a scalar Decimal.
+    if normalized_type.endswith("]"):
+        return "String"
+    if normalized_type.startswith(("decimal", "numeric")):
+        return "Decimal"
+    if normalized_type.startswith("timestamp"):
+        return "DateTime64(6)"
+    # JSON/INTERVAL/BLOB/ENUM and nested LIST/STRUCT/MAP/UNION render as String.
+    return "String"
 
+
+def motherduck_column_to_dwh_column(_column_name: str, duckdb_type: str, nullable: bool) -> dict[str, Any]:
+    clickhouse_type = duckdb_to_clickhouse_type(duckdb_type)
     if nullable:
         clickhouse_type = f"Nullable({clickhouse_type})"
 

@@ -31,6 +31,9 @@ MOTHERDUCK_CONNECTION_CACHE_TTL_SECONDS = 1800
 # Bound per-thread connection count so a worker that touches many distinct sources
 # can't accumulate open sessions without limit.
 MOTHERDUCK_CONNECTION_CACHE_MAX_PER_THREAD = 4
+# On a warm connection the probe is a single round trip, so a couple of seconds means the
+# session is gone; anything slower should read as dead rather than block the request thread.
+MOTHERDUCK_LIVENESS_PROBE_TIMEOUT_SECONDS = 5
 
 
 @dataclass
@@ -70,15 +73,29 @@ def _evict(key: str) -> None:
         _close_entry(entry)
 
 
+def _interrupt_quietly(connection: duckdb.DuckDBPyConnection) -> None:
+    try:
+        connection.interrupt()
+    except Exception:
+        pass
+
+
 def _is_reusable(entry: _Entry, now: float) -> bool:
     if now - entry.opened_at >= MOTHERDUCK_CONNECTION_CACHE_TTL_SECONDS:
         return False
+    # Cheap liveness probe. A cleanly-closed socket raises immediately, but a half-open one
+    # (remote gone without FIN/RST) can block the read until an OS-level timeout, so a timer
+    # interrupts the probe after a short deadline and the connection reads as dead.
+    timer = threading.Timer(MOTHERDUCK_LIVENESS_PROBE_TIMEOUT_SECONDS, _interrupt_quietly, args=(entry.connection,))
+    timer.daemon = True
+    timer.start()
     try:
-        # Cheap liveness probe; a dead socket raises immediately.
         entry.connection.execute("SELECT 1")
         return True
     except Exception:
         return False
+    finally:
+        timer.cancel()
 
 
 @contextmanager

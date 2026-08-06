@@ -28,7 +28,6 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.source_management import (
     SourceSchema,
     extract_available_column_names,
-    filter_columns_by_enabled_columns,
     filter_dwh_columns_by_enabled_columns,
     normalize_namespace,
     prune_enabled_columns,
@@ -181,7 +180,10 @@ def reconcile_motherduck_schemas(
     source_schema_names = [s.name for s in source_schemas]
     default_catalog = get_default_motherduck_catalog(source)
     schema_models = {
-        s.name: s for s in ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False)
+        s.name: s
+        for s in ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False).select_related(
+            "table"
+        )
     }
 
     schema_models_by_location: dict[MotherDuckSourceLocation, ExternalDataSchema] = {}
@@ -251,17 +253,21 @@ def reconcile_motherduck_schemas(
             hide_direct_motherduck_table(matched.table)
             continue
 
-        projected_columns = filter_columns_by_enabled_columns(
-            source_schema.columns,
+        projected_columns = filter_dwh_columns_by_enabled_columns(
+            motherduck_columns_to_dwh_columns(source_schema.columns),
             matched.enabled_columns,
             source_schema.detected_primary_keys,
             matched.incremental_field,
+            # Direct-MotherDuck columns are keyed by raw, case-sensitive source names. The
+            # guarded helper falls back to all columns when a projection would empty out,
+            # so a stale selection can't leave the live table unqueryable.
+            normalize=False,
         )
         table_model = upsert_direct_motherduck_table(
             matched.table,
             schema_name=source_schema.name,
             source=source,
-            columns=motherduck_columns_to_dwh_columns(projected_columns),
+            columns=projected_columns,
             source_catalog=resolved_catalog,
             source_schema=resolved_schema,
             source_table_name=resolved_table,
@@ -275,10 +281,14 @@ def reconcile_motherduck_schemas(
         return []
 
     stale_names: list[str] = []
-    stale = ExternalDataSchema.objects.filter(
-        Q(team_id=team_id, source_id=source.id),
-        Q(deleted=False) | Q(table__deleted=False),
-    ).exclude(name__in=source_schema_names)
+    stale = (
+        ExternalDataSchema.objects.filter(
+            Q(team_id=team_id, source_id=source.id),
+            Q(deleted=False) | Q(table__deleted=False),
+        )
+        .exclude(name__in=source_schema_names)
+        .select_related("table")
+    )
     for s in stale:
         hide_direct_motherduck_table(s.table)
         if not s.deleted:
