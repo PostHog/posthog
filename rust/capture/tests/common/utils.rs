@@ -148,12 +148,6 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     s3_fallback_endpoint: None,
     s3_fallback_prefix: String::new(),
     ai_max_sum_of_parts_bytes: 26_214_400, // 25MB default
-    ai_s3_bucket: None,
-    ai_s3_prefix: "llma/".to_string(),
-    ai_s3_endpoint: None,
-    ai_s3_region: "us-east-1".to_string(),
-    ai_s3_access_key_id: None,
-    ai_s3_secret_access_key: None,
     ai_gateway_signing_secret: None,
     ai_sink_mode: capture::config::AiSinkMode::Primary,
     ai_secondary_allowlist_tokens: None,

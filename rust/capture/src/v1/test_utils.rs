@@ -933,7 +933,6 @@ impl TestStateBuilder {
             is_mirror_deploy: false,
             verbose_sample_percent: 0.0,
             ai_max_sum_of_parts_bytes: 100 * 1024 * 1024,
-            ai_blob_storage: None,
             body_chunk_read_timeout: None,
             body_read_chunk_size_kb: 64,
             capture_v1_max_compressed_body_bytes: 2 * 1024 * 1024,

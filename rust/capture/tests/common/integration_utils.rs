@@ -1110,7 +1110,6 @@ fn build_router_for_mode_at(mode: CaptureMode, fixed_time: &str) -> (Router, Mem
             is_mirror_deploy,
             verbose_sample_percent,
             26_214_400,         // 25MB default for AI endpoint
-            None,               // ai_blob_storage
             None,               // body_chunk_read_timeout_ms
             256,                // body_read_chunk_size_kb
             10 * 1024 * 1024,   // capture_v1_max_compressed_body_bytes

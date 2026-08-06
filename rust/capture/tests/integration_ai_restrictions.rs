@@ -5,7 +5,6 @@ use async_trait::async_trait;
 use axum::http::StatusCode;
 use axum::Router;
 use axum_test_helper::TestClient;
-use capture::ai_s3::{BlobStorage, MockBlobStorage};
 use capture::api::CaptureError;
 use capture::config::{AiRouting, CaptureMode};
 use capture::event_restrictions::{
@@ -28,16 +27,6 @@ use serde_json::{json, Value};
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
-
-const TEST_BLOB_BUCKET: &str = "test-bucket";
-const TEST_BLOB_PREFIX: &str = "llma/";
-
-fn create_mock_blob_storage() -> Arc<dyn BlobStorage> {
-    Arc::new(MockBlobStorage::new(
-        TEST_BLOB_BUCKET.to_string(),
-        TEST_BLOB_PREFIX.to_string(),
-    ))
-}
 
 struct FixedTime {
     pub time: DateTime<Utc>,
@@ -184,7 +173,6 @@ async fn setup_ai_router_with_restriction(
         false,
         0.0_f32,
         26_214_400,
-        Some(create_mock_blob_storage()),
         None,
         256,                // body_read_chunk_size_kb
         10 * 1024 * 1024,   // capture_v1_max_compressed_body_bytes
@@ -506,7 +494,6 @@ async fn setup_ai_router_with_redirect_to_topic(
         false,
         0.0_f32,
         26_214_400,
-        Some(create_mock_blob_storage()),
         None,
         256,                // body_read_chunk_size_kb
         10 * 1024 * 1024,   // capture_v1_max_compressed_body_bytes
@@ -587,7 +574,6 @@ async fn setup_ai_router_with_force_overflow_and_limiter(
         false,
         0.0_f32,
         26_214_400,
-        Some(create_mock_blob_storage()),
         None,
         256,
         10 * 1024 * 1024,       // capture_v1_max_compressed_body_bytes

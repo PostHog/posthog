@@ -3,7 +3,6 @@ mod integration_utils;
 
 use async_trait::async_trait;
 use axum_test_helper::TestClient;
-use capture::ai_s3::MockBlobStorage;
 use capture::api::CaptureError;
 use capture::config::{AiRouting, CaptureMode};
 use capture::event_restrictions::{
@@ -178,26 +177,22 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         options.event_restriction_service,
         None, // recorder_handle
         CaptureMode::Events,
-        None,             // concurrency_limit
-        25 * 1024 * 1024, // event_payload_size_limit
-        false,            // enable_historical_rerouting
-        1_i64,            // historical_rerouting_threshold_days
-        false,            // is_mirror_deploy
-        0.0_f32,          // verbose_sample_percent
-        26_214_400,       // ai_max_sum_of_parts_bytes
-        Some(Arc::new(MockBlobStorage::new(
-            "test-bucket".to_string(),
-            "llma/".to_string(),
-        ))), // ai_blob_storage
-        None,             // body_chunk_read_timeout_ms
-        256,              // body_read_chunk_size_kb
-        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
-        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+        None,                     // concurrency_limit
+        25 * 1024 * 1024,         // event_payload_size_limit
+        false,                    // enable_historical_rerouting
+        1_i64,                    // historical_rerouting_threshold_days
+        false,                    // is_mirror_deploy
+        0.0_f32,                  // verbose_sample_percent
+        26_214_400,               // ai_max_sum_of_parts_bytes
+        None,                     // body_chunk_read_timeout_ms
+        256,                      // body_read_chunk_size_kb
+        10 * 1024 * 1024,         // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024,         // capture_v1_max_decompressed_body_bytes
         options.overflow_limiter, // overflow_limiter
-        None,             // ai_events_overflow_limiter
-        None,             // replay_overflow_limiter
-        None,             // v1_sink_router
-        8,                // capture_v1_scatter_gather_min_batch
+        None,                     // ai_events_overflow_limiter
+        None,                     // replay_overflow_limiter
+        None,                     // v1_sink_router
+        8,                        // capture_v1_scatter_gather_min_batch
         options.ai_gateway_signing_secret,
         AiRouting::Primary,                // ai_routing
         false,                             // ai_events_overflow_enabled
