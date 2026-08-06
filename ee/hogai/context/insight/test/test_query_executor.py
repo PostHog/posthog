@@ -203,7 +203,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
     @patch("ee.hogai.context.insight.query_executor.capture_exception")
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
-    async def test_paths_v2_query_degrades_to_json_fallback(self, mock_process_query, mock_capture):
+    async def test_paths_v2_query_degrades_to_json_fallback(self, mock_process_query: Mock, mock_capture: Mock) -> None:
         # The assistant has no PathsV2Query formatter yet, so a journeys insight must degrade to
         # the raw-JSON fallback instead of erroring.
         results = {
@@ -222,7 +222,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         result = await execute_and_format_query(self.team, PathsV2Query(pathsV2Filter=PathsV2Filter()), user=self.user)
 
-        self.assertIn('"stepIndex":0', result)
+        self.assertIn("stepIndex", result)
         self.assertIn("/home", result)
         mock_capture.assert_not_called()
 

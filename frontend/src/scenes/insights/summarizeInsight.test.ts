@@ -446,7 +446,7 @@ describe('summarizing insights', () => {
             [
                 'custom step sources',
                 { stepSources: [{ event: '$pageview', namingProperty: '$pathname' }, { event: 'purchase' }] },
-                'Journeys based on $pageview and purchase',
+                'Journeys based on Pageview and purchase',
             ],
             [
                 'a start anchor',

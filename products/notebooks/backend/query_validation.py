@@ -1,8 +1,8 @@
-from typing import Any, get_args
+from typing import Any
 
 import structlog
 
-from posthog.schema import InsightVizNode
+from posthog.schema_enums import InsightNodeKind
 
 logger = structlog.get_logger(__name__)
 
@@ -23,16 +23,10 @@ _VALID_TOP_LEVEL_QUERY_KINDS = frozenset(
 )
 
 
-def _insight_viz_source_kinds() -> frozenset[str]:
-    # Derived from the generated Pydantic schema so new insight kinds are accepted here the
-    # moment they join InsightVizNode.source, instead of drifting behind a hardcoded copy.
-    annotation = InsightVizNode.model_fields["source"].annotation
-    source_types = get_args(annotation) or (annotation,)
-    kinds = (source_type.model_fields["kind"].default for source_type in source_types)
-    return frozenset(str(getattr(kind, "value", kind)) for kind in kinds)
-
-
-_VALID_INSIGHT_VIZ_SOURCE_KINDS = _insight_viz_source_kinds()
+# InsightNodeKind is generated from the same schema union as InsightVizNode.source, so new
+# insight kinds are accepted here the moment they join the union instead of drifting behind a
+# hardcoded copy.
+_VALID_INSIGHT_VIZ_SOURCE_KINDS = frozenset(kind.value for kind in InsightNodeKind)
 _INSIGHT_VIZ_SOURCE_KINDS_SENTENCE = ", ".join(sorted(_VALID_INSIGHT_VIZ_SOURCE_KINDS))
 
 
