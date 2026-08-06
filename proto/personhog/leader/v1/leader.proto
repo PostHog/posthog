@@ -49,4 +49,23 @@ service PersonHogLeader {
   // a mark already settled as deleted absorbs the retry without a second
   // record.
   rpc ReleaseFence(personhog.types.v1.ReleaseFenceRequest) returns (personhog.types.v1.ReleaseFenceResponse);
+
+  // Internal, saga-runner only. The merge saga's document write: fold the
+  // sealed source snapshots into the target person's document under the
+  // owner's per-person lock, produce the folded document to the
+  // changelog, and return it. Properties fold target-wins: the target
+  // keeps every key it has, snapshots fill still-absent keys in request
+  // order, then the merge event's $set overrides and $set_once fills.
+  // Scalars fold as created_at = min(target, sources) and
+  // is_identified = true; the version is max(target, max sealed) + 1, a
+  // max-merge that stays above every sealed source's death document.
+  // Safe under at-least-once delivery: re-applying the same fold on
+  // unchanged target state changes no content and only bumps the version.
+  // (The standard re-appliable-merge residual applies — see the request's
+  // op_id comment.) A target fenced by a
+  // different lifecycle op rejects FAILED_PRECONDITION (the merge target
+  // is marked, never fenced, so this only fires on a ghost fence — the
+  // retry goes through once the healer clears it); a destroyed target
+  // answers NOT_FOUND.
+  rpc FoldPersonDocument(personhog.types.v1.FoldPersonDocumentRequest) returns (personhog.types.v1.FoldPersonDocumentResponse);
 }
