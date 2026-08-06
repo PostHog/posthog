@@ -2768,7 +2768,7 @@ export interface DashboardTemplateVariableType {
     id: string
     name: string
     description: string
-    type: 'event'
+    type: 'event' | 'element'
     default: TemplateVariableStep
     required: boolean
     touched?: boolean

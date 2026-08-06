@@ -73,10 +73,11 @@ export function applyTemplate(
             const variableId = obj.substring(1, obj.length - 1)
             const variable = variables.find((variable) => variable.id === variableId)
             if (variable && variable.default) {
-                // added for future compatibility - at the moment we only have event variables
-                const isEventVariable = variable.type === 'event'
+                // Element variables share the event conversion path: an element variable is an
+                // $autocapture entity whose selector lives in its property filters.
+                const resolvesToEntity = variable.type === 'event' || variable.type === 'element'
 
-                if (queryKind && isEventVariable) {
+                if (queryKind && resolvesToEntity) {
                     let mathAvailability = MathAvailability.None
                     if (queryKind === NodeKind.TrendsQuery) {
                         mathAvailability = MathAvailability.All

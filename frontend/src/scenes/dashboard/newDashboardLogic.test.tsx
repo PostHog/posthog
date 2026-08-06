@@ -102,6 +102,46 @@ describe('template function in newDashboardLogic', () => {
         })
     })
 
+    it('converts element variables into a query node, like event variables', () => {
+        expect(
+            applyTemplate(
+                { a: '{VARIABLE_1}' },
+                [
+                    {
+                        id: 'VARIABLE_1',
+                        name: 'a',
+                        default: {
+                            id: '$autocapture',
+                            math: 'dau' as any,
+                            type: 'events' as any,
+                            properties: [
+                                {
+                                    key: 'selector',
+                                    type: 'element',
+                                    value: ['button[data-attr="cta"]'],
+                                    operator: 'exact',
+                                },
+                            ],
+                        },
+                        description: 'The description of the variable',
+                        required: false,
+                        type: 'element',
+                    },
+                ],
+                NodeKind.TrendsQuery
+            )
+        ).toEqual({
+            a: {
+                kind: 'EventsNode',
+                event: '$autocapture',
+                math: 'dau',
+                properties: [
+                    { key: 'selector', type: 'element', value: ['button[data-attr="cta"]'], operator: 'exact' },
+                ],
+            },
+        })
+    })
+
     it('removes the math property from retention insight tiles', () => {
         expect(
             applyTemplate(

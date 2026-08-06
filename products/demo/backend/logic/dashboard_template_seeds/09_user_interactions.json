@@ -1,0 +1,351 @@
+{
+    "template_name": "User interactions",
+    "dashboard_description": "See what people click in your product, and where their clicks go nowhere. Everything here comes from autocapture, so it needs no extra tracking code.",
+    "dashboard_filters": {},
+    "tags": [],
+    "image_url": null,
+    "scope": "global",
+    "tiles": [
+        {
+            "name": "Interactions over time",
+            "type": "INSIGHT",
+            "color": "blue",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "name": "$autocapture",
+                            "event": "$autocapture",
+                            "math": "total"
+                        }
+                    ],
+                    "interval": "day",
+                    "dateRange": {
+                        "date_from": "-30d",
+                        "explicitDate": false
+                    },
+                    "properties": [],
+                    "trendsFilter": {
+                        "display": "ActionsLineGraph",
+                        "showLegend": false
+                    },
+                    "filterTestAccounts": false
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 0,
+                    "minH": 5,
+                    "minW": 3
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 0,
+                    "minH": 5,
+                    "minW": 3
+                }
+            },
+            "description": "Every click, form submission, and input change that autocapture recorded."
+        },
+        {
+            "name": "Dead clicks vs clicks",
+            "type": "INSIGHT",
+            "color": "red",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "name": "$dead_click",
+                            "event": "$dead_click",
+                            "math": "total"
+                        },
+                        {
+                            "kind": "EventsNode",
+                            "name": "$autocapture",
+                            "event": "$autocapture",
+                            "math": "total"
+                        }
+                    ],
+                    "interval": "day",
+                    "dateRange": {
+                        "date_from": "-30d",
+                        "explicitDate": false
+                    },
+                    "properties": [],
+                    "trendsFilter": {
+                        "display": "ActionsLineGraph",
+                        "showLegend": true
+                    },
+                    "filterTestAccounts": false
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 6,
+                    "y": 0,
+                    "minH": 5,
+                    "minW": 3
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 5,
+                    "minH": 5,
+                    "minW": 3
+                }
+            },
+            "description": "A dead click is a click that changed nothing on the page. When the two lines get close, something looks clickable but is not."
+        },
+        {
+            "name": "Most clicked elements",
+            "type": "INSIGHT",
+            "color": "green",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "name": "$autocapture",
+                            "event": "$autocapture",
+                            "math": "total"
+                        }
+                    ],
+                    "interval": "day",
+                    "dateRange": {
+                        "date_from": "-30d",
+                        "explicitDate": false
+                    },
+                    "properties": [],
+                    "trendsFilter": {
+                        "display": "ActionsBarValue"
+                    },
+                    "breakdownFilter": {
+                        "breakdown": "$el_text",
+                        "breakdown_type": "event",
+                        "breakdown_limit": 15
+                    },
+                    "filterTestAccounts": false
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 5,
+                    "minH": 5,
+                    "minW": 3
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 10,
+                    "minH": 5,
+                    "minW": 3
+                }
+            },
+            "description": "The elements people click most, grouped by the text on the element."
+        },
+        {
+            "name": "Elements that do nothing when clicked",
+            "type": "INSIGHT",
+            "color": "red",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "name": "$dead_click",
+                            "event": "$dead_click",
+                            "math": "total"
+                        }
+                    ],
+                    "interval": "day",
+                    "dateRange": {
+                        "date_from": "-30d",
+                        "explicitDate": false
+                    },
+                    "properties": [],
+                    "trendsFilter": {
+                        "display": "ActionsBarValue"
+                    },
+                    "breakdownFilter": {
+                        "breakdown": "$el_text",
+                        "breakdown_type": "event",
+                        "breakdown_limit": 15
+                    },
+                    "filterTestAccounts": false
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 6,
+                    "y": 5,
+                    "minH": 5,
+                    "minW": 3
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 15,
+                    "minH": 5,
+                    "minW": 3
+                }
+            },
+            "description": "Ranked by dead clicks. Start at the top when you are looking for broken or misleading parts of your UI."
+        },
+        {
+            "name": "Form fields edited vs forms submitted",
+            "type": "INSIGHT",
+            "color": "purple",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "name": "Field edited",
+                            "event": "$autocapture",
+                            "math": "dau",
+                            "custom_name": "Field edited",
+                            "properties": [
+                                {
+                                    "key": "$event_type",
+                                    "type": "event",
+                                    "value": ["change"],
+                                    "operator": "exact"
+                                }
+                            ]
+                        },
+                        {
+                            "kind": "EventsNode",
+                            "name": "Form submitted",
+                            "event": "$autocapture",
+                            "math": "dau",
+                            "custom_name": "Form submitted",
+                            "properties": [
+                                {
+                                    "key": "$event_type",
+                                    "type": "event",
+                                    "value": ["submit"],
+                                    "operator": "exact"
+                                }
+                            ]
+                        }
+                    ],
+                    "interval": "week",
+                    "dateRange": {
+                        "date_from": "-90d",
+                        "explicitDate": false
+                    },
+                    "properties": [],
+                    "trendsFilter": {
+                        "display": "ActionsLineGraph",
+                        "showLegend": true
+                    },
+                    "filterTestAccounts": false
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 10,
+                    "minH": 5,
+                    "minW": 3
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 20,
+                    "minH": 5,
+                    "minW": 3
+                }
+            },
+            "description": "The gap between these lines is people who started filling in a form and never sent it. Autocapture records both, so you do not need to track your forms."
+        },
+        {
+            "name": "People interacting with your key element",
+            "type": "INSIGHT",
+            "color": "blue",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": ["{KEY_ELEMENT}"],
+                    "interval": "week",
+                    "dateRange": {
+                        "date_from": "-90d",
+                        "explicitDate": false
+                    },
+                    "properties": [],
+                    "trendsFilter": {
+                        "display": "ActionsLineGraph",
+                        "showLegend": false
+                    },
+                    "filterTestAccounts": false
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 6,
+                    "y": 10,
+                    "minH": 5,
+                    "minW": 3
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 25,
+                    "minH": 5,
+                    "minW": 3
+                }
+            },
+            "description": "Narrow this to the one interaction you care about most, such as a click on your main call to action."
+        }
+    ],
+    "variables": [
+        {
+            "id": "KEY_ELEMENT",
+            "name": "Key element",
+            "type": "element",
+            "default": {
+                "id": "$autocapture",
+                "math": "dau",
+                "name": "$autocapture",
+                "type": "events",
+                "order": 0
+            },
+            "required": false,
+            "description": "The interaction that matters most to you, such as a click on your main call to action. Leave it as it is to count every interaction."
+        }
+    ]
+}

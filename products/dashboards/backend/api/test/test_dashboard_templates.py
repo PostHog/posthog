@@ -657,7 +657,7 @@ class TestDashboardTemplates(APIBaseTest):
                                     },
                                     "type": {
                                         "description": "The type of the variable",
-                                        "enum": ["event"],
+                                        "enum": ["event", "element"],
                                     },
                                     "default": {
                                         "description": "The default value of the variable",
