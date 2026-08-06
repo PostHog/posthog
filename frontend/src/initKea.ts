@@ -8,7 +8,7 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
-import { isAccessDeniedError } from 'lib/api-error'
+import { isAccessDeniedError, isApprovalRequiredError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
@@ -142,19 +142,10 @@ export function initKea({
                 // distinct codes (`read_only_blocked`, `impersonation_read_only`) and still toasts.
                 const isAccessDenied =
                     isAccessDeniedError(error) && (isLoadAction || ACCESS_DENIED_SELF_HANDLED.has(String(actionKey)))
-                // A 409 never gets the generic failure toast because conflict flows surface their
-                // own UI (pre-existing behavior). An approvals 409 additionally skips exception
-                // capture: the gate answered a policy-gated change by creating a change request
-                // (or finding one already pending), which is expected, customer-facing control flow
-                // rather than a failure. Approval 409 bodies always carry change_request_id
-                // (products/approvals/backend/decorators.py).
-                const isConflict = error?.status === 409
-                const isApprovalRequired = isConflict && error?.data?.change_request_id !== undefined
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     error?.status !== undefined &&
-                    ![200, 201, 204, 401].includes(error.status) && // 401 is handled by api.ts and the userLogic
-                    !isConflict &&
+                    ![200, 201, 204, 401, 409].includes(error.status) && // 401 is handled by api.ts and the userLogic; 409 conflict flows surface their own UI
                     !(isLoadAction && error.status === 403) && // 403 access denied is handled by sceneLogic gates
                     !isAccessDenied
                 ) {
@@ -199,7 +190,9 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status) && !isApprovalRequired) {
+                // An approvals 409 is expected control flow (a change request was created, or one
+                // is already pending) surfaced to the user by the approvals UI, not a failure.
+                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status) && !isApprovalRequiredError(error)) {
                     posthog.captureException(error)
                 }
             },

@@ -8,7 +8,7 @@ describe('showApprovalRequiredToast', () => {
     let infoSpy: jest.SpyInstance
 
     beforeEach(() => {
-        infoSpy = jest.spyOn(lemonToast, 'info').mockImplementation(() => 'toast-id')
+        infoSpy = jest.spyOn(lemonToast, 'info').mockImplementation()
     })
 
     it.each([

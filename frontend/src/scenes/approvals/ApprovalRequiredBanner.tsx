@@ -33,11 +33,7 @@ export function ApprovalRequiredBanner({
         >
             <div>
                 <strong>Approval required</strong>
-                <div className="text-sm mt-1">
-                    {actionDescription
-                        ? `Your request to ${actionDescription} has been submitted for approval.`
-                        : 'Your change request has been submitted for approval.'}
-                </div>
+                <div className="text-sm mt-1">{approvalRequiredMessage(actionDescription)}</div>
             </div>
         </LemonBanner>
     )
@@ -46,8 +42,8 @@ export function ApprovalRequiredBanner({
 /** Backend `code` on an approvals 409 when a matching change request already exists (see products/approvals/backend/decorators.py). */
 export const CHANGE_REQUEST_PENDING_CODE = 'change_request_pending'
 
-function approvalToastMessage(actionDescription?: string, isDuplicate?: boolean): string {
-    if (isDuplicate) {
+function approvalRequiredMessage(actionDescription?: string, code?: string): string {
+    if (code === CHANGE_REQUEST_PENDING_CODE) {
         return actionDescription
             ? `A request to ${actionDescription} is already pending approval.`
             : 'This change is already pending approval.'
@@ -63,11 +59,10 @@ export function showApprovalRequiredToast(
     /** `code` from the approval 409 body. `change_request_pending` means a request already existed and nothing new was submitted. */
     code?: string
 ): void {
-    const isDuplicate = code === CHANGE_REQUEST_PENDING_CODE
     lemonToast.info(
         <div>
             <strong>Approval required</strong>
-            <div className="text-sm mt-1">{approvalToastMessage(actionDescription, isDuplicate)}</div>
+            <div className="text-sm mt-1">{approvalRequiredMessage(actionDescription, code)}</div>
             <LemonButton
                 type="secondary"
                 size="small"
