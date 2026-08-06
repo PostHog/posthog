@@ -1008,7 +1008,9 @@ class ClickHousePrinter(BasePrinter):
         # guard stays and column pruning still applies through the SELECT *. Skip tables
         # that declare predicates: those print in the enclosing select, and the wrap would
         # block them from being pushed into the federated read alongside the team guard.
-        from posthog.hogql.database.postgres_table import PostgresTable
+        from posthog.hogql.database.postgres_table import (
+            PostgresTable,  # noqa: PLC0415 — keeps persons-DB deps off the printer import path
+        )
 
         if (
             isinstance(table, PostgresTable)
