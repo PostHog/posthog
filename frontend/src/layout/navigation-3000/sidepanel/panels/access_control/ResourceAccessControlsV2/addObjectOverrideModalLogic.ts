@@ -1,4 +1,16 @@
-import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    connect,
+    isBreakpoint,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -787,6 +799,9 @@ export const addObjectOverrideModalLogic = kea<addObjectOverrideModalLogicType>(
     listeners(({ props, actions, values }) => ({
         openModal: () => actions.loadObjectOptions(null),
         setResource: () => actions.loadObjectOptions(null),
+        // A resolved URL changes the type too, so the options have to follow it. Without this the
+        // list still holds the previous type's objects, and picking one pairs its id with the new type
+        objectResolvedFromUrl: () => actions.loadObjectOptions(null),
         setSearch: ({ search }) => {
             // A pasted URL selects the exact object instead of searching by name
             const parsed = parseObjectRuleUrl(search)
@@ -796,20 +811,28 @@ export const addObjectOverrideModalLogic = kea<addObjectOverrideModalLogicType>(
             }
             actions.loadObjectOptions(null)
         },
-        resolveObjectUrl: async ({ resource, lookupId }) => {
+        resolveObjectUrl: async ({ resource, lookupId }, breakpoint) => {
+            // Debounced and cancelled like the options loader: setSearch fires per keystroke, and
+            // without the breakpoint a slower earlier paste could land after a faster later one
+            // and silently replace the selection
+            await breakpoint(300)
             try {
                 const response = await api.get<{ results: ObjectOption[] }>(
                     `api/projects/${props.projectId}/access_control_object_search?resource=${resource}&id=${encodeURIComponent(
                         lookupId
                     )}`
                 )
+                breakpoint()
                 const option = response.results[0]
                 if (!option) {
                     lemonToast.error("Couldn't find that object in this project")
                     return
                 }
                 actions.objectResolvedFromUrl(option, resource)
-            } catch {
+            } catch (e) {
+                if (isBreakpoint(e)) {
+                    throw e
+                }
                 lemonToast.error("Couldn't find that object in this project")
             }
         },

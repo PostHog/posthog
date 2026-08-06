@@ -17,6 +17,7 @@ from django.core.exceptions import (
     ValidationError as DjangoValidationError,
 )
 from django.db.models import Model, Q
+from django.db.models.functions import Coalesce
 from django.urls import URLResolver, get_resolver
 
 from rest_framework import exceptions, status
@@ -63,11 +64,11 @@ class _ResourceDisplayModel:
     name_field: str
 
 
-# Used only by _resolve_object_names below, which turns a rule's resource_id into a display name.
 # Names come from universal search's ENTITY_MAP first; these entries cover resources search doesn't
-# index, so they have no ENTITY_MAP entry to borrow. Add one when a resource's rules render raw ids
-# instead of names; delete one when search starts indexing the resource, since ENTITY_MAP is
-# consulted first and the entry goes dead. Resources in neither place fall back to the raw id.
+# index, so they have no ENTITY_MAP entry to borrow. Add one when a resource's objects render raw
+# ids instead of names, in the rules list or the picker; delete one when search starts indexing the
+# resource, since ENTITY_MAP is consulted first and the entry goes dead. A resource in neither place
+# and with no derivable name field is left out of the picker and falls back to the raw id.
 _MODELS_NOT_IN_ENTITY_MAP: dict[str, _ResourceDisplayModel] = {
     "warehouse_view": _ResourceDisplayModel(
         app_label="data_modeling", model_name="datawarehousesavedquery", name_field="name"
@@ -81,6 +82,7 @@ _MODELS_NOT_IN_ENTITY_MAP: dict[str, _ResourceDisplayModel] = {
     "session_recording": _ResourceDisplayModel(
         app_label="posthog", model_name="sessionrecording", name_field="session_id"
     ),
+    "ticket": _ResourceDisplayModel(app_label="conversations", model_name="ticket", name_field="ticket_number"),
 }
 
 
@@ -108,6 +110,12 @@ def _resolve_object_names(resource: str, resource_ids: list[str], team_id: int) 
             return {
                 str(pk): _ResolvedObjectName(name=name or derived_name, short_id=short_id)
                 for pk, name, derived_name, short_id in rows.values_list("pk", "name", "derived_name", "short_id")
+            }
+        if resource == "ticket":
+            # A bare number doesn't read as an object; match the ticket page's own title
+            return {
+                str(pk): _ResolvedObjectName(name=f"Ticket: {number}")
+                for pk, number in rows.values_list("pk", "ticket_number")
             }
         return {str(pk): _ResolvedObjectName(name=name) for pk, name in rows.values_list("pk", display.name_field)}
     except Exception as e:
@@ -623,7 +631,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         )
         definitions_by_id = {
             str(pd.id): pd
-            for pd in PropertyDefinition.objects.filter(id__in=[rule.property_definition_id for rule in rules])
+            for pd in PropertyDefinition.objects.filter(
+                team_id=team.id, id__in=[rule.property_definition_id for rule in rules]
+            )
         }
 
         results = []
@@ -713,10 +723,14 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         qs = user_access_control.filter_queryset_by_access_level(
             qs, include_all_if_admin=True, resource=cast(APIScopeObject, resource)
         )
-        # Objects mid-deletion or never saved are not sensible rule targets
+        # Objects mid-deletion or never saved are not sensible rule targets. Excluding rather than
+        # filtering keeps rows whose `deleted` is NULL, which is every row on models where the field
+        # was added without a default (session recordings), and legacy rows elsewhere
         if _model_has_field(display.model, "deleted"):
-            qs = qs.filter(deleted=False)
-        if _model_has_field(display.model, "saved"):
+            qs = qs.exclude(deleted=True)
+        # Insight-specific rather than probing for a `saved` field: only Insight has one among the
+        # picker resources, and a future model's field of that name could mean something else
+        if resource == "insight":
             qs = qs.filter(saved=True)
 
         # Enough options for a dropdown; the search narrows, and a pasted URL selects exactly one
@@ -727,18 +741,23 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                     qs = qs.filter(pk=lookup) if lookup.isdigit() else qs.filter(short_id=lookup)
                 elif search:
                     qs = qs.filter(Q(name__icontains=search) | Q(derived_name__icontains=search))
-                rows = qs.order_by("name").values_list("pk", "name", "derived_name")[:limit]
-                results = [{"id": str(pk), "name": name or derived_name or str(pk)} for pk, name, derived_name in rows]
+                # Order by what the labels show: name falls back to derived_name, and sorting on
+                # name alone would push derived-name-only insights behind every named match
+                pks = [
+                    str(pk) for pk in qs.order_by(Coalesce("name", "derived_name")).values_list("pk", flat=True)[:limit]
+                ]
             else:
                 if lookup:
                     qs = qs.filter(pk=lookup)
                 elif search:
                     qs = qs.filter(**{f"{display.name_field}__icontains": search})
-                rows = qs.order_by(display.name_field).values_list("pk", display.name_field)[:limit]
-                results = [{"id": str(pk), "name": str(name) if name else str(pk)} for pk, name in rows]
+                pks = [str(pk) for pk in qs.order_by(display.name_field).values_list("pk", flat=True)[:limit]]
         except (ValueError, DjangoValidationError):
             # A lookup id of the wrong shape for the model's pk matches nothing
-            results = []
+            pks = []
+        # One place builds display names, so the picker shows exactly what the rules list will
+        names = _resolve_object_names(resource, pks, team.id)
+        results = [{"id": pk, "name": (resolved.name if (resolved := names.get(pk)) else None) or pk} for pk in pks]
         return Response({"results": results})
 
     @extend_schema(exclude=True)
@@ -775,28 +794,8 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             **self.get_serializer_context(),
             "view": _ObjectRuleValidationContext(team=team, user_access_control=user_access_control, target=target),
         }
-        serializer = AccessControlSerializer(data=data, context=context)
-        serializer.is_valid(raise_exception=True)
-        params = serializer.validated_data
-
-        instance = AccessControl.objects.filter(
+        return upsert_access_control(
             team=team,
-            resource=resource,
-            resource_id=resource_id,
-            organization_member=params.get("organization_member"),
-            role=params.get("role"),
-        ).first()
-
-        if params["access_level"] is None:
-            if instance:
-                instance.delete()
-                user_access_control._clear_cache()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-
-        if instance:
-            serializer = AccessControlSerializer(instance, data=data, context=context)
-            serializer.is_valid(raise_exception=True)
-        serializer.validated_data["team"] = team
-        serializer.save()
-        user_access_control._clear_cache()
-        return Response(serializer.data, status=status.HTTP_200_OK)
+            user_access_control=user_access_control,
+            build_serializer=lambda instance: AccessControlSerializer(instance, data=data, context=context),
+        )

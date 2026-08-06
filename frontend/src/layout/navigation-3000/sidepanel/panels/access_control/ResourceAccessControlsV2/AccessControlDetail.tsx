@@ -40,8 +40,9 @@ export function AccessControlDetailContent({
     const { canEdit } = useValues(accessControlsLogic({ projectId }))
     const { user } = useValues(userLogic)
 
-    const isSelf = isMemberEntry(entry) && entry.user.uuid === user?.uuid
-    const cannotEditReason = isSelf ? 'You cannot change your own access' : undefined
+    // The same gate as the project select and tools above, so the whole page greys out together
+    // (permissions, self-edits, org admins who always have full access)
+    const cannotEditReason = subjectDisabledReason(entry, canEdit, user?.uuid)
 
     return (
         <>
@@ -56,7 +57,7 @@ export function AccessControlDetailContent({
                 scopeType={scopeType}
                 subjectId={subjectId}
                 subjectNoun={subjectNoun}
-                canEdit={canEdit && !isSelf}
+                canEdit={!cannotEditReason}
                 cannotEditReason={cannotEditReason}
             />
 
@@ -65,7 +66,7 @@ export function AccessControlDetailContent({
                 scopeType={scopeType}
                 subjectId={subjectId}
                 subjectNoun={subjectNoun}
-                canEdit={canEdit && !isSelf}
+                canEdit={!cannotEditReason}
                 cannotEditReason={cannotEditReason}
             />
         </>
@@ -218,6 +219,8 @@ function ProjectAccessSection({
             </div>
             <AccessLevelSelect
                 size="small"
+                // The trigger sits at the right edge of its row, so hang the menu off that edge
+                dropdownPlacement="bottom-end"
                 level={entry.project.access_level}
                 levels={availableProjectLevels}
                 onChange={onChange}
@@ -361,6 +364,7 @@ function ToolsSection({
                                 <div className="flex justify-end py-1.5">
                                     <AccessLevelSelect
                                         size="small"
+                                        dropdownPlacement="bottom-end"
                                         level={res?.access_level ?? null}
                                         levels={levels}
                                         minimumLevel={res?.minimum}

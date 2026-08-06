@@ -14,17 +14,19 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import AccessSource
+from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.utils import render_template
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.conversations.backend.models import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.models.insight import Insight
 from products.warehouse_sources.backend.models import DataWarehouseTable
 
-from ee.api.rbac.access_control_settings import resources_with_object_access_controls
+from ee.api.rbac.access_control_settings import _display_model, resources_with_object_access_controls
 from ee.api.test.base import APILicensedTest
 from ee.models.rbac.access_control import AccessControl
 from ee.models.rbac.role import Role, RoleMembership
@@ -2159,9 +2161,15 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
 
 # A viewset gaining or losing AccessControlViewSetMixin changes this set. Regenerate with
 # `pytest ee/api/rbac/test/test_access_control.py --snapshot-update` so the change shows up in
-# review, and give the settings picker a look for the new resource while at it.
+# review. Carrying the mixin is not enough to reach the settings picker: a resource also needs a
+# resolvable display name, so each entry records that verdict too. A resource landing in "excluded"
+# needs an entry in _MODELS_NOT_IN_ENTITY_MAP, or has no objects worth picking.
 def test_resources_with_object_access_controls_snapshot(snapshot):
-    assert sorted(resources_with_object_access_controls()) == snapshot
+    verdicts = [
+        f"{resource}: {'served' if _display_model(resource) else 'excluded (no resolvable name)'}"
+        for resource in sorted(resources_with_object_access_controls())
+    ]
+    assert verdicts == snapshot
 
 
 class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
@@ -2226,6 +2234,26 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
 
         res = self.client.get("/api/projects/@current/access_control_object_search?resource=webhook")
         assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+
+    def test_object_search_labels_a_ticket_by_its_number(self):
+        ticket = Ticket.objects.create(team=self.team, ticket_number=66184)
+
+        res = self.client.get("/api/projects/@current/access_control_object_search?resource=ticket&search=6618")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        # A bare number doesn't read as an object, so the label matches the ticket page's own title
+        assert [(r["id"], r["name"]) for r in res.json()["results"]] == [(str(ticket.id), "Ticket: 66184")]
+
+    def test_object_search_finds_objects_whose_deleted_flag_is_null(self):
+        # SessionRecording.deleted has no default, so rows carry NULL, which filter(deleted=False)
+        # drops: the picker returned nothing at all for the resource
+        recording = SessionRecording.objects.create(team=self.team, session_id="abc-123")
+        assert recording.deleted is None
+
+        res = self.client.get(
+            "/api/projects/@current/access_control_object_search?resource=session_recording&search=abc-123"
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert [(r["id"], r["name"]) for r in res.json()["results"]] == [(str(recording.id), "abc-123")]
 
     def test_object_rules_write_addresses_objects_by_pk(self):
         notebook = Notebook.objects.create(team=self.team, title="Q3 planning", created_by=self.user)

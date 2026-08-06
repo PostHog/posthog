@@ -7,6 +7,7 @@ import { humanizeAccessControlLevel } from './ResourceAccessControlsV2/helpers'
 
 export interface AccessLevelSelectProps {
     size?: LemonSelectProps<any>['size']
+    dropdownPlacement?: LemonSelectProps<any>['dropdownPlacement']
     /** The subject's own saved rule; null means no rule ("No override"). */
     level: AccessControlLevel | null
     levels: AccessControlLevel[]
@@ -76,8 +77,7 @@ export function AccessLevelSelect(props: AccessLevelSelectProps): JSX.Element {
             onChange={props.onChange}
             disabledReason={props.disabledReason}
             dropdownMatchSelectWidth={false}
-            // The trigger sits at the right edge of its row, so hang the menu off that edge
-            dropdownPlacement="bottom-end"
+            dropdownPlacement={props.dropdownPlacement}
             tooltip={
                 // A disabled control explains itself through disabledReason; adding the inherited
                 // reason on top reads as two unrelated sentences

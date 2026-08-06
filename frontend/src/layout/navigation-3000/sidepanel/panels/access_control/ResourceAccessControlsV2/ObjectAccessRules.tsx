@@ -102,6 +102,7 @@ export function ObjectAccessRules({
                             <div className="flex justify-end py-1.5">
                                 <AccessLevelSelect
                                     size="small"
+                                    dropdownPlacement="bottom-end"
                                     level={o.access_level}
                                     levels={OBJECT_LEVELS}
                                     onChange={(level) => setObjectRule(o.resource, o.resource_id, level)}
@@ -189,7 +190,13 @@ function AddObjectRuleModal({
                     </LemonButton>
                     <LemonButton
                         type="primary"
-                        disabledReason={!objectId ? 'Select an object' : undefined}
+                        disabledReason={
+                            !objectId
+                                ? 'Select an object'
+                                : existingRule?.access_level === level
+                                  ? 'The rule already has this level'
+                                  : undefined
+                        }
                         onClick={submitRule}
                     >
                         {existingRule ? 'Update rule' : 'Add rule'}
