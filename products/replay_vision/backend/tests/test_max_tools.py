@@ -1,4 +1,5 @@
 import uuid
+from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
@@ -11,7 +12,12 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from products.replay_vision.backend.max_tools import (
+    CreateReplayVisionActionTool,
+    CreateReplayVisionScannerTool,
     DraftReplayVisionScannerPromptTool,
+    GetReplayVisionQuotaTool,
+    RetryReplayVisionObservationTool,
+    ScanReplayVisionSessionsTool,
     SearchReplayVisionObservationsTool,
     SummarizeReplayVisionSummariesTool,
     _ObservationFilters,
@@ -22,6 +28,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN
 from products.replay_vision.backend.tags import slugify_tag
 
 _FLAG_PATH = "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled"
@@ -483,3 +490,96 @@ class TestObservationFiltersTagClause:
         assert "arrayMap" in clauses[0]
         # The clause carries no inlined tag value — it lives only in the parameterized placeholder, verbatim.
         assert placeholders["tags"].value == tags
+
+
+class TestReplayVisionChargeConfirmation(BaseTest):
+    """Every tool that spends Replay Vision credits has to ask first, and say what it costs."""
+
+    def _tool(self, tool_cls):
+        config: RunnableConfig = {"configurable": {"team": self.team, "user": self.user}}
+        return tool_cls(team=self.team, user=self.user, config=config)
+
+    def _scanner(self, **overrides) -> ReplayScanner:
+        defaults = {
+            "team": self.team,
+            "name": "my-scanner",
+            "scanner_type": ScannerType.MONITOR,
+            "scanner_config": {"prompt": "did the user check out?"},
+            "model": ScannerModel.GEMINI_3_6_FLASH,
+        }
+        defaults.update(overrides)
+        return ReplayScanner.objects.create(**defaults)
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_every_charging_tool_asks_before_spending(self):
+        # The framework only interrupts for approval when is_dangerous_operation returns True, so a tool
+        # that spends credits and forgets to override it would charge the org with no prompt at all.
+        # Plain loop, not @parameterized: the tools take different kwargs.
+        cases: list[tuple[type, dict[str, Any]]] = [
+            (ScanReplayVisionSessionsTool, {"session_ids": ["s1"], "prompt": "did it fail?"}),
+            (RetryReplayVisionObservationTool, {"observation_id": str(uuid.uuid4())}),
+            (CreateReplayVisionScannerTool, {"enabled": True}),
+        ]
+        for tool_cls, kwargs in cases:
+            assert await self._tool(tool_cls).is_dangerous_operation(**kwargs) is True, tool_cls.__name__
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_tools_that_spend_nothing_do_not_ask(self):
+        # A confirmation prompt for a free action trains users to click through the ones that aren't.
+        assert await self._tool(GetReplayVisionQuotaTool).is_dangerous_operation() is False
+        assert await self._tool(CreateReplayVisionActionTool).is_dangerous_operation() is False
+        # A scanner created disabled has no schedule, so it spends nothing until someone enables it.
+        assert await self._tool(CreateReplayVisionScannerTool).is_dangerous_operation(enabled=False) is False
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_scan_preview_names_the_cost_and_the_budget(self):
+        # The preview is the only thing the user sees before approving, so it has to carry the number.
+        preview = await self._tool(ScanReplayVisionSessionsTool).format_dangerous_operation_preview(
+            session_ids=["s1", "s2", "s1"], prompt="did the user hit the coupon bug?"
+        )
+
+        # Deduplicated: the same session twice would be a no-op, and charging for it in the preview lies.
+        assert "2 session(s)" in preview
+        assert "credits" in preview
+        assert "did the user hit the coupon bug?" in preview
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_create_scanner_preview_says_it_is_recurring(self):
+        # An enabled scanner's cost is unbounded and recurring, which is the part a user needs to weigh.
+        preview = await self._tool(CreateReplayVisionScannerTool).format_dangerous_operation_preview(
+            name="checkout-failures", sampling_rate=0.25
+        )
+
+        assert "every new recording" in preview
+        assert "25%" in preview
+        assert "credits" in preview
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_scan_refuses_a_batch_larger_than_one_scan_can_take(self):
+        with patch(_FLAG_PATH, return_value=True):
+            content, artifact = await self._tool(ScanReplayVisionSessionsTool)._arun_impl(
+                session_ids=[f"s{i}" for i in range(MAX_SESSIONS_PER_SCAN + 1)], prompt="did it fail?"
+            )
+
+        assert artifact["error"] == "too_many_sessions"
+        assert "Narrow the selection" in content
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_scan_stops_when_the_organization_has_not_allowed_ai(self):
+        # Fail closed: this is the gate that keeps recordings out of an LLM without consent.
+        self.organization.is_ai_data_processing_approved = False
+        await sync_to_async(self.organization.save)()
+
+        with patch(_FLAG_PATH, return_value=True):
+            content, artifact = await self._tool(ScanReplayVisionSessionsTool)._arun_impl(
+                session_ids=["s1"], prompt="did it fail?"
+            )
+
+        assert artifact["error"] == "no_ai_consent"
+        assert "AI analysis" in content

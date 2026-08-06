@@ -5,6 +5,7 @@ from typing import Any
 import structlog
 from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field
+from rest_framework.exceptions import Throttled
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -12,10 +13,14 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.embedding_worker import async_generate_embedding
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.exceptions import QuotaLimitExceeded
+from posthog.models.team import Team
 from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 
+from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.embeddings import (
     EMBEDDING_DOCUMENT_TYPE,
     EMBEDDING_PRODUCT,
@@ -23,11 +28,22 @@ from products.replay_vision.backend.embeddings import (
 )
 from products.replay_vision.backend.feature_flag import is_replay_vision_enabled
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import ScannerType
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.vision_action import ActionMode, TriggerType, VisionAction
 from products.replay_vision.backend.observation_formatting import EVENT_ID_CITATION_RE, format_line, read_output
+from products.replay_vision.backend.quota import compute_quota_snapshot
 from products.replay_vision.backend.scanner_access import (
+    is_uuid,
     scanner_for_reading_observations,
     scanners_for_reading_observations,
+)
+from products.replay_vision.backend.scanner_config import scanner_config_error
+from products.replay_vision.backend.scanning import (
+    MAX_SESSIONS_PER_SCAN,
+    RetryOutcome,
+    retry_observation,
+    run_inline_scan,
+    scan_existing_scanner,
 )
 from products.replay_vision.backend.tags import clickhouse_slugify_sql, slugify_tag
 
@@ -582,3 +598,596 @@ class SearchReplayVisionObservationsTool(MaxTool):
             ch_user=ClickHouseUser.REPLAY_VISION,
         )
         return [row[0] for row in (result.results or [])]
+
+
+# Everything a scan costs is priced per observation from this model unless a saved scanner names another.
+DEFAULT_SCAN_MODEL = ScannerModel.GEMINI_3_FLASH_PREVIEW
+
+# The two cadences worth offering in a chat; anything finer belongs in the UI's rrule editor.
+_CADENCE_RRULES = {"daily": "FREQ=DAILY", "weekly": "FREQ=WEEKLY"}
+
+
+def _dedup(session_ids: list[str]) -> list[str]:
+    """Order-preserving; the same session twice in one batch would just be a wasted no-op."""
+    return [s for s in dict.fromkeys(sid.strip() for sid in session_ids) if s]
+
+
+def _truncate(text: str, limit: int = 120) -> str:
+    collapsed = " ".join(text.split())
+    return collapsed if len(collapsed) <= limit else collapsed[: limit - 1] + "\u2026"
+
+
+@database_sync_to_async
+def _format_spend(team: Team, model: str, count: int) -> str:
+    """The credit sentence every confirmation prompt ends with.
+
+    Spelled out in credits and dollars against what's left, because the whole point of the confirmation
+    is that the user can see what the action costs before it happens.
+    """
+    cost = observation_credits_for_model(model) * count
+    remaining = compute_quota_snapshot(team.organization_id).remaining
+    if remaining is None:
+        return f"about {cost} credits (${cost / 100:,.2f}). This project has no monthly credit limit set."
+    return f"about {cost} credits (${cost / 100:,.2f}) of the {remaining} left this month."
+
+
+def _scan_summary(started: int, results: list[dict[str, str]], scan_id: str) -> str:
+    counts: dict[str, int] = {}
+    for result in results:
+        counts[result["scan_outcome"]] = counts.get(result["scan_outcome"], 0) + 1
+    parts = [f"Started {started} scan(s)."]
+    if counts.get("already_scanned"):
+        parts.append(f"{counts['already_scanned']} already had an answer, reused at no charge.")
+    if counts.get("already_running"):
+        parts.append(f"{counts['already_running']} were already being scanned.")
+    if counts.get("skipped_quota"):
+        parts.append(f"{counts['skipped_quota']} were skipped: the monthly credit budget is used up.")
+    if counts.get("skipped_limit"):
+        parts.append(f"{counts['skipped_limit']} were skipped: too many scans already running.")
+    if counts.get("failed"):
+        parts.append(f"{counts['failed']} failed to start.")
+    if started:
+        parts.append("Each recording takes a few minutes. Results appear on the recordings when they finish.")
+    return " ".join(parts)
+
+
+def _scan_artifact(scan_id: str, results: list[dict[str, str]]) -> dict[str, Any]:
+    return {"scan_id": scan_id, "results": results}
+
+
+SCAN_SESSIONS_TOOL_DESCRIPTION = """
+Use this tool to have Replay Vision watch specific session recordings and answer a question about them.
+
+# When to use
+- The user has recordings in hand (from search_session_recordings, from context, or as explicit ids) and
+  asks what happened in them, whether something occurred, or to classify or score them
+- The user asks to run an existing scanner against particular sessions
+
+# How it works
+Each session is scanned by an LLM that watches the recording. Scanning costs credits from the project's
+monthly Replay Vision budget, so the user is asked to confirm before anything starts.
+
+Pass `prompt` for a one-off question: nothing is saved and nothing runs on a schedule. Pass `scanner_id`
+instead to run a saved scanner over these sessions. Asking the same question twice reuses the answers it
+already has rather than charging again.
+
+# What it returns
+Confirmation that scans started, and the scan id to read results through. Results are NOT immediate:
+each recording takes minutes. Tell the user results will appear on the recordings, and use
+search_replay_vision_observations afterwards to read them.
+"""
+
+
+class ScanSessionsArgs(BaseModel):
+    session_ids: list[str] = Field(
+        description="Session recording ids to scan. Ask the user rather than guessing if you don't have them."
+    )
+    prompt: str | None = Field(
+        default=None,
+        description=(
+            "What to look for, in plain language, for a one-off question. Leave unset when passing "
+            "scanner_id. Write it as a direct instruction grounded in what is observable in a recording."
+        ),
+    )
+    scanner_id: str | None = Field(
+        default=None,
+        description="Run this saved scanner over the sessions instead of a one-off prompt.",
+    )
+    scanner_type: str = Field(
+        default="monitor",
+        description=(
+            "For a one-off prompt: 'monitor' for an open-ended yes/no observation (the default), "
+            "'summarizer' for a free-text summary. Ignored when scanner_id is set."
+        ),
+    )
+
+
+class ScanReplayVisionSessionsTool(MaxTool):
+    name: str = "scan_replay_vision_sessions"
+    description: str = SCAN_SESSIONS_TOOL_DESCRIPTION
+    args_schema: type[BaseModel] = ScanSessionsArgs
+
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+        # Scanning mints or runs a scanner and spends credits, so it needs the same bar as creating one,
+        # plus recording read because the output exposes recording contents.
+        return [("replay_scanner", "editor"), ("session_recording", "viewer")]
+
+    async def is_dangerous_operation(self, **kwargs) -> bool:
+        # Always: every path here spends the project's Replay Vision credits.
+        return True
+
+    async def format_dangerous_operation_preview(
+        self, session_ids: list[str], prompt: str | None = None, scanner_id: str | None = None, **kwargs
+    ) -> str:
+        sessions = _dedup(session_ids)
+        model, scanner_label = await self._preview_target(scanner_id)
+        spend = await self._spend_line(model, len(sessions))
+        what = f"the saved scanner {scanner_label}" if scanner_id else f'the question "{_truncate(prompt or "")}"'
+        return f"**Scan {len(sessions)} session(s)** with {what}. This spends {spend}"
+
+    async def _arun_impl(
+        self,
+        session_ids: list[str],
+        prompt: str | None = None,
+        scanner_id: str | None = None,
+        scanner_type: str = "monitor",
+    ) -> tuple[str, dict[str, Any]]:
+        if not await self._is_enabled():
+            return "Replay Vision is not enabled for this project.", {"error": "not_enabled"}
+        sessions = _dedup(session_ids)
+        if not sessions:
+            return "No session ids to scan.", {"error": "no_sessions"}
+        if len(sessions) > MAX_SESSIONS_PER_SCAN:
+            return (
+                f"That's {len(sessions)} recordings; {MAX_SESSIONS_PER_SCAN} is the most one scan can take. "
+                "Narrow the selection and try again.",
+                {"error": "too_many_sessions"},
+            )
+        if not await self._ai_consent():
+            return (
+                "This organization hasn't enabled AI analysis of recordings, which Replay Vision needs. "
+                "An admin can turn it on in organization settings.",
+                {"error": "no_ai_consent"},
+            )
+        return await self._start_scan(sessions, prompt, scanner_id, scanner_type)
+
+    @database_sync_to_async
+    def _start_scan(
+        self, sessions: list[str], prompt: str | None, scanner_id: str | None, scanner_type: str
+    ) -> tuple[str, dict[str, Any]]:
+        if scanner_id:
+            scanner = scanner_for_reading_observations(self._team.id, scanner_id)
+            if scanner is None or not self.user_access_control.check_access_level_for_object(scanner, "editor"):
+                return f"Scanner {scanner_id} not found.", {"error": "not_found"}
+            started, results = scan_existing_scanner(scanner=scanner, session_ids=sessions, user=self._user)
+            return _scan_summary(started, results, str(scanner.id)), _scan_artifact(str(scanner.id), results)
+
+        if not prompt or not prompt.strip():
+            return "Pass either a prompt or a scanner_id.", {"error": "no_prompt"}
+        resolved_type = scanner_type if scanner_type in VALID_SCANNER_TYPES else ScannerType.MONITOR
+        config: dict[str, Any] = {"prompt": prompt.strip()}
+        message = scanner_config_error(ScannerType(resolved_type), config)
+        if message is not None:
+            return message, {"error": "invalid_config"}
+        scan = run_inline_scan(
+            team=self._team,
+            user=self._user,
+            session_ids=sessions,
+            scanner_type=ScannerType(resolved_type),
+            scanner_config=config,
+            model=DEFAULT_SCAN_MODEL,
+        )
+        if scan.scanner is None:
+            return (
+                "Nothing started: this project's monthly Replay Vision credits are used up.",
+                {"error": "quota_exhausted"},
+            )
+        return _scan_summary(scan.started, scan.results, str(scan.scanner.id)), _scan_artifact(
+            str(scan.scanner.id), scan.results
+        )
+
+    async def _preview_target(self, scanner_id: str | None) -> tuple[str, str]:
+        if not scanner_id:
+            return DEFAULT_SCAN_MODEL, ""
+        return await self._resolve_scanner_model(scanner_id)
+
+    @database_sync_to_async
+    def _resolve_scanner_model(self, scanner_id: str) -> tuple[str, str]:
+        scanner = scanner_for_reading_observations(self._team.id, scanner_id)
+        if scanner is None:
+            return DEFAULT_SCAN_MODEL, f"(id {scanner_id})"
+        # The scanner name is user-editable, so it stays out of tool output (stored-injection guard); the
+        # approval preview is rendered to the user who owns it, not fed back to the model.
+        return scanner.model, f"'{scanner.name}'"
+
+    async def _spend_line(self, model: str, count: int) -> str:
+        return await _format_spend(self._team, model, count)
+
+    @database_sync_to_async
+    def _ai_consent(self) -> bool:
+        return is_ai_data_processing_approved(self._team.id)
+
+    @database_sync_to_async
+    def _is_enabled(self) -> bool:
+        return is_replay_vision_enabled(self._user, self._team)
+
+
+QUOTA_TOOL_DESCRIPTION = """
+Use this tool to read the project's Replay Vision credit budget for the current billing month.
+
+# When to use
+- Before proposing a broad scanner or a large batch of scans, to check what the budget can absorb
+- The user asks what Replay Vision has cost, how much budget is left, or why scans are being skipped
+
+# What it returns
+Credits used, credits remaining, the monthly limit, when the period resets, and the projected monthly
+spend of the scanners already running. Reading this costs nothing.
+"""
+
+
+class ReplayVisionQuotaArgs(BaseModel):
+    pass
+
+
+class GetReplayVisionQuotaTool(MaxTool):
+    name: str = "get_replay_vision_quota"
+    description: str = QUOTA_TOOL_DESCRIPTION
+    args_schema: type[BaseModel] = ReplayVisionQuotaArgs
+
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+        return [("replay_scanner", "viewer")]
+
+    async def _arun_impl(self) -> tuple[str, dict[str, Any]]:
+        if not await self._is_enabled():
+            return "Replay Vision is not enabled for this project.", {"error": "not_enabled"}
+        return await self._read()
+
+    @database_sync_to_async
+    def _read(self) -> tuple[str, dict[str, Any]]:
+        snapshot = compute_quota_snapshot(self._team.organization_id)
+        resets = snapshot.period_end.strftime("%b %-d")
+        if snapshot.credit_limit is None:
+            content = (
+                f"{snapshot.credits_used} credits used this period, which resets on {resets}. "
+                "This project has no monthly credit limit set."
+            )
+        else:
+            content = (
+                f"{snapshot.credits_used} of {snapshot.credit_limit} credits used, "
+                f"{snapshot.remaining} left. The period resets on {resets}. "
+                f"Scanners already running are projected to use {snapshot.projected_monthly_credits} a month."
+            )
+        return content, {
+            "credits_used": snapshot.credits_used,
+            "credit_limit": snapshot.credit_limit,
+            "credits_remaining": snapshot.remaining,
+            "projected_monthly_credits": snapshot.projected_monthly_credits,
+            "period_end": snapshot.period_end.isoformat(),
+        }
+
+    @database_sync_to_async
+    def _is_enabled(self) -> bool:
+        return is_replay_vision_enabled(self._user, self._team)
+
+
+RETRY_OBSERVATION_TOOL_DESCRIPTION = """
+Use this tool to scan a recording again after its observation failed or came back ineligible.
+
+# When to use
+- The user asks to retry, re-run, or try again on an observation that failed
+- A search result shows a failed observation and the user wants another attempt
+
+# What it does
+Deletes the failed result and starts a fresh scan of the same recording with the same scanner. This
+costs credits like any other scan, so the user is asked to confirm first. Only failed and ineligible
+observations can be retried; a succeeded one already has its answer.
+"""
+
+
+class RetryObservationArgs(BaseModel):
+    observation_id: str = Field(description="The failed or ineligible observation to scan again.")
+
+
+class RetryReplayVisionObservationTool(MaxTool):
+    name: str = "retry_replay_vision_observation"
+    description: str = RETRY_OBSERVATION_TOOL_DESCRIPTION
+    args_schema: type[BaseModel] = RetryObservationArgs
+
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+        return [("replay_scanner", "editor"), ("session_recording", "viewer")]
+
+    async def is_dangerous_operation(self, **kwargs) -> bool:
+        # A retry is a fresh scan, charged like any other.
+        return True
+
+    async def format_dangerous_operation_preview(self, observation_id: str, **kwargs) -> str:
+        found = await self._load(observation_id)
+        if found is None:
+            return f"Retry observation {observation_id}"
+        session_id, model = found
+        spend = await _format_spend(self._team, model, 1)
+        return f"**Scan recording {session_id} again**, replacing the failed result. This spends {spend}"
+
+    @database_sync_to_async
+    def _load(self, observation_id: str) -> tuple[str, str] | None:
+        if not is_uuid(observation_id):
+            return None
+        observation = (
+            ReplayObservation.objects.filter(team_id=self._team.id, id=observation_id).select_related("scanner").first()
+        )
+        if observation is None:
+            return None
+        return observation.session_id, observation.scanner.model
+
+    async def _arun_impl(self, observation_id: str) -> tuple[str, dict[str, Any]]:
+        if not await self._is_enabled():
+            return "Replay Vision is not enabled for this project.", {"error": "not_enabled"}
+        if not await self._ai_consent():
+            return (
+                "This organization hasn't enabled AI analysis of recordings, which Replay Vision needs.",
+                {"error": "no_ai_consent"},
+            )
+        return await self._retry(observation_id)
+
+    @database_sync_to_async
+    def _retry(self, observation_id: str) -> tuple[str, dict[str, Any]]:
+        if not is_uuid(observation_id):
+            return f"Observation {observation_id} not found.", {"error": "not_found"}
+        observation = (
+            ReplayObservation.objects.filter(team_id=self._team.id, id=observation_id).select_related("scanner").first()
+        )
+        if observation is None or not self.user_access_control.check_access_level_for_object(
+            observation.scanner, "editor"
+        ):
+            return f"Observation {observation_id} not found.", {"error": "not_found"}
+        try:
+            outcome = retry_observation(observation=observation, user=self._user)
+        except QuotaLimitExceeded:
+            return (
+                "Not retried: this project's monthly Replay Vision credits are used up.",
+                {"error": "quota_exhausted"},
+            )
+        except Throttled:
+            return (
+                "Not retried: too many scans are already running for this project. Try again in a few minutes.",
+                {"error": "capped"},
+            )
+        if outcome is RetryOutcome.NOT_RETRYABLE:
+            return (
+                f"That observation is {observation.status}, and only failed or ineligible ones can be retried.",
+                {"error": "not_retryable"},
+            )
+        if outcome is not RetryOutcome.STARTED:
+            return "Couldn't start the retry. Try again in a moment.", {"error": "start_failed"}
+        return (
+            f"Scanning recording {observation.session_id} again. It takes a few minutes.",
+            {"session_id": observation.session_id, "scanner_id": str(observation.scanner_id)},
+        )
+
+    @database_sync_to_async
+    def _ai_consent(self) -> bool:
+        return is_ai_data_processing_approved(self._team.id)
+
+    @database_sync_to_async
+    def _is_enabled(self) -> bool:
+        return is_replay_vision_enabled(self._user, self._team)
+
+
+CREATE_SCANNER_TOOL_DESCRIPTION = """
+Use this tool to create a Replay Vision scanner: a standing watch that scans every future recording
+matching a filter.
+
+# When to use
+- The user wants recordings that haven't happened yet to be scanned automatically
+- The user asks to monitor, track, classify or score sessions on an ongoing basis
+
+# When NOT to use
+- The user has recordings in hand and a question about them. That's scan_replay_vision_sessions, which
+  saves nothing and schedules nothing. Never create a scanner just to answer one question and delete it.
+
+# Cost
+An enabled scanner sweeps every 5 minutes and spends credits on each matching recording, so it can drain
+a monthly budget on its own. Creating one enabled asks the user to confirm, with the projected monthly
+spend. Create it disabled (`enabled: false`) to set it up without spending anything yet.
+
+Call get_replay_vision_quota first when proposing anything broad, and prefer a `sampling_rate` below 1.0
+over an unfiltered scanner.
+"""
+
+
+class CreateScannerArgs(BaseModel):
+    name: str = Field(description="Human-readable name, unique within the project.")
+    prompt: str = Field(
+        description=(
+            "The instruction the model follows while watching one recording. Write it as a direct, "
+            "specific question grounded in observable behavior, e.g. 'Did the user fail to complete "
+            "checkout?'. Avoid vague adjectives and anything the model can't see in a recording."
+        )
+    )
+    scanner_type: str = Field(
+        default="monitor",
+        description=(
+            "'monitor' for a yes/no observation with a reason, 'summarizer' for a free-text summary. "
+            "Classifiers and scorers need a tag vocabulary or a scale, so ask the user to configure "
+            "those in the UI."
+        ),
+    )
+    sampling_rate: float = Field(
+        default=1.0,
+        description="Fraction of matching recordings to scan, 0 to 1. Lower this to control spend.",
+    )
+    enabled: bool = Field(
+        default=False,
+        description=(
+            "Leave false to create it without starting the sweep, which spends nothing. Set true only "
+            "when the user has agreed to the recurring cost."
+        ),
+    )
+
+
+class CreateReplayVisionScannerTool(MaxTool):
+    name: str = "create_replay_vision_scanner"
+    description: str = CREATE_SCANNER_TOOL_DESCRIPTION
+    args_schema: type[BaseModel] = CreateScannerArgs
+
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+        return [("replay_scanner", "editor"), ("session_recording", "viewer")]
+
+    async def is_dangerous_operation(self, enabled: bool = False, **kwargs) -> bool:
+        # A disabled scanner has no schedule and spends nothing, so only an enabled one needs a decision.
+        return enabled is True
+
+    async def format_dangerous_operation_preview(self, name: str = "", sampling_rate: float = 1.0, **kwargs) -> str:
+        spend = await _format_spend(self._team, DEFAULT_SCAN_MODEL, 1)
+        sampled = "" if sampling_rate >= 1.0 else f" It samples {sampling_rate:.0%} of them."
+        return (
+            f"**Create and enable** scanner '{name}'. It scans every new recording from now on, "
+            f"sweeping every 5 minutes.{sampled} Each recording costs {spend} "
+            "Create it disabled instead if you want to size it first."
+        )
+
+    async def _arun_impl(
+        self,
+        name: str,
+        prompt: str,
+        scanner_type: str = "monitor",
+        sampling_rate: float = 1.0,
+        enabled: bool = False,
+    ) -> tuple[str, dict[str, Any]]:
+        if not await self._is_enabled():
+            return "Replay Vision is not enabled for this project.", {"error": "not_enabled"}
+        if enabled and not await self._ai_consent():
+            return (
+                "This organization hasn't enabled AI analysis of recordings, which Replay Vision needs. "
+                "An admin can turn it on in organization settings.",
+                {"error": "no_ai_consent"},
+            )
+        return await self._create(name, prompt, scanner_type, sampling_rate, enabled)
+
+    @database_sync_to_async
+    def _create(
+        self, name: str, prompt: str, scanner_type: str, sampling_rate: float, enabled: bool
+    ) -> tuple[str, dict[str, Any]]:
+        if not 0.0 <= sampling_rate <= 1.0:
+            return "Sampling rate has to be between 0 and 1.", {"error": "invalid_sampling_rate"}
+        resolved_type = scanner_type if scanner_type in VALID_SCANNER_TYPES else ScannerType.MONITOR
+        config: dict[str, Any] = {"prompt": prompt.strip()}
+        message = scanner_config_error(ScannerType(resolved_type), config)
+        if message is not None:
+            return message, {"error": "invalid_config"}
+        if ReplayScanner.objects.filter(team=self._team, name=name.strip()).exists():
+            return f"This project already has a scanner called '{name}'. Pick another name.", {"error": "duplicate"}
+        scanner = ReplayScanner.objects.create(
+            team=self._team,
+            created_by=self._user,
+            name=name.strip(),
+            scanner_type=ScannerType(resolved_type),
+            scanner_config=config,
+            model=DEFAULT_SCAN_MODEL,
+            sampling_rate=sampling_rate,
+            enabled=enabled,
+        )
+        state = (
+            "It's running and will scan new recordings as they arrive."
+            if enabled
+            else "It's turned off for now, so it isn't scanning or spending anything. Enable it when you're ready."
+        )
+        return f"Created the {resolved_type} scanner '{scanner.name}'. {state}", {
+            "scanner_id": str(scanner.id),
+            "enabled": enabled,
+        }
+
+    @database_sync_to_async
+    def _ai_consent(self) -> bool:
+        return is_ai_data_processing_approved(self._team.id)
+
+    @database_sync_to_async
+    def _is_enabled(self) -> bool:
+        return is_replay_vision_enabled(self._user, self._team)
+
+
+CREATE_ACTION_TOOL_DESCRIPTION = """
+Use this tool to set up a recurring summary of what a Replay Vision scanner is finding.
+
+# When to use
+- The user wants a daily or weekly digest of a scanner's observations
+- The user asks to be kept updated on what a scanner is seeing, without reading each observation
+
+# What it does
+Creates a scheduled group summary: on the cadence you give it, one report is synthesized from the
+observations the scanner produced since the last run. It reads observations that already exist and
+starts no new scans, so it spends no Replay Vision credits.
+
+The report appears in the app. Delivering it to Slack or a webhook needs an integration id, so point the
+user at the scanner's "Summaries and alerts" tab for that rather than guessing one.
+
+For an alert that fires on a condition rather than a cadence, point the user at that tab too: alerts need
+a threshold, a metric and a window that are easier to set there.
+"""
+
+
+class CreateVisionActionArgs(BaseModel):
+    scanner_id: str = Field(description="The scanner whose observations get summarized.")
+    name: str = Field(description="Human-readable name, unique within the project.")
+    cadence: str = Field(
+        default="daily",
+        description="How often the summary runs: 'daily' or 'weekly'.",
+    )
+    focus: str | None = Field(
+        default=None,
+        description="Optional steer on what the summary should emphasize, e.g. 'group by the feature involved'.",
+    )
+
+
+class CreateReplayVisionActionTool(MaxTool):
+    name: str = "create_replay_vision_action"
+    description: str = CREATE_ACTION_TOOL_DESCRIPTION
+    args_schema: type[BaseModel] = CreateVisionActionArgs
+
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+        return [("vision_action", "editor"), ("session_recording", "viewer")]
+
+    # No is_dangerous_operation: a summary synthesizes over observations that already exist, so it
+    # spends no observation credits. Quota counts usage receipts, in-flight scans and prompt
+    # evaluations; a summary run is none of those.
+
+    async def _arun_impl(
+        self, scanner_id: str, name: str, cadence: str = "daily", focus: str | None = None
+    ) -> tuple[str, dict[str, Any]]:
+        if not await self._is_enabled():
+            return "Replay Vision is not enabled for this project.", {"error": "not_enabled"}
+        return await self._create(scanner_id, name, cadence, focus)
+
+    @database_sync_to_async
+    def _create(self, scanner_id: str, name: str, cadence: str, focus: str | None) -> tuple[str, dict[str, Any]]:
+        rrule = _CADENCE_RRULES.get(cadence.strip().lower())
+        if rrule is None:
+            return "Cadence has to be 'daily' or 'weekly'.", {"error": "invalid_cadence"}
+        # Configured scanners only: a summary is a standing job, and an inline scan's scanner is a
+        # throwaway that the reaper may collect.
+        scanner = (
+            ReplayScanner.objects.filter(team_id=self._team.id, id=scanner_id).first() if is_uuid(scanner_id) else None
+        )
+        if scanner is None or not self.user_access_control.check_access_level_for_object(scanner, "viewer"):
+            return f"Scanner {scanner_id} not found.", {"error": "not_found"}
+        if VisionAction.objects.filter(team=self._team, name=name.strip()).exists():
+            return f"This project already has an action called '{name}'. Pick another name.", {"error": "duplicate"}
+        action = VisionAction.objects.create(
+            team=self._team,
+            created_by=self._user,
+            scanner=scanner,
+            name=name.strip(),
+            mode=ActionMode.GROUP_SUMMARY,
+            trigger_type=TriggerType.SCHEDULE,
+            trigger_config={"rrule": rrule, "timezone": self._team.timezone or "UTC"},
+            synthesis_config={"prompt_guide": focus.strip()} if focus and focus.strip() else {},
+        )
+        return (
+            f"Created a {cadence} summary of that scanner's observations. It appears on the scanner's "
+            "'Summaries and alerts' tab, and you can add Slack or webhook delivery there.",
+            {"vision_action_id": str(action.id)},
+        )
+
+    @database_sync_to_async
+    def _is_enabled(self) -> bool:
+        return is_replay_vision_enabled(self._user, self._team)

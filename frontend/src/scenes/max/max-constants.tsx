@@ -790,6 +790,66 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Searching observations...'
         },
     },
+    scan_replay_vision_sessions: {
+        name: 'Scan recordings',
+        description: 'Have Replay Vision watch specific recordings and answer a question about them',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Started scanning recordings'
+            }
+            return 'Starting scans...'
+        },
+    },
+    retry_replay_vision_observation: {
+        name: 'Retry a scan',
+        description: 'Scan a recording again after its observation failed',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Retried the scan'
+            }
+            return 'Retrying the scan...'
+        },
+    },
+    get_replay_vision_quota: {
+        name: 'Check Replay Vision credits',
+        description: 'Read how much of the monthly Replay Vision credit budget is left',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Checked Replay Vision credits'
+            }
+            return 'Checking Replay Vision credits...'
+        },
+    },
+    create_replay_vision_scanner: {
+        name: 'Create a scanner',
+        description: 'Set up a Replay Vision scanner that watches new recordings as they arrive',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created the scanner'
+            }
+            return 'Creating the scanner...'
+        },
+    },
+    create_replay_vision_action: {
+        name: 'Summarize a scanner',
+        description: 'Set up a recurring summary of what a Replay Vision scanner is finding',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Set up the summary'
+            }
+            return 'Setting up the summary...'
+        },
+    },
     create_survey: {
         name: 'Create surveys',
         description: 'Create surveys in seconds',
