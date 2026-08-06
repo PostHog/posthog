@@ -20,7 +20,7 @@ from django.db.models import Model, Q
 from django.db.models.functions import Coalesce
 from django.urls import URLResolver, get_resolver
 
-from rest_framework import exceptions, status
+from rest_framework import exceptions
 from rest_framework.decorators import action
 from rest_framework.generics import get_object_or_404
 from rest_framework.request import Request
@@ -47,7 +47,7 @@ from posthog.rbac.user_access_control import (
 )
 from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 
-from ee.api.rbac.access_control import AccessControlSerializer, AccessControlViewSetMixin
+from ee.api.rbac.access_control import AccessControlSerializer, AccessControlViewSetMixin, upsert_access_control
 from ee.models.rbac.access_control import AccessControl
 from ee.models.rbac.role import Role
 

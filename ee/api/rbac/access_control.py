@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
 
 from rest_framework import exceptions, serializers, status
@@ -183,6 +184,45 @@ class AccessControlSerializer(serializers.ModelSerializer):
                 raise exceptions.PermissionDenied("Must be an Organization admin to modify project-wide permissions.")
 
         return data
+
+
+def upsert_access_control(
+    *,
+    team: Team,
+    user_access_control: UserAccessControl,
+    build_serializer: Callable[[AccessControl | None], AccessControlSerializer],
+) -> Response:
+    """Apply one validated access control rule: a null level deletes the subject's rule, any other
+    level creates or updates it. Shared by the per-resource PUT actions and the settings page's
+    generic object-rule write, so validation and cache behavior cannot drift between them."""
+    serializer = build_serializer(None)
+    serializer.is_valid(raise_exception=True)
+    params = serializer.validated_data
+
+    instance = AccessControl.objects.filter(
+        team=team,
+        resource=params["resource"],
+        resource_id=params.get("resource_id"),
+        organization_member=params.get("organization_member"),
+        role=params.get("role"),
+    ).first()
+
+    if params["access_level"] is None:
+        if instance:
+            instance.delete()
+            # Drop the preloaded access-control snapshot so later reads this request are fresh.
+            user_access_control._clear_cache()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    if instance:
+        serializer = build_serializer(instance)
+        serializer.is_valid(raise_exception=True)
+    serializer.validated_data["team"] = team
+    serializer.save()
+    # Drop the preloaded access-control snapshot so later reads this request are fresh.
+    user_access_control._clear_cache()
+
+    return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class AccessControlViewSetMixin(_GenericViewSet):
@@ -409,38 +449,11 @@ class AccessControlViewSetMixin(_GenericViewSet):
             data["resource"] = resource
             data["resource_id"] = resource_id
 
-        partial_serializer = self._get_access_control_serializer(data=request.data)
-        partial_serializer.is_valid(raise_exception=True)
-        params = partial_serializer.validated_data
-
-        instance = AccessControl.objects.filter(
+        return upsert_access_control(
             team=team,
-            resource=params["resource"],
-            resource_id=params.get("resource_id"),
-            organization_member=params.get("organization_member"),
-            role=params.get("role"),
-        ).first()
-
-        if params["access_level"] is None:
-            if instance:
-                instance.delete()
-                # Drop the preloaded access-control snapshot so later reads this request are fresh.
-                self.user_access_control._clear_cache()  # type: ignore[attr-defined]
-            return Response(status=status.HTTP_204_NO_CONTENT)
-
-        # Perform the upsert
-        if instance:
-            serializer = self._get_access_control_serializer(instance, data=request.data)
-        else:
-            serializer = self._get_access_control_serializer(data=request.data)
-
-        serializer.is_valid(raise_exception=True)
-        serializer.validated_data["team"] = team
-        serializer.save()
-        # Drop the preloaded access-control snapshot so later reads this request are fresh.
-        self.user_access_control._clear_cache()  # type: ignore[attr-defined]
-
-        return Response(serializer.data, status=status.HTTP_200_OK)
+            user_access_control=self.user_access_control,  # type: ignore[attr-defined]
+            build_serializer=lambda instance: self._get_access_control_serializer(instance, data=request.data),
+        )
 
     @extend_schema(exclude=True)
     @action(methods=["GET", "PUT"], detail=True)
