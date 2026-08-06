@@ -405,6 +405,32 @@ tools:
             `min_score` and/or `max_score`. `sessions_without_user` reports affected sessions that carried no distinct
             ID, so the user count reads honestly against the session count.
         feature_flag: replay-vision
+    vision-scanners-inline-scan-create:
+        operation: vision_scanners_inline_scan_create
+        enabled: true
+        scopes:
+            - replay_scanner:write
+            - session_recording:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Scan sessions against a prompt
+        description: >
+            Answer a one-off question about session recordings you already have in hand, without creating a scanner
+            first. Pass the `session_ids` and a `prompt`; nothing is saved and nothing runs on a schedule. Prefer this
+            over `vision-scanners-create` whenever you have specific sessions and a question about them — a scanner is
+            for a standing watch over future recordings, and creating one to answer a single question leaves a scheduled
+            sweep behind. `scanner_type` defaults to `monitor` (open-ended); pass `classifier`, `scorer`, or
+            `summarizer` with the matching `scanner_config` (`tags`, `scale`, optional `length`) when you want
+            structured output. Results are not returned inline: the response gives a `scan_id`, and you read the
+            observations from `vision-observations-list` with that scanner id, polling until each session's observation
+            leaves `pending`/`running`. Asking the same question again returns the same `scan_id` and reuses the answers
+            it already has, so re-asking is cheap and sessions already scanned come back as `already_scanned` rather
+            than being charged twice. Scans cost credits per session at the same rate a scanner does; check
+            `vision-quota-retrieve` first if the batch is large, since sessions past the monthly limit come back as
+            `skipped_quota` instead of failing the call.
+        feature_flag: replay-vision
     vision-scanners-list:
         operation: vision_scanners_list
         enabled: true

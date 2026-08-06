@@ -35,12 +35,12 @@ export interface HogFlowInvocationPipelineDeps {
     hogFlowManager: HogFlowManagerService
     hogFlowExecutor: HogFlowExecutorService
     hogWatcher: HogWatcherService
-    hogWatcherMirror: HogWatcherService | null
+    hogWatcherMirror: HogWatcherService
     hogMasker: HogMaskerService
     hogFunctionMonitoringService: HogFunctionMonitoringService
     quotaLimiting: QuotaLimiting
     redis: RedisV2
-    valkeyShadow: CdpValkeyShadowPools | null
+    valkeyShadow: CdpValkeyShadowPools
 }
 
 /**
@@ -51,7 +51,7 @@ export interface HogFlowInvocationPipelineDeps {
  */
 export class HogFlowInvocationPipeline {
     private hogRateLimiter: KeyedRateLimiterService
-    private hogRateLimiterMirror: KeyedRateLimiterService | null
+    private hogRateLimiterMirror: KeyedRateLimiterService
 
     constructor(
         private config: HogFlowInvocationPipelineConfig,
@@ -64,9 +64,7 @@ export class HogFlowInvocationPipeline {
             ttlSeconds: config.CDP_RATE_LIMITER_TTL,
         }
         this.hogRateLimiter = new KeyedRateLimiterService(rateLimiterConfig, deps.redis)
-        this.hogRateLimiterMirror = deps.valkeyShadow
-            ? new KeyedRateLimiterService(rateLimiterConfig, deps.valkeyShadow.writer)
-            : null
+        this.hogRateLimiterMirror = new KeyedRateLimiterService(rateLimiterConfig, deps.valkeyShadow.writer)
     }
 
     @instrumented('cdpConsumer.handleEachBatch.queueMatchingFlows')
@@ -113,7 +111,7 @@ export class HogFlowInvocationPipeline {
                 instrumentFn('cdpConsumer.handleEachBatch.hogWatcher.getEffectiveStates', async () => {
                     return await this.deps.hogWatcher.getEffectiveStates(hogFlowIds)
                 }),
-            () => this.deps.hogWatcherMirror?.getEffectiveStates(hogFlowIds)
+            () => this.deps.hogWatcherMirror.getEffectiveStates(hogFlowIds)
         )
 
         const rateLimitInputs: KeyedRateLimitRequest[] = possibleInvocations.map((x) => ({
@@ -126,7 +124,7 @@ export class HogFlowInvocationPipeline {
                 instrumentFn('cdpConsumer.handleEachBatch.hogRateLimiter.rateLimitGrouped', async () => {
                     return await this.hogRateLimiter.rateLimitGrouped(rateLimitInputs)
                 }),
-            () => this.hogRateLimiterMirror?.rateLimitGrouped(rateLimitInputs),
+            () => this.hogRateLimiterMirror.rateLimitGrouped(rateLimitInputs),
             (primary, mirror) =>
                 primary.every(([, result], index) => result.isRateLimited === mirror[index]?.[1].isRateLimited)
         )

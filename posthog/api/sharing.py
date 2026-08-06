@@ -65,7 +65,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.access import dashboard_access_method, record_dashboard_view
 from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.exports.backend.api.exports import ExportedAssetSerializer
+from products.exports.backend.api.exports import ExportedAssetCreateSerializer
 from products.exports.backend.models.exported_asset import (
     EXPORTED_ASSET_PURPOSE_RENDER,
     EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY,
@@ -250,7 +250,7 @@ def check_can_edit_sharing_configuration(
 
 
 def export_asset_for_opengraph(resource: SharingConfiguration) -> ExportedAsset | None:
-    serializer = ExportedAssetSerializer(
+    serializer = ExportedAssetCreateSerializer(
         data={
             "insight": resource.insight.pk if resource.insight else None,
             "dashboard": resource.dashboard.pk if resource.dashboard else None,

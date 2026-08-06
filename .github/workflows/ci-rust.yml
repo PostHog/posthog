@@ -633,6 +633,10 @@ jobs:
             # write path's error mapping — ships with no end-to-end
             # coverage at all.
             #
+            # The gate rides along because startup refuses fencing without
+            # it: acquisition moves a partition's broker epoch, and a pod
+            # that has stopped renewing has no standing to do that.
+            #
             # Guarded on the flag existing so a branch that predates
             # --leader-env skips it rather than failing before its own
             # tests run.
@@ -647,18 +651,20 @@ jobs:
                     exit 0
                   fi
                   # The freeze has to outlive the lease, or the woken pod
-                  # still holds a valid claim and the broker fence is
-                  # never asked anything. 27s is the lowest TTL
-                  # validate_fencing_timescales accepts with fencing on
-                  # (the write budget pays the drain's settle slack first),
-                  # so the freeze runs past it and the run is sized to
-                  # leave the woken zombie time to try. The gate asserts
-                  # rejection by consequence (an unfenced landing fails
-                  # the verifier; a crash fails the liveness check), not
-                  # by scraping fence metrics — the deterministic
-                  # fencing_integration tests carry the per-arm coverage.
+                  # still holds a valid claim and neither the lease gate
+                  # nor the broker fence is ever asked anything. 27s is
+                  # the lowest TTL validate_fencing_timescales accepts
+                  # with fencing on (the write budget pays the drain's
+                  # settle slack first), so the freeze runs past it and
+                  # the run is sized to leave the woken zombie time to
+                  # try. The gate asserts rejection by consequence (an
+                  # unfenced landing fails the verifier; a crash fails
+                  # the liveness check), not by scraping fence metrics —
+                  # the deterministic fencing_integration tests carry the
+                  # per-arm coverage.
                   ./target/debug/personhog-test-harness gate \
                     --leader-env KAFKA_TRANSACTIONAL_FENCING=true \
+                    --leader-env LEASE_GATED_AUTHORITY=true \
                     --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 45s \
                     --leader-lease-ttl 27 \
                     --zombie-after 5s --zombie-duration 32s \

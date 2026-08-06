@@ -40,6 +40,7 @@ import {
     LifecycleToggle,
     LogEntryPropertyFilter,
     MatchedRecordingEvent,
+    PathCleaningFilter,
     PathsFilterType,
     PersonPropertyFilter,
     PropertyGroupFilter,
@@ -52,7 +53,6 @@ import {
     SessionPropertyFilter,
     SessionRecordingType,
     SlackIntegrationScope,
-    SlackIntegrationScopeInReview,
     StepOrderValue,
     StickinessFilterType,
     TrendsFilterType,
@@ -61,10 +61,9 @@ import {
 import { integer, numerical_key, positive_integer } from './type-utils'
 
 export { ChartDisplayCategory }
-// Re-exported so the codegen picks them up and emits matching `StrEnum`s in posthog/schema.py.
-// The runtime consts live in `~/types` as `SLACK_INTEGRATION_SCOPES` (always-on) and
-// `SLACK_INTEGRATION_SCOPES_IN_REVIEW` (DEV-instance only until Slack approves them).
-export { SlackIntegrationScope, SlackIntegrationScopeInReview }
+// Re-exported so the codegen picks it up and emits a matching `StrEnum` in posthog/schema.py.
+// The runtime const lives in `~/types` as `SLACK_INTEGRATION_SCOPES`.
+export { SlackIntegrationScope }
 
 /**
  * PostHog Query Schema definition.
@@ -97,6 +96,7 @@ export enum NodeKind {
     GroupsQuery = 'GroupsQuery',
     FunnelsActorsQuery = 'FunnelsActorsQuery',
     FunnelCorrelationActorsQuery = 'FunnelCorrelationActorsQuery',
+    PathsV2ActorsQuery = 'PathsV2ActorsQuery',
     SessionsTimelineQuery = 'SessionsTimelineQuery',
     RecordingsQuery = 'RecordingsQuery',
     SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
@@ -126,6 +126,7 @@ export enum NodeKind {
     FunnelsQuery = 'FunnelsQuery',
     RetentionQuery = 'RetentionQuery',
     PathsQuery = 'PathsQuery',
+    PathsV2Query = 'PathsV2Query',
     StickinessQuery = 'StickinessQuery',
     StickinessActorsQuery = 'StickinessActorsQuery',
     LifecycleQuery = 'LifecycleQuery',
@@ -350,6 +351,7 @@ export type QuerySchema =
     | FunnelsQuery
     | RetentionQuery
     | PathsQuery
+    | PathsV2Query
     | StickinessQuery
     | LifecycleQuery
     | FunnelCorrelationQuery
@@ -2037,6 +2039,191 @@ export interface PathsQuery extends InsightsQueryBase<PathsQueryResponse> {
     funnelPathsFilter?: FunnelPathsFilter
 }
 
+/** A step source defines which events can become path items in a paths v2 query. */
+export type PathsV2StepSource = {
+    /** Name of the event this source matches. */
+    event: string
+    /**
+     * Event property whose value labels the path item, e.g. `$pathname` for pageviews.
+     * Team path cleaning rules are applied to the value. Without a naming property,
+     * the event itself is the path item.
+     */
+    namingProperty?: string
+}
+
+/** Identity of a journey grid node: the step source's event plus the label value. */
+export type PathsV2Item = {
+    /** Event of the step source this item belongs to. */
+    event: string
+    /**
+     * Label value from the source's naming property, after path cleaning. An empty string when
+     * the property is missing on the event. Null for sources without a naming property.
+     */
+    label?: string | null
+}
+
+/** One row of a journey grid column: a path item and its unique-actor count. */
+export type PathsV2Row = {
+    item: PathsV2Item
+    /** Unique actors with a journey whose item at this step is this path item. */
+    count: number
+}
+
+/** One journey grid column: the top path items at a step, plus other-row and drop-off counts. */
+export type PathsV2Step = {
+    /** 0-based step index (column) in the journey grid. */
+    stepIndex: integer
+    /** Top path items at this step, ordered by unique-actor count descending. */
+    rows: PathsV2Row[]
+    /** Unique actors at this step whose path item is beyond the top rows. */
+    otherCount: number
+    /** Unique actors whose journey ends at this step. */
+    dropOffCount: number
+}
+
+/** A displayed transition between path items at adjacent journey grid columns. */
+export type PathsV2Edge = {
+    /** 0-based step index of the source column; the target sits at `stepIndex + 1`. */
+    stepIndex: integer
+    /** Source path item, or null for the source column's "other" row. */
+    source: PathsV2Item | null
+    /** Target path item, or null for the target column's "other" row. */
+    target: PathsV2Item | null
+    /** Unique actors with a journey that transitions from source to target between these steps. */
+    count: number
+    /**
+     * Unique actors who transition from source to target at any step of any of their whole
+     * journeys, the position-free count behind "went source → target at any step". Equals the
+     * two-step item-strict funnel's converted count. Only set in open mode on edges between two
+     * named items.
+     */
+    anyStepCount?: number
+}
+
+/**
+ * A concrete anchored chain from the anchor and the unique actors whose single sequence begins with
+ * exactly these path items. Powers the hover funnel preview over the journey grid.
+ */
+export type PathsV2Prefix = {
+    /** The chain's path items in order, starting at the anchor. */
+    items: PathsV2Item[]
+    /** Unique actors whose anchored sequence begins with exactly these items. */
+    count: number
+}
+
+export type PathsV2Results = {
+    steps: PathsV2Step[]
+    edges: PathsV2Edge[]
+    /**
+     * Concrete anchored chains with per-chain unique-actor counts, ordered by descending count. Empty
+     * in open mode; in anchored mode it carries the counts the hover funnel preview reads per chain.
+     * Only chains the grid displays in full are carried: chains through the other bucket are omitted,
+     * so the response never exposes labels the chart hides.
+     */
+    prefixes: PathsV2Prefix[]
+}
+
+export interface PathsV2QueryResponse extends AnalyticsQueryResponseBase {
+    results: PathsV2Results
+}
+
+export type CachedPathsV2QueryResponse = CachedQueryResponse<PathsV2QueryResponse>
+
+/** Whether an anchored chart is built around the journeys' start or their end. */
+export enum PathsV2AnchorType {
+    Start = 'start',
+    End = 'end',
+}
+
+/** The start or end point an anchored-mode chart is built around. */
+export type PathsV2Anchor = {
+    /**
+     * `start` runs each actor's single sequence forward from the anchor item; `end` runs it up to the
+     * anchor item. Either way the anchor is the grid's single 100% node.
+     */
+    type: PathsV2AnchorType
+    /** The path item the chart anchors on. Its event must be one of the step sources. */
+    item: PathsV2Item
+}
+
+export type PathsV2Filter = {
+    /**
+     * Step sources defining which events can become path items. Defaults to the pageviews
+     * preset: `$pageview` named by `$pathname`.
+     * @minItems 1
+     * @maxItems 20
+     */
+    stepSources?: PathsV2StepSource[]
+    /**
+     * Anchor selecting anchored mode. When set, each actor contributes exactly one sequence bounded by
+     * the conversion window, so every displayed segment equals a plain funnel. Absent selects open
+     * mode, which splits an actor's events into journeys on the inactivity gap instead.
+     */
+    anchor?: PathsV2Anchor
+    /**
+     * Anchored mode's single conversion window W, anchored at the anchor and reused verbatim as the
+     * emitted funnel's window. Bounds per unit are validated server-side against
+     * CONVERSION_WINDOW_INTERVAL_BOUNDS, the same funnel conversion window bounds as the gap.
+     * @asType integer
+     * @default 30
+     */
+    conversionWindowInterval?: number
+    /** @default minute */
+    conversionWindowIntervalUnit?: FunnelConversionWindowTimeUnit
+    /**
+     * Number of journey steps (columns) shown.
+     * @asType integer
+     * @default 5
+     * @minimum 2
+     * @maximum 20
+     */
+    maxSteps?: number
+    /**
+     * Number of path item rows per step; items beyond this go into the "other" row.
+     * @asType integer
+     * @default 3
+     * @minimum 1
+     * @maximum 10
+     */
+    maxRowsPerStep?: number
+    /**
+     * Inactivity gap that splits an actor's events into journeys. Bounds per unit are validated
+     * server-side against CONVERSION_WINDOW_INTERVAL_BOUNDS, the funnel conversion window bounds.
+     * @asType integer
+     * @default 30
+     */
+    gapInterval?: number
+    /** @default minute */
+    gapIntervalUnit?: FunnelConversionWindowTimeUnit
+    /**
+     * Merge immediate repeats of the same path item within a journey.
+     * @default true
+     */
+    collapseRepeats?: boolean
+    /**
+     * Path items dropped from the item universe: events deriving to one of these items are ignored
+     * as if their event were not a step source, on both the paths side and the "view as funnel" side.
+     * @maxItems 100
+     */
+    excludedItems?: PathsV2Item[]
+    /**
+     * Apply the team's path cleaning rules to naming property values before they become path items.
+     * @default true
+     */
+    applyTeamPathCleaning?: boolean
+    /** Path cleaning rules for this insight only, applied after the team's rules. */
+    localPathCleaningFilters?: PathCleaningFilter[]
+}
+
+export interface PathsV2Query extends Omit<
+    InsightsQueryBase<PathsV2QueryResponse>,
+    'samplingFactor' | 'aggregation_group_type_index'
+> {
+    kind: NodeKind.PathsV2Query
+    /** Properties specific to the paths v2 insight */
+    pathsV2Filter?: PathsV2Filter
+}
+
 /** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params  */
 export type StickinessFilterLegacy = Omit<StickinessFilterType, keyof FilterType | 'stickiness_days' | 'shown_as'>
 
@@ -2489,6 +2676,7 @@ export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
         | FunnelCorrelationActorsQuery
         | ExperimentActorsQuery
         | StickinessActorsQuery
+        | PathsV2ActorsQuery
         | HogQLQuery
     select?: HogQLExpression[]
     search?: string
@@ -4308,6 +4496,7 @@ export type InsightQueryNode =
     | FunnelsQuery
     | RetentionQuery
     | PathsQuery
+    | PathsV2Query
     | StickinessQuery
     | LifecycleQuery
     | WebStatsTableQuery
@@ -4968,6 +5157,7 @@ export type InsightFilterProperty =
     | 'funnelsFilter'
     | 'retentionFilter'
     | 'pathsFilter'
+    | 'pathsV2Filter'
     | 'stickinessFilter'
     | 'calendarHeatmapFilter'
     | 'lifecycleFilter'
@@ -4978,6 +5168,7 @@ export type InsightFilter =
     | FunnelsFilter
     | RetentionFilter
     | PathsFilter
+    | PathsV2Filter
     | StickinessFilter
     | LifecycleFilter
     | CalendarHeatmapFilter
@@ -5037,6 +5228,55 @@ export interface FunnelCorrelationActorsQuery extends InsightActorsQueryBase {
     funnelCorrelationPersonConverted?: boolean
     funnelCorrelationPersonEntity?: AnyEntityNode
     funnelCorrelationPropertyValues?: AnyPropertyFilter[]
+}
+
+/** The kind of journey grid element a PathsV2ActorsQuery drills into. */
+export enum PathsV2ElementType {
+    Node = 'node',
+    Edge = 'edge',
+    DropOff = 'dropOff',
+    Other = 'other',
+    Chain = 'chain',
+}
+
+/**
+ * Selects the journey grid element whose actors a PathsV2ActorsQuery returns. The same journeys
+ * that produced the grid produce these actor sets, so each element's modal equals its displayed
+ * number by construction.
+ */
+export type PathsV2ElementSelector = {
+    elementType: PathsV2ElementType
+    /**
+     * 0-based step index (column) of the element; for an edge, its source column. Required for
+     * node, other, dropOff, and positional edge elements.
+     */
+    stepIndex?: integer
+    /** The node card's path item. Node elements only. */
+    item?: PathsV2Item
+    /** The edge's source path item; omit for the source column's "other" row. Edge elements only. */
+    source?: PathsV2Item
+    /** The edge's target path item; omit for the target column's "other" row. Edge elements only. */
+    target?: PathsV2Item
+    /**
+     * Match the source → target transition at any step of any whole journey instead of at one step
+     * pair: the position-free set behind an edge's anyStepCount. Requires a named source and
+     * target and open mode. Edge elements only.
+     */
+    anyStep?: boolean
+    /**
+     * The chain's path items in order from the anchor. Returns the actors whose anchored sequence
+     * begins with exactly these items, the set behind a hover preview's per-chain counts. Chain
+     * elements only, anchored mode only. Bounded by the step maximum: a longer chain can never
+     * match a displayed card.
+     * @maxItems 20
+     */
+    chain?: PathsV2Item[]
+}
+
+export interface PathsV2ActorsQuery extends InsightActorsQueryBase {
+    kind: NodeKind.PathsV2ActorsQuery
+    source: PathsV2Query
+    element: PathsV2ElementSelector
 }
 
 export interface EventDefinition {
@@ -5147,6 +5387,7 @@ export interface InsightActorsQueryOptions extends Node<InsightActorsQueryOption
         | FunnelCorrelationActorsQuery
         | StickinessActorsQuery
         | ExperimentActorsQuery
+        | PathsV2ActorsQuery
 }
 
 export interface DatabaseSchemaSchema {
@@ -8440,6 +8681,7 @@ export const externalDataSources = [
     'WindsorAi',
     'Wix',
     'Sevalla',
+    'Motion',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
