@@ -727,7 +727,7 @@ jobs:
               run: |
                   CURRENT_TAG="desktop-v$APP_VERSION"
                   node .github/scripts/desktop/generate-release-notes.mjs "$CURRENT_TAG" > /tmp/release-notes.md
-                  node products/desktop/apps/code/scripts/generate-release-download-tables.mjs "$APP_VERSION" /tmp/checksums >> /tmp/release-notes.md
+                  node products/desktop/apps/code/scripts/generate-release-download-tables.mjs /tmp/checksums >> /tmp/release-notes.md
                   gh release edit "desktop-v$APP_VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --notes-file /tmp/release-notes.md
 
             - name: Download windows manifest
@@ -736,12 +736,12 @@ jobs:
                   name: win-manifest
                   path: /tmp/win-manifest
 
-            # Built after the GitHub release is published so the new release (and its
-            # generated notes) is included; the in-app release notes read this file.
+            # Prepends this release's generated notes to the published S3 feed; the
+            # feed, not the GitHub release, is the source of truth for in-app notes.
             - name: Build releases feed manifest
               env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
-              run: node products/desktop/apps/code/scripts/build-releases-feed.mjs /tmp/releases.json
+                  APP_VERSION: ${{ steps.version.outputs.version }}
+              run: node products/desktop/apps/code/scripts/build-releases-feed.mjs "$APP_VERSION" /tmp/release-notes.md /tmp/releases.json
 
             # The generic provider fetches nothing from GitHub, so the channel files
             # must carry the notes for electron-updater's UpdateInfo.releaseNotes.

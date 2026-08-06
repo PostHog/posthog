@@ -1,62 +1,48 @@
 #!/usr/bin/env node
-import { realpathSync, writeFileSync } from "node:fs";
+import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-const RELEASES_API_URL =
-  "https://api.github.com/repos/PostHog/posthog/releases";
+const FEED_URL = "https://desktop-releases.posthog.com/stable/releases.json";
 const MAX_RELEASES = 30;
-const PAGE_SIZE = 100;
-const DESKTOP_TAG_PATTERN = /^desktop-v\d+\.\d+\.\d+$/;
 
-export function toFeedReleases(apiReleases) {
-  return apiReleases
-    .filter(
-      (release) => !release.draft && DESKTOP_TAG_PATTERN.test(release.tag_name),
-    )
-    .map((release) => ({
-      version: release.tag_name.replace(/^desktop-v/, ""),
-      name:
-        release.name && release.name.length > 0
-          ? release.name
-          : release.tag_name,
-      notes: release.body ?? "",
-      date: release.published_at,
-      isPrerelease: release.prerelease,
-      htmlUrl: release.html_url,
-    }));
+export function mergeRelease(existingReleases, entry) {
+  return [
+    entry,
+    ...existingReleases.filter((release) => release.version !== entry.version),
+  ].slice(0, MAX_RELEASES);
 }
 
-export async function fetchDesktopReleases(fetchImpl = fetch) {
-  const headers = { Accept: "application/vnd.github+json" };
-  if (process.env.GH_TOKEN) {
-    headers.Authorization = `Bearer ${process.env.GH_TOKEN}`;
+export async function fetchExistingReleases(fetchImpl = fetch) {
+  const response = await fetchImpl(FEED_URL, {
+    headers: { Accept: "application/json" },
+  });
+  // A feed that has never been published surfaces as 403/404 from CloudFront.
+  if (response.status === 403 || response.status === 404) return [];
+  if (!response.ok) {
+    throw new Error(`Release feed fetch failed: ${response.status}`);
   }
-
-  const releases = [];
-  for (let page = 1; releases.length < MAX_RELEASES; page++) {
-    const url = `${RELEASES_API_URL}?per_page=${PAGE_SIZE}&page=${page}`;
-    const response = await fetchImpl(url, { headers });
-    if (!response.ok) {
-      throw new Error(`GitHub releases fetch failed: ${response.status}`);
-    }
-
-    const apiReleases = await response.json();
-    releases.push(...toFeedReleases(apiReleases));
-    if (apiReleases.length < PAGE_SIZE) break;
-  }
-
-  return releases.slice(0, MAX_RELEASES);
+  const data = await response.json();
+  return Array.isArray(data.releases) ? data.releases : [];
 }
 
 async function main() {
-  const [, , outputPath] = process.argv;
+  const [, , version, notesPath, outputPath] = process.argv;
 
-  if (!outputPath) {
-    console.error("Usage: build-releases-feed.mjs <output-json>");
+  if (!version || !notesPath || !outputPath) {
+    console.error(
+      "Usage: build-releases-feed.mjs <version> <notes-file> <output-json>",
+    );
     process.exit(1);
   }
 
-  const releases = await fetchDesktopReleases();
+  const releases = mergeRelease(await fetchExistingReleases(), {
+    version,
+    name: `v${version}`,
+    notes: readFileSync(notesPath, "utf8"),
+    date: new Date().toISOString(),
+    isPrerelease: false,
+    htmlUrl: `https://github.com/PostHog/posthog/releases/tag/desktop-v${version}`,
+  });
   writeFileSync(
     outputPath,
     `${JSON.stringify({ releases }, null, 2)}\n`,
