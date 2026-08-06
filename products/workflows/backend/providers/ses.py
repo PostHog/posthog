@@ -102,9 +102,9 @@ class SESProvider:
 
     def _iter_open_recommendations(self, finding_filter: dict[Any, str] | None) -> Iterator["RecommendationTypeDef"]:
         """
-        Walk every page of ListRecommendations, yielding only OPEN recommendations. STATUS is
-        filtered locally because the documented AWS-side two-key filter combinations
-        (STATUS+IMPACT, STATUS+TYPE) can't be combined with the scopes we query by.
+        Walk every page of ListRecommendations, yielding only OPEN recommendations. The local
+        STATUS check exists for RESOURCE_ARN-filtered calls: AWS documents STATUS as combinable
+        only with IMPACT or TYPE, so tenant-scoped listings must drop FIXED entries client-side.
         """
         kwargs: dict[str, Any] = {"Filter": finding_filter} if finding_filter else {}
         while True:
@@ -123,7 +123,9 @@ class SESProvider:
         classified by the resource it references. AWS opens findings well before it enforces,
         so this is the earliest account-scoped warning available.
         """
-        enforcement_status: str = self.ses_v2_client.get_account().get("EnforcementStatus", "HEALTHY")
+        # Strict access on purpose: a response without EnforcementStatus must fail the poll
+        # (surfacing via the staleness alert) rather than be reported as healthy.
+        enforcement_status: str = self.ses_v2_client.get_account()["EnforcementStatus"]
         findings = [
             {
                 "finding_type": recommendation.get("Type", ""),
@@ -131,14 +133,15 @@ class SESProvider:
                 "scope": self._finding_scope(recommendation.get("ResourceArn", "")),
                 "description": recommendation.get("Description", ""),
             }
-            for recommendation in self._iter_open_recommendations(None)
+            for recommendation in self._iter_open_recommendations({"STATUS": "OPEN"})
         ]
         return {"enforcement_status": enforcement_status, "findings": findings}
 
     @staticmethod
     def _finding_scope(resource_arn: str) -> str:
         # Tenant and identity findings are a customer's sender health; anything else
-        # (configuration sets, the account itself) is shared infrastructure, i.e. ours.
+        # (configuration sets, the account itself, an unrecognized or missing ARN) is
+        # treated as shared infrastructure so classification errs toward alerting us.
         if ":tenant/" in resource_arn:
             return "tenant"
         if ":identity/" in resource_arn:

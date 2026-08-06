@@ -542,14 +542,6 @@ class TestGetAccountReputation(TestCase):
                         "ResourceArn": "arn:aws:ses:us-east-1:123:tenant/team-1/tn-abc",
                         "Description": "Bounce rate exceeded 10%",
                     },
-                    # FIXED findings come back too (no status filter on the AWS side) and must be dropped
-                    {
-                        "Type": "SPF",
-                        "Impact": "HIGH",
-                        "Status": "FIXED",
-                        "ResourceArn": "arn:aws:ses:us-east-1:123:identity/fixed.example.com",
-                        "Description": "SPF1",
-                    },
                 ],
                 "NextToken": "page-2",
             },
@@ -581,15 +573,14 @@ class TestGetAccountReputation(TestCase):
             ("DMARC", "HIGH", "identity"),
             ("COMPLAINT", "HIGH", "account"),
         ]
-        # The listing must be unfiltered (account-wide) and walk every page
+        # The listing must be account-wide with OPEN filtered server-side, and walk every page
         first_call, second_call = self.mock_client.list_recommendations.call_args_list
-        assert "Filter" not in first_call.kwargs
+        assert first_call.kwargs["Filter"] == {"STATUS": "OPEN"}
         assert second_call.kwargs["NextToken"] == "page-2"
 
-    def test_missing_enforcement_status_defaults_to_healthy(self):
+    def test_missing_enforcement_status_fails_the_poll(self):
         self.mock_client.get_account.return_value = {}
         self.mock_client.list_recommendations.return_value = {"Recommendations": []}
 
-        result = self.provider.get_account_reputation()
-
-        assert result == {"enforcement_status": "HEALTHY", "findings": []}
+        with pytest.raises(KeyError):
+            self.provider.get_account_reputation()
