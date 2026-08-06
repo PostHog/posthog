@@ -19,6 +19,7 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import type { LifecycleToggle } from '~/types'
 
+import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { buildBaseLegendConfig } from '../shared/buildBaseLegendConfig'
@@ -28,7 +29,6 @@ import {
     LIFECYCLE_PERSONS_MODAL_OPTIONS,
     type TrendsChartClickDeps,
 } from '../shared/handleTrendsChartClick'
-import { hasTrendsChartData } from '../shared/hasTrendsChartData'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { buildLifecycleChartModel, buildLifecycleValueLabelFormatter } from './trendsLifecycleChartTransforms'
 
