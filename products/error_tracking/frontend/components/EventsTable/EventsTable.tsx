@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconAI, IconEllipsis, IconLive } from '@posthog/icons'
@@ -48,6 +48,7 @@ export interface EventsTableProps {
 export function EventsTable({ query, queryKey, onEventSelect, selectedEvent }: EventsTableProps): JSX.Element {
     const dataSource = eventsSourceLogic({ queryKey, query })
     const { items, itemsLoading, canLoadNextData } = useValues(dataSource)
+    const { loadNextData } = useActions(dataSource)
     const { summary } = useValues(errorTrackingIssueSceneLogic)
 
     function isEventSelected(record: ErrorEventType): boolean {
@@ -157,7 +158,9 @@ export function EventsTable({ query, queryKey, onEventSelect, selectedEvent }: E
                                             Loading...
                                         </>
                                     ) : canLoadNextData ? (
-                                        'Scroll to load more'
+                                        <Button variant="link-muted" size="xs" onClick={() => loadNextData()}>
+                                            Load more
+                                        </Button>
                                     ) : (
                                         'No more entries'
                                     )}
