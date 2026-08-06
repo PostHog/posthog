@@ -15,7 +15,7 @@ vi.mock('@/lib/posthog', () => ({
     })),
 }))
 
-import { trackExecuteSqlGeneration, trackInitEvent, trackToolCall } from '@/hono/analytics'
+import { trackExecuteSqlGeneration, trackInitEvent, trackToolCall, trackToolSpan } from '@/hono/analytics'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolDefinition } from '@/tools/toolDefinitions'
 
@@ -117,6 +117,116 @@ describe('Hono MCP analytics contexts', () => {
         expect(properties.mcp_session_vendor_client).toBeUndefined()
     })
 
+    describe('client identity live-first fallback', () => {
+        // $mcp_client_name is the property this whole fix targets: `clientInfo` arrives
+        // only on `initialize`, so it was empty on every tool call that followed. The
+        // same live-first-then-session precedence applies to every field a live request
+        // can carry.
+        it.each([
+            ['$mcp_client_name', 'mcpClientName'],
+            ['$mcp_client_version', 'mcpClientVersion'],
+            ['$mcp_protocol_version', 'mcpProtocolVersion'],
+            ['$mcp_consumer', 'mcpConsumer'],
+            ['mcp_vendor_client', 'mcpVendorClient'],
+        ] as const)(
+            '%s: live value wins when both live and session values are present',
+            async (eventProp, contextField) => {
+                const state = makeState({
+                    requestContext: { ...makeState().requestContext, [contextField]: 'live-value' },
+                    sessionContext: { ...makeState().sessionContext, [contextField]: 'session-value' },
+                })
+                await trackToolCall('user-get', 12, false, state)
+
+                expect(mockCaptureToolCall.mock.calls[0]![0].properties[eventProp]).toBe('live-value')
+            }
+        )
+
+        it.each([
+            ['$mcp_client_name', 'mcpClientName'],
+            ['$mcp_client_version', 'mcpClientVersion'],
+            ['$mcp_protocol_version', 'mcpProtocolVersion'],
+            ['$mcp_consumer', 'mcpConsumer'],
+            ['mcp_vendor_client', 'mcpVendorClient'],
+        ] as const)(
+            '%s: falls back to the session-pinned value when the live request has none (the tools/call case)',
+            async (eventProp, contextField) => {
+                const state = makeState({
+                    requestContext: { ...makeState().requestContext, [contextField]: undefined },
+                    sessionContext: { ...makeState().sessionContext, [contextField]: 'session-value' },
+                })
+                await trackToolCall('user-get', 12, false, state)
+
+                expect(mockCaptureToolCall.mock.calls[0]![0].properties[eventProp]).toBe('session-value')
+            }
+        )
+
+        it.each([
+            ['$mcp_client_name', 'mcpClientName'],
+            ['$mcp_client_version', 'mcpClientVersion'],
+            ['$mcp_protocol_version', 'mcpProtocolVersion'],
+            ['$mcp_consumer', 'mcpConsumer'],
+            ['mcp_vendor_client', 'mcpVendorClient'],
+        ] as const)(
+            '%s: stays undefined (never an empty string) when both live and session values are absent',
+            async (eventProp, contextField) => {
+                const state = makeState({
+                    requestContext: { ...makeState().requestContext, [contextField]: undefined },
+                    sessionContext: { ...makeState().sessionContext, [contextField]: undefined },
+                })
+                await trackToolCall('user-get', 12, false, state)
+
+                expect(mockCaptureToolCall.mock.calls[0]![0].properties[eventProp]).toBeUndefined()
+            }
+        )
+
+        it('initialize with no session context is unchanged: live request value is used as-is', async () => {
+            await trackInitEvent(makeState({ sessionContext: null }))
+
+            expect(mockCaptureInitialize.mock.calls[0]![0].properties).toMatchObject({
+                $mcp_client_name: 'Claude Desktop',
+                $mcp_client_version: '2.0',
+                $mcp_protocol_version: '2025-03-26',
+                $mcp_consumer: 'request-consumer',
+                mcp_vendor_client: 'ClaudeAI',
+            })
+        })
+
+        it('initialize with no session context and no live value stays undefined', async () => {
+            const state = makeState({
+                sessionContext: null,
+                requestContext: { ...makeState().requestContext, mcpClientName: undefined },
+            })
+            await trackInitEvent(state)
+
+            expect(mockCaptureInitialize.mock.calls[0]![0].properties.$mcp_client_name).toBeUndefined()
+        })
+
+        it.each([
+            ['$mcp_client_user_agent', 'clientUserAgent'],
+            ['$mcp_transport', 'transport'],
+            ['$mcp_session_id', 'mcpSessionId'],
+            ['$mcp_conversation_id', 'mcpConversationId'],
+            ['$mcp_mode', 'mode'],
+            ['$mcp_region', 'region'],
+        ] as const)(
+            '%s is per-request only: it stays undefined even when the live request has none, regardless of session context',
+            async (eventProp, contextField) => {
+                const state = makeState({
+                    requestContext: { ...makeState().requestContext, [contextField]: undefined },
+                })
+                await trackToolCall('user-get', 12, false, state)
+
+                expect(mockCaptureToolCall.mock.calls[0]![0].properties[eventProp]).toBeUndefined()
+            }
+        )
+
+        it('mcp_runtime is a static constant, unaffected by request or session context', async () => {
+            await trackToolCall('user-get', 12, false, makeState())
+
+            expect(mockCaptureToolCall.mock.calls[0]![0].properties.mcp_runtime).toBe('hono')
+        })
+    })
+
     it('stamps $mcp_tool_category and $mcp_tool_description from the catalogued tool definition', async () => {
         await trackToolCall('query-logs', 5, false, makeState())
 
@@ -198,6 +308,94 @@ describe('Hono MCP analytics contexts', () => {
             await trackExecuteSqlGeneration(toolName, args, makeState(), { durationMs: 5, isError: false })
 
             expect(mockCapture).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('trackToolSpan', () => {
+        it.each([
+            ['a non-execute-sql tool', 'data-catalog-metric-run', { name: 'mrr' }, true],
+            ['any other non-execute-sql tool', 'query-logs', { query: 'SELECT 1' }, true],
+            [
+                'execute-sql querying metadata',
+                'execute-sql',
+                { query: 'SELECT name FROM system.information_schema.metrics' },
+                true,
+            ],
+            ['execute-sql on plain data', 'execute-sql', { query: 'SELECT count() FROM events' }, false],
+            [
+                'execute-sql with the marker only in a string literal',
+                'execute-sql',
+                { query: "SELECT distinct_id FROM events WHERE 'information_schema' != ''" },
+                false,
+            ],
+            [
+                'execute-sql with the marker only in a comment',
+                'execute-sql',
+                { query: 'SELECT count() FROM events -- information_schema' },
+                false,
+            ],
+        ])('gates capture for %s', async (_case, toolName, input, captured) => {
+            await trackToolSpan(toolName, makeState(), { durationMs: 100, isError: false, input, output: 'rows' })
+
+            const spanCalls = mockCapture.mock.calls.filter(([payload]) => payload.event === '$ai_span')
+            expect(spanCalls).toHaveLength(captured ? 1 : 0)
+        })
+
+        it('joins the MCP session trace and truncates oversized results', async () => {
+            await trackToolSpan('data-catalog-metric-run', makeState(), {
+                durationMs: 1500,
+                isError: false,
+                input: { name: 'mrr' },
+                output: 'x'.repeat(50_000),
+            })
+
+            const payload = mockCapture.mock.calls[0]![0]
+            expect(payload.event).toBe('$ai_span')
+            expect(payload.properties).toMatchObject({
+                $ai_span_name: 'data-catalog-metric-run',
+                // Must match the execute-sql generations' trace id, or the span
+                // detaches from the session trace evaluations are scoped to.
+                $ai_trace_id: 'session-uuid',
+                $session_id: 'session-uuid',
+                $ai_input_state: JSON.stringify({ name: 'mrr' }),
+                $ai_latency: 1.5,
+                $ai_is_error: false,
+                $mcp_tool_category: 'Data catalog',
+            })
+            expect(payload.properties.$ai_output_state).toHaveLength(30_000)
+        })
+
+        it('records the error message on failed calls', async () => {
+            await trackToolSpan('data-catalog-metric-run', makeState(), {
+                durationMs: 200,
+                isError: true,
+                errorMessage: 'metric not found',
+                input: { name: 'bogus' },
+            })
+
+            expect(mockCapture.mock.calls[0]![0].properties).toMatchObject({
+                $ai_is_error: true,
+                $ai_error: 'metric not found',
+            })
+        })
+
+        it('redacts secret-bearing fields from captured input and output', async () => {
+            // Capturing every tool by default would otherwise land user-settings /
+            // warehouse-source credentials in telemetry.
+            await trackToolSpan('user-settings-update', makeState(), {
+                durationMs: 100,
+                isError: false,
+                input: { first_name: 'Ada', password: 'hunter2', payload: { client_secret: 'oauth-secret' } },
+                output: { id: 1, api_key: 'phx_live_123' },
+            })
+
+            const { $ai_input_state, $ai_output_state } = mockCapture.mock.calls[0]![0].properties
+            expect(JSON.parse($ai_input_state)).toEqual({
+                first_name: 'Ada',
+                password: '[redacted]',
+                payload: { client_secret: '[redacted]' },
+            })
+            expect(JSON.parse($ai_output_state)).toEqual({ id: 1, api_key: '[redacted]' })
         })
     })
 })

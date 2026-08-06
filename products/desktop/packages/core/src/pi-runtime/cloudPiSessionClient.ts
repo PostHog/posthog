@@ -2,16 +2,23 @@ import {
   type PiRemoteRpcClient,
   RemotePiRpcClient,
 } from "@posthog/agent/pi/remote-rpc-client";
-import type { RpcCommand } from "@posthog/agent/pi/rpc-transport";
+import type {
+  PiMcpPermissionResponseCommand,
+  RpcCommand,
+} from "@posthog/agent/pi/rpc-transport";
 import type {
   PiPersistedSessionConfig,
   PiQueueSnapshot,
 } from "@posthog/agent/pi/types";
-import type {
-  AgentConversationEvent,
-  PiRuntimeHealth,
-  StoredLogEntry,
-  TaskRunStatus,
+import {
+  type AgentConversationEvent,
+  type McpToolPermissionDecision,
+  type McpToolPermissionRequest,
+  type PiRuntimeHealth,
+  readMcpInstallationId,
+  readMcpToolDescriptor,
+  type StoredLogEntry,
+  type TaskRunStatus,
 } from "@posthog/shared";
 import type { CloudTaskUpdatePayload } from "@posthog/shared/domain-types";
 import type { CloudTaskClient } from "../cloud-task/cloudTaskClient";
@@ -57,6 +64,28 @@ function createTerminalPiRpcClient(
     getEntries: async () => ({ entries: [], leafId: null }),
     getCommands: async () => [],
   };
+}
+
+function permissionDescription(
+  content: unknown[] | undefined,
+): string | undefined {
+  for (const item of content ?? []) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const block = item as { type?: unknown; content?: unknown };
+    if (block.type !== "content" || !block.content) {
+      continue;
+    }
+    if (typeof block.content !== "object") {
+      continue;
+    }
+    const text = block.content as { type?: unknown; text?: unknown };
+    if (text.type === "text" && typeof text.text === "string") {
+      return text.text;
+    }
+  }
+  return undefined;
 }
 
 export interface CloudPiSessionContext {
@@ -198,6 +227,62 @@ export class CloudPiSessionClient implements PiSession {
   async getConversation(): Promise<AgentConversationEvent[]> {
     await this.snapshotReceived;
     return this.snapshotEvents;
+  }
+
+  onMcpToolPermissionRequest(
+    onRequest: (request: McpToolPermissionRequest) => void,
+    onError: (error: unknown) => void,
+  ): () => void {
+    return this.cloudTaskClient.subscribe(
+      this.context.taskId,
+      this.context.runId,
+      (update) => {
+        if (update.kind !== "permission_request") {
+          return;
+        }
+        const mcp = readMcpToolDescriptor(update.toolCall._meta);
+        const installationId = readMcpInstallationId(update.toolCall._meta);
+        if (!mcp || !installationId) {
+          return;
+        }
+        const description = permissionDescription(update.toolCall.content);
+        onRequest({
+          requestId: update.requestId,
+          serverName: mcp.server,
+          toolName: mcp.tool,
+          installationId,
+          arguments: update.toolCall.rawInput ?? {},
+          ...(description ? { description } : {}),
+        });
+      },
+      onError,
+      () => {},
+    );
+  }
+
+  async respondMcpToolPermission(
+    request: McpToolPermissionRequest,
+    decision: McpToolPermissionDecision,
+  ): Promise<void> {
+    const commandId = globalThis.crypto.randomUUID();
+    const command: PiMcpPermissionResponseCommand = {
+      id: commandId,
+      type: "mcp_permission_response",
+      requestId: request.requestId,
+      decision,
+    };
+    const result = await this.cloudTaskClient.sendCommand({
+      taskId: this.context.taskId,
+      id: commandId,
+      runId: this.context.runId,
+      apiHost: this.context.apiHost,
+      teamId: this.context.teamId,
+      method: "pi/rpc",
+      params: { command },
+    });
+    if (!result.success) {
+      throw new Error(result.error ?? "MCP permission response failed");
+    }
   }
 
   onConversationEvent(

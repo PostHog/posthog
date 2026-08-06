@@ -852,15 +852,17 @@ describe('Tool Filtering - Feature Flags', () => {
                 'metrics',
                 'endpoints-ai-materialization-fix',
                 'engineering-analytics',
+                'web-analytics-path-cleaning-suggestions',
                 'stamphog',
                 'product-data-catalog',
                 'loops',
                 'review-hog',
                 'warehouse-person-properties',
                 'streamlit-apps',
+                'posthog-connect',
             ])
         )
-        expect(flags).toHaveLength(28)
+        expect(flags).toHaveLength(30)
     })
 
     it('every loops tool is gated on the loops flag', () => {

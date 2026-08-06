@@ -62,6 +62,10 @@ This is the recommended option for most developers.
 
 ### Prerequisites
 
+**GitHub access.**
+Before your first push, set up an [SSH key and commit signing](https://posthog.com/handbook/engineering/security#github) using Secretive or 1Password.
+Signing is required: an org-wide ruleset rejects unsigned commits in every PostHog repository, so an unsigned push fails with `GH013: Commits must have verified signatures`.
+
 #### macOS
 
 1. Install Xcode Command Line Tools if you haven't already: `xcode-select --install`.

@@ -4930,6 +4930,8 @@ export interface Experiment {
     status?: ExperimentStatus | null
     /** Server-computed: whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery). Present on every list and detail response; optional here because locally-constructed/new experiments don't set it (and are never legacy). */
     is_legacy?: boolean
+    /** Server-computed: the event exposures are counted on when no custom exposure event is configured — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolve display and filters through `experimentLogic`'s `resolvedExposureEvent` rather than reading this directly, so locally-constructed experiments still get a value. */
+    resolved_exposure_event?: string
     archived?: boolean
     secondary_metrics: SecondaryExperimentMetric[]
     created_at: string | null
@@ -5500,14 +5502,23 @@ export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
 // `class SlackIntegrationScope(StrEnum)` in posthog/schema.py.
 export enum SlackIntegrationScope {
     APP_MENTIONS_READ = 'app_mentions:read',
+    ASSISTANT_WRITE = 'assistant:write',
+    CANVASES_WRITE = 'canvases:write',
     CHANNELS_HISTORY = 'channels:history',
+    CHANNELS_MANAGE = 'channels:manage',
     CHANNELS_READ = 'channels:read',
     CHAT_WRITE = 'chat:write',
     CHAT_WRITE_CUSTOMIZE = 'chat:write.customize',
+    COMMANDS = 'commands',
+    FILES_READ = 'files:read',
+    FILES_WRITE = 'files:write',
     GROUPS_HISTORY = 'groups:history',
     GROUPS_READ = 'groups:read',
+    IM_HISTORY = 'im:history',
     LINKS_READ = 'links:read',
     LINKS_WRITE = 'links:write',
+    MPIM_HISTORY = 'mpim:history',
+    MPIM_READ = 'mpim:read',
     REACTIONS_READ = 'reactions:read',
     REACTIONS_WRITE = 'reactions:write',
     TEAM_READ = 'team:read',
@@ -5517,23 +5528,13 @@ export enum SlackIntegrationScope {
 
 export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 
-// Scopes still pending Slack app-directory review. Requested only on the internal DEV instance
-// (settings.CLOUD_DEPLOYMENT == "DEV", surfaced as `preflight.region === Region.DEV`) where the
-// PostHog Slack app manifest already lists them; requesting them anywhere else fails with
-// `invalid_scope`. Move entries into SlackIntegrationScope once Slack approves the public app.
-export enum SlackIntegrationScopeInReview {
-    ASSISTANT_WRITE = 'assistant:write',
-    CANVASES_WRITE = 'canvases:write',
-    CHANNELS_MANAGE = 'channels:manage',
-    COMMANDS = 'commands',
-    FILES_READ = 'files:read',
-    FILES_WRITE = 'files:write',
-    IM_HISTORY = 'im:history',
-    MPIM_HISTORY = 'mpim:history',
-    MPIM_READ = 'mpim:read',
-}
-
-export const SLACK_INTEGRATION_SCOPES_IN_REVIEW = Object.values(SlackIntegrationScopeInReview)
+// Nothing is pending Slack app-directory review right now, so there is no in-review list.
+// To stage a scope that Slack hasn't approved yet, reintroduce a `SlackIntegrationScopeInReview`
+// enum here holding only the pending entries, re-export it from schema-general.ts, and have
+// `POSTHOG_SLACK_SCOPE` (posthog/models/integration.py) and `useSlackRequiredScopes` append it on
+// DEV/local only — requesting an unapproved scope anywhere else fails with `invalid_scope`.
+// The enum cannot be left empty between rounds: JSON Schema rejects a zero-length `enum`, so
+// `hogli build:schema` fails on it.
 
 export interface IntegrationType {
     id: number
@@ -5607,6 +5608,7 @@ export enum ExporterFormat {
     GIF = 'image/gif',
     HCL = 'text/hcl',
     MARKDOWN = 'text/markdown',
+    JSONL = 'application/x-ndjson',
 }
 
 /** Exporting directly from the browser to a file */
@@ -6331,8 +6333,10 @@ export interface DataModelingJob {
     error: string | null
     created_at: string
     last_run_at: string
+    /** When the job row last changed; for finished jobs this approximates when the run ended. */
+    updated_at?: string
     workflow_id: string
-    workflow_run_id: string
+    workflow_run_id: string | null
 }
 
 export interface SimpleExternalDataSourceSchema {
@@ -7681,6 +7685,11 @@ export type OAuthApplicationPublicMetadata = {
     required_scopes?: string[]
     /** Server-computed read-only form of a `*` grant; the consent page must not derive this client-side. */
     wildcard_read_scopes?: string[]
+    /**
+     * The app's resolved scope ceiling. `/authorize` clamps the request to this set, so a requested
+     * scope missing from it is dropped rather than granted and must not be rendered as a consent row.
+     */
+    grantable_scopes?: string[]
 }
 export interface EmailSenderDomainStatus {
     status: 'pending' | 'success'
@@ -7835,6 +7844,8 @@ export enum OnboardingStepKey {
     AUTHORIZED_DOMAINS = 'authorized_domains',
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
+    PATH_CLEANING = 'path_cleaning',
+    AI_REPORTS = 'ai_reports',
 }
 
 // Managed viewset

@@ -89,14 +89,14 @@ export interface FlatThreadRow {
 }
 
 /**
- * Completion time of an agent turn, taken from its last session-update item (tool groups count
- * by their last tool). Undefined while the turn is still streaming — the timestamp only appears
- * once the whole turn is done.
+ * Completion time of an agent turn, taken from its last session-update item (a tool group counts
+ * by the last step in its run). Undefined while the turn is still streaming, since the timestamp
+ * only appears once the whole turn is done.
  */
 export function completedTurnTimestamp(turn: AgentTurn): number | undefined {
   for (let i = turn.items.length - 1; i >= 0; i--) {
     const item = turn.items[i];
-    const last = item.type === "tool_group" ? item.tools.at(-1) : item;
+    const last = item.type === "tool_group" ? item.items.at(-1) : item;
     if (last?.type !== "session_update") continue;
     return last.turnContext.turnComplete ? last.timestamp : undefined;
   }

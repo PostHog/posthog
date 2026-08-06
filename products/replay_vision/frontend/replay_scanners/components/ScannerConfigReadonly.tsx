@@ -12,8 +12,10 @@ import {
 } from '@posthog/icons'
 import { LemonCard, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
+import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { TZLabel } from 'lib/components/TZLabel'
 import { UniversalFilterButton } from 'lib/components/UniversalFilters/UniversalFilterButton'
+import { isEntityFilter } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { humanFriendlyDurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
@@ -24,7 +26,7 @@ import {
 import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/utils'
 
 import { RecordingsQuery } from '~/queries/schema/schema-general'
-import { FilterLogicalOperator } from '~/types'
+import { FilterLogicalOperator, UniversalFilterValue } from '~/types'
 
 import { BooleanTag } from '../../components/BooleanTag'
 import { CardHeader } from '../../components/CardHeader'
@@ -72,6 +74,25 @@ function OptionTags({
                     </LemonTag>
                 )
             })}
+        </div>
+    )
+}
+
+/** One recording filter, read-only. An event or action filter carries its own property filters, which the
+ * editable UI keeps behind a popover — there's nothing to open here, so show them alongside the event. */
+function ReadonlyFilter({ filter }: { filter: UniversalFilterValue }): JSX.Element {
+    const properties = isEntityFilter(filter) ? (filter.properties ?? []) : []
+    return (
+        <div className="flex flex-wrap items-center gap-1.5">
+            <UniversalFilterButton filter={filter} />
+            {properties.length > 0 && (
+                <>
+                    <span className="text-xs">where</span>
+                    {properties.map((property, i) => (
+                        <PropertyFilterButton key={i} item={property} compact />
+                    ))}
+                </>
+            )}
         </div>
     )
 }
@@ -323,7 +344,7 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                                                 <span className="text-xs">Match {matchWord} of</span>
                                             )}
                                             {filters.map((filter, i) => (
-                                                <UniversalFilterButton key={i} filter={filter} />
+                                                <ReadonlyFilter key={i} filter={filter} />
                                             ))}
                                         </div>
                                     )}

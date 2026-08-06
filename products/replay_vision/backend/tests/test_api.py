@@ -28,6 +28,7 @@ from products.replay_vision.backend.models.replay_observation_label import Repla
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     ScannerModel,
+    ScannerOrigin,
     ScannerProvider,
     ScannerType,
 )
@@ -1597,6 +1598,31 @@ class TestObserveAction(_VisionAPITestCase):
     def observe_url(self, scanner_id: str) -> str:
         return f"{self.scanners_url}{scanner_id}/observe/"
 
+    def test_a_settled_session_returns_the_existing_observation_and_starts_nothing(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # A terminal row owns the (scanner, session) slot for good, so starting a workflow would claim
+        # an enqueue slot and burn a run only to lose the INSERT and hand back this same row.
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        existing = ReplayObservation.objects.create(
+            scanner=self.scanner,
+            session_id="sess-settled",
+            scanner_snapshot=_snapshot_for(self.scanner),
+            triggered_by=ObservationTrigger.ON_DEMAND,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+        )
+
+        resp = self.client.post(
+            self.observe_url(str(self.scanner.id)), data={"session_id": "sess-settled"}, format="json"
+        )
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["observation_id"], str(existing.id))
+        start_workflow.assert_not_called()
+
     @parameterized.expand(
         [
             ("row_persisted_drops_duplicate_claim", True, 0),
@@ -2478,18 +2504,19 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
     def test_estimate_counts_only_in_window_sessions(self) -> None:
         for index in range(3):
             self._ingest_session(days_ago=index + 1)
-        self._ingest_session(days_ago=40)
+        # Inside the earliest probe but outside the 7-day scan window, clamping window_days to a deterministic 7.
+        self._ingest_session(days_ago=7)
 
         resp = self.client.post(self.estimate_url, data={}, format="json")
         self.assertEqual(resp.status_code, 200)
 
         body = resp.json()
         self.assertEqual(body["matched_sessions_in_window"], 3)
-        self.assertEqual(body["window_days"], 30)
-        self.assertEqual(body["estimated_observations_per_month"], 3)
+        self.assertEqual(body["window_days"], 7)
+        self.assertEqual(body["estimated_observations_per_month"], round(3 / 7 * 30))
         # Defaults to gemini-3-flash-preview (5 credits) when the request names no model.
         self.assertEqual(body["credits_per_observation"], 5)
-        self.assertEqual(body["estimated_credits_per_month"], 15)
+        self.assertEqual(body["estimated_credits_per_month"], round(3 / 7 * 30) * 5)
 
     def test_estimate_prices_credits_at_proposed_model(self) -> None:
         for index in range(3):
@@ -2506,17 +2533,17 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
     def test_estimate_applies_sampling(self) -> None:
         for index in range(4):
             self._ingest_session(days_ago=index + 1)
-        # Anchor 40 days back so `window_days` clamps to a deterministic 30, not the recent data span.
-        self._ingest_session(days_ago=40)
+        # Inside the earliest probe but outside the 7-day scan window, clamping window_days to a deterministic 7.
+        self._ingest_session(days_ago=7)
 
         resp = self.client.post(self.estimate_url, data={"sampling_rate": 0.5}, format="json")
         self.assertEqual(resp.status_code, 200)
 
         body = resp.json()
         self.assertEqual(body["matched_sessions_in_window"], 4)
-        self.assertEqual(body["window_days"], 30)
+        self.assertEqual(body["window_days"], 7)
         self.assertEqual(body["sampling_rate"], 0.5)
-        self.assertEqual(body["estimated_observations_per_month"], 2)
+        self.assertEqual(body["estimated_observations_per_month"], round(4 / 7 * 30 * 0.5))
 
     def test_estimate_others_sum_is_enabled_only_and_excludes_the_edited_scanner(self) -> None:
         self._ingest_session(days_ago=1)
@@ -2642,3 +2669,146 @@ class TestCurrentPeriodBounds(SimpleTestCase):
     def test_period_selection(self, _name: str, usage: dict | None, expected: tuple[datetime, datetime]) -> None:
         organization = Organization(usage=usage) if usage is not None else None
         self.assertEqual(_current_period_bounds(organization, self.NOW), BillingPeriod(*expected))
+
+
+@patch("products.replay_vision.backend.api.trigger.async_to_sync")
+@patch("products.replay_vision.backend.api.trigger.sync_connect")
+class TestInlineScanAction(_VisionAPITestCase):
+    @property
+    def inline_url(self) -> str:
+        return f"{self.scanners_url}inline_scan/"
+
+    def _payload(self, **overrides: Any) -> dict[str, Any]:
+        payload: dict[str, Any] = {"session_ids": ["sess-1"], "prompt": "did the user rage click?"}
+        payload.update(overrides)
+        return payload
+
+    def _scan(self, **overrides: Any):
+        return self.client.post(self.inline_url, data=self._payload(**overrides), format="json")
+
+    def _finished_observation(self, scan_id: str, session_id: str) -> ReplayObservation:
+        # The create activity runs in Temporal, which these tests mock out, so stand the row up directly.
+        scanner = ReplayScanner.all_origins.get(id=scan_id)
+        return ReplayObservation.objects.create(
+            scanner=scanner,
+            session_id=session_id,
+            scanner_snapshot=_snapshot_for(scanner),
+            triggered_by=ObservationTrigger.ON_DEMAND,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+        )
+
+    def test_same_prompt_reuses_one_scan_and_a_different_prompt_gets_its_own(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # The whole point of keying on the config: re-asking must not mint a second scanner (and so a
+        # second copy of every observation), while a different question must not land in the first's results.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+
+        first = self._scan()
+        again = self._scan(session_ids=["sess-2"])
+        other = self._scan(prompt="did the user rage click twice?")
+
+        self.assertEqual(first.json()["scan_id"], again.json()["scan_id"])
+        self.assertNotEqual(first.json()["scan_id"], other.json()["scan_id"])
+        self.assertEqual(ReplayScanner.all_origins.filter(origin=ScannerOrigin.INLINE).count(), 2)
+
+    def test_a_scan_id_cannot_be_edited_as_a_scanner(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # An editable inline scanner is two bugs: PATCHing scanner_config leaves inline_key pointing at the
+        # old config, and PATCHing enabled turns a row with an empty query into a sweep over every recording.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+        scan_id = self._scan().json()["scan_id"]
+
+        for payload in ({"scanner_config": {"prompt": "something else"}}, {"enabled": True, "sampling_rate": 0.5}):
+            resp = self.client.patch(f"{self.scanners_url}{scan_id}/", data=payload, format="json")
+            self.assertEqual(resp.status_code, 404, resp.content)
+
+        scanner = ReplayScanner.all_origins.get(id=scan_id)
+        self.assertFalse(scanner.enabled)
+        self.assertEqual(scanner.scanner_config, {"prompt": "did the user rage click?"})
+
+    def test_scans_stay_out_of_the_teams_scanner_surfaces(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # A scan is not a scanner the team configured, so it must not show up where they're presented or
+        # counted — including the usage report, which counts through the same default manager.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+        configured = self._create_scanner()
+        scan_id = self._scan().json()["scan_id"]
+
+        listed = self.client.get(self.scanners_url).json()["results"]
+        self.assertEqual([r["id"] for r in listed], [str(configured.id)])
+        self.assertNotIn(scan_id, [r["id"] for r in listed])
+        self.assertEqual(self.client.get(f"{self.scanners_url}stats/").json()["total"], 1)
+
+    def test_a_used_up_quota_starts_nothing_and_leaves_no_scanner_behind(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # Minting before checking headroom means an org over quota accumulates a permanent row per
+        # question it was never able to answer.
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 0):
+            resp = self._scan(session_ids=["sess-1", "sess-2"])
+
+        self.assertEqual(resp.status_code, 202, resp.json())
+        body = resp.json()
+        self.assertIsNone(body["scan_id"])
+        self.assertEqual(body["started"], 0)
+        self.assertEqual([r["scan_outcome"] for r in body["results"]], ["skipped_quota", "skipped_quota"])
+        self.assertFalse(ReplayScanner.all_origins.filter(origin=ScannerOrigin.INLINE).exists())
+        start_workflow.assert_not_called()
+
+    def test_a_finished_session_reports_already_scanned_without_starting_a_workflow(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # A terminal row makes (scanner, session) permanently taken, so starting a workflow would burn a
+        # run only to lose the INSERT and hand back the row we can already see.
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock(return_value=MagicMock())
+        mock_async_to_sync.return_value = start_workflow
+        scan_id = self._scan().json()["scan_id"]
+        self._finished_observation(scan_id, "sess-1")
+        start_workflow.reset_mock()
+
+        resp = self._scan(session_ids=["sess-1", "sess-3"])
+
+        outcomes = {r["session_id"]: r["scan_outcome"] for r in resp.json()["results"]}
+        self.assertEqual(outcomes["sess-1"], "already_scanned")
+        self.assertEqual(outcomes["sess-3"], "started")
+        self.assertEqual(start_workflow.call_count, 1)
+
+    def test_results_are_readable_through_the_scan_id(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # The observations endpoint is the only way back to an inline scan's output, so it has to resolve
+        # a scanner the scanner endpoints deliberately refuse to.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+        scan_id = self._scan().json()["scan_id"]
+        self._finished_observation(scan_id, "sess-1")
+
+        resp = self.client.get(self.observations_url(scan_id))
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["sess-1"])
+
+    def test_requires_ai_consent(self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock) -> None:
+        # New call site into the LLM path, so it needs its own consent gate rather than inheriting one.
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        resp = self._scan()
+
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertFalse(ReplayScanner.all_origins.filter(origin=ScannerOrigin.INLINE).exists())
+        start_workflow.assert_not_called()

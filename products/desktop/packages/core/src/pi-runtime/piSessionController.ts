@@ -1,13 +1,17 @@
 import type { PiRemoteRpcClient } from "@posthog/agent/pi/remote-rpc-client";
 import type {
+  PiExtensionEvent,
   PiNativeModelInfo,
   PiPersistedSessionConfig,
   PiQueueSnapshot,
   PiThinkingLevel,
+  RpcExtensionUIResponse,
 } from "@posthog/agent/pi/types";
 import {
   type AgentConversationEvent,
   classifyPromptFailure,
+  type McpToolPermissionDecision,
+  type McpToolPermissionRequest,
   type PiMessagingMode,
   type PiRuntimeHealth,
   type PromptFailure,
@@ -23,6 +27,7 @@ import {
   createEmptyPiControllerSession,
   createPiSessionStore,
   type PiControllerSessionState,
+  type PiProjectTrustState,
   type PiSessionError,
   type PiSessionStore,
 } from "./piSessionStore";
@@ -54,6 +59,8 @@ export interface PiSession {
   retry?(): Promise<void>;
   getQueue(): Promise<PiQueueSnapshot>;
   clearQueue(): Promise<PiQueueSnapshot>;
+  getProjectTrust?(): Promise<PiProjectTrustState>;
+  setProjectTrusted?(trusted: boolean): Promise<void>;
   sendUserMessage?(
     type: "prompt" | "steer" | "follow_up",
     message: string,
@@ -67,6 +74,20 @@ export interface PiSession {
     onError: (error: unknown) => void,
     onCloudStatus?: (status: TaskRunStatus) => void,
   ): () => void;
+  onMcpToolPermissionRequest?(
+    onRequest: (request: McpToolPermissionRequest) => void,
+    onError: (error: unknown) => void,
+  ): () => void;
+  respondMcpToolPermission?(
+    request: McpToolPermissionRequest,
+    decision: McpToolPermissionDecision,
+  ): Promise<void>;
+  onExtensionEvent?(
+    onEvent: (event: PiExtensionEvent) => void,
+    onError: (error: unknown) => void,
+    onComplete?: () => void,
+  ): () => void;
+  respondToExtensionUI?(response: RpcExtensionUIResponse): Promise<void>;
 }
 
 export interface PiSessionFactory {
@@ -88,6 +109,7 @@ type PiOperation =
   | "bash"
   | "cancel"
   | "queue"
+  | "trust"
   | "retry"
   | "restart";
 
@@ -121,6 +143,10 @@ export class PiSessionController {
 
   private readonly sessions = new Map<string, Promise<PiSession>>();
   private readonly subscriptions = new Map<string, () => void>();
+  private readonly projectTrustTransitions = new Map<
+    string,
+    { trusted: boolean; promise: Promise<void> }
+  >();
   private readonly liveEvents = new Map<string, AgentConversationEvent[]>();
   private readonly connections = new Map<string, Promise<void>>();
   private readonly readiness = new Map<string, Promise<void>>();
@@ -207,6 +233,7 @@ export class PiSessionController {
     this.queueRevisions.delete(taskId);
     this.queuesToRestore.delete(taskId);
     this.activeTaskIds.delete(taskId);
+    this.updateSession(taskId, { mcpToolPermissionRequests: new Map() });
   }
 
   async retry(taskId: string): Promise<void> {
@@ -229,6 +256,21 @@ export class PiSessionController {
     }
   }
 
+  async respondMcpToolPermission(
+    taskId: string,
+    request: McpToolPermissionRequest,
+    decision: McpToolPermissionDecision,
+  ): Promise<void> {
+    const session = await this.getPiSession(taskId);
+    if (!session.respondMcpToolPermission) {
+      throw new Error("MCP tool permissions are unavailable for this session");
+    }
+    await session.respondMcpToolPermission(request, decision);
+    const requests = new Map(this.getSession(taskId).mcpToolPermissionRequests);
+    requests.delete(request.requestId);
+    this.updateSession(taskId, { mcpToolPermissionRequests: requests });
+  }
+
   async clearQueue(taskId: string): Promise<PiQueueSnapshot> {
     try {
       const session = await this.getPiSession(taskId);
@@ -238,6 +280,71 @@ export class PiSessionController {
       return queue;
     } catch (error) {
       throw this.recordOperationFailure(taskId, "queue", error);
+    }
+  }
+
+  setProjectTrusted(taskId: string, trusted: boolean): Promise<void> {
+    const existing = this.projectTrustTransitions.get(taskId);
+    if (existing) {
+      return existing.trusted === trusted
+        ? existing.promise
+        : Promise.reject(
+            new Error("A repository trust change is already in progress"),
+          );
+    }
+
+    const promise = this.setProjectTrustedInternal(taskId, trusted).finally(
+      () => {
+        if (this.projectTrustTransitions.get(taskId)?.promise === promise) {
+          this.projectTrustTransitions.delete(taskId);
+        }
+      },
+    );
+    this.projectTrustTransitions.set(taskId, { trusted, promise });
+    return promise;
+  }
+
+  private async setProjectTrustedInternal(
+    taskId: string,
+    trusted: boolean,
+  ): Promise<void> {
+    const current = this.getSession(taskId);
+    if (
+      current.connectionState !== "connected" ||
+      current.status?.isStreaming ||
+      current.isBashRunning
+    ) {
+      throw this.recordOperationFailure(
+        taskId,
+        "trust",
+        new Error(
+          "Wait for Pi to connect and finish before changing repository trust",
+        ),
+      );
+    }
+
+    const taskRunId = this.taskRunIds.get(taskId);
+    this.captureQueueForRestore(taskId);
+    this.updateSession(taskId, {
+      connectionState: "connecting",
+      error: undefined,
+    });
+    try {
+      const session = await this.getPiSession(taskId);
+      if (!session.setProjectTrusted) {
+        throw new Error("Pi session does not support repository trust");
+      }
+      await session.setProjectTrusted(trusted);
+      this.resetTransport(taskId);
+      await this.ensureConnected(taskId, taskRunId);
+    } catch (error) {
+      this.resetTransport(taskId);
+      try {
+        await this.ensureConnected(taskId, taskRunId);
+      } catch {
+        // Preserve the original trust-transition failure.
+      }
+      throw this.recordOperationFailure(taskId, "trust", error);
     }
   }
 
@@ -509,14 +616,15 @@ export class PiSessionController {
         throw new Error(result.error);
       }
 
-      this.subscriptions.get(taskId)?.();
-      this.subscriptions.delete(taskId);
+      this.disposeConversationSubscription(taskId);
       this.sessions.delete(taskId);
       this.connections.delete(taskId);
       this.ensureSubscription(taskId);
     }
 
-    await this.connect(taskId);
+    if (this.activeTaskIds.has(taskId)) {
+      await this.connect(taskId);
+    }
   }
 
   private ensureSubscription(taskId: string): void {
@@ -525,7 +633,8 @@ export class PiSessionController {
     }
 
     let disposed = false;
-    let unsubscribe: (() => void) | undefined;
+    let unsubscribeConversation: (() => void) | undefined;
+    let unsubscribePermission: (() => void) | undefined;
     void this.getPiSession(taskId)
       .then((session) => {
         if (disposed) {
@@ -533,16 +642,29 @@ export class PiSessionController {
         }
         this.applyPersistedConfig(taskId, session);
         this.updateSession(taskId, { cloudStatus: session.cloudStatus });
-        unsubscribe = session.onConversationEvent(
+        unsubscribeConversation = session.onConversationEvent(
           (event) => this.handleEvent(taskId, event),
           (error) => this.applySessionError(taskId, error),
           (cloudStatus) => this.updateSession(taskId, { cloudStatus }),
+        );
+        unsubscribePermission = session.onMcpToolPermissionRequest?.(
+          (request) => {
+            const requests = new Map(
+              this.getSession(taskId).mcpToolPermissionRequests,
+            );
+            requests.set(request.requestId, request);
+            this.updateSession(taskId, {
+              mcpToolPermissionRequests: requests,
+            });
+          },
+          (error) => this.applySessionError(taskId, error),
         );
       })
       .catch((error) => this.applySessionError(taskId, error));
     this.subscriptions.set(taskId, () => {
       disposed = true;
-      unsubscribe?.();
+      unsubscribeConversation?.();
+      unsubscribePermission?.();
     });
   }
 
@@ -586,11 +708,12 @@ export class PiSessionController {
       const session = await this.getPiSession(taskId);
       const queueRevision = this.queueRevisions.get(taskId) ?? 0;
       const retainedStats = this.getSession(taskId).stats;
-      const [events, status, queue, stats] = await Promise.all([
+      const [events, status, queue, stats, projectTrust] = await Promise.all([
         session.getConversation(),
         session.client.getState(),
         session.getQueue(),
         session.client.getSessionStats().catch(() => retainedStats),
+        session.getProjectTrust?.(),
       ]);
       if (this.getSessionVersion(taskId) !== connectedSessionVersion) {
         return;
@@ -652,6 +775,8 @@ export class PiSessionController {
             : undefined,
         authRestoring: currentSession.authRestoring,
         isBashRunning: false,
+        mcpToolPermissionRequests: currentSession.mcpToolPermissionRequests,
+        projectTrust,
       });
 
       await this.restoreQueueIfNeeded(taskId, session, resolvedStatus);
@@ -944,6 +1069,7 @@ export class PiSessionController {
       bash: "Failed to run Pi bash command",
       cancel: "Failed to stop Pi",
       queue: "Failed to update queued message",
+      trust: "Failed to change repository trust",
       retry: "Failed to reconnect to Pi",
       restart: "Failed to restart Pi",
     };
@@ -1169,7 +1295,12 @@ export class PiSessionController {
       taskId,
       taskRunId,
     );
-    this.disconnect(taskId);
+    this.resetTransport(taskId);
+    this.taskRunIds.delete(taskId);
+    this.liveEvents.delete(taskId);
+    this.queueRevisions.delete(taskId);
+    this.queuesToRestore.delete(taskId);
+    this.activeTaskIds.delete(taskId);
     await this.ensureConnected(taskId, resumedRun.id);
     return this.getPiSession(taskId);
   }
@@ -1180,7 +1311,7 @@ export class PiSessionController {
       return;
     }
 
-    if (currentTaskRunId) {
+    if (currentTaskRunId || this.sessions.has(taskId)) {
       this.resetTransport(taskId);
       this.liveEvents.delete(taskId);
     }
@@ -1189,11 +1320,15 @@ export class PiSessionController {
 
   private resetTransport(taskId: string): void {
     this.advanceSessionVersion(taskId);
-    this.subscriptions.get(taskId)?.();
-    this.subscriptions.delete(taskId);
+    this.disposeConversationSubscription(taskId);
     this.sessions.delete(taskId);
     this.connections.delete(taskId);
     this.readiness.delete(taskId);
+  }
+
+  private disposeConversationSubscription(taskId: string): void {
+    this.subscriptions.get(taskId)?.();
+    this.subscriptions.delete(taskId);
   }
 
   private getPiSession(taskId: string): Promise<PiSession> {
