@@ -14,7 +14,7 @@ if (!POSTHOG_API_HOST) {
 
 const SCHEMA_URL = `${POSTHOG_API_HOST}/api/schema/`;
 const TEMP_SCHEMA_PATH = "temp-openapi.yaml";
-const OUTPUT_PATH = "src/renderer/api/generated.ts";
+const OUTPUT_PATH = "../../packages/api-client/src/generated.ts";
 
 const INCLUDED_ENDPOINT_PREFIXES = [
   "/api/projects/{project_id}/tasks",
