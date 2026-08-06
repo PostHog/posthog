@@ -177,7 +177,7 @@ class TestNotionSource:
     def test_retryable_marker_matches_raised_message(self, _name: str, error_message: str) -> None:
         # notion.py's _request raises the 5xx and rate-limit messages after tenacity's internal
         # retries exhaust, and also lets requests.ConnectionError (which SSLError subclasses) and
-        # requests.ReadTimeout through that same retry loop — once the budget exhausts, urllib3
+        # requests.ReadTimeout through that same retry loop; once the budget exhausts, urllib3
         # wraps them as a "Max retries exceeded with url" message. Matching them all keeps these
         # self-recovering failures out of error tracking as noise instead of being logged as an
         # unclassified exception.
