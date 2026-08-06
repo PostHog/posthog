@@ -26,6 +26,7 @@ from products.error_tracking.backend.presentation.pagination import paginate_via
 from products.error_tracking.backend.presentation.views.external_references import (
     ErrorTrackingExternalReferenceSerializer,
 )
+from products.error_tracking.backend.presentation.views.query_serializers import StringOrIntegerField
 
 IssueNotFoundError = facade_api.IssueNotFoundError
 
@@ -86,12 +87,17 @@ class ErrorTrackingIssueWriteSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_field({"oneOf": [{"type": "integer"}, {"type": "string", "format": "uuid"}]})
+class ErrorTrackingIssueAssigneeIdField(StringOrIntegerField):
+    pass
+
+
 class ErrorTrackingIssueAssigneeWriteSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
         choices=["user", "role"],
         help_text="Whether the assignee is an organization member or a role.",
     )
-    id = serializers.CharField(
+    id = ErrorTrackingIssueAssigneeIdField(
         help_text="Id of the assignee: an integer user id for type 'user', or a role UUID for type 'role'.",
     )
 

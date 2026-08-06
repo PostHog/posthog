@@ -721,7 +721,7 @@ export interface ErrorTrackingIssueAssigneeWriteApi {
      * * `role` - role */
     type: AssigneeTypeEnumApi
     /** Id of the assignee: an integer user id for type 'user', or a role UUID for type 'role'. */
-    id: string
+    id: number | string
 }
 
 export interface PatchedErrorTrackingIssueAssignRequestApi {

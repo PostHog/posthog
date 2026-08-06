@@ -25258,7 +25258,7 @@ export namespace Schemas {
        * * `role` - role */
       type: AssigneeTypeEnum;
       /** Id of the assignee: an integer user id for type 'user', or a role UUID for type 'role'. */
-      id: string;
+      id: number | string;
     }
 
     export interface ErrorTrackingIssueCohortRead {

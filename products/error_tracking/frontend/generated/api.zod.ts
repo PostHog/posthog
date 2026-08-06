@@ -259,7 +259,7 @@ export const ErrorTrackingIssuesAssignPartialUpdateBody = /* @__PURE__ */ zod.ob
                         'Whether the assignee is an organization member or a role.\n\n\* `user` - user\n\* `role` - role'
                     ),
                 id: zod
-                    .string()
+                    .union([zod.number(), zod.uuid()])
                     .describe(
                         "Id of the assignee: an integer user id for type 'user', or a role UUID for type 'role'."
                     ),
