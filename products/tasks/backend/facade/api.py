@@ -2976,6 +2976,37 @@ def presign_task_run_artifact(
     return url, None
 
 
+def set_task_run_artifacts_dismissed(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_ids: list[str], dismissed: bool
+) -> tuple[list[dict] | None, str | None]:
+    """Mark run artifacts as dismissed, or bring them back.
+
+    Dismissal is a manifest flag rather than a delete: the object stays in storage until its TTL
+    expires, so a file dismissed by mistake can be restored.
+
+    Returns ``(manifest, error)``: ``(None, None)`` when the run isn't found, ``(None, "not_found")``
+    when an id isn't on the run, else ``(updated_manifest, None)``.
+    """
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None, None
+
+    with transaction.atomic():
+        locked_run = TaskRun.objects.select_for_update().get(pk=run.pk)
+        manifest = list(locked_run.artifacts or [])
+        requested = set(artifact_ids)
+        if not requested.issubset({entry.get("id") for entry in manifest}):
+            return None, "not_found"
+
+        dismissed_at = django_timezone.now().isoformat() if dismissed else None
+        manifest = [
+            {**entry, "dismissed_at": dismissed_at} if entry.get("id") in requested else entry for entry in manifest
+        ]
+        _save_artifact_manifest(locked_run, manifest)
+
+    return manifest, None
+
+
 def read_task_run_artifact(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, storage_path: str
 ) -> tuple[bytes | None, dict | None, str | None]:
