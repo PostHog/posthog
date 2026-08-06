@@ -28,6 +28,11 @@ from products.growth.backend.models import OrganizationEnrichment
 _MISS_PAYLOAD = {"companyFound": False}
 
 
+def _persisted_score_exists(organization_id: str) -> bool:
+    record = OrganizationEnrichment.objects.filter(organization_id=organization_id).only("data").first()
+    return bool(record and record.data.get("icp_score") is not None)
+
+
 def _reconstruct_fields_from_record(organization_id: str) -> Optional[EnrichmentFields]:
     """Rebuild EnrichmentFields from the last-written record when a provider lookup misses.
 
@@ -91,8 +96,12 @@ def _score_and_mirror(
     except Exception as e:
         # A failed bridge READ is not absent bridge data: the bridge is optional input, so a
         # read failure (unresolvable internal team, transient store error) degrades to scoring
-        # without it rather than costing the score entirely.
+        # without it rather than costing the score entirely. Degraded-mode scores only fill a
+        # gap, though — a persisted score may have been computed WITH bridge data, and a
+        # bridge-less recompute would silently downgrade it.
         capture_exception(e)
+        if _persisted_score_exists(organization_id):
+            return None, None
         clay = ClayBridgeInputs()
 
     icp_score = compute_icp_score(

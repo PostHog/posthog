@@ -272,6 +272,27 @@ class TestEnrichmentCore(BaseTest):
         assert record.data["icp_score"] == 12
         assert record.data["headcount"] == 750
 
+    def test_bridge_read_failure_never_downgrades_a_persisted_score(self):
+        # A persisted score may have been computed WITH bridge data (revenue, company type);
+        # a bridge-less recompute at recheck would silently strip those points.
+        OrganizationEnrichment.objects.create(
+            organization=self.organization,
+            data={"icp_score": 15, "icp_score_version": "clay-parity-1", "headcount": 750},
+        )
+        fields = EnrichmentFields(headcount=800, country="US", founded_year=2021)
+
+        result = self._enrich(
+            ProviderLookup(fields=fields, raw_payload={"n": 1}),
+            is_recheck=True,
+            role_at_organization="engineering",
+            clay=RuntimeError("group store down"),
+        )
+
+        assert result is fields
+        record = OrganizationEnrichment.objects.get(organization=self.organization)
+        assert record.data["icp_score"] == 15
+        assert record.data["headcount"] == 800
+
     def test_archive_failure_does_not_break_enrich(self):
         fields = EnrichmentFields(company_type="STARTUP")
         with (
