@@ -3669,6 +3669,12 @@ class TestExperimentService(APIBaseTest):
         assert frozen.is_running is True
         assert frozen.is_exposure_frozen is True
 
+        # The freeze shows up in the experiment's History tab, not only under the flag's scope.
+        log = ActivityLog.objects.get(scope="Experiment", item_id=str(experiment.pk), activity="exposure_frozen")
+        assert log.user == self.user
+        assert log.detail is not None
+        assert log.detail["name"] == "Freeze Exposure"
+
     def test_freeze_exposure_multi_group_flag(self):
         experiment = self._create_running_experiment(name="Freeze Multi", feature_flag_key="freeze-multi-flag")
         flag = experiment.feature_flag
@@ -4186,6 +4192,12 @@ class TestExperimentService(APIBaseTest):
         # The snapshot cohort is soft-deleted, not left as clutter.
         cohort.refresh_from_db()
         assert cohort.deleted is True
+
+        # The unfreeze shows up in the experiment's History tab, not only under the flag's scope.
+        log = ActivityLog.objects.get(scope="Experiment", item_id=str(experiment.pk), activity="exposure_unfrozen")
+        assert log.user == self.user
+        assert log.detail is not None
+        assert log.detail["name"] == "Unfreeze Test"
 
     def test_unfreeze_exposure_keeps_user_edits_made_while_frozen(self) -> None:
         experiment = self._create_running_experiment(name="Unfreeze Edits", feature_flag_key="unfreeze-edits-flag")
@@ -6053,6 +6065,52 @@ class TestExperimentService(APIBaseTest):
         )
         assert experiment.metrics is not None and len(experiment.metrics) == 1
 
+    def test_update_with_deleted_action_still_referenced_succeeds(self):
+        action = Action.objects.create(team=self.team, name="soon deleted action")
+        stale = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "ActionsNode", "id": action.id},
+        }
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Stale Action Resend",
+            feature_flag_key="stale-action-resend-flag",
+            metrics=[stale],
+        )
+        action.deleted = True
+        action.save()
+
+        updated = service.update_experiment(experiment, {"metrics": [stale], "metrics_secondary": []})
+
+        assert updated.metrics is not None and len(updated.metrics) == 1
+
+    def test_update_rejects_new_unknown_action_alongside_resent_stale_one(self):
+        action = Action.objects.create(team=self.team, name="another soon deleted action")
+        stale = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "ActionsNode", "id": action.id},
+        }
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Unknown Alongside Stale Action",
+            feature_flag_key="unknown-alongside-stale-action-flag",
+            metrics=[stale],
+        )
+        action.deleted = True
+        action.save()
+        fresh = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "ActionsNode", "id": 999999},
+        }
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(experiment, {"metrics": [stale, fresh]})
+
+        assert "999999" in str(ctx.exception.detail)
+
     def test_funnel_metric_with_empty_series_raises(self):
         # The experiment exposure event is prepended as step_0 at query time, so an
         # empty series would produce a degenerate single-step funnel with no conversion event.
@@ -6537,6 +6595,53 @@ class TestExperimentService(APIBaseTest):
     # ------------------------------------------------------------------
     # Event/action validation on update_experiment
     # ------------------------------------------------------------------
+
+    def test_update_keeps_metric_whose_event_was_never_ingested(self):
+        service = self._service()
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "not_yet_deployed"},
+        }
+        experiment = service.create_experiment(
+            name="Move Stale Event",
+            feature_flag_key="move-stale-event-flag",
+            allow_unknown_events=True,
+            metrics=[metric],
+        )
+
+        # Moving the metric to the other section resends both arrays without the
+        # opt-in flag. The event is already on the experiment, so it must not be
+        # re-validated: a stale name would otherwise block every metric edit.
+        updated = service.update_experiment(experiment, {"metrics": [], "metrics_secondary": [metric]})
+
+        assert updated.metrics == []
+        assert updated.metrics_secondary is not None and len(updated.metrics_secondary) == 1
+        assert updated.metrics_secondary[0]["source"]["event"] == "not_yet_deployed"
+
+    def test_update_rejects_new_unknown_event_alongside_resent_stale_one(self):
+        service = self._service()
+        stale = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "not_yet_deployed"},
+        }
+        experiment = service.create_experiment(
+            name="Add Unknown Alongside Stale",
+            feature_flag_key="add-unknown-alongside-stale-flag",
+            allow_unknown_events=True,
+            metrics=[stale],
+        )
+        fresh = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "also_not_deployed"},
+        }
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(experiment, {"metrics": [stale, fresh]})
+
+        assert "also_not_deployed" in str(ctx.exception.detail)
 
     def test_update_experiment_with_unknown_event_raises(self):
         EventDefinition.objects.create(team=self.team, name="$pageview")
