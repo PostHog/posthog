@@ -89,6 +89,13 @@ function getConnectionEngine(
     return 'postgres'
 }
 
+/** Human-readable engine name for a connection, derived the same way the picker labels it. */
+export function getConnectionEngineLabel(
+    source: Pick<ExternalDataSourceConnectionOptionApi, 'engine' | 'source_type'>
+): string {
+    return ENGINE_LABELS[getConnectionEngine(source)]
+}
+
 export function getConnectionSelectorValue(
     connectionOptions: ExternalDataSourceConnectionOptionApi[] | null,
     connectionOptionsLoading: boolean,

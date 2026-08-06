@@ -79,6 +79,7 @@ import {
     copyTableToMarkdown,
 } from '../../../queries/nodes/DataTable/clipboardUtils'
 import { FixErrorButton } from './components/FixErrorButton'
+import { getConnectionEngineLabel } from './connectionSelectorLogic'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import { trimRedundantTail } from './syncWarnings'
@@ -1123,6 +1124,7 @@ const Content = ({
     showVisualizationSettings,
     isEmbeddedMode,
 }: any): JSX.Element | null => {
+    const { selectedDirectSource } = useValues(sqlEditorLogic)
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
     const sortedRows = useMemo(() => {
@@ -1217,6 +1219,18 @@ const Content = ({
                     pollResponse={pollResponse}
                     setProgress={setProgress}
                     progress={progress}
+                    suggestion={
+                        selectedDirectSource ? (
+                            <p className="text-xs m-0">
+                                This query runs live on your{' '}
+                                {getConnectionEngineLabel({
+                                    engine: null,
+                                    source_type: selectedDirectSource.source_type,
+                                })}{' '}
+                                database. Speed depends on its capacity and current load.
+                            </p>
+                        ) : undefined
+                    }
                 />
             </div>
         )
