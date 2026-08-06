@@ -460,6 +460,7 @@ export function TaskInput({
   const {
     repositories: visibleCloudRepositories,
     isPending: cloudRepositoriesLoading,
+    isFetchingMore: cloudRepositoriesFetchingMore,
     hasMore: cloudRepositoriesHasMore,
     loadMore: loadMoreCloudRepositories,
   } = useUserGithubRepositories(cloudRepoSearchQuery, isCloudRepoPickerOpen);
@@ -1279,6 +1280,7 @@ export function TaskInput({
                           isLoadingRepos ||
                           (isCloudRepoPickerOpen && cloudRepositoriesLoading)
                         }
+                        isLoadingMore={cloudRepositoriesFetchingMore}
                         isRefreshing={isRefreshingRepos}
                         onRefresh={handleRefreshRepositories}
                         open={isCloudRepoPickerOpen}

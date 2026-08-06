@@ -7,10 +7,10 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.comment.formatting import extract_images_from_rich_content
 from posthog.models import Team
 from posthog.models.comment import Comment
 
-from products.conversations.backend.formatting import extract_images_from_rich_content
 from products.conversations.backend.models import Ticket
 from products.signals.backend.emission.registry import SignalSourceTableConfig
 from products.signals.backend.models import SignalEmissionRecord
