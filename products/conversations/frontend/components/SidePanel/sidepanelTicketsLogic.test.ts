@@ -126,9 +126,10 @@ describe('sidepanelTicketsLogic', () => {
         expect(supportLogic.values.isEmailFormOpen).toBe(false)
     })
 
-    // The only path that discards a written message by design. The plan makes that correct, but it is
-    // still a customer we never heard from, and the draft exists nowhere else once the form resets.
-    it('reports the dropped draft when an ineligible plan hits a support CTA', async () => {
+    // An ineligible plan is turned away before a composer ever opens, so what's lost is the intent to
+    // reach us rather than anything typed. Modelled on a real CTA (FeedbackNotice, the session
+    // attribution explorer): they pass no message, so `had_draft` must not claim otherwise.
+    it('reports the turned-away intent when an ineligible plan hits a support CTA', async () => {
         logic = sidepanelTicketsLogic.build()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -136,12 +137,7 @@ describe('sidepanelTicketsLogic', () => {
         ;(posthog.capture as jest.Mock).mockClear()
 
         await expectLogic(logic, () => {
-            supportLogic.actions.openSupportForm({
-                kind: 'bug',
-                isEmailFormOpen: true,
-                message: 'I cannot log in',
-                target: 'sidePanel',
-            })
+            supportLogic.actions.openSupportForm({ kind: 'bug', isEmailFormOpen: true, target: 'sidePanel' })
         }).toFinishAllListeners()
 
         const failures = (posthog.capture as jest.Mock).mock.calls.filter(
@@ -151,9 +147,11 @@ describe('sidepanelTicketsLogic', () => {
         expect(failures[0][1]).toMatchObject({
             reason: 'not_entitled',
             can_create_ticket: false,
-            had_draft: true,
-            message_preview: 'I cannot log in',
+            had_draft: false,
         })
+        // The composer never opened, so there is no draft to report — asserting this stops the field
+        // from quietly starting to carry a stale leftover from an earlier form interaction
+        expect(failures[0][1]).toMatchObject({ message_preview: '', message_length: 0 })
     })
 
     // Half the billing CTAs (Billing.tsx, ConfirmDowngradeModal, PurchaseCreditsModal) open the panel

@@ -662,15 +662,15 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 // Still consume the intent (see below), just without opening the composer — the panel
                 // explains why and points at the community and upgrade options instead. Only ever on a
                 // known-ineligible plan: consuming is irreversible, so while entitlement is still
-                // unknown we open the composer rather than drop someone's message on the floor.
+                // unknown we open the composer rather than turn someone away on a maybe.
                 //
-                // Recorded before the reset, because this is the one path where someone typed a real
-                // message into a CTA and we discard it by design. The plan makes that correct, but it
-                // is still a customer we never heard, and the draft only exists here.
+                // No draft is passed, and that's not an omission: this runs the moment a CTA fires,
+                // before any composer is on screen, so nothing has been typed yet. Every CTA that
+                // reaches here passes no message either. What's lost is the customer's intent to
+                // reach us, which is what the event records.
                 captureSupportTicketFailed({
                     surface: 'support_form',
                     reason: 'not_entitled',
-                    message: values.sendSupportRequest?.message,
                     kind: values.sendSupportRequest?.kind,
                     can_create_ticket: false,
                 })
