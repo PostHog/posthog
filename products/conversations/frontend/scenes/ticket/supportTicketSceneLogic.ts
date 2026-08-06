@@ -211,6 +211,7 @@ export interface supportTicketSceneLogicValues {
     olderMessagesLoading: boolean
     person: PersonType | null
     personLoading: boolean
+    previousOpenTicketCount: number
     previousTickets: Ticket[]
     previousTicketsLoading: boolean
     priority: TicketPriority | null
@@ -446,6 +447,7 @@ export interface supportTicketSceneLogicMeta {
     key: number | string
     __keaTypeGenInternalSelectorTypes: {
         breadcrumbs: (id: number | string) => Breadcrumb[]
+        previousOpenTicketCount: (previousTickets: Ticket[], featureFlags: FeatureFlagsSet) => number
         emailReplyBlockedReason: (
             ticket: Ticket | null,
             currentTeam: TeamPublicType | TeamType | null
@@ -844,6 +846,15 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 }
                 return [{ key: ['SupportTicketDetail', id], name }]
             },
+        ],
+        previousOpenTicketCount: [
+            (s) => [s.previousTickets, s.featureFlags],
+            // Open means anything still in flight, matching the list view's pill. The panel lists
+            // resolved tickets too, so the total alone doesn't say whether it's worth opening.
+            (previousTickets: Ticket[], featureFlags: FeatureFlagsSet): number =>
+                featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_RELATED_OPEN_TICKETS]
+                    ? previousTickets.filter((ticket) => ticket.status !== 'resolved').length
+                    : 0,
         ],
         emailReplyBlockedReason: [
             (s) => [s.ticket, s.currentTeam],

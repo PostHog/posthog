@@ -721,3 +721,30 @@ describe('supportTicketSceneLogic sidePanelContext', () => {
         })
     })
 })
+
+describe('supportTicketSceneLogic previousOpenTicketCount', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = supportTicketSceneLogic({ id: 'new' })
+        logic.mount()
+    })
+
+    // The panel lists resolved tickets alongside live ones, so counting every previous ticket would
+    // put a tag on the header for a requester who has nothing outstanding.
+    test.each<[string, boolean, TicketStatus[], number]>([
+        ['counts only the unresolved ones', true, ['open', 'resolved', 'pending'], 2],
+        ['reports nothing when every previous ticket is resolved', true, ['resolved', 'resolved'], 0],
+        ['stays silent while the flag is off', false, ['open', 'pending'], 0],
+    ])('%s', (_name, enabled, statuses, expected) => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.PRODUCT_SUPPORT_RELATED_OPEN_TICKETS]: enabled,
+        })
+        logic.actions.loadPreviousTicketsSuccess(
+            statuses.map((status, index) => ({ ...makeTicket(), id: `prev-${index}`, status }) as Ticket)
+        )
+
+        expect(logic.values.previousOpenTicketCount).toBe(expected)
+    })
+})

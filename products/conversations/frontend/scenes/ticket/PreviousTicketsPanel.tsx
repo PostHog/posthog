@@ -13,12 +13,16 @@ interface PreviousTicketsPanelProps {
     // Merged distinct_ids of the current ticket's person. Tickets whose distinct_id
     // is not in this set were matched by email alone, so they may be a different person.
     personDistinctIds?: string[]
+    // How many of the previous tickets are still unresolved, so the header says whether
+    // there's anything live in here before you open it. Zero hides the tag.
+    openCount?: number
 }
 
 export function PreviousTicketsPanel({
     previousTickets,
     previousTicketsLoading,
     personDistinctIds,
+    openCount,
 }: PreviousTicketsPanelProps): JSX.Element {
     return (
         <LemonCollapse
@@ -31,6 +35,11 @@ export function PreviousTicketsPanel({
                             Previous tickets
                             {previousTickets.length > 0 && (
                                 <span className="text-muted-alt font-normal ml-1">({previousTickets.length})</span>
+                            )}
+                            {!!openCount && openCount > 0 && (
+                                <LemonTag type="muted" size="small" className="ml-2">
+                                    {openCount} open
+                                </LemonTag>
                             )}
                         </>
                     ),

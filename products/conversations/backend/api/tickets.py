@@ -665,31 +665,39 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             ticket.related_open = {"count": 0, "counts_by_status": {}, "tickets": []}
 
         key_by_ticket: dict[uuid.UUID, str] = {}
-        dids_by_key: dict[str, list[str]] = {}
+        # Ids a row on this page actually belongs to are tracked apart from the merged ids that only
+        # widen the match, so the caps below can trim the latter and never the former. One merged
+        # person can own several rows here, each under a different distinct_id.
+        own_dids_by_key: dict[str, list[str]] = {}
+        extra_dids_by_key: dict[str, list[str]] = {}
         for ticket in tickets:
             if not ticket.distinct_id:
                 continue
             person = getattr(ticket, "person", None)
             key = f"person:{person.uuid}" if person is not None else f"did:{ticket.distinct_id}"
             key_by_ticket[ticket.id] = key
-            if key in dids_by_key:
-                continue
-            # Own distinct_id first, because the allocation below guarantees the head of this list.
-            candidates = [ticket.distinct_id]
-            if person is not None:
-                candidates += [did for did in person.distinct_ids if did != ticket.distinct_id]
-            dids_by_key[key] = candidates[:RELATED_OPEN_MAX_DISTINCT_IDS_PER_PERSON]
+            own = own_dids_by_key.setdefault(key, [])
+            if ticket.distinct_id not in own:
+                own.append(ticket.distinct_id)
+            if key not in extra_dids_by_key:
+                extra_dids_by_key[key] = list(person.distinct_ids) if person is not None else []
 
-        # Every row keeps its own distinct_id before any extras are handed out. Allocating
+        for key, own in own_dids_by_key.items():
+            owned = set(own)
+            extras = [did for did in extra_dids_by_key[key] if did not in owned]
+            extra_dids_by_key[key] = extras[: max(0, RELATED_OPEN_MAX_DISTINCT_IDS_PER_PERSON - len(own))]
+
+        # Every id a page row belongs to is guaranteed before any extras are handed out. Allocating
         # first-come instead lets one requester carrying thousands of merged ids exhaust the
         # budget and silently leave the rest of the page with no pill at all.
         keys_by_did: dict[str, set[str]] = defaultdict(set)
-        for key, dids in dids_by_key.items():
-            keys_by_did[dids[0]].add(key)
+        for key, own in own_dids_by_key.items():
+            for did in own:
+                keys_by_did[did].add(key)
 
         # Round-robin what's left so the extras are shared out rather than taken by whoever sorts
         # first. This is what bounds the query; the guaranteed ids above are one per page row.
-        extras_by_key = {key: iter(dids[1:]) for key, dids in dids_by_key.items() if len(dids) > 1}
+        extras_by_key = {key: iter(extras) for key, extras in extra_dids_by_key.items() if extras}
         while extras_by_key and len(keys_by_did) < RELATED_OPEN_MAX_TOTAL_DISTINCT_IDS:
             for key in list(extras_by_key):
                 did = next(extras_by_key[key], None)
@@ -744,12 +752,12 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             if ticket_key is None:
                 continue
             totals: dict[str, int] = defaultdict(int)
-            for did in dids_by_key[ticket_key]:
+            for did in own_dids_by_key[ticket_key] + extra_dids_by_key[ticket_key]:
                 for row_status, status_count in counts_by_did.get(did, {}).items():
                     totals[row_status] += status_count
-            # The row's own ticket is in the matched set unless it's resolved (already excluded) or
-            # its distinct_id fell outside the page cap.
-            if ticket.status != Status.RESOLVED and ticket.distinct_id in keys_by_did:
+            # Resolved rows are excluded from the query, so only a live row counted itself above —
+            # and it always did, its own distinct_id being guaranteed.
+            if ticket.status != Status.RESOLVED:
                 totals[ticket.status] -= 1
             counts_by_status = {row_status: value for row_status, value in totals.items() if value > 0}
             count = sum(counts_by_status.values())

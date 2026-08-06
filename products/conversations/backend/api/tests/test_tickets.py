@@ -2982,6 +2982,20 @@ class TestTicketRelatedOpenTickets(APIBaseTest):
         assert related[second.ticket_number]["count"] == 1
         assert [t["ticket_number"] for t in related[second.ticket_number]["tickets"]] == [first.ticket_number]
 
+    @patch("products.conversations.backend.api.tickets.RELATED_OPEN_MAX_TOTAL_DISTINCT_IDS", 1)
+    def test_keeps_both_rows_of_one_requester_under_budget_pressure(self, mock_limit, mock_on_commit):
+        # Guaranteeing only the first row's distinct_id per requester left the other row's id to
+        # compete for the leftover budget. Losing it silently zeroed the first row's pill while the
+        # second still claimed one, so the duplicate showed up on exactly one of the pair.
+        create_person(team=self.team, distinct_ids=["anon-abc", "someone@example.com"])
+        first = self._create_ticket("anon-abc")
+        second = self._create_ticket("someone@example.com")
+
+        related = self._related_by_number()
+
+        assert related[first.ticket_number]["count"] == 1
+        assert related[second.ticket_number]["count"] == 1
+
     def test_groups_personless_tickets_by_their_own_distinct_id(self, mock_on_commit):
         # Email tickets from an unrecognized sender have no person, but their distinct_id is the
         # sender's address, so two of them still belong to the same requester.
