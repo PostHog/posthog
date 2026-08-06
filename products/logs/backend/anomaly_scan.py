@@ -18,6 +18,7 @@ fetch cannot supply. The rollup-backed path keeps it.
 """
 
 import os
+import time
 import datetime as dt
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
@@ -35,6 +36,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CHQueryErrorTooManyBytes
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import Team
 from posthog.models.team.logs_retention import DEFAULT_LOGS_RETENTION_DAYS
 
@@ -74,11 +76,13 @@ SCAN_MAX_BYTES_TO_READ = int(os.environ.get("LOGS_ANOMALY_SCAN_MAX_BYTES_TO_READ
 # Mature-entry lookback. 6 weeks is the measured cost/precision sweet spot for
 # on-demand scans; the rollup path uses a longer window.
 SCAN_LOOKBACK_WEEKS = int(os.environ.get("LOGS_ANOMALY_SCAN_LOOKBACK_WEEKS", "6"))
+# Wall-clock deadline for the whole scan, shared across degradation attempts —
+# a retrying ladder must not multiply the per-request resource spend.
 SCAN_MAX_EXECUTION_SECONDS = int(os.environ.get("LOGS_ANOMALY_SCAN_MAX_EXECUTION_SECONDS", "60"))
 
 
 class ScanBudgetExceeded(Exception):
-    """Every degradation rung blew the byte budget."""
+    """Every degradation rung blew the byte budget or the scan deadline."""
 
 
 class BindingConstraint(StrEnum):
@@ -250,9 +254,9 @@ def degradation_ladder(eval_start: dt.datetime, eval_end: dt.datetime, full_look
     return attempts
 
 
-def _scan_settings() -> HogQLGlobalSettings:
+def _scan_settings(max_execution_seconds: int) -> HogQLGlobalSettings:
     return HogQLGlobalSettings(
-        max_execution_time=SCAN_MAX_EXECUTION_SECONDS,
+        max_execution_time=max_execution_seconds,
         max_bytes_to_read=SCAN_MAX_BYTES_TO_READ,
         read_overflow_mode="throw",
     )
@@ -268,7 +272,12 @@ def _covered_days(ranges: list[TimeRange]) -> list[dt.datetime]:
     return sorted(days)
 
 
-def fetch_bucket_counts(team: Team, service_name: str, ranges: list[TimeRange]) -> dict[str, dict[dt.datetime, int]]:
+def fetch_bucket_counts(
+    team: Team,
+    service_name: str,
+    ranges: list[TimeRange],
+    max_execution_seconds: int = SCAN_MAX_EXECUTION_SECONDS,
+) -> dict[str, dict[dt.datetime, int]]:
     """5-minute bucket counts per severity for one service, restricted to the
     given timestamp ranges. Raises CHQueryErrorTooManyBytes past the budget."""
     tag_queries(product=Product.LOGS, feature=Feature.QUERY, source="logs_anomaly_scan", team_id=str(team.id))
@@ -319,7 +328,7 @@ def fetch_bucket_counts(team: Team, service_name: str, ranges: list[TimeRange]) 
         query=query,
         team=team,
         workload=Workload.LOGS,
-        settings=_scan_settings(),
+        settings=_scan_settings(max_execution_seconds),
         limit_context=LimitContext.QUERY,
         modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
     )
@@ -518,12 +527,16 @@ def run_scan(
 
     config_probe = _jit_config(full_lookback or 1)
 
-    last_error: CHQueryErrorTooManyBytes | None = None
+    deadline = time.monotonic() + SCAN_MAX_EXECUTION_SECONDS
+    last_error: Exception | None = None
     for attempt in degradation_ladder(eval_start, eval_end, max(full_lookback, 1)):
+        remaining_seconds = int(deadline - time.monotonic())
+        if remaining_seconds <= 0:
+            break
         ranges = baseline_slice_ranges(attempt.eval_start, attempt.eval_end, attempt.lookback_buckets, config_probe)
         try:
-            counts = fetch_bucket_counts(team, service_name, ranges)
-        except CHQueryErrorTooManyBytes as err:
+            counts = fetch_bucket_counts(team, service_name, ranges, max_execution_seconds=remaining_seconds)
+        except (CHQueryErrorTooManyBytes, ClickHouseQueryTimeOut) as err:
             last_error = err
             continue
 
@@ -549,5 +562,5 @@ def run_scan(
         )
 
     raise ScanBudgetExceeded(
-        f"Anomaly scan for service {service_name!r} exceeded the byte budget at every degradation rung"
+        f"Anomaly scan for service {service_name!r} exceeded its read budget or deadline at every degradation rung"
     ) from last_error
