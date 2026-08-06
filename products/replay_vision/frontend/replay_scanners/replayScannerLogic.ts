@@ -2,6 +2,7 @@ import {
     MakeLogicType,
     actions,
     afterMount,
+    beforeUnmount,
     isBreakpoint,
     kea,
     key,
@@ -109,6 +110,11 @@ function defaultConfigForType(scannerType: ScannerType): ScannerConfig {
 
 function omitQuery(scanner: ReplayScanner): Omit<ReplayScanner, 'query'> {
     const { query: _query, ...rest } = scanner
+    return rest
+}
+
+function omitStamps(scanner: ReplayScanner): Omit<ReplayScanner, 'created_at' | 'updated_at' | 'last_swept_at'> {
+    const { created_at: _created, updated_at: _updated, last_swept_at: _swept, ...rest } = scanner
     return rest
 }
 
@@ -258,6 +264,7 @@ export interface replayScannerLogicValues {
     scanner: ReplayScanner
     scannerAllErrors: Record<string, any>
     scannerChanged: boolean
+    scannerDraftSavedAt: number | null
     scannerErrors: DeepPartialMap<ReplayScanner, ValidationErrorType>
     scannerEstimate: EstimateResponseApi | null
     scannerEstimateError: string | null
@@ -295,6 +302,9 @@ export interface replayScannerLogicActions {
         value: true
     }
     copyAllObservationsFinished: () => {
+        value: true
+    }
+    discardScannerDraft: () => {
         value: true
     }
     dismissTagSuggestions: () => {
@@ -457,6 +467,9 @@ export interface replayScannerLogicActions {
     setObservationsSort: (sorting: ObservationsSorting | null) => {
         sorting: ObservationsSorting | null
     }
+    setScannerDraftSavedAt: (savedAt: number | null) => {
+        savedAt: number | null
+    }
     setScannerManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
     }
@@ -475,6 +488,9 @@ export interface replayScannerLogicActions {
     }
     setSubmitIntent: (intent: 'advance' | 'save') => {
         intent: 'advance' | 'save'
+    }
+    startFromTemplate: (templateKey: string | null) => {
+        templateKey: string | null
     }
     submitScanner: () => {
         value: boolean
@@ -571,6 +587,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         loadScannerFailure: true,
         saveAffectedCohort: (tag?: string) => ({ tag }),
         setScannerType: (scannerType: ScannerType) => ({ scannerType }),
+        startFromTemplate: (templateKey: string | null) => ({ templateKey }),
+        discardScannerDraft: true,
+        setScannerDraftSavedAt: (savedAt: number | null) => ({ savedAt }),
         setSubmitIntent: (intent: 'save' | 'advance') => ({ intent }),
         // Fired only after an actual API write, unlike submitScannerSuccess (which the advance path emits too).
         scannerSaved: (scanner: ReplayScanner) => ({ scanner }),
@@ -770,6 +789,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     })),
 
     reducers({
+        scannerDraftSavedAt: [
+            null as number | null,
+            {
+                setScannerDraftSavedAt: (_, { savedAt }) => savedAt,
+            },
+        ],
         // Which tag's cohort is being created, so tag rows can show a per-row spinner.
         savingCohortTag: [
             null as string | null,
@@ -1027,7 +1052,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 if (!scanner || !original) {
                     return false
                 }
-                return !objectsEqual(scanner, original)
+                return !objectsEqual(omitStamps(scanner), omitStamps(original))
             },
         ],
         hasObservationsInFlight: [
@@ -1136,17 +1161,25 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             actions.loadObservationStats()
         }
         const persistDraft = (): void => {
-            if (props.id !== 'new') {
+            if (props.id !== 'new' || cache.restoringDraft) {
                 return
             }
             const teamId = teamLogic.findMounted()?.values.currentTeamId
             if (!teamId || !values.scanner || !values.originalScanner) {
                 return
             }
-            if (objectsEqual(values.scanner, values.originalScanner)) {
+            if (objectsEqual(omitStamps(values.scanner), omitStamps(values.originalScanner))) {
+                clearScannerDraft()
+                actions.setScannerDraftSavedAt(null)
                 return
             }
-            writeScannerDraft(teamId, values.scanner)
+            const savedAt = writeScannerDraft(teamId, values.scanner)
+            if (savedAt === null) {
+                // A failed write leaves any older draft behind; drop it so it can't resurrect stale edits.
+                clearScannerDraft()
+            }
+            cache.draftTouched = savedAt !== null
+            actions.setScannerDraftSavedAt(savedAt)
         }
         return {
             // kea-forms' exact rejection for failed client-side validation. API failures toast in submit's catch.
@@ -1180,9 +1213,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         const { template: _drop, ...rest } = router.values.searchParams
                         router.actions.replace(router.values.location.pathname, rest)
                     }
-                    actions.loadScannerSuccess(newScanner(templateKey))
-                    if (draft) {
-                        actions.setScannerValues(draft)
+                    cache.restoringDraft = true
+                    try {
+                        actions.loadScannerSuccess(newScanner(templateKey))
+                        if (draft) {
+                            actions.setScannerValues(draft.scanner)
+                            actions.setScannerDraftSavedAt(draft.savedAt)
+                        }
+                    } finally {
+                        cache.restoringDraft = false
                     }
                     return
                 }
@@ -1220,6 +1259,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     scanner_type: scannerType,
                     scanner_config: defaultConfigForType(scannerType),
                 } as ReplayScanner)
+                persistDraft()
             },
 
             // Merge AI-suggested tags into the vocabulary: keep existing tags, append new ones, dedupe case-insensitively.
@@ -1260,11 +1300,18 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 actions.requestScannerEstimate()
                 persistDraft()
             },
-            // resetScanner is every "start fresh" moment: template pick, type switch, discard on leave.
-            resetScanner: () => {
+            startFromTemplate: ({ templateKey }) => {
+                clearScannerDraft()
+                actions.setScannerDraftSavedAt(null)
+                actions.resetScanner(newScanner(templateKey))
+            },
+            discardScannerDraft: () => {
+                // Storage holds one draft, and it belongs to the new-scanner wizard.
                 if (props.id === 'new') {
                     clearScannerDraft()
+                    actions.setScannerDraftSavedAt(null)
                 }
+                actions.resetScanner(values.originalScanner ?? newScanner(null))
             },
             scannerSaved: () => {
                 actions.requestScannerEstimate()
@@ -1272,6 +1319,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 refreshVisionQuota()
                 if (props.id === 'new') {
                     clearScannerDraft()
+                    actions.setScannerDraftSavedAt(null)
                 }
             },
 
@@ -1594,6 +1642,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             shouldGuardScannerNavigation({
                 hasUnsavedChanges: values.hasUnsavedChanges,
                 isSubmitting: values.isScannerSubmitting,
+                hasSavedDraft: values.scannerDraftSavedAt !== null,
                 scannerId: props.id,
                 currentPathname: router.values.location.pathname,
                 nextPathname: newLocation?.pathname,
@@ -1606,11 +1655,24 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         },
     })),
 
-    afterMount(({ actions, props }) => {
+    afterMount(({ actions, props, cache }) => {
+        cache.draftTouched = false
         actions.loadScanner()
         if (props.id !== 'new') {
             actions.loadObservations()
             actions.loadObservationStats()
+        }
+    }),
+
+    beforeUnmount(({ values, props, cache }) => {
+        if (props.id === 'new' && cache.draftTouched && values.scannerDraftSavedAt !== null) {
+            lemonToast.info('Draft saved', {
+                button: {
+                    label: 'Resume',
+                    action: () => router.actions.push(urls.replayVisionScannerConfigure('new')),
+                    dataAttr: 'vision-draft-resume-toast',
+                },
+            })
         }
     }),
 ])
@@ -1649,12 +1711,13 @@ function scannerEditorPaths(scannerId: string): string[] {
 export function shouldGuardScannerNavigation(params: {
     hasUnsavedChanges: boolean
     isSubmitting: boolean
+    hasSavedDraft: boolean
     scannerId: string
     currentPathname: string
     nextPathname?: string
 }): boolean {
-    const { hasUnsavedChanges, isSubmitting, scannerId, currentPathname, nextPathname } = params
-    if (!hasUnsavedChanges || isSubmitting) {
+    const { hasUnsavedChanges, isSubmitting, hasSavedDraft, scannerId, currentPathname, nextPathname } = params
+    if (!hasUnsavedChanges || isSubmitting || hasSavedDraft) {
         return false
     }
     // The router's stored pathname carries the `/project/:id` prefix, while `urls.*` never do,
