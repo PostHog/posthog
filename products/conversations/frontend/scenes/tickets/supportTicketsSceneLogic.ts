@@ -16,7 +16,9 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { objectsEqual } from 'lib/utils/objects'
 import { Scene } from 'scenes/sceneTypes'
@@ -216,6 +218,7 @@ export interface supportTicketsSceneLogicValues {
     hasActiveFilters: boolean
     orderBy: string
     priorityFilter: TicketPriority[]
+    relatedOpenTicketsEnabled: boolean
     searchQuery: string
     selectedTicketIds: string[]
     selectedTickets: Ticket[]
@@ -342,6 +345,7 @@ export interface supportTicketsSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         breadcrumbs: (activeView: SavedTicketView | null) => Breadcrumb[]
         aiEnabled: (currentTeam: TeamType | null | import('~/types').TeamPublicType) => boolean
+        relatedOpenTicketsEnabled: (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet) => boolean
         orderBy: (sorting: Sorting | null) => string
         selectedTickets: (tickets: Ticket[], selectedTicketIds: string[]) => Ticket[]
         editableSelectedTicketIds: (selectedTickets: Ticket[]) => string[]
@@ -592,6 +596,11 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             () => [teamLogic.selectors.currentTeam],
             (currentTeam: TeamType | null): boolean => !!currentTeam?.conversations_settings?.ai_suggestions_enabled,
         ],
+        relatedOpenTicketsEnabled: [
+            () => [featureFlagLogic.selectors.featureFlags],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_RELATED_OPEN_TICKETS],
+        ],
         orderBy: [
             (s) => [s.sorting],
             (sorting: Sorting | null): string => {
@@ -718,7 +727,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
 
             if (props.distinctIds && props.distinctIds.length > 0) {
                 params.distinct_ids = props.distinctIds.join(',')
-            } else {
+            } else if (values.relatedOpenTicketsEnabled) {
                 // Embedded tables are already scoped to one person, so the pill would be noise
                 // and the extra query wasted.
                 params.include_related_open = true

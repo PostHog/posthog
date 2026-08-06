@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -374,6 +376,46 @@ describe('supportTicketsSceneLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.breadcrumbs).toEqual([{ key: Scene.SupportTickets, name: 'Ticket list' }])
+        })
+    })
+
+    describe('related open tickets flag', () => {
+        let logic: ReturnType<typeof supportTicketsSceneLogic.build>
+        let lastIncludeParam: string | null = null
+
+        beforeEach(() => {
+            lastIncludeParam = null
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/conversations/tickets/': ({ request }) => {
+                        lastIncludeParam = new URL(request.url).searchParams.get('include_related_open')
+                        return [200, { count: 0, results: [] }]
+                    },
+                },
+            })
+            initKeaTests()
+        })
+
+        afterEach(() => {
+            logic?.unmount()
+        })
+
+        it.each([
+            ['asks for the counts once the flag is on', true, 'true'],
+            ['leaves the extra query off while the flag is off', false, null],
+        ] as [string, boolean, string | null][])('%s', async (_name, enabled, expected) => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_SUPPORT_RELATED_OPEN_TICKETS]: enabled,
+            })
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.loadTickets()
+            }).toFinishAllListeners()
+
+            expect(lastIncludeParam).toBe(expected)
         })
     })
 })
