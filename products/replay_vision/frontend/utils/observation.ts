@@ -69,8 +69,15 @@ function lastSentence(text: string): string | null {
     if (!trimmed) {
         return null
     }
-    const sentences = trimmed.split(/(?<=[.!?])\s+/)
-    const last = sentences[sentences.length - 1].replace(/[.!?]+$/, '').trim()
+    // No lookbehind regex, it breaks chunk parsing on older browsers.
+    let start = 0
+    for (const match of trimmed.matchAll(/[.!?]+\s+/g)) {
+        start = match.index + match[0].length
+    }
+    const last = trimmed
+        .slice(start)
+        .replace(/[.!?]+$/, '')
+        .trim()
     if (!last) {
         return null
     }

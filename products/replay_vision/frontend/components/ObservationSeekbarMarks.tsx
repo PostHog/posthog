@@ -15,7 +15,7 @@ interface ObservationSeekbarMarksProps {
     onSeek: (timestampMs: number) => void
 }
 
-// Gated like the observations dock so players without it don't fetch observations.
+// Unlike the dock this ignores noMeta, so noMeta surfaces show marks without a dock.
 export function ObservationSeekbarMarks(props: ObservationSeekbarMarksProps): JSX.Element | null {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const hasReplayVision = useFeatureFlag('REPLAY_VISION')
