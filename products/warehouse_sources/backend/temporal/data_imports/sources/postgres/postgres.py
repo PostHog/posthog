@@ -392,10 +392,14 @@ def _is_connection_limit_error(error: BaseException) -> bool:
 # database system is starting up"), a server replaying WAL after a crash ("the database system is
 # in recovery mode"), or a hot standby that has accepted the connection attempt but not yet reached
 # a consistent recovery point ("the database system is not yet accepting connections", DETAIL
-# "Consistent recovery state has not been yet reached"). All are transient: the server begins
-# accepting connections within seconds once startup/recovery completes, so a fresh connect after a
-# short backoff succeeds. libpq surfaces these as a bare OperationalError at connect time (no
-# SQLSTATE-mapped subclass), so match on the stable message. Deliberately NOT the permanent
+# "Consistent recovery state has not been yet reached"). The same SQLSTATE also covers the mirror
+# case at the other end of the server's lifecycle: a smart/fast shutdown in progress refuses new
+# connections with "the database system is shutting down" while existing backends are terminated
+# (that termination surfaces separately as "terminating connection due to administrator command",
+# already retried via `_CONNECTION_DROPPED_ERROR_SUBSTRINGS`). All are transient: the server begins
+# accepting connections again within seconds once startup/recovery/restart completes, so a fresh
+# connect after a short backoff succeeds. libpq surfaces these as a bare OperationalError at connect
+# time (no SQLSTATE-mapped subclass), so match on the stable message. Deliberately NOT the permanent
 # hot-standby-disabled refusal — that reads "the database system is not accepting connections"
 # (no "yet") with DETAIL "Hot standby mode is disabled" and stays non-retryable (see source.py's
 # `get_non_retryable_errors`); none of the substrings below appear in it.
@@ -403,6 +407,7 @@ _SERVER_STARTING_UP_ERROR_SUBSTRINGS = (
     "the database system is starting up",
     "the database system is not yet accepting connections",
     "the database system is in recovery mode",
+    "the database system is shutting down",
 )
 
 
@@ -427,9 +432,10 @@ def _is_dropped_or_connect_timeout(error: BaseException) -> bool:
     the moment another connection closes, and the server begins accepting connections once
     startup/recovery finishes. Used by the read/sync connect retry (`_connect_with_dropped_retry`)
     and the `offset_chunking` reconnect. The schema-discovery path retries drops, connection-limit
-    refusals and server-startup refusals too (via `_is_dropped_or_connection_limit`) but deliberately
-    keeps failing fast on connect-time *timeouts*, where a timeout usually means an unreachable host /
-    unconfigured firewall (see `PostgresErrors` and `get_non_retryable_errors`).
+    refusals, server-startup refusals, and recovery conflicts too (via
+    `_is_dropped_or_connection_limit`) but deliberately keeps failing fast on connect-time *timeouts*,
+    where a timeout usually means an unreachable host / unconfigured firewall (see `PostgresErrors`
+    and `get_non_retryable_errors`).
     """
     return (
         _is_connection_dropped_error(error)
@@ -443,17 +449,24 @@ def _is_dropped_or_connection_limit(error: BaseException) -> bool:
     """Transient conditions the background schema-discovery retry recovers from in process.
 
     A mid-stream drop (`_is_connection_dropped_error`), a connection-limit refusal
-    (`_is_connection_limit_error`), or a "server not ready" refusal while the source is still
-    starting up / recovering (`_is_server_starting_up_error`). All are transient — a slot frees as
-    connections close, a pooler-cached login failure clears once the upstream has capacity, and the
-    server begins accepting connections once startup/recovery finishes — so discovery retries them on
-    a fresh connection instead of failing the activity and surfacing captured error-tracking noise.
-    Unlike the read/sync connect path (`_is_dropped_or_connect_timeout`), a connect-time *timeout* is
-    deliberately excluded: during discovery a timeout usually means a now-unreachable host, which
-    should fail fast rather than burn the retry budget.
+    (`_is_connection_limit_error`), a "server not ready" refusal while the source is still starting
+    up / recovering (`_is_server_starting_up_error`), or a hot-standby recovery conflict
+    (`_is_recovery_conflict_error`). All are transient — a slot frees as connections close, a
+    pooler-cached login failure clears once the upstream has capacity, the server begins accepting
+    connections once startup/recovery finishes, and a recovery conflict clears once the replica's WAL
+    replay moves past the conflicting row versions — so discovery retries them on a fresh connection
+    instead of failing the activity and surfacing captured error-tracking noise. The import read path
+    already retries the same recovery-conflict condition mid-stream (see `handle_recovery_conflict`);
+    discovery just needed the same treatment. Unlike the read/sync connect path
+    (`_is_dropped_or_connect_timeout`), a connect-time *timeout* is deliberately excluded: during
+    discovery a timeout usually means a now-unreachable host, which should fail fast rather than burn
+    the retry budget.
     """
     return (
-        _is_connection_dropped_error(error) or _is_connection_limit_error(error) or _is_server_starting_up_error(error)
+        _is_connection_dropped_error(error)
+        or _is_connection_limit_error(error)
+        or _is_server_starting_up_error(error)
+        or _is_recovery_conflict_error(error)
     )
 
 
@@ -664,12 +677,15 @@ def _get_sslmode(require_ssl: bool) -> str:
 # Transaction-mode connection poolers reject the libpq `options` startup parameter outright:
 # Supabase's Supavisor (port 6543) and PgBouncer in transaction mode report "unsupported startup
 # parameter: options", and AWS RDS Proxy reports "RDS Proxy currently doesn't support command-line
-# options". We only send `options` to pin client_encoding=UTF8 for Redshift's legacy UNICODE alias
-# (see FORCE_UTF8_CLIENT_ENCODING), and Redshift never sits behind these poolers — so when a server
-# rejects `options`, dropping it and retrying is safe (UTF8 is the default client encoding for real
-# Postgres). The RDS Proxy text uses a typographic apostrophe, so match the apostrophe-free tail.
+# options". Neon's pooler names the offending setting instead — "unsupported startup parameter in
+# options: statement_timeout" — so match on the prefix rather than any one parameter name.
+# Beyond client_encoding=UTF8 for Redshift's legacy UNICODE alias (see FORCE_UTF8_CLIENT_ENCODING),
+# `options` only ever carries server-side timeouts that the caller's own deadlines already bound —
+# so when a server rejects it, dropping it and retrying is safe. The RDS Proxy text uses a
+# typographic apostrophe, so match the apostrophe-free tail.
 _OPTIONS_STARTUP_PARAM_UNSUPPORTED_SUBSTRINGS = (
     "unsupported startup parameter: options",
+    "unsupported startup parameter in options",
     "support command-line options",
 )
 
@@ -1465,8 +1481,11 @@ def get_schemas(
     # captured error-tracking noise even though the next attempt would succeed. Connection-limit
     # refusals ("remaining connection slots are reserved", "sorry, too many clients already") are
     # retried the same way — the customer's database is momentarily out of slots and frees one as
-    # connections close. Permanent errors (auth failures, SSL-required) re-raise immediately because
-    # `_is_dropped_or_connection_limit` matches only transient drops and connection-limit refusals.
+    # connections close. A hot-standby recovery conflict ("canceling statement due to conflict with
+    # recovery") is retried too — the same transient condition the import read path already recovers
+    # from mid-stream — since discovery can run against a read replica just like the row-copy path.
+    # Permanent errors (auth failures, SSL-required) re-raise immediately because
+    # `_is_dropped_or_connection_limit` matches only these known-transient conditions.
     def _connect_and_discover() -> dict[str, PostgresDiscoveredSchema]:
         connection = _connect_to_postgres(
             host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
@@ -2576,7 +2595,18 @@ class PostgreSQLColumn(Column):
 
 
 def _is_read_replica(cursor: psycopg.Cursor) -> bool:
-    cursor.execute("SELECT pg_is_in_recovery()")
+    try:
+        cursor.execute("SELECT pg_is_in_recovery()")
+    except Exception as e:
+        # Postgres-wire-compatible engines (e.g. DuckDB-backed proxies) accept the connection but
+        # don't implement `pg_is_in_recovery` — a Postgres-only replication concept. Such an engine
+        # is never a physical hot-standby, so degrade to "not a replica" like the other best-effort
+        # probes on this connection (mirrors `_is_unsupported_function_error` callers). The setup
+        # connection runs autocommit, so this failed statement can't poison later probes on it.
+        if not _is_unsupported_function_error(e, "pg_is_in_recovery"):
+            raise
+        return False
+
     row = cursor.fetchone()
     if row is None:
         return False
@@ -2612,12 +2642,17 @@ def _get_table(
     # statement with QueryCanceled mid-discovery. Session, not LOCAL: the connection is autocommit,
     # so a LOCAL timeout has nothing to bind to and a scoping transaction's own `BEGIN` would itself
     # run under the short default. Best-effort: engines without statement_timeout (e.g. DuckDB)
-    # reject the SET, so clear any aborted transaction and fall back to the default.
+    # reject the SET, so clear any aborted transaction and fall back to the default. A genuine
+    # connection drop/limit (mirrors `_schemas_from_conn`) fails this statement too, and rolling
+    # that back raises a misleading "the connection is lost" that buries the real cause — re-raise
+    # instead so the discovery retry recovers on a fresh connection.
     try:
         cursor.execute(
             sql.SQL("SET statement_timeout = {timeout}").format(timeout=sql.Literal(METADATA_STATEMENT_TIMEOUT_MS))
         )
-    except psycopg.Error:
+    except psycopg.Error as e:
+        if _is_connection_dropped_error(e) or _is_connection_limit_error(e):
+            raise
         cursor.connection.rollback()
 
     is_mat_view_query = sql.SQL(
@@ -3002,6 +3037,12 @@ def postgres_source(
                             logger.debug("Checking if source is a read replica...")
                             using_read_replica = _is_read_replica(cursor)
                             logger.debug(f"using_read_replica = {using_read_replica}")
+                            # DuckDB/duckgres-backed Postgres-wire engines don't implement
+                            # `DECLARE CURSOR` (or the `pg_catalog.pg_cursors` check psycopg's
+                            # ServerCursor runs before it), so `get_rows` must skip the
+                            # server-side cursor read path against them.
+                            is_duckdb = _is_duckdb_connection(cursor)
+                            logger.debug(f"is_duckdb = {is_duckdb}")
                             logger.debug("Getting primary keys...")
                             primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
                             if primary_keys:
@@ -3248,7 +3289,7 @@ def postgres_source(
             # the Arrow schema (as the leading field, matching the SELECT) for a clean zip.
             arrow_schema = arrow_schema.insert(0, pa.field(XMIN_PROJECTED_COLUMN, pa.int64(), nullable=False))
         with _tunnel_with_handshake_translation(tunnel) as (host, port):
-            cursor_factory = psycopg.ServerCursor if not using_read_replica else None
+            cursor_factory = psycopg.ServerCursor if not using_read_replica and not is_duckdb else None
 
             def get_connection():
                 try:
@@ -3505,6 +3546,13 @@ def postgres_source(
                 # and failing the whole activity. Only the connect is retried; a drop mid-fetch still
                 # propagates, so a partially read window/partition is never re-yielded.
                 return _connect_with_dropped_retry(get_connection, logger)
+
+            if is_duckdb:
+                # No server-side cursor support (see `is_duckdb` above), so read with the same
+                # LIMIT/OFFSET fallback a read replica uses on a recovery conflict — a plain client
+                # cursor, no DECLARE required.
+                yield from offset_chunking(0, chunk_size)
+                return
 
             if use_per_partition_chunking and incremental_field is not None and incremental_field_type is not None:
 

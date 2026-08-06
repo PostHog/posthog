@@ -26,6 +26,7 @@
     'last_backfill_person_properties_at',
     'last_calculation',
     'last_error_at',
+    'last_realtime_cohort_calculation_at',
     'pending_version',
     'people',
     'person_filters_shape_hash',
@@ -158,7 +159,6 @@
     'is_static',
     'kind',
     'last_calculation_duration_ms',
-    'last_realtime_cohort_calculation_at',
     'name',
     'query',
   ])
@@ -542,6 +542,7 @@
     'last_backfill_person_properties_at',
     'last_calculation',
     'last_error_at',
+    'last_realtime_cohort_calculation_at',
     'objects',
     'pending_version',
     'people',

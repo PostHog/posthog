@@ -18,7 +18,7 @@ from ..models.skills import (
 MAX_SKILL_VERSION = 2000
 MAX_SKILL_BODY_BYTES = 1_000_000
 MAX_SKILL_FILE_BYTES = 1_000_000
-MAX_SKILL_FILE_COUNT = 50
+MAX_SKILL_FILE_COUNT = 200
 
 
 class LLMSkillNotFoundError(Exception):

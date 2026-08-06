@@ -38,10 +38,7 @@ describe('AiIngestionPipeline', () => {
     let mockEventFilterManager: { getFilter: jest.Mock }
     let mockCookielessManager: jest.Mocked<CookielessManager>
     let mockHogTransformer: jest.Mocked<
-        Pick<
-            HogTransformer,
-            'transformEventAndProduceMessages' | 'processInvocationResults' | 'prefetchTransformationStatesForTeams'
-        >
+        Pick<HogTransformer, 'transformEventAndProduceMessages' | 'processInvocationResults'>
     >
     let mockPersonRepository: jest.Mocked<PersonReadRepository>
     let mockGroupTypeManager: jest.Mocked<ReadOnlyGroupTypeManager>
@@ -124,12 +121,8 @@ describe('AiIngestionPipeline', () => {
                 .fn()
                 .mockImplementation((event) => Promise.resolve({ event, invocationResults: [] })),
             processInvocationResults: jest.fn().mockResolvedValue(undefined),
-            prefetchTransformationStatesForTeams: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<
-            Pick<
-                HogTransformer,
-                'transformEventAndProduceMessages' | 'processInvocationResults' | 'prefetchTransformationStatesForTeams'
-            >
+            Pick<HogTransformer, 'transformEventAndProduceMessages' | 'processInvocationResults'>
         >
 
         mockPersonRepository = {
@@ -171,7 +164,6 @@ describe('AiIngestionPipeline', () => {
             overflowRedirectService: new DisabledOverflowRedirect(),
             overflowLaneTTLRefreshService: new DisabledOverflowRedirect(),
             concurrentBatches: 1,
-            cdpHogWatcherSampleRate: 1,
             eventSchemaEnforcementEnabled: false,
             eventSchemaEnforcementManager: {} as unknown as EventSchemaEnforcementManager,
             topHog: createNoopTopHog(),
@@ -225,6 +217,5 @@ describe('AiIngestionPipeline', () => {
 
         // Without this prefetch the transformer can't see Hog watcher's disabled state,
         // so disabled transformations would still run.
-        expect(mockHogTransformer.prefetchTransformationStatesForTeams).toHaveBeenCalledWith([123])
     })
 })

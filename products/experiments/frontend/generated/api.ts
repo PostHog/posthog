@@ -600,10 +600,10 @@ export const getExperimentsFlagCleanupTargetRetrieveUrl = (projectId: string, id
 /**
  * Repository a flag-cleanup pull request for this experiment would be opened in.
  *
- * Resolution order: the experiment's saved repository, else the team's only connected
- * GitHub repository. When the team has several repositories and none is saved
- * (source=ambiguous), pass one via `repository` on end/ship_variant. Requires access
- * to PostHog Desktop, like open_cleanup_pr (403 otherwise).
+ * Resolution order: the experiment's saved repository, else the environment's default
+ * cleanup repository, else the team's only connected GitHub repository. When the team
+ * has several repositories and none is saved (source=ambiguous), pass one via
+ * `repository` on end/ship_variant.
  */
 export const experimentsFlagCleanupTargetRetrieve = async (
     projectId: string,
@@ -879,7 +879,7 @@ export const getExperimentsSessionBucketsCreateUrl = (projectId: string, id: num
  * Session recordings of this experiment matching a bucket.
  *
  * Answers the questions a recordings query can't express on its own — "fired any of these
- * metrics", "fired none of them", "entered the funnel but never completed it in this
+ * metrics", "fired none of them", "was exposed but never completed the funnel in this
  * session" — by returning a bounded, most-recent-first list of session IDs to pass back as
  * a recordings query's session_ids. POST because the metric list doesn't fit a query
  * string; the endpoint only reads.

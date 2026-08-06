@@ -169,6 +169,7 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
             raise NotFound()
         posthoganalytics.capture(
             "error_tracking_grouping_rule_edited",
+            distinct_id=request.user.pk,
             groups=groups(self.team.organization, self.team),
         )
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
@@ -192,6 +193,7 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
             raise NotFound()
         posthoganalytics.capture(
             "error_tracking_grouping_rule_deleted",
+            distinct_id=request.user.pk,
             groups=groups(self.team.organization, self.team),
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -212,6 +214,7 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
             raise ValidationError(str(err)) from err
         posthoganalytics.capture(
             "error_tracking_grouping_rule_created",
+            distinct_id=request.user.pk,
             groups=groups(self.team.organization, self.team),
         )
         return Response(self.get_serializer(rule).data, status=status.HTTP_201_CREATED)
