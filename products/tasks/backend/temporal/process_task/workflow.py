@@ -1483,8 +1483,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             return 0
 
         exclude_from_boot_total = workflow.patched(_PATCH_ID_EXCLUDE_WIZARD_FROM_BOOT_TOTAL)
-        started_at = workflow.now() if exclude_from_boot_total else None
         await self._emit_progress("wizard", "in_progress", "Running PostHog setup wizard", "setup")
+        started_at = workflow.now() if exclude_from_boot_total else None
         await workflow.execute_activity(
             run_wizard,
             RunWizardInput(
@@ -1497,8 +1497,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(minutes=50),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
+        wizard_ms = int((workflow.now() - started_at).total_seconds() * 1000) if started_at is not None else 0
         await self._emit_progress("wizard", "completed", "Ran PostHog setup wizard", "setup")
-        return int((workflow.now() - started_at).total_seconds() * 1000) if started_at is not None else 0
+        return wizard_ms
 
     @staticmethod
     def _workflow_start_at_iso() -> str | None:
