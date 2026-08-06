@@ -2037,14 +2037,15 @@ class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):
         extra_kwargs = {
             "name": {
                 "help_text": (
-                    "Survey name. Delivered to every visitor's browser alongside the questions and appearance "
-                    "text, so anyone can read it. Keep customer names and other private details out of it."
+                    "Survey name. Anyone can read it. In-app surveys send it to every visitor's browser "
+                    "alongside the questions and appearance text, and a hosted survey shows it on its public "
+                    "page. Keep customer names and other private details out of it."
                 ),
                 "min_length": 1,
             },
             "description": {
                 "help_text": (
-                    "Survey description. Internal only: this is the one survey field that is never delivered "
+                    "Survey description. Internal only: unlike the name and questions, it is never delivered "
                     "to visitors."
                 )
             },
