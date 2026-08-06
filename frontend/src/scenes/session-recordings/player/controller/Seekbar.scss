@@ -103,18 +103,6 @@
                     background-color: var(--color-neutral-500);
                 }
             }
-        }
-
-        .PlayerSeekbar__observations {
-            position: absolute;
-            top: 0;
-            left: 0;
-            z-index: 4;
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            pointer-events: none;
-            border-radius: var(--bar-height);
 
             .PlayerSeekbar__observation {
                 position: absolute;

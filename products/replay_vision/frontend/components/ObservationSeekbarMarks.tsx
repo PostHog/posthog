@@ -38,7 +38,7 @@ function ObservationSeekbarMarksContent({
     }
 
     return (
-        <div className="PlayerSeekbar__observations">
+        <div className="PlayerSeekbar__segments">
             {seekbarMarks.map((mark) => {
                 const position = (mark.timestampMs / endTimeMs) * 100
                 if (position < 0 || position > 100) {
