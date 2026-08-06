@@ -3,7 +3,12 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { isMultiSeriesFormula } from 'lib/utils/strings'
-import { findBreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
+import {
+    BreakdownColorConfig,
+    computeTileFallbackTokens,
+    findBreakdownColorConfig,
+    getBreakdownPropertyKey,
+} from 'scenes/dashboard/dashboardBreakdownColors'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -15,6 +20,7 @@ import {
     BREAKDOWN_OTHER_NUMERIC_LABEL,
     BREAKDOWN_OTHER_STRING_LABEL,
     getTrendDatasetKey,
+    getTrendDatasetPosition,
     getTrendResultCustomization,
     getTrendResultCustomizationColorToken,
     getTrendResultCustomizationKey,
@@ -386,7 +392,8 @@ export interface trendsDataLogicMeta {
                 | TrendsQuery
                 | WebOverviewQuery
                 | WebStatsTableQuery
-                | null
+                | null,
+            indexedResults: IndexedTrendResult[]
         ) => (dataset: IndexedTrendResult) => [DataColorTheme | null, DataColorToken | null]
         getTrendsColor: (
             getTrendsColorToken: (dataset: IndexedTrendResult) => [DataColorTheme | null, DataColorToken | null]
@@ -853,7 +860,14 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         ],
 
         getTrendsColorToken: [
-            (s) => [s.resultCustomizationBy, s.resultCustomizations, s.getTheme, s.breakdownFilter, s.querySource],
+            (s) => [
+                s.resultCustomizationBy,
+                s.resultCustomizations,
+                s.getTheme,
+                s.breakdownFilter,
+                s.querySource,
+                s.indexedResults,
+            ],
             (
                 resultCustomizationBy: ResultCustomizationBy,
                 resultCustomizations:
@@ -871,8 +885,50 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     | import('~/queries/schema/schema-general').RetentionQuery
                     | import('~/queries/schema/schema-general').StickinessQuery
                     | import('~/queries/schema/schema-general').WebOverviewQuery
-                    | import('~/queries/schema/schema-general').WebStatsTableQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery,
+                indexedResults: IndexedTrendResult[]
             ) => {
+                const breakdownPropertyKey = getBreakdownPropertyKey(breakdownFilter)
+                // The dashboard's colors live in another logic and are read at call time, so the
+                // per-tile fallback map is memoized here on the identity of what it derives from.
+                let fallbackSource: { overrides: BreakdownColorConfig[]; theme: DataColorTheme } | null = null
+                let fallbackTokens = new Map<number, DataColorToken>()
+                const tileFallbackToken = (
+                    overrides: BreakdownColorConfig[],
+                    theme: DataColorTheme,
+                    dataset: IndexedTrendResult
+                ): DataColorToken | undefined => {
+                    if (fallbackSource?.overrides !== overrides || fallbackSource?.theme !== theme) {
+                        fallbackSource = { overrides, theme }
+                        // Completion only activates when a dashboard override actually sits on this
+                        // tile; a series customization alone must not shift its neighbors' colors.
+                        // Once active, customized series claim their slots like overrides do.
+                        let hasDashboardOverride = false
+                        const series = indexedResults.map((result) => {
+                            const overrideToken =
+                                findBreakdownColorConfig(
+                                    overrides,
+                                    JSON.parse(getTrendDatasetKey(result))['breakdown_value'],
+                                    breakdownFilter?.breakdown_type,
+                                    breakdownPropertyKey
+                                )?.colorToken ?? null
+                            hasDashboardOverride = hasDashboardOverride || !!overrideToken
+                            return {
+                                position: getTrendDatasetPosition(result),
+                                overrideToken:
+                                    overrideToken ??
+                                    getTrendResultCustomization(resultCustomizationBy, result, resultCustomizations)
+                                        ?.color ??
+                                    null,
+                            }
+                        })
+                        fallbackTokens = hasDashboardOverride
+                            ? computeTileFallbackTokens(series, Object.keys(theme).length)
+                            : new Map<number, DataColorToken>()
+                    }
+                    return fallbackTokens.get(getTrendDatasetPosition(dataset))
+                }
+
                 return (dataset: IndexedTrendResult): [DataColorTheme | null, DataColorToken | null] => {
                     const breakdownValue = JSON.parse(getTrendDatasetKey(dataset))['breakdown_value']
 
@@ -881,7 +937,8 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     const colorOverride = findBreakdownColorConfig(
                         logic?.values.effectiveBreakdownColors,
                         breakdownValue,
-                        breakdownFilter?.breakdown_type
+                        breakdownFilter?.breakdown_type,
+                        breakdownPropertyKey
                     )
 
                     if (colorOverride?.colorToken) {
@@ -894,6 +951,24 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     const theme = logic?.values.dataColorTheme || getTheme(querySource?.dataColorTheme)
                     if (!theme) {
                         return [null, null]
+                    }
+
+                    // On dashboards with auto colors, series without a value override fill the
+                    // palette slots the tile's overrides don't use, because the plain
+                    // position-based fallback can land on the same slot as an override shown on
+                    // this very chart. An explicit per-series customization still wins below.
+                    if (logic?.values.autoBreakdownColorsEnabled) {
+                        const customizationColor = getTrendResultCustomization(
+                            resultCustomizationBy,
+                            dataset,
+                            resultCustomizations
+                        )?.color
+                        const fallbackToken = customizationColor
+                            ? undefined
+                            : tileFallbackToken(logic.values.effectiveBreakdownColors, theme, dataset)
+                        if (fallbackToken) {
+                            return [theme, fallbackToken]
+                        }
                     }
 
                     return [
