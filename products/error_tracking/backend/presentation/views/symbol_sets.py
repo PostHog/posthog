@@ -301,7 +301,21 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
 
         force: bool = upload_data["force"]
         skip_on_conflict: bool = upload_data["skip_on_conflict"]
+        symbol_sets = list(upload_data.get("symbol_sets", []))
+        chunk_ids = list(upload_data.get("chunk_ids") or [])
 
+        id_map = symbol_sets_facade.bulk_start_upload(
+            self.team,
+            symbol_sets=symbol_sets,
+            chunk_ids=chunk_ids,
+            release_id=upload_data.get("release_id", None),
+            force=force,
+            skip_on_conflict=skip_on_conflict,
+        )
+
+        # Chunks that were skipped (content hash unchanged, or kept via skip_on_conflict)
+        # get no entry in the id_map, so its size is the number of chunks being uploaded.
+        total_chunks = len(symbol_sets) + len(chunk_ids)
         posthoganalytics.capture(
             "error_tracking_symbol_set_upload_started",
             properties={
@@ -309,18 +323,13 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
                 "endpoint": "bulk_start_upload",
                 "force": force,
                 "skip_on_conflict": skip_on_conflict,
+                "total_chunks": total_chunks,
+                "chunks_to_upload": len(id_map),
+                "chunks_skipped": total_chunks - len(id_map),
             },
             groups=groups(self.team.organization, self.team),
         )
 
-        id_map = symbol_sets_facade.bulk_start_upload(
-            self.team,
-            symbol_sets=list(upload_data.get("symbol_sets", [])),
-            chunk_ids=list(upload_data.get("chunk_ids") or []),
-            release_id=upload_data.get("release_id", None),
-            force=force,
-            skip_on_conflict=skip_on_conflict,
-        )
         return Response({"id_map": id_map}, status=status.HTTP_201_CREATED)
 
     @extend_schema(request=ErrorTrackingSymbolSetBulkFinishUploadSerializer)
