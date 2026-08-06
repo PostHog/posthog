@@ -1,19 +1,12 @@
 """Vocabulary for the marketing analytics setup plan.
 
-Three consumers share these types and they must not drift:
+`setup_plan`, `setup_ai_enrichment` and `apply_setup_ops` all share these types, the last
+validating incoming ops against the same union it emits — which is why ops are Pydantic models
+and not dataclasses like the sibling services use. One definition for both emit and validate is
+what keeps a hallucinated op out of the config.
 
-1. `setup_plan` emits `Suggestion`s deterministically.
-2. `setup_ai_enrichment` emits the *same* `Suggestion` shape with `source="ai"`, so
-   the frontend and the apply path have exactly one code path, not two.
-3. `apply_setup_ops` validates incoming ops against this same union — including
-   ops an LLM produced, which is the whole reason ops are Pydantic models rather
-   than dataclasses like the sibling services use. One definition, used to both
-   emit and validate, is what keeps a hallucinated op from reaching the config.
-
-Ops come in two families and the split is load-bearing: `APPLICABLE_OPS` mutate
-config server-side, `NAVIGATE_OPS` are things only a browser can do (start an OAuth
-flow, open a wizard) or advice with no automatic fix (`fix_platform_urls`). The
-apply endpoint rejects the latter outright.
+`APPLICABLE_OPS` mutate config server-side; `NAVIGATE_OPS` need a browser or are advice with no
+automatic fix. The apply endpoint rejects the latter.
 """
 
 from enum import StrEnum
@@ -70,8 +63,7 @@ class SuggestionSource(StrEnum):
     AI = "ai"
 
 
-# Which kinds, once fixed, make other kinds worth doing. Drives ranking: telling
-# someone to mark a goal as revenue is noise while no ad platform is connected.
+# Which kinds, once fixed, make other kinds worth doing. Drives ranking.
 UNBLOCKS: dict[SuggestionKind, frozenset[SuggestionKind]] = {
     SuggestionKind.CONNECT_SOURCE: frozenset(
         {
@@ -118,8 +110,7 @@ _SEVERITY_RANK = {Severity.ERROR: 2, Severity.WARNING: 1, Severity.INFO: 0}
 
 
 class _Op(BaseModel):
-    # Reject unknown keys so a malformed or hallucinated op fails loudly at the
-    # boundary rather than being silently applied with defaults.
+    # Reject unknown keys so a hallucinated op fails at the boundary, not silently on defaults.
     model_config = ConfigDict(extra="forbid")
 
 
@@ -258,21 +249,18 @@ NAVIGATE_OPS: frozenset[str] = frozenset(
 class Suggestion(BaseModel):
     """One row in the setup plan."""
 
-    # Deterministic and stable across scans: the frontend dedupes and remembers
-    # dismissals by this, so it must not change run to run for the same finding.
+    # Stable across scans: the frontend remembers dismissals by this.
     id: str
     kind: SuggestionKind
     source: SuggestionSource = SuggestionSource.DETERMINISTIC
     severity: Severity
     confidence: float = Field(ge=0.0, le=1.0)
     title: str
-    # Always concrete numbers pulled from the team's own data. A suggestion the user
-    # can't sanity-check at a glance is a suggestion they have to take on faith.
+    # Concrete numbers from the team's own data, so the user can check it.
     evidence: str
     unlocks: list[Capability] = Field(default_factory=list)
     apply: ApplyOp | None = None
-    # Advice shown alongside the action — carries `fix_platform_urls` for every
-    # mapping suggestion. Enforced centrally in `setup_plan`, not per call site.
+    # Carries `fix_platform_urls` for every mapping suggestion, enforced in `setup_plan`.
     also_recommended: list[ApplyOp] = Field(default_factory=list)
     safe_to_batch: bool = False
     rank_score: float = 0.0
@@ -293,11 +281,9 @@ class CapabilityReadiness(BaseModel):
 class SetupPlan(BaseModel):
     suggestions: list[Suggestion] = Field(default_factory=list)
     readiness: list[CapabilityReadiness] = Field(default_factory=list)
-    # Sub-services that failed. Their suggestions are missing, so the UI must not
-    # present the plan as complete.
+    # Failed sub-services: the UI must not present the plan as complete.
     degraded: list[str] = Field(default_factory=list)
-    # Every rate here is computed over the top-N campaigns and UTM rows the queries
-    # cap at, so it's a subtotal rather than an exact figure.
+    # Rates are over the queries' top-N rows, so a percentage is a subtotal.
     truncated: bool = False
     summary: str = ""
 
@@ -305,12 +291,9 @@ class SetupPlan(BaseModel):
 def rank_score(suggestion: Suggestion, present_kinds: set[SuggestionKind], max_impact: float) -> float:
     """Unblocking-first, then severity, then impact.
 
-    An action that unblocks other actions outranks one that doesn't, however big the
-    latter's number is: telling someone their ROAS goal is misconfigured is noise
-    while the ad platform feeding it isn't even connected.
-
-    `max_impact` normalises spend/volume across the plan so the impact term can never
-    outweigh the two structural terms.
+    An action that unblocks others outranks one that doesn't, however big the latter's number:
+    marking a goal as revenue is noise while no ad platform is connected. `max_impact` normalises
+    so the impact term can't outweigh the two structural ones.
     """
     unblocked = len(UNBLOCKS.get(suggestion.kind, frozenset()) & present_kinds)
     impact = suggestion.spend_at_risk or float(suggestion.event_volume)
@@ -319,12 +302,8 @@ def rank_score(suggestion: Suggestion, present_kinds: set[SuggestionKind], max_i
 
 
 def sort_suggestions(suggestions: list[Suggestion]) -> list[Suggestion]:
-    """Score and sort in place-ish, returning a new list.
-
-    Ties break on `id` so the same input always produces byte-identical output —
-    snapshot tests depend on it, and so does a UI that doesn't want rows shuffling
-    between scans.
-    """
+    """Score and sort, returning a new list. Ties break on `id` so output is byte-identical run
+    to run — snapshot tests depend on it, and so does a UI that shouldn't reshuffle."""
     present_kinds = {s.kind for s in suggestions}
     max_impact = max((s.spend_at_risk or float(s.event_volume) for s in suggestions), default=0.0)
     for suggestion in suggestions:
