@@ -701,7 +701,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         destination: response.integration.kind,
                         linked_existing: true,
                     })
-                    const externalIssues = values.issue.external_issues ?? []
+                    // Linking is idempotent server-side: re-linking returns the existing
+                    // reference, which must not be appended twice.
+                    const externalIssues = (values.issue.external_issues ?? []).filter(
+                        (reference) => reference.id !== response.id
+                    )
                     return { ...values.issue, external_issues: [...externalIssues, response] }
                 }
                 return null

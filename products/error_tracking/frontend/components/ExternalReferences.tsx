@@ -426,8 +426,10 @@ function ExistingIssueSelect({
         if (debounceRef.current) {
             clearTimeout(debounceRef.current)
         }
+        // Allocate the sequence token now, not when the timeout fires, so a repository
+        // change (which bumps the sequence) reliably invalidates pending searches.
+        const seq = ++searchSeqRef.current
         debounceRef.current = setTimeout(() => {
-            const seq = ++searchSeqRef.current
             setLoading(true)
             api.errorTracking
                 .searchExternalIssues(integrationId, query, requiresRepository ? repository : undefined)
@@ -470,7 +472,11 @@ function ExistingIssueSelect({
                     integrationId={integrationId}
                     value={repository}
                     onChange={(value) => {
-                        searchSeqRef.current++ // invalidate any in-flight search for the old repository
+                        // Invalidate any pending or in-flight search for the old repository.
+                        if (debounceRef.current) {
+                            clearTimeout(debounceRef.current)
+                        }
+                        searchSeqRef.current++
                         setRepository(value ?? '')
                         setResults([])
                         setSelectedKey(null)

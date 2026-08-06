@@ -345,8 +345,10 @@ def create_external_reference(
         stored_context = _clean_existing_external_context(integration, external_context)
         # Linking is idempotent: retries and double-clicks must not duplicate the
         # reference (references cannot be deleted) or re-attach in the provider.
+        # Containment (not equality) also matches references the create flow stored
+        # with extra provider keys alongside the identifier.
         existing = ErrorTrackingExternalReference.objects.filter(
-            issue=issue, integration=integration, external_context=stored_context
+            issue=issue, integration=integration, external_context__contains=stored_context
         ).first()
         if existing is not None:
             return existing
