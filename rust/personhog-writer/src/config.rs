@@ -35,8 +35,10 @@ pub struct Config {
     #[envconfig(default = "30000")]
     pub flush_interval_ms: u64,
 
-    /// Flush when the buffer reaches this many entries. Sized to produce
-    /// multi-chunk batches that exercise the parallel chunk path.
+    /// Flush when a lane's buffer reaches this many entries. Sized to produce
+    /// multi-chunk batches that exercise the parallel chunk path. Clamped to
+    /// half the per-lane capacity (`buffer_capacity / writer_lanes`) so the
+    /// nonblocking size flush always fires before a lane's hard cap.
     #[envconfig(default = "10000")]
     pub flush_buffer_size: usize,
 

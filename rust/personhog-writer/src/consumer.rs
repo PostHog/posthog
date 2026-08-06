@@ -57,6 +57,22 @@ impl ConsumerTask {
         handle: Handle,
     ) -> Self {
         assert!(!lane_txs.is_empty(), "at least one writer lane is required");
+        // The nonblocking size flush must fire while the lane still has
+        // headroom below its hard cap; otherwise every flush degrades to the
+        // blocking backpressure path and one busy writer stalls consumption
+        // for all lanes again.
+        let max_flush_size = (per_lane_capacity / 2).max(1);
+        let flush_buffer_size = if flush_buffer_size > max_flush_size {
+            warn!(
+                configured = flush_buffer_size,
+                clamped = max_flush_size,
+                per_lane_capacity,
+                "flush_buffer_size clamped to half the per-lane capacity"
+            );
+            max_flush_size
+        } else {
+            flush_buffer_size
+        };
         let lanes = lane_txs
             .into_iter()
             .map(|flush_tx| Lane {
