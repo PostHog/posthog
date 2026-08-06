@@ -46,7 +46,7 @@ function BucketTooltipDetails({ bucket }: { bucket: LogsAlertSimulateBucketApi |
     )
 }
 
-export function LogsAlertSimulationChart({ result }: { result: LogsAlertSimulateResponseApi }): JSX.Element {
+function SimulationChart({ result }: { result: LogsAlertSimulateResponseApi }): JSX.Element {
     const { labels, series } = useMemo(
         () => ({
             labels: result.buckets.map((b: LogsAlertSimulateBucketApi) => dayjs(b.timestamp).format('MMM D, HH:mm')),
@@ -253,7 +253,7 @@ function SimulationResults({ result }: { result: LogsAlertSimulateResponseApi })
                 Simulated with current form settings: {op} {result.threshold_count} logs in window. Edit the form and
                 re-run to compare.
             </p>
-            <LogsAlertSimulationChart result={result} />
+            <SimulationChart result={result} />
             <SimulationSummary result={result} incidents={incidents} />
             <SimulationIncidents incidents={incidents} threshold={result.threshold_count} />
         </div>
