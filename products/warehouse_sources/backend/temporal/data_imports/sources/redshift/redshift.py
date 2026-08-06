@@ -19,7 +19,6 @@ import psycopg
 import pyarrow as pa
 import structlog
 from psycopg import sql
-from psycopg.adapt import Loader
 from psycopg.pq import TransactionStatus
 from structlog.types import FilteringBoundLogger
 
@@ -52,6 +51,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.incremental import (
     IncrementalFieldFilter,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.loaders import (
+    JsonAsStringLoader,
+    SafeDateLoader,
+    SafeTimeLoader,
+    SafeTimestampLoader,
+    SafeTimestamptzLoader,
+    SafeTimetzLoader,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import (
     normalize_namespace,
@@ -180,13 +187,6 @@ def get_connection_metadata(config: RedshiftSourceConfig) -> dict[str, str | Non
         "database": config.database,
         "schema": config.schema or None,
     }
-
-
-class JsonAsStringLoader(Loader):
-    def load(self, data):
-        if data is None:
-            return None
-        return bytes(data).decode("utf-8")
 
 
 def _redshift_select_clause(
@@ -347,6 +347,21 @@ def _fetch_arrow_batches(
 
     if pending:
         yield to_arrow(pending)
+
+
+def _register_streaming_loaders(connection: psycopg.Connection) -> None:
+    """Register the psycopg loaders used on a Redshift streaming connection.
+
+    `json` maps to a raw string. The Safe* date/time loaders clamp values outside Python's
+    representable range — a sentinel like '0000-01-01', 'infinity', or an hour-24 time — instead
+    of letting psycopg's defaults raise `DataError` and abort the whole table sync.
+    """
+    connection.adapters.register_loader("json", JsonAsStringLoader)
+    connection.adapters.register_loader("date", SafeDateLoader)
+    connection.adapters.register_loader("timestamp", SafeTimestampLoader)
+    connection.adapters.register_loader("timestamptz", SafeTimestamptzLoader)
+    connection.adapters.register_loader("time", SafeTimeLoader)
+    connection.adapters.register_loader("timetz", SafeTimetzLoader)
 
 
 def _stream_arrow_batches(
@@ -1239,7 +1254,11 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         def get_rows() -> Iterator[Any]:
             arrow_schema = table.to_arrow_schema()
             with self.connect(config) as streaming_connection:
-                streaming_connection.adapters.register_loader("json", JsonAsStringLoader)
+                # Registered on the connection, so both cursors in `_stream_arrow_batches` — the
+                # server-side cursor and the client-side fallback — inherit these loaders. The
+                # Safe* date/time loaders clamp values outside Python's range (e.g. a sentinel
+                # '0000-01-01') that psycopg's defaults would otherwise raise on, aborting the sync.
+                _register_streaming_loaders(streaming_connection)
                 query = _build_query(
                     schema,
                     table_name,

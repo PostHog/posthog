@@ -10,6 +10,14 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     TemporaryFileSizeExceedsLimitException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Table, TableStats
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.loaders import (
+    JsonAsStringLoader,
+    SafeDateLoader,
+    SafeTimeLoader,
+    SafeTimestampLoader,
+    SafeTimestamptzLoader,
+    SafeTimetzLoader,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
@@ -25,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.r
     _build_query,
     _explain_query,
     _fetch_arrow_batches,
+    _register_streaming_loaders,
     _stream_arrow_batches,
     filter_redshift_incremental_fields,
 )
@@ -579,6 +588,27 @@ class TestFetchArrowBatches:
 
         assert _ids(list(_fetch_arrow_batches(cursor, 2, _STREAM_SCHEMA))) == [[1, 2]]
         assert [c.args[0] for c in cursor.fetchmany.call_args_list] == [2, 2]
+
+
+class TestRegisterStreamingLoaders:
+    def test_registers_safe_date_and_time_loaders(self):
+        # The bug this guards: the streaming connection only registered the json loader, so
+        # psycopg's default date/time loaders raised `DataError` on a sentinel like '0000-01-01'
+        # and aborted the whole table sync. Loaders live on the connection, so both cursors in
+        # `_stream_arrow_batches` (server-side and client-side fallback) inherit them.
+        connection = MagicMock()
+
+        _register_streaming_loaders(connection)
+
+        registered = {c.args[0]: c.args[1] for c in connection.adapters.register_loader.call_args_list}
+        assert registered == {
+            "json": JsonAsStringLoader,
+            "date": SafeDateLoader,
+            "timestamp": SafeTimestampLoader,
+            "timestamptz": SafeTimestamptzLoader,
+            "time": SafeTimeLoader,
+            "timetz": SafeTimetzLoader,
+        }
 
 
 class TestStreamArrowBatches:
