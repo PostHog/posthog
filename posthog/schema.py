@@ -5780,6 +5780,10 @@ class PathsV2Filter(BaseModel):
             " events into journeys on the inactivity gap instead."
         ),
     )
+    applyTeamPathCleaning: bool | None = Field(
+        default=True,
+        description=("Apply the team's path cleaning rules to naming property values before they become path items."),
+    )
     collapseRepeats: bool | None = Field(
         default=True,
         description="Merge immediate repeats of the same path item within a journey.",
@@ -5794,6 +5798,15 @@ class PathsV2Filter(BaseModel):
         ),
     )
     conversionWindowIntervalUnit: FunnelConversionWindowTimeUnit | None = FunnelConversionWindowTimeUnit.MINUTE
+    excludedItems: list[PathsV2Item] | None = Field(
+        default=None,
+        description=(
+            "Path items dropped from the item universe: events deriving to one of these"
+            " items are ignored as if their event were not a step source, on both the"
+            ' paths side and the "view as funnel" side.'
+        ),
+        max_length=100,
+    )
     gapInterval: int | None = Field(
         default=30,
         description=(
@@ -5803,6 +5816,10 @@ class PathsV2Filter(BaseModel):
         ),
     )
     gapIntervalUnit: FunnelConversionWindowTimeUnit | None = FunnelConversionWindowTimeUnit.MINUTE
+    localPathCleaningFilters: list[PathCleaningFilter] | None = Field(
+        default=None,
+        description=("Path cleaning rules for this insight only, applied after the team's rules."),
+    )
     maxRowsPerStep: conint(ge=1, le=10) | None = Field(
         default=3,
         description=('Number of path item rows per step; items beyond this go into the "other" row.'),

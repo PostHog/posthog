@@ -22,9 +22,12 @@ from products.product_analytics.backend.hogql_queries.paths_v2.path_item import 
     DEFAULT_GAP_INTERVAL,
     DEFAULT_GAP_INTERVAL_UNIT,
     PATHS_V2_OTHER,
+    excluded_item_tuples,
+    excluded_items_filter_expr,
     item_label,
     item_tuple_expr,
     path_item_expr,
+    resolve_cleaning_rules,
     resolve_step_sources,
     source_events_filter_expr,
     source_label_expr,
@@ -32,36 +35,43 @@ from products.product_analytics.backend.hogql_queries.paths_v2.path_item import 
 )
 
 
-def _step_node(item: PathsV2Item, source: PathsV2StepSource, team: Team) -> EventsNode:
+def _step_node(item: PathsV2Item, source: PathsV2StepSource, cleaning_rules: list[tuple[str, str]]) -> EventsNode:
     """A funnel step matching exactly the events that derive into this path item."""
     if source.namingProperty is None:
         return EventsNode(event=item.event)
     label_matches = ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
-        left=source_label_expr(source, team),
+        left=source_label_expr(source, cleaning_rules),
         right=ast.Constant(value=item_label(item, source)),
     )
     return EventsNode(event=item.event, properties=[HogQLPropertyFilter(key=label_matches.to_hogql())])
 
 
 def _item_strict_exclusion(
+    query: PathsV2Query,
     sources: list[PathsV2StepSource],
     segment_item_exprs: list[ast.Expr],
-    team: Team,
+    cleaning_rules: list[tuple[str, str]],
     to_step: int,
 ) -> FunnelExclusionEventsNode:
     """The item-strict universe as one all-events exclusion spanning the whole segment: an event
     breaks the funnel iff it is an included path item whose derived item is not one of the segment's
-    own items. Events outside the step sources stay invisible, exactly as in the paths runner. Active
-    from the first step through `to_step` (the last), so any intervening included item between any two
-    consecutive segment steps disqualifies that attempt."""
+    own items. Events outside the step sources stay invisible, exactly as in the paths runner, and so
+    do events deriving to an excluded item. Active from the first step through `to_step` (the last),
+    so any intervening included item between any two consecutive segment steps disqualifies that
+    attempt."""
+    item_expr = path_item_expr(sources, cleaning_rules)
     not_a_segment_item = ast.And(
         exprs=[
-            ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=path_item_expr(sources, team), right=item_expr)
-            for item_expr in segment_item_exprs
+            ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=item_expr, right=segment_item_expr)
+            for segment_item_expr in segment_item_exprs
         ]
     )
-    universe = ast.And(exprs=[source_events_filter_expr(sources), not_a_segment_item])
+    universe_exprs = [source_events_filter_expr(sources)]
+    not_excluded = excluded_items_filter_expr(item_expr, excluded_item_tuples(query.pathsV2Filter))
+    if not_excluded is not None:
+        universe_exprs.append(not_excluded)
+    universe = ast.And(exprs=[*universe_exprs, not_a_segment_item])
     return FunnelExclusionEventsNode(
         event=None,
         funnelFromStep=0,
@@ -95,6 +105,7 @@ def segment_to_funnels_query(
 
     convertible = [_ensure_convertible(item, f"step {index}") for index, item in enumerate(items)]
     sources = resolve_step_sources(query)
+    cleaning_rules = resolve_cleaning_rules(query.pathsV2Filter, team)
     item_sources = [step_source_for_event(sources, item.event) for item in convertible]
 
     seen: set[tuple[str, str]] = set()
@@ -106,9 +117,11 @@ def segment_to_funnels_query(
             segment_item_exprs.append(item_tuple_expr(item, source))
 
     return FunnelsQuery(
-        series=[_step_node(item, source, team) for item, source in zip(convertible, item_sources)],
+        series=[_step_node(item, source, cleaning_rules) for item, source in zip(convertible, item_sources)],
         funnelsFilter=FunnelsFilter(
-            exclusions=[_item_strict_exclusion(sources, segment_item_exprs, team, to_step=len(convertible) - 1)],
+            exclusions=[
+                _item_strict_exclusion(query, sources, segment_item_exprs, cleaning_rules, to_step=len(convertible) - 1)
+            ],
             funnelOrderType=StepOrderValue.ORDERED,
             funnelWindowInterval=window_interval,
             funnelWindowIntervalUnit=window_interval_unit,

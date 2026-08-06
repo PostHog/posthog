@@ -2707,14 +2707,20 @@ export interface PathsV2StepSourceApi {
 export interface PathsV2FilterApi {
     /** Anchor selecting anchored mode. When set, each actor contributes exactly one sequence bounded by the conversion window, so every displayed segment equals a plain funnel. Absent selects open mode, which splits an actor's events into journeys on the inactivity gap instead. */
     anchor?: PathsV2AnchorApi | null
+    /** Apply the team's path cleaning rules to naming property values before they become path items. */
+    applyTeamPathCleaning?: boolean | null
     /** Merge immediate repeats of the same path item within a journey. */
     collapseRepeats?: boolean | null
     /** Anchored mode's single conversion window W, anchored at the anchor and reused verbatim as the emitted funnel's window. Bounds per unit are validated server-side against CONVERSION_WINDOW_INTERVAL_BOUNDS, the same funnel conversion window bounds as the gap. */
     conversionWindowInterval?: number | null
     conversionWindowIntervalUnit?: FunnelConversionWindowTimeUnitApi | null
+    /** Path items dropped from the item universe: events deriving to one of these items are ignored as if their event were not a step source, on both the paths side and the "view as funnel" side. */
+    excludedItems?: PathsV2ItemApi[] | null
     /** Inactivity gap that splits an actor's events into journeys. Bounds per unit are validated server-side against CONVERSION_WINDOW_INTERVAL_BOUNDS, the funnel conversion window bounds. */
     gapInterval?: number | null
     gapIntervalUnit?: FunnelConversionWindowTimeUnitApi | null
+    /** Path cleaning rules for this insight only, applied after the team's rules. */
+    localPathCleaningFilters?: PathCleaningFilterApi[] | null
     /** Number of path item rows per step; items beyond this go into the "other" row. */
     maxRowsPerStep?: number | null
     /** Number of journey steps (columns) shown. */

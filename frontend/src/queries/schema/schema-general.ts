@@ -40,6 +40,7 @@ import {
     LifecycleToggle,
     LogEntryPropertyFilter,
     MatchedRecordingEvent,
+    PathCleaningFilter,
     PathsFilterType,
     PersonPropertyFilter,
     PropertyGroupFilter,
@@ -2189,6 +2190,19 @@ export type PathsV2Filter = {
      * @default true
      */
     collapseRepeats?: boolean
+    /**
+     * Path items dropped from the item universe: events deriving to one of these items are ignored
+     * as if their event were not a step source, on both the paths side and the "view as funnel" side.
+     * @maxItems 100
+     */
+    excludedItems?: PathsV2Item[]
+    /**
+     * Apply the team's path cleaning rules to naming property values before they become path items.
+     * @default true
+     */
+    applyTeamPathCleaning?: boolean
+    /** Path cleaning rules for this insight only, applied after the team's rules. */
+    localPathCleaningFilters?: PathCleaningFilter[]
 }
 
 export interface PathsV2Query extends Omit<
