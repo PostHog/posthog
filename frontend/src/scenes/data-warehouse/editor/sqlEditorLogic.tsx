@@ -80,7 +80,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { validateMetricName } from 'products/data_catalog/frontend/common'
+import { validateMetricDescription, validateMetricName } from 'products/data_catalog/frontend/common'
 import {
     dataCatalogMetricsCreate,
     dataCatalogMetricsPartialUpdate,
@@ -2591,7 +2591,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     ),
                     errors: {
                         name: (name) => validateMetricName(name?.trim() || ''),
-                        description: (description) => (!description?.trim() ? 'Add a description' : undefined),
+                        description: (description) =>
+                            !description?.trim() ? 'Add a description' : validateMetricDescription(description.trim()),
                     },
                     onSubmit: async ({ name, description }) =>
                         actions.saveAsMetricSubmit(name.trim(), description.trim(), selectedRef.current),
