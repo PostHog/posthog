@@ -80,6 +80,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "metrics_server",
         ComponentOptions::new().is_observability(true),
     );
+    // Registered here because components must exist before monitoring
+    // starts; the sweeper task itself is spawned later, once the engine
+    // exists. Supervision matters: with one sweeper per fleet, a silently
+    // dead loop means abandoned ops are never resumed.
+    let sweeper_handle = config
+        .lifecycle_sweeper_enabled
+        .then(|| manager.register("lifecycle_sweeper", ComponentOptions::new()));
 
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
@@ -175,7 +182,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         storage.primary_pool.clone(),
         config.lifecycle_engine_config(),
     ));
-    if config.lifecycle_sweeper_enabled {
+    if let Some(sweeper_handle) = sweeper_handle {
         let sweeper_engine = engine.clone();
         let sweep_interval = config.lifecycle_sweep_interval();
         let retention = config.lifecycle_op_retention();
@@ -185,10 +192,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "Lifecycle sweeper enabled"
         );
         tokio::spawn(async move {
+            // The scope guard tells the manager if this task dies (e.g. a
+            // panic in a sweep pass), so the pod restarts instead of running
+            // on with no resumer.
+            let _guard = sweeper_handle.process_scope();
             let mut ticker = tokio::time::interval(sweep_interval);
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
-                ticker.tick().await;
+                tokio::select! {
+                    _ = sweeper_handle.shutdown_recv() => break,
+                    _ = ticker.tick() => {}
+                }
                 match sweeper_engine.sweep(&[&DeleteDriver]).await {
                     Ok(resumed) if resumed > 0 => {
                         tracing::info!(resumed, "Lifecycle sweeper resumed abandoned ops")
