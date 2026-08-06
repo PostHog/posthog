@@ -97,6 +97,16 @@ installation without the install redirect. A team admin can link without a
 personal GitHub OAuth link; non-admins still need one as an ownership proof (see
 `authorize_link_existing_installation`).
 
+The same endpoint also **adopts orphan installations**: ones installed on
+GitHub (e.g. an install request approved by a GitHub org admin directly on
+github.com, which never round-trips the setup callback) but not linked to any
+PostHog team. `github/available_installations` surfaces them from the user's
+personal `GET /user/installations`, and adoption always requires the
+personal-token access proof (`adopt_orphan_installation`) — the team-admin
+bypass applies only to installations a sibling project already linked. An
+installation linked solely to projects the caller can't access is refused, not
+offered for adoption.
+
 ## Callback routes
 
 | Route                           | Handler                                               | Flow               |
