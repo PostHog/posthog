@@ -5,6 +5,7 @@ import { StepProps, StepsProps } from '@posthog/shared-onboarding/steps'
 import { StepDefinition, StepModifier } from '@posthog/shared-onboarding/steps'
 
 import { CodeSnippet, getLanguage } from 'lib/components/CodeSnippet'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -158,6 +159,19 @@ function CodeBlock({
             ]
           : []
 
+    // The API host is substituted into the snippet as inert highlighted text, so surface it as a
+    // standalone, copyable value — users otherwise try (and fail) to click or copy it in the snippet.
+    const rawCodeStrings = blocks ? blocks.map((block) => block.code) : code ? [code] : []
+    const hostUsed = rawCodeStrings.some((codeString) => codeString.includes('<ph_client_api_host>'))
+    const hostHint = hostUsed ? (
+        <div className="flex items-center gap-1 text-xs text-muted mt-1">
+            <span>API host:</span>
+            <CopyToClipboardInline explicitValue={host} description="API host" iconSize="xsmall" selectable>
+                {host}
+            </CopyToClipboardInline>
+        </div>
+    ) : null
+
     const uniqueFiles = codeBlocks
         .map((block) => block.file || 'default')
         .filter((file, index, self) => self.indexOf(file) === index)
@@ -179,9 +193,10 @@ function CodeBlock({
     if (codeBlocks.length === 1) {
         const block = codeBlocks[0]
         return (
-            <CodeSnippet className="my-4" language={getLanguage(block.language)}>
-                {block.code}
-            </CodeSnippet>
+            <div className="my-4">
+                <CodeSnippet language={getLanguage(block.language)}>{block.code}</CodeSnippet>
+                {hostHint}
+            </div>
         )
     }
 
@@ -205,6 +220,7 @@ function CodeBlock({
                 />
             )}
             <CodeSnippet language={getLanguage(selectedBlock.language)}>{selectedBlock.code}</CodeSnippet>
+            {hostHint}
         </div>
     )
 }

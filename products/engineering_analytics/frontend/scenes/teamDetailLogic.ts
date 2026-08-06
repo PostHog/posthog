@@ -5,6 +5,7 @@ import { ApiConfig } from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 
 import { engineeringAnalyticsTeamCiActivity, engineeringAnalyticsTeamMergeTrend } from '../generated/api'
+import type { TeamTestSignalApi } from '../generated/api.schemas'
 import { DEFAULT_TEAMS_WINDOW, TeamsWindow, UNOWNED_TEAM } from './teamsLogic'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
@@ -16,6 +17,7 @@ export interface TeamDetailLogicProps {
 }
 
 export interface TeamTestSignalRow {
+    runner: TeamTestSignalApi['runner']
     nodeid: string
     selector: string
     signalCount: number
@@ -133,6 +135,7 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
                     })
                     return {
                         tests: data.tests.map((t) => ({
+                            runner: t.runner,
                             nodeid: t.nodeid,
                             selector: t.selector,
                             signalCount: t.signal_count,

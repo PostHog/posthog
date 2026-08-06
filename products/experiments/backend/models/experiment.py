@@ -82,6 +82,9 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     end_date = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
+    # Optimistic-concurrency token: bumped on every user-facing update so stale
+    # clients can be detected. Null (pre-backfill rows) is treated as 0.
+    version = models.IntegerField(default=0, null=True, blank=True)
     archived = models.BooleanField(default=False)
     # Whether archiving this experiment also auto-archived its linked feature flag,
     # so unarchiving only undoes an archive the experiment itself performed.
@@ -503,6 +506,7 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
 
     class Trigger(models.TextChoices):
         MANUAL = "manual", "Manual"
+        AGENT_MCP = "agent_mcp", "Agent (MCP)"
         COLD_RUN = "cold_run", "Cold Run"
         STALE_REFRESH = "stale_refresh", "Stale Refresh"
         AUTO_REFRESH = "auto_refresh", "Auto Refresh"

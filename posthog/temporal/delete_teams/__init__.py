@@ -10,6 +10,7 @@ from posthog.temporal.delete_teams.activities import (
     delete_project_record_activity,
     delete_team_persons_activity,
     delete_team_records_activity,
+    deprovision_managed_warehouse_activity,
     enqueue_clickhouse_deletion_activity,
     queue_recording_deletions_activity,
     send_organization_deleted_email_activity,
@@ -28,6 +29,7 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    deprovision_managed_warehouse_activity,
     queue_recording_deletions_activity,
     delete_misc_small_tables_activity,
     delete_personless_distinct_ids_activity,

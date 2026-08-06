@@ -91,10 +91,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
-    COUPON_RESOURCE_NAME as STRIPE_COUPON_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME as STRIPE_CREDIT_NOTE_RESOURCE_NAME,
-    CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
-    CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME as STRIPE_CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
     DISCOUNT_RESOURCE_NAME as STRIPE_DISCOUNT_RESOURCE_NAME,
     DISPUTE_RESOURCE_NAME as STRIPE_DISPUTE_RESOURCE_NAME,
@@ -166,34 +163,7 @@ class TestExternalDataSource(APIBaseTest):
                 "payload": {
                     "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
-                        {
-                            "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
-                            "should_sync": True,
-                            "sync_type": "full_refresh",
-                        },
-                        {"name": STRIPE_SUBSCRIPTION_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": STRIPE_PRODUCT_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": STRIPE_PRICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": STRIPE_INVOICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": STRIPE_CHARGE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": STRIPE_REFUND_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": STRIPE_CREDIT_NOTE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": STRIPE_INVOICE_ITEM_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": STRIPE_PAYOUT_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": STRIPE_DISPUTE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
-                        {
-                            "name": STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
-                            "should_sync": True,
-                            "sync_type": "full_refresh",
-                        },
-                        {
-                            "name": STRIPE_CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
-                            "should_sync": True,
-                            "sync_type": "full_refresh",
-                        },
-                        {"name": STRIPE_COUPON_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": STRIPE_DISCOUNT_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": name, "should_sync": True, "sync_type": "full_refresh"} for name in STRIPE_ENDPOINTS
                     ],
                 },
             },
@@ -201,7 +171,8 @@ class TestExternalDataSource(APIBaseTest):
         payload = response.json()
 
         self.assertEqual(response.status_code, 201)
-        # number of schemas should match default schemas for Stripe
+        # every schema in the request becomes a row, so a source created with the full Stripe
+        # endpoint catalog ends up with one schema per endpoint
         self.assertEqual(
             ExternalDataSchema.objects.filter(source_id=payload["id"]).count(),
             len(STRIPE_ENDPOINTS),
@@ -2092,6 +2063,60 @@ class TestExternalDataSource(APIBaseTest):
         assert "'private_key'" in response.json()["message"]
         assert "'private_key_id'" in response.json()["message"]
 
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.capture_exception")
+    def test_create_external_data_source_bigquery_returns_400_on_credentials_rejected_during_schema_discovery(
+        self, mock_capture_exception
+    ):
+        # `get_schemas` opens its own BigQuery connection, so credentials that passed the earlier
+        # live validation can still be rejected here (e.g. a key rotated/revoked in between).
+        from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
+            BIGQUERY_CREDENTIALS_REJECTED_ERROR,
+            BigQueryCredentialsRejectedError,
+        )
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
+                return_value=(True, None),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source.BigQuerySource.get_schemas",
+                # Mirrors the real message `get_columns` raises: it keeps the `invalid_grant` marker
+                # inline so `get_non_retryable_errors` ("invalid_grant" -> BIGQUERY_CREDENTIALS_REJECTED_ERROR)
+                # still matches it, unlike the plain BIGQUERY_CREDENTIALS_REJECTED_ERROR constant.
+                side_effect=BigQueryCredentialsRejectedError(
+                    "Your BigQuery service account credentials were rejected by Google (invalid_grant). "
+                    "The key may have been rotated or revoked, or the service account deleted. "
+                    "Please upload a new Google Cloud JSON key file."
+                ),
+            ),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/",
+                data={
+                    "source_type": "BigQuery",
+                    "created_via": "web",
+                    "payload": {
+                        "schemas": [
+                            {"name": "my_table", "should_sync": True, "sync_type": "full_refresh"},
+                        ],
+                        "dataset_id": "my_project.my_dataset",
+                        "key_file": {
+                            "project_id": "my_project",
+                            "private_key": "my_private_key",
+                            "private_key_id": "my_private_key_id",
+                            "token_uri": "https://google.com",
+                            "client_email": "test@posthog.com",
+                        },
+                    },
+                },
+            )
+
+        assert response.status_code == 400
+        assert response.json()["message"] == BIGQUERY_CREDENTIALS_REJECTED_ERROR
+        assert ExternalDataSource.objects.count() == 0
+        mock_capture_exception.assert_not_called()
+
     def test_list_external_data_source_query_count_does_not_scale_with_sources(self):
         # N+1 regression guard: created_by, revenue_analytics_config, schemas and the latest job are
         # all fetched up front, so listing must cost the same number of queries regardless of how many
@@ -2207,6 +2232,7 @@ class TestExternalDataSource(APIBaseTest):
             source_type="Postgres",
             created_by=self.user,
             prefix="Primary database",
+            description="Prod Postgres replica",
             access_method=ExternalDataSource.AccessMethod.DIRECT,
             job_inputs={"host": "localhost", "password": "secret"},
             connection_metadata={"engine": "duckdb", "database": "ducklake", "available_functions": ["date_bin"]},
@@ -2250,6 +2276,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source_type": "Snowflake",
                     "access_method": "direct",
                     "supports_hogql": True,
+                    "description": None,
                 },
                 {
                     "id": str(postgres_source.pk),
@@ -2258,6 +2285,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source_type": "Postgres",
                     "access_method": "direct",
                     "supports_hogql": True,
+                    "description": "Prod Postgres replica",
                 },
                 {
                     "id": str(mysql_source.pk),
@@ -2266,6 +2294,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source_type": "MySQL",
                     "access_method": "direct",
                     "supports_hogql": True,
+                    "description": None,
                 },
             ],
         )
@@ -2317,6 +2346,29 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(payload[0]["access_method"], "warehouse")
         self.assertEqual(payload[0]["source_type"], "Postgres")
         self.assertEqual(payload[0]["supports_hogql"], True)
+
+    def test_direct_connection_options_lists_every_direct_capable_source_type(self):
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/direct_connection_options/")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        source_types = {option["source_type"] for option in payload}
+
+        # Guards the drift the picker hit: a direct-capable engine must surface as an addable option.
+        self.assertTrue({"Postgres", "MySQL", "Snowflake", "Redshift", "ClickHouse"}.issubset(source_types))
+        self.assertNotIn("Stripe", source_types)
+
+        clickhouse = next(option for option in payload if option["source_type"] == "ClickHouse")
+        self.assertEqual(clickhouse["label"], "ClickHouse")
+        self.assertIsNotNone(clickhouse["icon_path"])
+        self.assertTrue(clickhouse["icon_path"].endswith("clickhouse.png"))
+
+        for option in payload:
+            self.assertTrue(option["label"])
+            self.assertIn("icon_path", option)
+
+        labels = [option["label"] for option in payload]
+        self.assertEqual(labels, sorted(labels, key=str.lower))
 
     def test_dont_expose_job_inputs(self):
         self._create_external_data_source()
@@ -2593,6 +2645,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source": None,
                     "api_version": None,
                     "api_version_deprecation": None,
+                    "user_access_level": "manager",
                 }
             ],
         )

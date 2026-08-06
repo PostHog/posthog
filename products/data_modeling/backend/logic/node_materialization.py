@@ -1,6 +1,6 @@
 import asyncio
 from dataclasses import asdict
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from django.conf import settings
@@ -41,7 +41,10 @@ def start_node_materialization(node: Node, *, is_v2: bool) -> None:
             select=[Selector(label=str(node.saved_query_id), ancestors=0, descendants=0)],
         )
         workflow_name = "data-modeling-run"
-        workflow_id = f"data-modeling-run-{node.id}-{uuid4()}"
+        # Mirror the scheduled-run id shape ({saved_query_id}-{iso timestamp}) so
+        # resolve_log_source can recover the saved query id and the run's logs show up
+        # in the materialization history UI.
+        workflow_id = f"{node.saved_query_id}-{datetime.now(UTC).isoformat()}"
 
     temporal = sync_connect()
     asyncio.run(

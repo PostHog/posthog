@@ -66,6 +66,7 @@ export interface ErrorResponseApi {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -78,6 +79,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -195,25 +197,23 @@ export interface PatchedAccountRelationshipDefinitionApi {
 }
 
 /**
- * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
+ * * `daily` - daily
+ * * `weekly` - weekly
+ * * `monthly` - monthly
+ */
+export type SlackSummaryCadenceEnumApi = (typeof SlackSummaryCadenceEnumApi)[keyof typeof SlackSummaryCadenceEnumApi]
+
+export const SlackSummaryCadenceEnumApi = {
+    Daily: 'daily',
+    Weekly: 'weekly',
+    Monthly: 'monthly',
+} as const
+
+/**
+ * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
  * @nullable
  */
 export type AccountApiProperties = {
-    /** @nullable */
-    csm?: {
-        id: number
-        email: string
-    } | null
-    /** @nullable */
-    account_executive?: {
-        id: number
-        email: string
-    } | null
-    /** @nullable */
-    account_owner?: {
-        id: number
-        email: string
-    } | null
     /** @nullable */
     stripe_customer_id?: string | null
     /** @nullable */
@@ -228,6 +228,8 @@ export type AccountApiProperties = {
     slack_channel_id?: string | null
     /** @nullable */
     usage_dashboard_link?: string | null
+    /** @nullable */
+    metabase_link?: string | null
 } | null
 
 /**
@@ -247,7 +249,7 @@ export interface AccountApi {
      */
     external_id?: string | null
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
      * @nullable
      */
     properties?: AccountApiProperties
@@ -255,6 +257,12 @@ export interface AccountApi {
     tags?: string[]
     /** Short IDs of the internal notebooks linked to this account, used to persist investigations, call notes, and other free-form context. Empty list if no notebooks have been created for the account. */
     readonly notebooks: readonly string[]
+    /** How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.
+     *
+     * * `daily` - daily
+     * * `weekly` - weekly
+     * * `monthly` - monthly */
+    slack_summary_cadence?: SlackSummaryCadenceEnumApi | null
     readonly created_at: string
     /** @nullable */
     readonly created_by: number | null
@@ -370,25 +378,10 @@ export interface AccountRelationshipWriteApi {
 }
 
 /**
- * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
+ * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
  * @nullable
  */
 export type PatchedAccountApiProperties = {
-    /** @nullable */
-    csm?: {
-        id: number
-        email: string
-    } | null
-    /** @nullable */
-    account_executive?: {
-        id: number
-        email: string
-    } | null
-    /** @nullable */
-    account_owner?: {
-        id: number
-        email: string
-    } | null
     /** @nullable */
     stripe_customer_id?: string | null
     /** @nullable */
@@ -403,6 +396,8 @@ export type PatchedAccountApiProperties = {
     slack_channel_id?: string | null
     /** @nullable */
     usage_dashboard_link?: string | null
+    /** @nullable */
+    metabase_link?: string | null
 } | null
 
 /**
@@ -422,7 +417,7 @@ export interface PatchedAccountApi {
      */
     external_id?: string | null
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
      * @nullable
      */
     properties?: PatchedAccountApiProperties
@@ -430,11 +425,90 @@ export interface PatchedAccountApi {
     tags?: string[]
     /** Short IDs of the internal notebooks linked to this account, used to persist investigations, call notes, and other free-form context. Empty list if no notebooks have been created for the account. */
     readonly notebooks?: readonly string[]
+    /** How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.
+     *
+     * * `daily` - daily
+     * * `weekly` - weekly
+     * * `monthly` - monthly */
+    slack_summary_cadence?: SlackSummaryCadenceEnumApi | null
     readonly created_at?: string
     /** @nullable */
     readonly created_by?: number | null
     /** @nullable */
     readonly updated_at?: string | null
+}
+
+/**
+ * Metadata for one message a channel summary covered — never the message text.
+ */
+export interface ChannelSummaryMessageApi {
+    /** Display name of the message author. */
+    readonly author: string
+    /** When the message was sent. */
+    readonly sent_at: string
+    /** Slack permalink to the message. */
+    readonly permalink: string
+}
+
+/**
+ * An AI summary of one closed period of the account's bound Slack channel (read-only).
+ */
+export interface AccountChannelSummaryApi {
+    /** UUID of the summary. */
+    readonly id: string
+    /** Slack channel the summary covered — kept even if the account is later rebound. */
+    readonly slack_channel_id: string
+    /** Cadence the summarized period belongs to (daily, weekly, or monthly).
+     *
+     * * `daily` - daily
+     * * `weekly` - weekly
+     * * `monthly` - monthly */
+    readonly cadence: SlackSummaryCadenceEnumApi
+    /** Start of the summarized period (inclusive). */
+    readonly period_start: string
+    /** End of the summarized period (exclusive). */
+    readonly period_end: string
+    /** Markdown summary citing the original Slack messages with permalinks. */
+    readonly content: string
+    /** Number of channel messages the summary covered. */
+    readonly message_count: number
+    /** The messages the summary covered, in transcript order — metadata only, no message text. */
+    readonly messages: readonly ChannelSummaryMessageApi[]
+    /** When the summary was generated. */
+    readonly generated_at: string
+}
+
+export interface PaginatedAccountChannelSummaryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AccountChannelSummaryApi[]
+}
+
+/**
+ * A support ticket linked to an account, sourced from the conversations product (read-only).
+ */
+export interface SupportTicketApi {
+    /** UUID of the support ticket. */
+    readonly id: string
+    /** Human-readable ticket number. */
+    readonly ticket_number: number
+    /** Current status of the ticket (e.g. 'new', 'open'). */
+    readonly status: string
+    /**
+     * When the most recent message was sent on this ticket.
+     * @nullable
+     */
+    readonly last_message_at: string | null
+    /**
+     * Truncated preview of the most recent message.
+     * @nullable
+     */
+    readonly last_message_text: string | null
+    /** Absolute URL to open this ticket in the app. */
+    readonly deep_link: string
 }
 
 /**
@@ -649,7 +723,7 @@ export interface CustomPropertyOptionApi {
  */
 export interface CustomPropertySyncRunApi {
     readonly id: string
-    /** What started the run: 'scheduled' (rode a warehouse sync), 'manual', or 'backfill'. */
+    /** What started the run: 'scheduled' (rode a warehouse sync), 'sync' (a warehouse sync started from the UI), 'manual' (a backfill started from the UI), or 'backfill' (the automatic backfill run when a mapping is created or re-enabled). */
     readonly trigger: string
     /** Run status: 'running', 'completed', or 'failed'. */
     readonly status: string
@@ -807,6 +881,8 @@ export interface CustomPropertyDefinitionApi {
     group_type_index?: number | null
     /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
     is_big_number?: boolean
+    /** True when PostHog writes this property itself. Its name and display type are fixed — an update changing either is rejected. */
+    readonly is_canonical: boolean
     /**
      * For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types.
      * @nullable
@@ -876,6 +952,8 @@ export interface PatchedCustomPropertyDefinitionApi {
     group_type_index?: number | null
     /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
     is_big_number?: boolean
+    /** True when PostHog writes this property itself. Its name and display type are fixed — an update changing either is rejected. */
+    readonly is_canonical?: boolean
     /**
      * For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types.
      * @nullable
@@ -1366,21 +1444,9 @@ export type AccountRelationshipDefinitionsListParams = {
 
 export type AccountsListParams = {
     /**
-     * Filter by account executive. Use 'unassigned' or an integer user id.
-     */
-    account_executive?: string
-    /**
-     * Filter by account owner. Use 'unassigned' or an integer user id.
-     */
-    account_owner?: string
-    /**
-     * When true, returns only accounts where CSM, account executive, and account owner are all unset.
+     * When true, returns only accounts where no user actively holds any relationship.
      */
     all_roles_unassigned?: boolean
-    /**
-     * Filter by CSM. Use 'unassigned' for accounts with no CSM, or an integer user id.
-     */
-    csm?: string
     /**
      * Number of results to return per page.
      */
@@ -1427,6 +1493,17 @@ export type AccountsRelationshipsListParams = {
      * Include ended assignments (the full timeline), not just active ones.
      */
     include_history?: boolean
+}
+
+export type AccountsSummariesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type AnnouncementsListParams = {

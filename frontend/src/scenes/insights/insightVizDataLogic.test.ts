@@ -8,7 +8,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { useMocks } from '~/mocks/jest'
 import { LATEST_VERSIONS } from '~/queries/latest-versions'
 import { funnelsQueryDefault, trendsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
-import { FunnelsQuery, LifecycleQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { FunnelsQuery, LifecycleQuery, Node, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import {
@@ -350,6 +350,20 @@ describe('insightVizDataLogic', () => {
     })
 
     describe('updateDateRange', () => {
+        it('does not inject the interval side effect into a paths v2 query, which has no interval field', async () => {
+            builtInsightDataLogic.actions.setQuery({
+                kind: NodeKind.InsightVizNode,
+                source: { kind: NodeKind.PathsV2Query },
+            } as Node)
+
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateDateRange({ date_from: '-7d', date_to: null })
+            }).toFinishAllListeners()
+
+            expect(builtInsightVizDataLogic.values.querySource).not.toHaveProperty('interval')
+            expect(builtInsightVizDataLogic.values.dateRange).toMatchObject({ date_from: '-7d' })
+        })
+
         it('updates the date range', async () => {
             // when dateRange is empty
             await expectLogic(builtInsightDataLogic, () => {
@@ -817,7 +831,7 @@ describe('insightVizDataLogic', () => {
         })
 
         it('clears smoothing when switching between intervals', async () => {
-            const trendsQuery = { ...trendsQueryDefault, interval: 'minute' }
+            const trendsQuery = { ...trendsQueryDefault, interval: 'minute' as const }
             trendsQuery.trendsFilter = { ...trendsQuery.trendsFilter, smoothingIntervals: 2 }
             builtInsightVizDataLogic.actions.updateQuerySource(trendsQuery)
 

@@ -25,7 +25,7 @@ from posthog.sync import database_sync_to_async
 
 from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
-from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery, Node
+from products.data_modeling.backend.facade.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Node
 from products.data_warehouse.backend.facade.api import get_saved_query_schedule
 from products.endpoints.backend.logic.execution import EndpointExecutionService
 from products.endpoints.backend.logic.materialization import (
@@ -161,6 +161,37 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(
             DataWarehouseSavedQuery.objects.filter(team=self.team, name=f"{endpoint.name}_v{version.version}").exists()
         )
+
+    def test_enable_fails_as_a_request_error_when_the_dag_sync_leaves_no_node(self):
+        # the endpoint path swallows a dag sync failure, and scheduling then disables itself rather
+        # than raising, so without a check the enable reports success on an endpoint that nothing
+        # will ever refresh. an unresolvable dependency is the author's to fix, so it must not
+        # report as a server error and page on-call
+        DAG.objects.create(team=self.team, name="Default")
+        self.mock_v2_dag_ids.side_effect = lambda candidate_dag_ids=None: set(candidate_dag_ids or [])
+        endpoint = create_endpoint_with_version(
+            name="nodeless_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+        version = endpoint.versions.first()
+        assert version is not None
+
+        with mock.patch(
+            "products.endpoints.backend.logic.materialization.sync_saved_query_to_dag",
+            side_effect=Exception("dependency resolution failed"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"is_materialized": True, "data_freshness_seconds": 86400},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        version.refresh_from_db()
+        self.assertIsNone(version.saved_query)
 
     def test_data_freshness_updates_saved_query_sync_interval(self):
         """Test that updating data_freshness_seconds updates the SavedQuery's sync_interval."""
@@ -1780,7 +1811,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         observed: dict = {}
 
-        def simulate_immediate_temporal_run(self_saved_query):
+        def simulate_immediate_temporal_run(self_saved_query, **kwargs):
             # schedule_materialization() triggers an immediate run on a separate worker
             # process, which sees only committed DB state. Capture whether the version is
             # already linked, then run the real activity code that throws when it isn't.
@@ -1819,7 +1850,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         observed: dict = {}
 
-        def capture_node_state(self_saved_query):
+        def capture_node_state(self_saved_query, **kwargs):
             observed["node_exists"] = Node.objects.filter(saved_query_id=self_saved_query.id).exists()
 
         with mock.patch.object(
@@ -1839,6 +1870,48 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             observed.get("node_exists"),
             "The DAG node must exist before materialization is scheduled",
         )
+
+    def test_immediate_run_only_on_newly_enabled_materialization(self):
+        endpoint = create_endpoint_with_version(
+            name="v2-initial-run",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        mock_client = mock.AsyncMock()
+        with (
+            mock.patch(
+                "products.data_modeling.backend.schedule.get_v2_saved_query_ids",
+                side_effect=lambda ids, **_kwargs: set(ids),
+            ),
+            mock.patch(
+                "products.data_modeling.backend.logic.node_materialization.sync_connect",
+                return_value=mock_client,
+            ),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                    {"is_materialized": True, "data_freshness_seconds": 86400},
+                    format="json",
+                )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            mock_client.start_workflow.assert_called_once()
+            self.assertEqual(mock_client.start_workflow.call_args[0][0], "data-modeling-materialize-view")
+
+            mock_client.start_workflow.reset_mock()
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                    {"description": "metadata only"},
+                    format="json",
+                )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            # a retained enable must not restart materialization: only a newly created
+            # saved query (first enable, re-enable, version bump) gets the initial run
+            mock_client.start_workflow.assert_not_called()
 
     def test_unsatisfiable_freshness_returns_400(self):
         endpoint = create_endpoint_with_version(

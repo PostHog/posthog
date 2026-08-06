@@ -43,7 +43,7 @@ from posthog.hogql.feature_extractor import extract_hogql_features
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_select, sanitize_client_parser_mode
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.printer.access_control import build_access_control_warning
@@ -146,7 +146,8 @@ class HogQLQueryExecutor:
                 self.select_query = parse_select(
                     str(self.query),
                     timings=self.timings,
-                    parser_mode=self.query_modifiers.parserMode,
+                    # Client-supplied `parserMode` can't force the best-effort-guarded cpp backend.
+                    parser_mode=sanitize_client_parser_mode(self.query_modifiers.parserMode),
                 )
 
     @tracer.start_as_current_span("HogQLQueryExecutor._process_variables")
@@ -381,6 +382,7 @@ class HogQLQueryExecutor:
 
         direct_context = dataclasses.replace(
             self.context,
+            is_direct_query=True,
             team_id=self.team.pk,
             team=self.team,
             enable_select_queries=True,
@@ -467,7 +469,12 @@ class HogQLQueryExecutor:
         self.results = result.results
         self.types = result.types
         self.error = result.error
-        if result.print_columns and not self.print_columns:
+        # A literal `SELECT *` on a direct connection is expanded by the external server, so the
+        # driver response is the only source of truth for the columns. Detect that by the count
+        # disagreeing with HogQL's own column list (and cover the empty case) — then take the
+        # driver's names, keeping them consistent with `self.types`, which is always driver-derived
+        # above. When counts match (ordinary explicit-column queries) HogQL's names are left as-is.
+        if result.print_columns and (not self.print_columns or len(result.print_columns) != len(self.print_columns)):
             self.print_columns = result.print_columns
 
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_clickhouse_sql")

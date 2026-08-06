@@ -30,10 +30,16 @@ from products.tasks.backend.logic.services.sandbox import (
 )
 from products.tasks.backend.logic.services.sandbox_usage import open_sandbox_session
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
-from products.tasks.backend.temporal.metrics import StepTimer, increment_snapshot_restore, increment_snapshot_usage
+from products.tasks.backend.temporal.metrics import (
+    StepTimer,
+    increment_snapshot_restore,
+    increment_snapshot_usage,
+    sandbox_runtime_label,
+)
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
+    ai_gateway_env_vars,
     get_git_identity_env_vars,
     get_sandbox_api_url,
     get_sandbox_github_token,
@@ -139,7 +145,11 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         # Repo-setup snapshots come from default-base sandboxes; restoring one would drop the custom image.
         if has_repo and github_integration_id is not None and not ctx.custom_image_name:
             assert repository is not None
-            with StepTimer("snapshot_lookup") as snapshot_lookup_timer:
+            with StepTimer(
+                "snapshot_lookup",
+                origin_product=ctx.origin_product,
+                runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
+            ) as snapshot_lookup_timer:
                 snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(github_integration_id, [repository])
                 used_snapshot = snapshot is not None
                 snapshot_lookup_timer.set_used_snapshot(used_snapshot)
@@ -240,6 +250,8 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         if settings.SANDBOX_LLM_GATEWAY_URL:
             environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
+        environment_variables.update(ai_gateway_env_vars())
+
         environment_variables.update(get_git_identity_env_vars(task, ctx.state))
 
         run_state = parse_run_state(ctx.state)
@@ -307,13 +319,25 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             "debug",
             f"Provisioning sandbox from {image_source_label} (image build may take a few minutes on first run)",
         )
-        with StepTimer("sandbox_creation", used_snapshot=used_snapshot) as sandbox_creation_timer:
+        runtime = sandbox_runtime_label(use_vm_sandbox)
+        with StepTimer(
+            "sandbox_creation",
+            used_snapshot=used_snapshot,
+            origin_product=ctx.origin_product,
+            runtime=runtime,
+        ) as sandbox_creation_timer:
             sandbox = Sandbox.create(config)
             # The provider's TTL clock starts here — the usage ledger anchors its
             # kill deadline on this boundary, not on when the row is opened below.
             sandbox_created_at = timezone.now()
             used_snapshot = bool((resume_snapshot_ext_id or snapshot) and sandbox.config.snapshot_restored)
             sandbox_creation_timer.set_used_snapshot(used_snapshot)
+        if sandbox.config.image_fallback:
+            emit_agent_log(ctx.run_id, "warn", f"Sandbox image downgraded: {sandbox.config.image_fallback}")
+        if sandbox.launch_dev_stack_bootstrap():
+            emit_agent_log(
+                ctx.run_id, "debug", "Warming the prebaked dev stack in the background (compose host aliases + dockerd)"
+            )
         snapshot_outcome = "used" if used_snapshot else "fresh" if snapshot_source == "none" else "fallback"
         metrics_snapshot_kind = snapshot_kind if snapshot_source != "none" else "none"
         increment_snapshot_usage(used_snapshot, snapshot_source=snapshot_source, snapshot_kind=metrics_snapshot_kind)
@@ -333,7 +357,12 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                 )
             else:
                 emit_agent_log(ctx.run_id, "debug", f"Cloning {repository} into sandbox")
-            with StepTimer("repository_clone", used_snapshot=used_snapshot):
+            with StepTimer(
+                "repository_clone",
+                used_snapshot=used_snapshot,
+                origin_product=ctx.origin_product,
+                runtime=runtime,
+            ):
                 clone_result = sandbox.clone_repository(repository, github_token=github_token, shallow=shallow)
             if clone_result.exit_code != 0:
                 sandbox.destroy()
@@ -377,21 +406,28 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
 
         credentials = sandbox.get_connect_credentials()
 
-        sandbox_state = {
-            "sandbox_id": sandbox.id,
-            "sandbox_url": credentials.url,
-            SANDBOX_JWT_STATE_KID_KEY: get_primary_sandbox_jwt_kid(),
-        }
-        if credentials.token:
-            sandbox_state["sandbox_connect_token"] = credentials.token
-        TaskRun.update_state_atomic(ctx.run_id, updates=sandbox_state)
-
-        # Best-effort usage-ledger row (swallows its own failures). Only after the
-        # sandbox is fully reachable, mirroring create_sandbox_for_repository: the
-        # failure paths above destroy the sandbox, and those must not enter the ledger.
-        open_sandbox_session(
-            run_id=ctx.run_id, sandbox_id=sandbox.id, config=sandbox.config, sandbox_created_at=sandbox_created_at
-        )
+        try:
+            sandbox_state = {
+                "sandbox_id": sandbox.id,
+                "sandbox_url": credentials.url,
+                SANDBOX_JWT_STATE_KID_KEY: get_primary_sandbox_jwt_kid(),
+            }
+            if credentials.token:
+                sandbox_state["sandbox_connect_token"] = credentials.token
+            TaskRun.update_state_atomic(ctx.run_id, updates=sandbox_state)
+            open_sandbox_session(
+                run_id=ctx.run_id,
+                sandbox_id=sandbox.id,
+                config=sandbox.config,
+                sandbox_created_at=sandbox_created_at,
+                required=ctx.task_runtime == "pi",
+            )
+        except Exception:
+            try:
+                sandbox.destroy()
+            finally:
+                TaskRun.clear_sandbox_connection_state_atomic(ctx.run_id, sandbox.id)
+            raise
 
         activity.logger.info(f"Created sandbox {sandbox.id} (used_snapshot={used_snapshot})")
 

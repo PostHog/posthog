@@ -14,7 +14,6 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import wrap_with_null_if_empty
-from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from products.web_analytics.backend.hogql_queries.pre_aggregated.properties import STATS_TABLE_SUPPORTED_FILTERS
@@ -126,10 +125,7 @@ class WebNotableChangesQueryRunner(WebAnalyticsQueryRunner[WebNotableChangesQuer
             return None
 
     def _raw_events_query(self) -> Union[ast.SelectQuery, ast.SelectSetQuery]:
-        all_properties = property_to_expr(
-            [*self.query.properties, *self._test_account_filters],
-            team=self.team,
-        )
+        all_properties = self.all_properties()
         periods = self._periods_expression("timestamp")
         current_period = self._current_period_expression("start_timestamp")
         previous_period = self._previous_period_expression("start_timestamp")

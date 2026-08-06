@@ -20,6 +20,7 @@ from uuid import UUID
 
 # Source-agnostic storage contract for user-uploaded files — shared with the upload endpoint.
 from products.warehouse_sources.backend.file_uploads import (
+    FILE_FORMAT_READ_HINTS,
     FILE_FORMAT_TO_TABLE_FORMAT,
     MAX_UPLOAD_SIZE_BYTES as MAX_FILE_UPLOAD_SIZE_BYTES,
     SUPPORTED_FILE_FORMATS,
@@ -66,6 +67,7 @@ __all__ = [
     "validate_source_prefix",
     "validate_warehouse_table_url_pattern",
     # file-upload storage contract
+    "FILE_FORMAT_READ_HINTS",
     "FILE_FORMAT_TO_TABLE_FORMAT",
     "MAX_FILE_UPLOAD_SIZE_BYTES",
     "SUPPORTED_FILE_FORMATS",

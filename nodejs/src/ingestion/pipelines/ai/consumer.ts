@@ -1,4 +1,3 @@
-import { CommonConfig } from '~/common/config'
 import { buildIntegerMatcher } from '~/common/config/config'
 import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
@@ -20,6 +19,7 @@ import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-pers
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { EventIngestionRestrictionManagerComponent } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
+import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { TeamManager } from '~/common/utils/team-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManagerComponent } from '~/ingestion/common/event-filters'
@@ -33,8 +33,6 @@ import { eventRateStrategy } from '~/ingestion/common/overflow-redirect/overflow
 import { Scope, extend } from '~/ingestion/common/scopes'
 import { PromiseSchedulerComponent } from '~/ingestion/common/utils/promise-scheduler'
 import { IngestionConsumerConfig, IngestionOutputsConfig } from '~/ingestion/config'
-import { createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
-import { TopHog } from '~/ingestion/framework/tophog'
 import { RedisPool } from '~/types'
 
 import { AiBlobStoreComponent } from './blob-offload/blob-store'
@@ -69,8 +67,7 @@ export type AiConsumerConfig = CommonIngestionConsumerConfig &
         | 'AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT'
         | 'AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY'
         | 'AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS'
-    > &
-    Pick<CommonConfig, 'CDP_HOG_WATCHER_SAMPLE_RATE'>
+    >
 
 /** Outputs the AI pipeline emits to. The same instance backs the hog transformer's
  * monitoring (app_metrics + log_entries), wired up server-side. */
@@ -157,18 +154,6 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             )
             // Personhog client owned by the AI scope (created from common, torn down with it).
             .add('personhogClient', new PersonHogClientComponent(config))
-            // TopHog metrics registry for this lane's outputs (drains per-team/partition counters).
-            .add('topHog', {
-                start: () => {
-                    const topHog = new TopHog({
-                        outputs: container.outputs,
-                        pipeline: config.INGESTION_PIPELINE ?? 'unknown',
-                        lane: config.INGESTION_LANE ?? 'unknown',
-                    })
-                    topHog.start()
-                    return Promise.resolve({ value: topHog, stop: () => topHog.stop() })
-                },
-            })
             // Owned by the scope so the store's startup healthcheck runs at
             // scope start, before any traffic is consumed.
             .add('aiBlobStore', new AiBlobStoreComponent(config))
@@ -209,10 +194,13 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             overflowRedirectService: container.overflowRedirectService,
             overflowLaneTTLRefreshService: container.overflowLaneTTLRefreshService,
             concurrentBatches: config.INGESTION_WORKER_CONCURRENT_BATCHES,
-            cdpHogWatcherSampleRate: config.CDP_HOG_WATCHER_SAMPLE_RATE,
             eventSchemaEnforcementEnabled: config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
-            eventSchemaEnforcementManager: new EventSchemaEnforcementManager(container.postgres),
-            topHog: createTopHogWrapper(container.topHog),
+            // Schema loads run detached in the LazyLoader buffer, so an un-retried transient
+            // failure can surface as an unhandled rejection and restart the worker.
+            eventSchemaEnforcementManager: new EventSchemaEnforcementManager(container.postgres, {
+                loaderRetry: DEFAULT_LOADER_RETRY,
+            }),
+            topHog: container.topHog,
             aiBlobStore: container.aiBlobStore.store,
             aiBlobOffloadConfig,
         })
