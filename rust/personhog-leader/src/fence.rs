@@ -28,9 +28,13 @@
 //! — losing an entry while continuing to serve would violate consistency,
 //! not degrade it.
 //!
-//! One known bound: a takeover that runs between a release being acked
+//! One known window: a takeover that runs between a release being acked
 //! and the saga settling its mark row installs a fence for an op that is
-//! already done. The next partition movement or restart clears it.
+//! already done — a ghost no `ReleaseFence` will ever clear. The
+//! [`FenceHealer`] closes it lazily: a write rejected by a fence triggers
+//! a non-blocking mark-row read, and a fence whose op has settled is
+//! dropped, so the next write goes through instead of waiting for the
+//! partition to change hands.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -181,6 +185,112 @@ pub fn drop_partition_fences(fences: &FenceMap, partition: u32, num_partitions: 
     });
     gauge!("personhog_leader_fences_active").set(fences.len() as f64);
     before - fences.len()
+}
+
+/// How long a person's heal verdict stands before a rejected write may
+/// trigger another mark-row read. Bounds the PG read rate for a person
+/// that is legitimately fenced and still receiving writes: at most one
+/// point read per person per cooldown, however hot the write storm.
+const HEAL_COOLDOWN: Duration = Duration::from_secs(5);
+
+/// Above this many tracked persons, expired cooldown stamps are pruned on
+/// the next trigger. Keeps the tracker bounded without a sweeper task.
+const HEAL_TRACKER_PRUNE_THRESHOLD: usize = 10_000;
+
+/// Lazily removes ghost fences — entries whose op has already settled its
+/// mark row, so no `ReleaseFence` will ever arrive for them (see the
+/// module docs for how the takeover scan creates these).
+///
+/// Triggered from the write path when a fence rejects a write, but never
+/// on it: the check runs on a spawned task, the write fails as fenced
+/// either way, and the caller's retry finds the fence gone. Fail-closed
+/// by construction — the fence is only dropped when Postgres, the source
+/// of truth, says the mark is no longer live, and only if the entry still
+/// belongs to the op that was checked (a newer op's fence is never
+/// touched).
+pub struct FenceHealer {
+    pool: PgPool,
+    fences: FenceMap,
+    /// Per-person stamp of the last triggered check, for the cooldown.
+    last_checked: DashMap<PersonCacheKey, std::time::Instant>,
+}
+
+impl FenceHealer {
+    pub fn new(pool: PgPool, fences: FenceMap) -> Self {
+        Self {
+            pool,
+            fences,
+            last_checked: DashMap::new(),
+        }
+    }
+
+    /// Kick off a background ghost check for `key`, unless one ran within
+    /// the cooldown. Called after a write was rejected by `state`.
+    pub fn maybe_heal(self: &Arc<Self>, key: PersonCacheKey, state: FenceState) {
+        let now = std::time::Instant::now();
+        if self.last_checked.len() > HEAL_TRACKER_PRUNE_THRESHOLD {
+            self.last_checked
+                .retain(|_, stamp| now.duration_since(*stamp) < HEAL_COOLDOWN);
+        }
+        // The entry API keeps check-and-stamp atomic: one write storm
+        // triggers one check per cooldown, not one per rejection.
+        match self.last_checked.entry(key.clone()) {
+            dashmap::mapref::entry::Entry::Occupied(mut entry)
+                if now.duration_since(*entry.get()) >= HEAL_COOLDOWN =>
+            {
+                entry.insert(now);
+            }
+            dashmap::mapref::entry::Entry::Vacant(entry) => {
+                entry.insert(now);
+            }
+            dashmap::mapref::entry::Entry::Occupied(_) => return,
+        }
+        let healer = Arc::clone(self);
+        tokio::spawn(async move {
+            healer.check_and_heal(key, state).await;
+        });
+    }
+
+    async fn check_and_heal(&self, key: PersonCacheKey, state: FenceState) {
+        let status = match mark_status(&self.pool, state.op_id, key.team_id, key.person_id).await {
+            Ok(status) => status,
+            Err(e) => {
+                counter!("personhog_leader_fence_heals_total", "outcome" => "error").increment(1);
+                tracing::warn!(
+                    team_id = key.team_id,
+                    person_id = key.person_id,
+                    op_id = %state.op_id,
+                    error = %e,
+                    "ghost-fence check failed; fence kept"
+                );
+                return;
+            }
+        };
+        // Live is what the takeover scan installs from; anything else —
+        // a terminal status or no row at all — means the op has settled
+        // and its release already happened somewhere.
+        if matches!(status.as_deref(), Some("marked") | Some("sealed")) {
+            counter!("personhog_leader_fence_heals_total", "outcome" => "still_live").increment(1);
+            return;
+        }
+        // Conditional on the op id: a fence re-installed by a newer op in
+        // the meantime is someone else's and stays.
+        let removed = self
+            .fences
+            .remove_if(&key, |_, current| current.op_id == state.op_id)
+            .is_some();
+        if removed {
+            self.last_checked.remove(&key);
+            gauge!("personhog_leader_fences_active").set(self.fences.len() as f64);
+            counter!("personhog_leader_fence_heals_total", "outcome" => "removed").increment(1);
+            tracing::info!(
+                team_id = key.team_id,
+                person_id = key.person_id,
+                op_id = %state.op_id,
+                "removed a ghost fence: its op has already settled"
+            );
+        }
+    }
 }
 
 /// The committed-release check: the status of the op's mark row for this

@@ -24,7 +24,7 @@ use crate::cache::{
     PersonCacheKey,
 };
 use crate::emitted::{EmittedVersionGuard, EmittedVersions};
-use crate::fence::{fenced_status, mark_status, FenceMap, FenceState};
+use crate::fence::{fenced_status, mark_status, FenceHealer, FenceMap, FenceState};
 use crate::fencing::{FencedChangelogProducers, FencedProduceError};
 use crate::inflight::InflightTracker;
 use crate::kafka::produce_person_changelog;
@@ -93,6 +93,10 @@ pub struct PersonHogLeaderService {
     /// this map exists so the write path rejects without a database read).
     /// Mutated only under the per-key lock.
     fences: FenceMap,
+    /// Ghost-fence recovery, derived from the fallback pool at
+    /// construction. Absent without one (dev fixtures) — ghost fences
+    /// then last until the partition changes hands, as before.
+    fence_healer: Option<Arc<FenceHealer>>,
     /// Present when broker-enforced epoch fencing is on; the write
     /// path produces through the partition's transaction window.
     fenced: Option<Arc<FencedChangelogProducers>>,
@@ -178,6 +182,9 @@ impl PersonHogLeaderService {
             locks,
             producer,
             changelog_topic,
+            fence_healer: fallback
+                .as_ref()
+                .map(|f| Arc::new(FenceHealer::new(f.pool.clone(), Arc::clone(&fences)))),
             fallback,
             inflight,
             num_partitions,
@@ -903,6 +910,12 @@ impl PersonHogLeader for PersonHogLeaderService {
         // per-key lock so a concurrent FencePerson cannot be missed.
         if let Some(fence) = self.check_fence(&cache_key) {
             counter!("personhog_leader_writes_fenced_total").increment(1);
+            // Off the request path: if this fence is a ghost (its op
+            // already settled), the healer drops it and a retry goes
+            // through.
+            if let Some(healer) = &self.fence_healer {
+                healer.maybe_heal(cache_key.clone(), fence);
+            }
             return Err(fenced_status(&fence));
         }
 

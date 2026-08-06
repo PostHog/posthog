@@ -524,6 +524,92 @@ async fn a_stub_sealed_at_version_zero_can_be_released() {
         .expect("cleanup");
 }
 
+/// A fence whose op has already settled its mark row is a ghost: its
+/// release was acked elsewhere and no retry is coming. A write rejected
+/// by it must trigger the lazy heal, so a retry goes through instead of
+/// the person staying frozen until the partition changes hands.
+#[tokio::test]
+async fn a_ghost_fence_heals_after_a_rejected_write() {
+    let pool = common::create_persons_pool().await;
+    let seed = CachedPerson {
+        id: 4300,
+        ..test_cached_person()
+    };
+    let mut harness = start_fence_harness(
+        seed,
+        Some(PgFallback {
+            pool: pool.clone(),
+            table: "posthog_person".to_string(),
+        }),
+    )
+    .await;
+    let partition = harness.partition;
+    let person_id = harness.person_id;
+    let op = Uuid::now_v7();
+
+    sqlx::query(
+        "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request) \
+         VALUES ($1, 'delete', $2, 'sealed', '{}'::jsonb)",
+    )
+    .bind(op)
+    .bind(TEAM_ID as i32)
+    .execute(&pool)
+    .await
+    .expect("insert op");
+    sqlx::query(
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed')",
+    )
+    .bind(op)
+    .bind(TEAM_ID as i32)
+    .bind(person_id)
+    .execute(&pool)
+    .await
+    .expect("insert mark");
+
+    harness
+        .client
+        .fence_person(with_partition(fence_request(person_id, &op), partition))
+        .await
+        .expect("fence succeeds");
+
+    // The op settles (release acked to the saga, mark rows cleaned up)
+    // without this leader hearing about it — the ghost scenario.
+    sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
+        .bind(op)
+        .execute(&pool)
+        .await
+        .expect("settle the op");
+
+    // The first write bounces on the ghost and triggers the heal; a
+    // retry then goes through once the background check drops the fence.
+    let status = harness
+        .client
+        .update_person_properties(with_partition(update_request(person_id), partition))
+        .await
+        .expect_err("the first write still bounces on the ghost");
+    assert_eq!(status.code(), Code::FailedPrecondition);
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        match harness
+            .client
+            .update_person_properties(with_partition(update_request(person_id), partition))
+            .await
+        {
+            Ok(_) => break,
+            Err(status) if status.code() == Code::FailedPrecondition => {
+                assert!(
+                    tokio::time::Instant::now() < deadline,
+                    "the ghost fence was never healed"
+                );
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            Err(other) => panic!("unexpected rejection: {other}"),
+        }
+    }
+}
+
 /// The fail-closed half of the committed release: the request — even with
 /// a fence the caller installed itself — is never enough to destroy a
 /// person. Without a live mark row vouching for the op, the release is
