@@ -175,8 +175,9 @@ describe('createExperimentLogic', () => {
             expect(scannerCreateSpy).toHaveBeenCalledTimes(1)
             expect(scannerRequestBody).toMatchObject({
                 name: 'Checkout flow (#123)',
-                scanner_type: 'summarizer',
-                enabled: true,
+                scanner_type: 'classifier',
+                // Enabling starts credit spend, so a created scanner must never arrive switched on
+                enabled: false,
                 query: {
                     filter_test_accounts: true,
                     events: [
@@ -197,7 +198,7 @@ describe('createExperimentLogic', () => {
                 },
             })
             expect(lemonToast.success).toHaveBeenCalledWith(
-                'Experiment and Replay Vision scanner created',
+                'Experiment created. The Replay Vision scanner is off until you turn it on.',
                 expect.objectContaining({
                     button: expect.objectContaining({ label: 'View scanner' }),
                 })
@@ -225,7 +226,7 @@ describe('createExperimentLogic', () => {
 
             expect(routerPushSpy).toHaveBeenCalledWith('/experiments/123')
             expect(lemonToast.error).toHaveBeenCalledWith(
-                'Experiment created, but the Replay Vision scanner could not be created.',
+                "Experiment created, but the Replay Vision scanner wasn't.",
                 expect.objectContaining({
                     button: expect.objectContaining({ label: 'Set up scanner' }),
                 })

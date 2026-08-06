@@ -88,8 +88,10 @@ export function AnalyticsStep(): JSX.Element {
                         <div className="py-1">
                             <div className="font-semibold">Watch participant behavior with Replay Vision</div>
                             <div className="font-normal text-sm text-muted">
-                                Create an active scanner that summarizes what participants do after experiment exposure.
-                                You can adjust its prompt, filters, and sampling later.
+                                Set up a scanner that classifies what participants do after experiment exposure. It is
+                                created turned off, so nothing is scanned and no credits are used until you turn it on.
+                                You can adjust its prompt, filters, and sampling first. A scanner keeps running after
+                                the experiment ends, so turn it off when you are done.
                             </div>
                         </div>
                     }

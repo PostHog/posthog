@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
@@ -9,7 +10,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
-import { convertUniversalFiltersToRecordingsQuery } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -21,13 +21,7 @@ import {
     ProductIntentContext,
     ProductKey,
 } from '~/queries/schema/schema-general'
-import {
-    FilterLogicalOperator,
-    type Experiment,
-    type FeatureFlagFilters,
-    type MultivariateFlagVariant,
-    type RecordingUniversalFilters,
-} from '~/types'
+import type { Experiment, FeatureFlagFilters, MultivariateFlagVariant } from '~/types'
 
 import { experimentsCreate } from 'products/experiments/frontend/generated/api'
 import type {
@@ -36,8 +30,6 @@ import type {
     ExperimentTypeEnumApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 import { visionScannersCreate } from 'products/replay_vision/frontend/generated/api'
-import { newScanner } from 'products/replay_vision/frontend/replay_scanners/scannerTemplates'
-import { scannerToApiBody } from 'products/replay_vision/frontend/replay_scanners/types'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { ProductIntentProperties } from '../../../lib/utils/product-intents'
@@ -46,10 +38,10 @@ import type { FeatureFlagType } from '../../../types'
 import { NEW_EXPERIMENT } from '../constants'
 import { FORM_MODES, experimentLogic } from '../experimentLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
+import { experimentScannerBody } from '../replayVisionScanner'
 import {
     type ExperimentWritePayload,
     getExperimentVariants,
-    getViewRecordingFiltersForVariant,
     toExperimentWritePayload,
     toFlagVariantsInput,
 } from '../utils'
@@ -59,7 +51,6 @@ import { variantsPanelLogic } from './variantsPanelLogic'
 import { validateVariants } from './variantsPanelValidation'
 
 const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000
-const REPLAY_SCANNER_NAME_MAX_LENGTH = 255
 
 function experimentFromApi(experiment: ExperimentApi): Experiment {
     return experiment as unknown as Experiment
@@ -76,31 +67,6 @@ function experimentWritePayloadForApi(
         ...experiment,
         type: experimentTypeForApi(experiment.type),
     } as unknown as Parameters<typeof experimentsCreate>[1]
-}
-
-function replayScannerForExperiment(experiment: Experiment): ReturnType<typeof scannerToApiBody> {
-    const nameSuffix = ` (#${experiment.id})`
-    const name = `${experiment.name.slice(0, REPLAY_SCANNER_NAME_MAX_LENGTH - nameSuffix.length)}${nameSuffix}`
-    const exposureFilters = getViewRecordingFiltersForVariant(experiment)
-    const filters: RecordingUniversalFilters = {
-        filter_test_accounts: experiment.exposure_criteria?.filterTestAccounts ?? false,
-        duration: [],
-        filter_group: {
-            type: FilterLogicalOperator.And,
-            values: [{ type: FilterLogicalOperator.And, values: exposureFilters }],
-        },
-    }
-
-    return scannerToApiBody({
-        ...newScanner('session_summary'),
-        name,
-        description: 'Summarizes what participants do after experiment exposure.',
-        query: convertUniversalFiltersToRecordingsQuery(filters),
-        scanner_config: {
-            prompt: 'Summarize what the participant did after they were exposed to the experiment. Focus on their goal, the actions they took, any friction, and whether they completed what they appeared to be trying to do. Be concrete and do not speculate.',
-            length: 'medium',
-        },
-    })
 }
 
 // Scope the draft key per project so a draft started in one project can't prefill or be submitted in another within the same browser session.
@@ -654,28 +620,38 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                         try {
                             const replayScanner = await visionScannersCreate(
                                 String(values.currentProjectId),
-                                replayScannerForExperiment(response)
+                                experimentScannerBody(response)
                             )
                             replayScannerId = replayScanner.id
-                        } catch {
+                            actions.addProductIntent({
+                                product_type: ProductKey.REPLAY_VISION,
+                                intent_context: ProductIntentContext.EXPERIMENT_REPLAY_VISION_SCANNER_CREATED,
+                            })
+                        } catch (scannerError) {
+                            // Captured rather than swallowed: a systematically failing create (quota, access)
+                            // is otherwise invisible, since the experiment itself still succeeds.
+                            posthog.captureException(scannerError)
                             replayScannerCreationFailed = true
                         }
                     }
 
                     if (replayScannerCreationFailed) {
-                        lemonToast.error('Experiment created, but the Replay Vision scanner could not be created.', {
+                        lemonToast.error("Experiment created, but the Replay Vision scanner wasn't.", {
                             button: {
                                 label: 'Set up scanner',
                                 action: () => router.actions.push(urls.replayVisionTemplates()),
                             },
                         })
                     } else if (replayScannerId) {
-                        lemonToast.success('Experiment and Replay Vision scanner created', {
-                            button: {
-                                label: 'View scanner',
-                                action: () => router.actions.push(urls.replayVision(replayScannerId)),
-                            },
-                        })
+                        lemonToast.success(
+                            'Experiment created. The Replay Vision scanner is off until you turn it on.',
+                            {
+                                button: {
+                                    label: 'View scanner',
+                                    action: () => router.actions.push(urls.replayVision(replayScannerId)),
+                                },
+                            }
+                        )
                     } else {
                         lemonToast.success('Experiment created successfully!')
                     }
