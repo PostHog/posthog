@@ -1,32 +1,146 @@
+import { expectLogic } from 'kea-test-utils'
+
+import api from 'lib/api'
+import type { ErrorEventType } from 'lib/components/Errors/types'
+
 import { useMocks } from '~/mocks/jest'
+import type {
+    ErrorTrackingBreakdownsQuery,
+    ErrorTrackingBreakdownsQueryResponse,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { miniBreakdownsLogic } from './miniBreakdownsLogic'
+import { errorTrackingIssueSceneLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
+import { ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY, issueFiltersLogic } from '../IssueFilters/issueFiltersLogic'
+import { BREAKDOWN_DETAILS_LIMIT, BREAKDOWN_PRESETS } from './consts'
+import {
+    buildBreakdownProperties,
+    getSelectedEventBreakdownProperties,
+    miniBreakdownsLogic,
+} from './miniBreakdownsLogic'
 
 describe('miniBreakdownsLogic', () => {
-    let logic: ReturnType<typeof miniBreakdownsLogic.build>
+    let filters: ReturnType<typeof issueFiltersLogic.build>
+    let breakdowns: ReturnType<typeof miniBreakdownsLogic.build>
 
     beforeEach(() => {
         useMocks({
-            post: {
-                '/api/environments/:team_id/query/': { results: {} },
+            get: {
+                '/api/environments/:team_id/quick_filters/': { results: [] },
+                '/api/environments/:team_id/error_tracking/issues/:id/': {},
+                '/api/environments/:team_id/error_tracking/fingerprints': { results: [] },
+                '/api/environments/:team_id/error_tracking/spike_events': { results: [] },
+                '/api/projects/:team_id/signals/reports/': { results: [] },
             },
         })
         initKeaTests()
-        logic = miniBreakdownsLogic({ issueId: 'issue-1' })
-        logic.mount()
+        jest.spyOn(api, 'query').mockResolvedValue({ results: {} } as ErrorTrackingBreakdownsQueryResponse)
+        filters = issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY })
+        filters.mount()
+        breakdowns = miniBreakdownsLogic({ issueId: 'issue-id' })
+        breakdowns.mount()
     })
 
-    afterEach(() => logic?.unmount())
+    afterEach(() => {
+        breakdowns.unmount()
+        filters.unmount()
+        jest.restoreAllMocks()
+    })
 
-    // There used to be no loadResponseFailure reducer at all, so a failed breakdowns query left
-    // response/responseLoading unchanged — indistinguishable from "query returned nothing" and
-    // with no way to retry. It must surface the error and clear it on retry.
     it('surfaces and clears a response load failure', () => {
-        logic.actions.loadResponseFailure('Failed to load breakdowns')
-        expect(logic.values.responseError).toBe('Failed to load breakdowns')
+        breakdowns.actions.loadResponseFailure('Failed to load breakdowns')
+        expect(breakdowns.values.responseError).toBe('Failed to load breakdowns')
 
-        logic.actions.loadResponse()
-        expect(logic.values.responseError).toBeNull()
+        breakdowns.actions.loadResponse()
+        expect(breakdowns.values.responseError).toBeNull()
+    })
+
+    it('adds primitive properties from the selected event without duplicating configured breakdowns', async () => {
+        const properties = {
+            $browser: 'Chrome',
+            account_tier: 'paid',
+            attempt: 2,
+            enabled: true,
+            nested: { source: 'checkout' },
+            tags: ['web'],
+        }
+        const selectedEventProperties = getSelectedEventBreakdownProperties(properties, false)
+
+        expect(buildBreakdownProperties(['account_tier'], selectedEventProperties)).toEqual([
+            ...BREAKDOWN_PRESETS,
+            { property: 'account_tier', title: 'account_tier', removable: true },
+            { property: 'attempt', title: 'attempt' },
+            { property: 'enabled', title: 'enabled' },
+        ])
+
+        const issueScene = errorTrackingIssueSceneLogic({ id: 'issue-id' })
+        await expectLogic(breakdowns, () => {
+            issueScene.actions.selectEvent({
+                event: '$exception',
+                uuid: 'event-id',
+                timestamp: '2026-08-13T12:00:00Z',
+                distinct_id: 'person-id',
+                properties,
+                person: { id: 'person-id', distinct_ids: ['person-id'], properties: {} },
+            } as ErrorEventType)
+        }).toFinishAllListeners()
+
+        expect(breakdowns.values.breakdownProperties).toEqual([
+            ...BREAKDOWN_PRESETS,
+            { property: 'account_tier', title: 'account_tier' },
+            { property: 'attempt', title: 'attempt' },
+            { property: 'enabled', title: 'enabled' },
+        ])
+        const latestBreakdownQuery = jest.mocked(api.query).mock.calls.at(-1)?.[0] as ErrorTrackingBreakdownsQuery
+        expect(latestBreakdownQuery.breakdownProperties).toEqual(
+            breakdowns.values.breakdownProperties.map(({ property }) => property)
+        )
+    })
+
+    it('loads the expanded value set when opening breakdown details', async () => {
+        await expectLogic(breakdowns).toFinishAllListeners()
+        const breakdown = BREAKDOWN_PRESETS[0]
+
+        await expectLogic(breakdowns, () => {
+            breakdowns.actions.openBreakdownDetails(breakdown)
+        })
+            .toDispatchActions(['openBreakdownDetails', 'loadBreakdownDetails', 'loadBreakdownDetailsSuccess'])
+            .toFinishAllListeners()
+
+        expect(breakdowns.values.selectedBreakdownProperty).toEqual(breakdown)
+        const detailsQuery = jest.mocked(api.query).mock.calls.at(-1)?.[0] as ErrorTrackingBreakdownsQuery
+        expect(detailsQuery.breakdownProperties).toEqual([breakdown.property])
+        expect(detailsQuery.maxValuesPerProperty).toBe(BREAKDOWN_DETAILS_LIMIT)
+
+        breakdowns.actions.closeBreakdownDetails()
+        expect(breakdowns.values.selectedBreakdownProperty).toBeNull()
+    })
+
+    it('adds custom properties to the breakdown query and allows removing them', async () => {
+        await expectLogic(breakdowns).toFinishAllListeners()
+
+        await expectLogic(breakdowns, () => {
+            breakdowns.actions.addBreakdownProperty('$current_url')
+        })
+            .toDispatchActions(['addBreakdownProperty', 'loadResponse', 'loadResponseSuccess'])
+            .toFinishAllListeners()
+
+        expect(breakdowns.values.breakdownProperties).toEqual([
+            ...BREAKDOWN_PRESETS,
+            { property: '$current_url', title: 'Current URL', removable: true },
+        ])
+        const latestQueryCall = jest.mocked(api.query).mock.calls.at(-1)
+        expect(latestQueryCall).not.toBeUndefined()
+        const latestBreakdownQuery = latestQueryCall?.[0] as ErrorTrackingBreakdownsQuery
+        expect(latestBreakdownQuery.breakdownProperties).toEqual([
+            ...BREAKDOWN_PRESETS.map(({ property }) => property),
+            '$current_url',
+        ])
+
+        await expectLogic(breakdowns, () => {
+            breakdowns.actions.removeBreakdownProperty('$current_url')
+        }).toFinishAllListeners()
+
+        expect(breakdowns.values.breakdownProperties).toEqual(BREAKDOWN_PRESETS)
     })
 })

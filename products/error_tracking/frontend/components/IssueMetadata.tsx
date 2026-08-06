@@ -2,12 +2,23 @@ import { useActions, useValues } from 'kea'
 import { PropsWithChildren, UIEvent, useCallback, useMemo, useRef } from 'react'
 import { match } from 'ts-pattern'
 
-import { IconChevronRight, IconTrending } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { IconArrowLeft, IconClock, IconListTree, IconTrending } from '@posthog/icons'
+import { Tooltip as LemonTooltip } from '@posthog/lemon-ui'
 
 import { ErrorTrackingSpikeEvent } from 'lib/components/Errors/types'
 import { dayjs } from 'lib/dayjs'
-import { Skeleton } from 'lib/ui/quill'
+import {
+    Button,
+    Heading,
+    Skeleton,
+    Tabs,
+    TabsContent,
+    TabsList,
+    TabsTrigger,
+    Tooltip as QuillTooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from 'lib/ui/quill'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
@@ -16,8 +27,9 @@ import { useSparklineDataIssueScene } from '../hooks/use-sparkline-data'
 import { useSparklineEvents } from '../hooks/use-sparkline-events'
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { cancelEvent } from '../utils'
+import { MiniBreakdowns } from './Breakdowns/MiniBreakdowns'
+import { issueFilterPreviewLogic } from './IssueFilterPreview/issueFilterPreviewLogic'
 import { SpikeDetailsPopover } from './SpikeDetailsPopover'
-import { TimeBoundary } from './TimeBoundary'
 import { errorTrackingVolumeSparklineLogic } from './VolumeSparkline/errorTrackingVolumeSparklineLogic'
 import type { SparklineDatum, SparklineEvent, VolumeSparklineHoverSelection } from './VolumeSparkline/types'
 import { VolumeSparkline } from './VolumeSparkline/VolumeSparkline'
@@ -27,11 +39,87 @@ export const Metadata = ({
     className,
     onScrollNearEnd,
 }: PropsWithChildren<{ className?: string; onScrollNearEnd?: () => void }>): JSX.Element => {
+    const { activePreview } = useValues(issueFilterPreviewLogic)
+    const { setActivePreview } = useActions(issueFilterPreviewLogic)
+    const handleScroll = (event: UIEvent<HTMLDivElement>): void => {
+        const { clientHeight, scrollHeight, scrollTop } = event.currentTarget
+        if (scrollHeight - scrollTop - clientHeight <= 400) {
+            onScrollNearEnd?.()
+        }
+    }
+
+    return (
+        <div className={className}>
+            <div
+                className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-y-none [scrollbar-gutter:stable]"
+                onScroll={handleScroll}
+            >
+                <div className="max-h-1/2 shrink-0 overflow-y-auto overscroll-y-none">
+                    <Tabs
+                        orientation="vertical"
+                        value={activePreview}
+                        onValueChange={(preview) => {
+                            if (preview === 'time' || preview === 'properties') {
+                                setActivePreview(preview)
+                            }
+                        }}
+                        data-quill
+                        className="items-stretch gap-0 border-b border-primary bg-[var(--background)]"
+                    >
+                        <TabsList
+                            variant="line"
+                            aria-label="Issue filter previews"
+                            className="sticky top-0 z-20 !h-auto w-10 shrink-0 justify-start self-start rounded-none border-r border-primary bg-[var(--background)] p-1"
+                        >
+                            <QuillTooltip>
+                                <TooltipTrigger
+                                    render={
+                                        <TabsTrigger
+                                            value="time"
+                                            aria-label="Time"
+                                            className="!size-8 !flex-none !justify-center !p-0"
+                                        />
+                                    }
+                                >
+                                    <IconClock />
+                                </TooltipTrigger>
+                                <TooltipContent side="right">Time</TooltipContent>
+                            </QuillTooltip>
+                            <QuillTooltip>
+                                <TooltipTrigger
+                                    render={
+                                        <TabsTrigger
+                                            value="properties"
+                                            aria-label="Properties"
+                                            className="!size-8 !flex-none !justify-center !p-0"
+                                        />
+                                    }
+                                >
+                                    <IconListTree />
+                                </TooltipTrigger>
+                                <TooltipContent side="right">Properties</TooltipContent>
+                            </QuillTooltip>
+                        </TabsList>
+                        <TabsContent value="time" className="min-w-0 !flex-none flex-1">
+                            <TimeFilterPreview />
+                        </TabsContent>
+                        <TabsContent value="properties" className="min-w-0 !flex-none flex-1">
+                            <MiniBreakdowns />
+                        </TabsContent>
+                    </Tabs>
+                </div>
+                {children}
+            </div>
+        </div>
+    )
+}
+
+function TimeFilterPreview(): JSX.Element {
     const { issueId, spikeEvents } = useValues(errorTrackingIssueSceneLogic)
-    const { setDateRange } = useActions(errorTrackingIssueSceneLogic)
     const sparklineKey = issueId || 'issue-unknown'
     const { clickedSpike } = useValues(errorTrackingVolumeSparklineLogic({ sparklineKey }))
     const { setClickedSpike } = useActions(errorTrackingVolumeSparklineLogic({ sparklineKey }))
+    const { applyDateRangeFilter } = useActions(issueFilterPreviewLogic)
     const sparklineData = useSparklineDataIssueScene()
     const sparklineEvents = useSparklineEvents()
     const sparklineContainerRef = useRef<HTMLDivElement | null>(null)
@@ -39,12 +127,12 @@ export const Metadata = ({
     const handleRangeSelect = useCallback(
         (startDate: Date, endDate: Date) => {
             setClickedSpike(null)
-            setDateRange({
+            applyDateRangeFilter({
                 date_from: startDate.toISOString(),
                 date_to: endDate.toISOString(),
             })
         },
-        [setDateRange, setClickedSpike]
+        [applyDateRangeFilter, setClickedSpike]
     )
 
     const handleSpikeClick = useCallback(
@@ -54,13 +142,6 @@ export const Metadata = ({
         [setClickedSpike]
     )
 
-    const handleScroll = (event: UIEvent<HTMLDivElement>): void => {
-        const { clientHeight, scrollHeight, scrollTop } = event.currentTarget
-        if (scrollHeight - scrollTop - clientHeight <= 400) {
-            onScrollNearEnd?.()
-        }
-    }
-
     const matchedSpikeEvent = useMemo<ErrorTrackingSpikeEvent | null>(() => {
         if (!clickedSpike || sparklineData.length < 2) {
             return null
@@ -68,32 +149,35 @@ export const Metadata = ({
         const binSizeMs = sparklineData[1].date.getTime() - sparklineData[0].date.getTime()
         const binStart = clickedSpike.datum.date.getTime()
         return (
-            (spikeEvents as ErrorTrackingSpikeEvent[]).find((s) => {
-                const t = new Date(s.detected_at).getTime()
-                return t >= binStart && t < binStart + binSizeMs
+            (spikeEvents as ErrorTrackingSpikeEvent[]).find((spikeEvent) => {
+                const detectedAt = new Date(spikeEvent.detected_at).getTime()
+                return detectedAt >= binStart && detectedAt < binStart + binSizeMs
             }) ?? null
         )
     }, [clickedSpike, spikeEvents, sparklineData])
 
     return (
-        <div className={className}>
+        <div className="relative flex flex-col">
             <MetadataHeader sparklineKey={sparklineKey} />
-            <div
-                onClick={cancelEvent}
-                ref={sparklineContainerRef}
-                className="relative w-full min-h-[160px] shrink-0 flex flex-col px-4"
-            >
-                <VolumeSparkline
-                    data={sparklineData}
-                    layout="detailed"
-                    xAxis="full"
-                    events={sparklineEvents}
-                    sparklineKey={sparklineKey}
-                    className="h-full min-h-[160px]"
-                    onRangeSelect={handleRangeSelect}
-                    onSpikeClick={handleSpikeClick}
-                />
-            </div>
+            <LemonTooltip title="Click a bar or drag to select a date range">
+                <div
+                    onClick={cancelEvent}
+                    ref={sparklineContainerRef}
+                    className="relative flex h-56 w-full flex-col px-4 py-3"
+                >
+                    <VolumeSparkline
+                        data={sparklineData}
+                        layout="detailed"
+                        xAxis="full"
+                        events={sparklineEvents}
+                        sparklineKey={sparklineKey}
+                        className="h-full"
+                        onRangeSelect={handleRangeSelect}
+                        onBucketClick={handleRangeSelect}
+                        onSpikeClick={handleSpikeClick}
+                    />
+                </div>
+            </LemonTooltip>
             {clickedSpike && (
                 <SpikeDetailsPopover
                     datum={clickedSpike.datum}
@@ -104,22 +188,51 @@ export const Metadata = ({
                     sparklineContainerRef={sparklineContainerRef}
                 />
             )}
-            <div className="flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable]" onScroll={handleScroll}>
-                {children}
-            </div>
         </div>
     )
 }
 
-/** Owns the `hoverSelection` read: it changes on every hovered bucket, and reading it in
- *  `Metadata` would re-render the whole chart subtree per mousemove. */
+/** Owns the `hoverSelection` read because reading it above would re-render the chart subtree on every mouse move. */
 function MetadataHeader({ sparklineKey }: { sparklineKey: string }): JSX.Element {
-    const { aggregations, summaryLoading, issueLoading, firstSeen, lastSeen } = useValues(errorTrackingIssueSceneLogic)
+    const { aggregations, summaryLoading } = useValues(errorTrackingIssueSceneLogic)
     const { hoverSelection } = useValues(errorTrackingVolumeSparklineLogic({ sparklineKey }))
+    const { activePreview, canUndoActivePreview } = useValues(issueFilterPreviewLogic)
+    const { resetAllFilters, undoActivePreview } = useActions(issueFilterPreviewLogic)
+    const canUndo = activePreview === 'time' && canUndoActivePreview
 
     return (
-        <div className="flex justify-between items-center h-[40px] px-4 shrink-0">
-            <div className="flex justify-end items-center h-full">
+        <div className="sticky top-0 z-10 flex h-10 shrink-0 items-center justify-between border-b border-primary bg-[var(--background)] px-4">
+            <div className="flex items-center gap-2">
+                <div className="flex size-6 shrink-0 items-center justify-center">
+                    {canUndo ? (
+                        <LemonTooltip title="Undo filter">
+                            <Button
+                                variant="default"
+                                size="icon-sm"
+                                aria-label="Undo filter"
+                                data-attr="error-tracking-undo-preview-filter"
+                                onClick={undoActivePreview}
+                            >
+                                <IconArrowLeft />
+                            </Button>
+                        </LemonTooltip>
+                    ) : (
+                        <LemonTooltip title="Reset all filters">
+                            <Button
+                                variant="default"
+                                size="icon-sm"
+                                aria-label="Reset all filters"
+                                data-attr="error-tracking-reset-all-filters"
+                                onClick={resetAllFilters}
+                            >
+                                <IconClock />
+                            </Button>
+                        </LemonTooltip>
+                    )}
+                </div>
+                <Heading size="sm">Volume</Heading>
+            </div>
+            <div className="flex h-full items-center justify-end">
                 {match(hoverSelection)
                     .when(
                         (data) => shouldRenderIssueMetrics(data),
@@ -128,34 +241,6 @@ function MetadataHeader({ sparklineKey }: { sparklineKey: string }): JSX.Element
                     .with({ kind: 'bin' }, (data) => renderDataPoint(data.datum))
                     .with({ kind: 'event' }, (data) => renderEventPoint(data.event))
                     .otherwise(() => null)}
-            </div>
-            <div className="flex justify-end items-center h-full">
-                {match(hoverSelection)
-                    .with({ kind: 'bin' }, (data) => renderDate(data.datum.date))
-                    .with({ kind: 'event' }, (data) => renderDate(data.event.date))
-                    .otherwise(() => (
-                        <>
-                            <TimeBoundary
-                                time={firstSeen}
-                                loading={issueLoading}
-                                label="First Seen"
-                                updateDateRange={(dateRange) => {
-                                    dateRange.date_from = firstSeen?.toISOString()
-                                    return dateRange
-                                }}
-                            />
-                            <IconChevronRight />
-                            <TimeBoundary
-                                time={lastSeen}
-                                loading={summaryLoading}
-                                label="Last Seen"
-                                updateDateRange={(dateRange) => {
-                                    dateRange.date_to = lastSeen?.endOf('minute').toISOString()
-                                    return dateRange
-                                }}
-                            />
-                        </>
-                    ))}
             </div>
         </div>
     )
@@ -203,47 +288,39 @@ function renderMetric(name: string, value: number | undefined, loading: boolean,
                     </Skeleton>
                 ))
                 .with([false], () => (
-                    <Tooltip title={tooltip} delayMs={0} placement="right">
+                    <LemonTooltip title={tooltip} delayMs={0} placement="right">
                         <div className="flex items-center gap-1">
                             <div className="text-lg font-bold inline-block">
                                 {value == null ? '0' : humanFriendlyLargeNumber(value)}
                             </div>
                             <div className="inline-block text-xs text-muted-foreground">{name}</div>
                         </div>
-                    </Tooltip>
+                    </LemonTooltip>
                 ))
                 .exhaustive()}
         </span>
     )
 }
 
-function renderDate(date: Date): JSX.Element {
-    return (
-        <div className="whitespace-nowrap text-xs text-muted-foreground">
-            {dayjs(date).utc().format('D MMM YYYY HH:mm (UTC)')}
-        </div>
-    )
-}
-
-function renderDataPoint(d: SparklineDatum): JSX.Element {
+function renderDataPoint(datum: SparklineDatum): JSX.Element {
     return (
         <div className="flex items-center h-full gap-3">
-            {renderMetric('Occurrences', d.value, false)}
-            {d.isSpike && (
+            {renderMetric('Occurrences', datum.value, false)}
+            {datum.isSpike && (
                 <div className="flex items-center gap-1.5 text-warning-foreground">
                     <IconTrending className="text-base" />
                     <span className="text-xs font-semibold">Spike</span>
-                    <span className="text-xs text-muted-foreground">— click to see details</span>
+                    <span className="text-xs text-muted-foreground">Click to filter</span>
                 </div>
             )}
         </div>
     )
 }
 
-function renderEventPoint(d: SparklineEvent<string>): JSX.Element {
+function renderEventPoint(event: SparklineEvent<string>): JSX.Element {
     return (
-        <div className="flex justify-start items-center h-full gap-1">
-            <div className="text-lg font-bold">{d.payload}</div>
+        <div className="flex h-full items-center justify-start">
+            <div className="text-sm font-semibold">{dayjs(event.date).utc().format('D MMM YYYY HH:mm [UTC]')}</div>
         </div>
     )
 }

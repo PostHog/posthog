@@ -1,15 +1,20 @@
 import { useActions, useValues } from 'kea'
-import { PropsWithChildren } from 'react'
+import { PropsWithChildren, useEffect } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
 
+import { ErrorEventType } from 'lib/components/Errors/types'
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from 'lib/ui/quill'
 
 import { eventsSourceLogic } from '../../components/EventsTable/eventsSourceLogic'
 import { EventsTable, EventsTableLoading } from '../../components/EventsTable/EventsTable'
+import { issueFilterPreviewLogic } from '../../components/IssueFilterPreview/issueFilterPreviewLogic'
 import { ErrorFilters } from '../../components/IssueFilters'
+import { getNextErrorTrackingDateRange } from '../../components/IssueFilters/DateRange'
+import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
 import { Metadata } from '../../components/IssueMetadata'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { IssueEventsEmptyState } from './IssueEventsEmptyState'
 
 export function IssueEventsPanel(): JSX.Element {
     const { issueFingerprintsLoading } = useValues(errorTrackingIssueSceneLogic)
@@ -26,12 +31,30 @@ export function IssueEventsPanel(): JSX.Element {
 }
 
 function LoadedIssueEventsPanel(): JSX.Element {
-    const { eventsQuery, eventsQueryKey, selectedEvent, issueFingerprints, summary } =
-        useValues(errorTrackingIssueSceneLogic)
-    const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
+    const { eventsQuery, eventsQueryKey, selectedEvent, summary } = useValues(errorTrackingIssueSceneLogic)
+    const { selectEvent, setMobileDetailOpen } = useActions(errorTrackingIssueSceneLogic)
+    const { dateRange } = useValues(issueFiltersLogic)
+    const { hasActiveFilters } = useValues(issueFilterPreviewLogic)
+    const { clearNonDateFilters } = useActions(issueFilterPreviewLogic)
+    const { setDateRange } = useActions(issueFiltersLogic)
     const dataSource = eventsSourceLogic({ query: eventsQuery, queryKey: eventsQueryKey })
     const { items, itemsLoading, canLoadNextData } = useValues(dataSource)
     const { loadData, loadNextData } = useActions(dataSource)
+    const nextDateRange = getNextErrorTrackingDateRange(dateRange)
+
+    useEffect(() => {
+        if (itemsLoading) {
+            return
+        }
+
+        const nextSelection = getListSelection(items, selectedEvent)
+        if (nextSelection !== selectedEvent) {
+            selectEvent(nextSelection)
+        }
+        if (!nextSelection) {
+            setMobileDetailOpen(false)
+        }
+    }, [items, itemsLoading, selectEvent, selectedEvent, setMobileDetailOpen])
 
     return (
         <IssueEventsLayout
@@ -43,8 +66,18 @@ function LoadedIssueEventsPanel(): JSX.Element {
                 }
             }}
         >
-            {issueFingerprints.length === 0 ? (
-                <div className="px-2 py-3 text-sm text-muted-foreground">No exceptions found for this issue.</div>
+            {!itemsLoading && items.length === 0 ? (
+                <IssueEventsEmptyState
+                    nextDateRangeLabel={nextDateRange?.label ?? null}
+                    hasActiveFilters={hasActiveFilters}
+                    loading={itemsLoading}
+                    onIncreaseDateRange={() => {
+                        if (nextDateRange) {
+                            setDateRange(nextDateRange.dateRange)
+                        }
+                    }}
+                    onClearFilters={clearNonDateFilters}
+                />
             ) : (
                 <EventsTable
                     items={items}
@@ -59,6 +92,10 @@ function LoadedIssueEventsPanel(): JSX.Element {
             )}
         </IssueEventsLayout>
     )
+}
+
+export function getListSelection(items: ErrorEventType[], selectedEvent: ErrorEventType | null): ErrorEventType | null {
+    return (selectedEvent ? items.find((item) => item.uuid === selectedEvent.uuid) : undefined) ?? items[0] ?? null
 }
 
 function IssueEventsLayout({
@@ -76,37 +113,41 @@ function IssueEventsLayout({
             <Metadata className="flex min-h-0 flex-1 flex-col" onScrollNearEnd={onScrollNearEnd}>
                 <div className="sticky top-0 z-10 shrink-0 border-y border-primary bg-surface-primary px-2 py-2">
                     <ErrorFilters.Root className="w-full">
-                        <div className="flex w-full flex-col gap-1">
-                            <div className="flex w-full flex-wrap items-center gap-1">
-                                <Tooltip>
-                                    <TooltipTrigger
-                                        render={
-                                            <Button
-                                                variant="outline"
-                                                size="icon"
-                                                loading={loading}
-                                                aria-label="Reload exceptions"
-                                                onClick={() => onReload?.()}
-                                            />
-                                        }
-                                    >
-                                        <IconRefresh />
-                                    </TooltipTrigger>
-                                    <TooltipContent>Reload exceptions</TooltipContent>
-                                </Tooltip>
-                                <ErrorFilters.DateRange />
-                                <div className="ml-auto shrink-0">
-                                    <ErrorFilters.InternalAccounts />
+                        <ErrorFilters.FilterGroup
+                            iconOnly
+                            renderControls={({ filterPicker, activeFilters }) => (
+                                <div className="flex w-full flex-col gap-2">
+                                    <div className="flex w-full flex-nowrap items-center gap-2">
+                                        <Tooltip>
+                                            <TooltipTrigger
+                                                render={
+                                                    <Button
+                                                        variant="outline"
+                                                        size="icon"
+                                                        loading={loading}
+                                                        aria-label="Reload exceptions"
+                                                        onClick={() => onReload?.()}
+                                                    />
+                                                }
+                                            >
+                                                <IconRefresh />
+                                            </TooltipTrigger>
+                                            <TooltipContent>Reload exceptions</TooltipContent>
+                                        </Tooltip>
+                                        <ErrorFilters.DateRange />
+                                        <ErrorFilters.Search
+                                            className="w-auto min-w-40 flex-1 shrink"
+                                            placeholder="Search exceptions"
+                                            endAddon={filterPicker}
+                                        />
+                                        <div className="shrink-0">
+                                            <ErrorFilters.InternalAccounts />
+                                        </div>
+                                    </div>
+                                    {activeFilters ? <div>{activeFilters}</div> : null}
                                 </div>
-                            </div>
-                            <div className="flex w-full flex-wrap items-center gap-1">
-                                <ErrorFilters.Search
-                                    className="w-auto min-w-40 flex-1 shrink"
-                                    placeholder="Search exceptions"
-                                />
-                                <ErrorFilters.FilterGroup />
-                            </div>
-                        </div>
+                            )}
+                        />
                     </ErrorFilters.Root>
                 </div>
                 {children}

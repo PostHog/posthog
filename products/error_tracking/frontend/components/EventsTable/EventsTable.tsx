@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react'
+
 import { Link } from '@posthog/lemon-ui'
 
 import { ErrorEventType } from 'lib/components/Errors/types'
@@ -57,6 +59,7 @@ export function EventsTable({
                                 key={record.uuid}
                                 record={record}
                                 selected={selectedEvent?.uuid === record.uuid}
+                                listLoading={loading}
                                 firstEventUuid={firstEventUuid}
                                 lastEventUuid={lastEventUuid}
                                 onSelect={onEventSelect}
@@ -98,18 +101,29 @@ export function EventsTable({
 function EventRow({
     record,
     selected,
+    listLoading,
     firstEventUuid,
     lastEventUuid,
     onSelect,
 }: {
     record: ErrorEventType
     selected: boolean
+    listLoading: boolean
     firstEventUuid?: string
     lastEventUuid?: string
     onSelect: (event: ErrorEventType) => void
 }): JSX.Element {
+    const rowRef = useRef<HTMLTableRowElement>(null)
+
+    useEffect(() => {
+        if (selected && !listLoading) {
+            rowRef.current?.scrollIntoView({ block: 'nearest' })
+        }
+    }, [listLoading, selected])
+
     return (
         <TableRow
+            ref={rowRef}
             data-state={selected ? 'selected' : undefined}
             className={cn(
                 'cursor-pointer',
