@@ -16,7 +16,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
 
-import { buildBucketKeys, normalizeBucket } from './timeBuckets'
+import { buildBucketKeys, lastBucketIsInProgress, normalizeBucket } from './timeBuckets'
 
 export interface CategoryCount {
     category: string
@@ -146,6 +146,7 @@ export interface mcpAnalyticsToolQualityLogicValues {
     dateFilter: DateFilter
     dateRangeLabel: string
     filteredRows: ToolQualityRow[]
+    incompleteTail: boolean
     interval: IntervalType
     scopeShare: ScopeShare
     searchTerm: string
@@ -259,6 +260,7 @@ export interface mcpAnalyticsToolQualityLogicMeta {
             interval: IntervalType,
             timezone: string
         ) => DailyChartData
+        incompleteTail: (dailyChartData: DailyChartData, interval: IntervalType, timezone: string) => boolean
     }
 }
 
@@ -438,6 +440,13 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
                 const bucketKeys = buildBucketKeys(dateFilter.dateFrom, dateFilter.dateTo, timezone, interval)
                 return buildDailyChartData(dailyStats, bucketKeys)
             },
+        ],
+        // The charts dash the final segment when it is the current, still-collecting interval, so a
+        // partial day doesn't read as a fall in calls or a latency improvement.
+        incompleteTail: [
+            (s) => [s.dailyChartData, s.interval, teamLogic.selectors.timezone],
+            (dailyChartData: DailyChartData, interval: IntervalType, timezone: string): boolean =>
+                lastBucketIsInProgress(dailyChartData.labels, timezone, interval),
         ],
     }),
 

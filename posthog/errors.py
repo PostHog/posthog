@@ -122,7 +122,12 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
     elif name == "TIMEOUT_EXCEEDED":
         return ClickHouseQueryTimeOut()
     elif name == "MEMORY_LIMIT_EXCEEDED":
-        return ClickHouseQueryMemoryLimitExceeded()
+        memory_error = ClickHouseQueryMemoryLimitExceeded()
+        # Match the known per-query phrasings ("Memory limit (for query) exceeded" before
+        # ClickHouse 26, "Query memory limit exceeded" since). Anything else - "(total)",
+        # "(for user)", or a future rewording - counts as transient cluster pressure.
+        memory_error.is_per_query_limit = "(for query)" in err.message or "Query memory limit exceeded" in err.message
+        return memory_error
     elif (
         name == "SYNTAX_ERROR" and "query size exceeded" in err.message
     ):  # Handle syntax error when "max query size exceeded" in the message
@@ -514,9 +519,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     203: ErrorCodeMeta("NO_FREE_CONNECTION", category=QueryErrorCategory.RATE_LIMITED),
     204: ErrorCodeMeta("CANNOT_FSYNC"),
     206: ErrorCodeMeta("ALIAS_REQUIRED"),
-    207: ErrorCodeMeta(
-        "AMBIGUOUS_IDENTIFIER", category=QueryErrorCategory.USER_ERROR
-    ),  # identifier resolves to multiple columns or aliases
+    207: ErrorCodeMeta("AMBIGUOUS_IDENTIFIER", user_safe=True),  # identifier resolves to multiple columns or aliases
     208: ErrorCodeMeta("EMPTY_NESTED_TABLE"),
     209: ErrorCodeMeta("SOCKET_TIMEOUT"),
     210: ErrorCodeMeta("NETWORK_ERROR"),
@@ -632,7 +635,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     346: ErrorCodeMeta("CANNOT_CONVERT_CHARSET"),
     347: ErrorCodeMeta("CANNOT_LOAD_CONFIG"),
     349: ErrorCodeMeta("CANNOT_INSERT_NULL_IN_ORDINARY_COLUMN", user_safe=True),
-    352: ErrorCodeMeta("AMBIGUOUS_COLUMN_NAME", category=QueryErrorCategory.USER_ERROR),
+    352: ErrorCodeMeta("AMBIGUOUS_COLUMN_NAME", user_safe=True),
     353: ErrorCodeMeta("INDEX_OF_POSITIONAL_ARGUMENT_IS_OUT_OF_RANGE", user_safe=True),
     354: ErrorCodeMeta("ZLIB_INFLATE_FAILED"),
     355: ErrorCodeMeta("ZLIB_DEFLATE_FAILED"),

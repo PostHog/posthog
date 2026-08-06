@@ -21,6 +21,8 @@ interface DetailSectionProps {
     collapsible?: boolean
     /** Start collapsed (only honoured when `collapsible`). */
     defaultCollapsed?: boolean
+    /** Called with the new collapsed state whenever the header toggle is pressed. */
+    onToggleCollapsed?: (collapsed: boolean) => void
 }
 
 /**
@@ -39,9 +41,16 @@ export function DetailSection({
     children,
     collapsible = false,
     defaultCollapsed = false,
+    onToggleCollapsed,
 }: DetailSectionProps): JSX.Element {
     const [collapsed, setCollapsed] = useState(defaultCollapsed)
     const open = !collapsible || !collapsed
+
+    const toggle = (): void => {
+        const next = !collapsed
+        setCollapsed(next)
+        onToggleCollapsed?.(next)
+    }
 
     const headerRow = (
         <div className="flex flex-1 items-center gap-3 min-w-0">
@@ -67,7 +76,7 @@ export function DetailSection({
                         type="tertiary"
                         size="small"
                         fullWidth
-                        onClick={() => setCollapsed((c) => !c)}
+                        onClick={toggle}
                         aria-expanded={open}
                         sideIcon={open ? <IconCollapse /> : <IconExpand />}
                         // `-my-px` trims the small button's extra height so its baseline matches the

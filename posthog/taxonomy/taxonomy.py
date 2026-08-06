@@ -455,6 +455,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Conversation message sent",
             "description": "Fires when a message is sent in a support conversation.",
         },
+        "$conversation_private_message_sent": {
+            "label": "Conversation private message sent",
+            "description": "Fires when a team member sends a private note in a support conversation.",
+        },
         "$conversation_message_received": {
             "label": "Conversation message received",
             "description": "Fires when a message is received in a support conversation.",
@@ -2218,6 +2222,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
             "examples": [23],
         },
+        "$ai_cache_creation_5m_input_tokens": {
+            "label": "AI 5-minute cache creation input tokens (LLM)",
+            "description": "The number of tokens created in the 5-minute prompt cache (Anthropic only).",
+            "examples": [23],
+            "type": "Numeric",
+        },
+        "$ai_cache_creation_1h_input_tokens": {
+            "label": "AI 1-hour cache creation input tokens (LLM)",
+            "description": "The number of tokens created in the 1-hour prompt cache (Anthropic only).",
+            "examples": [23],
+            "type": "Numeric",
+        },
         "$ai_cache_reporting_exclusive": {
             "label": "AI cache reporting exclusive (LLM)",
             "description": "Whether cache tokens are excluded from the input token count. When true, cache tokens are separate from input tokens (Anthropic-style). When false, input tokens already include cache tokens. Auto-detected from provider when not set explicitly.",
@@ -2450,8 +2466,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$ai_target_type": {
             "label": "AI Target Type (LLM)",
-            "description": "ID space of $ai_target_id. `generation_uuid` resolves against `events.uuid`; `trace_id` resolves against the `$ai_trace_id` property.",
-            "examples": ["generation_uuid", "trace_id"],
+            "description": "ID space of $ai_target_id. `generation_uuid` resolves against `events.uuid`, `trace_id` resolves against the `$ai_trace_id` property, and `session_id` resolves against the `$ai_session_id` property.",
+            "examples": ["generation_uuid", "trace_id", "session_id"],
         },
         "$ai_metric_name": {
             "label": "AI Metric Name (LLM)",
@@ -2711,6 +2727,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Upstream HTTP status code when an MCP tool call failed against a PostHog API (e.g. 429, 500). Only set for API-originated failures.",
             "type": "Numeric",
             "examples": [429, 500, 403],
+        },
+        "$mcp_error_code": {
+            "label": "MCP error code",
+            "description": "Machine-readable code for the leaf failure mode of an errored MCP tool call: the API's validation error code, or the exec dispatcher's rejection reason. Carries error codes only, never caller-supplied values. Only set when $mcp_is_error is true.",
+            "examples": ["invalid", "required", "unknown_tool", "invalid_json"],
+        },
+        "$mcp_error_field": {
+            "label": "MCP error field",
+            "description": "Field path the PostHog API's validation error pointed at, with array indexes normalized to N so one failure mode groups to one value. Only set for validation failures.",
+            "examples": ["actions__N__inputs__email", "query"],
         },
         "$mcp_error_message": {
             "label": "MCP error message",
@@ -3149,6 +3175,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI cache write token price (LLM)",
             "description": "The price per token written to the prompt cache.",
             "examples": [0.00000375],
+            "type": "Numeric",
+        },
+        "$ai_cache_write_1h_token_price": {
+            "label": "AI 1-hour cache write token price (LLM)",
+            "description": "The price per token written to the 1-hour prompt cache. Set this to override PostHog's cost calculation for 1-hour cache writes.",
+            "examples": [0.000006],
             "type": "Numeric",
         },
         "$ai_request_price": {

@@ -61,7 +61,6 @@ export interface JoinedIngestionPipelineConfig {
     preservePartitionLocality: boolean
     personsPrefetchEnabled: boolean
     groupsPrefetchEnabled: boolean
-    cdpHogWatcherSampleRate: number
     outputs: IngestionOutputs<
         | EventOutput
         | AiEventOutput
@@ -128,7 +127,6 @@ export function createJoinedIngestionPipeline<
         preservePartitionLocality,
         personsPrefetchEnabled,
         groupsPrefetchEnabled,
-        cdpHogWatcherSampleRate,
         outputs,
         perDistinctIdOptions,
         concurrentBatches,
@@ -168,8 +166,7 @@ export function createJoinedIngestionPipeline<
         groupsPrefetchEnabled,
         groupTypeManager,
         flagCalledPersonlessDefaultTeams: perDistinctIdOptions.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
-        hogTransformer,
-        cdpHogWatcherSampleRate,
+        personlessWritesDisabledTeams: perDistinctIdOptions.PERSONLESS_WRITES_DISABLED_TEAMS,
     }
 
     const perEventConfig: PerDistinctIdPipelineConfig = {
@@ -189,6 +186,7 @@ export function createJoinedIngestionPipeline<
             teamManager,
             outputs,
             promiseScheduler,
+            topHog,
             // Batch stores are singleton persistent caches, but each batch receives a
             // batch-bound view so entries can be reference-counted and released after
             // that batch's flush lifecycle completes. The Rust consumer's per-worker

@@ -2,7 +2,7 @@ import type { AccountCustomPropertyFilter } from '~/types'
 
 import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
-import { ACCOUNTS_HOGQL_DEFAULT_SELECT } from './accountsColumnConfigLogic'
+import { ACCOUNTS_HOGQL_DEFAULT_SELECT, AccountColumnDisplayState } from './accountsColumnConfigLogic'
 import type { AccountSortOrder, RoleFilterValue } from './accountsLogic'
 import type { AccountsOverviewTile, TileFilter } from './accountsOverviewTilesLogic'
 import { DEFAULT_TILES } from './constants'
@@ -18,6 +18,7 @@ export interface AccountsViewFilters {
 
 export interface AccountsViewProperties {
     tiles?: AccountsOverviewTile[]
+    column_display?: AccountColumnDisplayState
 }
 
 export interface AccountsViewState {
@@ -25,6 +26,7 @@ export interface AccountsViewState {
     sortOrder: AccountSortOrder
     filters: AccountsViewFilters
     tiles: AccountsOverviewTile[]
+    columnDisplay: AccountColumnDisplayState
 }
 
 type AccountsViewPayload = Pick<ColumnConfigurationApi, 'columns' | 'order_by'> & {
@@ -84,11 +86,15 @@ export function serializeAccountsView(state: AccountsViewState): AccountsViewPay
     if (state.filters.customProperties.length > 0) {
         filters.customProperties = state.filters.customProperties
     }
+    const properties: AccountsViewProperties = { tiles: state.tiles }
+    if (Object.keys(state.columnDisplay).length > 0) {
+        properties.column_display = state.columnDisplay
+    }
     return {
         columns: state.columns,
         order_by: sortOrderToOrderBy(state.sortOrder),
         filters,
-        properties: { tiles: state.tiles },
+        properties,
     }
 }
 
@@ -113,5 +119,9 @@ export function deserializeAccountsView(view: Partial<ColumnConfigurationApi>): 
             customProperties: Array.isArray(rawFilters.customProperties) ? rawFilters.customProperties : [],
         },
         tiles: rawProperties.tiles && rawProperties.tiles.length > 0 ? rawProperties.tiles : [...DEFAULT_TILES],
+        columnDisplay:
+            rawProperties.column_display && typeof rawProperties.column_display === 'object'
+                ? rawProperties.column_display
+                : {},
     }
 }

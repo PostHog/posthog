@@ -26,12 +26,19 @@ class TestMergeFiltersByPriority(SimpleTestCase):
     def test_returns_single_layer_when_other_absent(self, _name, dashboard, tile, expected):
         assert merge_filters_by_priority(dashboard, tile) == expected
 
-    def test_tile_scalar_fields_win_over_dashboard(self):
+    @parameterized.expand(
+        [
+            ("tile forces test accounts on", False, True),
+            # False is a meaningful override (force off), so it must beat a dashboard True too.
+            ("tile forces test accounts off", True, False),
+        ]
+    )
+    def test_tile_scalar_fields_win_over_dashboard(self, _name, dashboard_fta, tile_fta):
         merged = merge_filters_by_priority(
-            {"interval": "day", "filterTestAccounts": False},
-            {"interval": "week", "filterTestAccounts": True},
+            {"interval": "day", "filterTestAccounts": dashboard_fta},
+            {"interval": "week", "filterTestAccounts": tile_fta},
         )
-        assert merged == {"interval": "week", "filterTestAccounts": True}
+        assert merged == {"interval": "week", "filterTestAccounts": tile_fta}
 
     def test_dashboard_scalar_kept_when_tile_leaves_it_unset(self):
         merged = merge_filters_by_priority(
@@ -41,6 +48,19 @@ class TestMergeFiltersByPriority(SimpleTestCase):
         assert merged["interval"] == "day"
         assert merged["filterTestAccounts"] is True
         assert merged["breakdown_filter"] == {"breakdown": "$browser", "breakdown_type": "event"}
+
+    @parameterized.expand(
+        [
+            ("null tile breakdown inherits dashboard breakdown", None, {"breakdown": "$os", "breakdown_type": "event"}),
+            ("empty tile breakdown clears dashboard breakdown", {}, {}),
+        ]
+    )
+    def test_tile_breakdown_null_inherits_empty_clears(self, _name, tile_breakdown, expected_breakdown):
+        merged = merge_filters_by_priority(
+            {"breakdown_filter": {"breakdown": "$os", "breakdown_type": "event"}},
+            {"breakdown_filter": tile_breakdown},
+        )
+        assert merged["breakdown_filter"] == expected_breakdown
 
     def test_properties_on_different_keys_are_and_combined_dashboard_first(self):
         dashboard_prop = {"key": "$country", "value": "US", "type": "event"}

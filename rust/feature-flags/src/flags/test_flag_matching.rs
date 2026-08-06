@@ -13,7 +13,7 @@ mod tests {
         api::types::{FlagValue, LegacyFlagsResponse},
         cohorts::{
             cohort_cache_manager::CohortCacheManager,
-            cohort_models::{CohortId, CohortType},
+            cohort_models::{CohortId, CohortType, MembershipStampPolicy},
             membership::{CohortMembershipError, CohortMembershipProvider},
         },
         flags::{
@@ -3595,6 +3595,7 @@ mod tests {
                 Some(Utc::now()),
                 None,
                 Some(behavioral_condition_type()),
+                None,
             )
             .await
             .unwrap();
@@ -3661,6 +3662,7 @@ mod tests {
                 Some(Utc::now()),
                 None,
                 Some(behavioral_condition_type()),
+                None,
             )
             .await
             .unwrap();
@@ -3770,6 +3772,144 @@ mod tests {
             0,
             "Provider must not be consulted when realtime cohort evaluation is disabled"
         );
+    }
+
+    #[tokio::test]
+    async fn test_disambiguated_policy_person_stamp_only_falls_back_to_dynamic() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        // The person satisfies the filters and the provider reports non-membership, so a
+        // match can only have come from dynamic evaluation.
+        let cohort = context
+            .insert_cohort_with_type_and_condition_type(
+                team.id,
+                Some("Person Stamp Only Cohort".to_string()),
+                plan_cohort_filters("enterprise"),
+                false,
+                Some(CohortType::Realtime),
+                Some(Utc::now()),
+                None,
+                Some(behavioral_condition_type()),
+                None,
+            )
+            .await
+            .unwrap();
+
+        let distinct_id = "person_stamp_only_user".to_string();
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"plan": "enterprise"})),
+            )
+            .await
+            .unwrap();
+
+        let flag = flag_targeting_cohort(team.id, cohort.id);
+
+        let provider = Arc::new(FixedMembershipProvider::new(HashMap::from([(
+            cohort.id, false,
+        )])));
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        )
+        .with_cohort_membership_provider(provider.clone())
+        .with_realtime_cohort_evaluation(true)
+        .with_membership_stamp_policy(MembershipStampPolicy::EventsOrCalculationStamp);
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert!(
+            result.matches,
+            "A person-stamp-only cohort must evaluate dynamically under the disambiguated policy"
+        );
+        assert_eq!(
+            provider.calls.load(Ordering::SeqCst),
+            0,
+            "Provider must not be consulted for a cohort only the overloaded person stamp vouches for"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_disambiguated_policy_calculation_stamp_consults_provider() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        // The person's plan is free, so dynamic evaluation cannot match and a match proves
+        // both the provider was consulted and the stamp round-tripped through PG.
+        let cohort = context
+            .insert_cohort_with_type_and_condition_type(
+                team.id,
+                Some("Calc Stamp Cohort".to_string()),
+                plan_cohort_filters("enterprise"),
+                false,
+                Some(CohortType::Realtime),
+                None,
+                None,
+                Some(behavioral_condition_type()),
+                Some(Utc::now()),
+            )
+            .await
+            .unwrap();
+
+        let distinct_id = "calc_stamp_user".to_string();
+        context
+            .insert_person(team.id, distinct_id.clone(), Some(json!({"plan": "free"})))
+            .await
+            .unwrap();
+
+        let flag = flag_targeting_cohort(team.id, cohort.id);
+
+        let provider = Arc::new(FixedMembershipProvider::new(HashMap::from([(
+            cohort.id, true,
+        )])));
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        )
+        .with_cohort_membership_provider(provider.clone())
+        .with_realtime_cohort_evaluation(true)
+        .with_membership_stamp_policy(MembershipStampPolicy::EventsOrCalculationStamp);
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert!(
+            result.matches,
+            "A calculation-stamped cohort must route through the provider under the disambiguated policy"
+        );
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

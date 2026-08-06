@@ -14,12 +14,16 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api, { PaginatedResponse } from 'lib/api'
+import { lemonToast } from '@posthog/lemon-ui'
 
-import { DataModelingJob, DataWarehouseSavedQuery } from '~/types'
+import api, { ApiConfig, PaginatedResponse } from 'lib/api'
+
+import { DataModelingJob, DataModelingSyncInterval, DataWarehouseSavedQuery } from '~/types'
+
+import { warehouseSavedQueriesResumeCreate } from 'products/data_warehouse/frontend/generated/api'
 
 import type { CountedPaginatedResponse } from '../../../lib/api'
-import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
+import { DEFAULT_MATERIALIZE_SYNC_FREQUENCY, dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 
 const REFRESH_INTERVAL = 10000
 const DEFAULT_JOBS_PAGE_SIZE = 10
@@ -33,6 +37,8 @@ export interface materializationJobsLogicValues {
     dataModelingJobs: PaginatedResponse<DataModelingJob> | null
     dataModelingJobsLoading: boolean
     hasMoreJobsToLoad: boolean
+    initialSyncFrequency: DataModelingSyncInterval
+    resumingMaterialization: boolean
     savedQuery: DataWarehouseSavedQuery | null
     savedQueryLoading: boolean
     startingMaterialization: boolean
@@ -112,6 +118,15 @@ export interface materializationJobsLogicActions {
         savedQuery: DataWarehouseSavedQuery | null
         payload?: any
     }
+    resumeMaterialization: () => {
+        value: true
+    }
+    setInitialSyncFrequency: (syncFrequency: DataModelingSyncInterval) => {
+        syncFrequency: DataModelingSyncInterval
+    }
+    setResumingMaterialization: (resuming: boolean) => {
+        resuming: boolean
+    }
     setStartingMaterialization: (starting: boolean) => {
         starting: boolean
     }
@@ -141,6 +156,9 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
     })),
     actions({
         setStartingMaterialization: (starting: boolean) => ({ starting }),
+        resumeMaterialization: true,
+        setResumingMaterialization: (resuming: boolean) => ({ resuming }),
+        setInitialSyncFrequency: (syncFrequency: DataModelingSyncInterval) => ({ syncFrequency }),
     }),
     loaders(({ values, props }) => ({
         savedQuery: [
@@ -182,6 +200,22 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
         ],
     })),
     reducers({
+        // What the not-yet-materialized panel will ask for. Kept here rather than in component state
+        // so it survives the panel remounting while the saved query reloads.
+        initialSyncFrequency: [
+            DEFAULT_MATERIALIZE_SYNC_FREQUENCY,
+            {
+                setInitialSyncFrequency: (_, { syncFrequency }: { syncFrequency: DataModelingSyncInterval }) =>
+                    syncFrequency,
+            },
+        ],
+        resumingMaterialization: [
+            false,
+            {
+                resumeMaterialization: () => true,
+                setResumingMaterialization: (_, { resuming }: { resuming: boolean }) => resuming,
+            },
+        ],
         startingMaterialization: [
             false,
             {
@@ -221,6 +255,20 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
         }
     }),
     listeners(({ actions, cache, props }) => ({
+        resumeMaterialization: async () => {
+            try {
+                await warehouseSavedQueriesResumeCreate(String(ApiConfig.getCurrentTeamId()), props.viewId)
+                lemonToast.success('Materialization resumed. The next scheduled run will include this view.')
+                actions.loadSavedQuery()
+                actions.loadDataModelingJobs()
+            } catch {
+                lemonToast.error(
+                    "Couldn't resume materialization. Try again, and contact support if it keeps happening."
+                )
+            } finally {
+                actions.setResumingMaterialization(false)
+            }
+        },
         updateDataWarehouseSavedQuerySuccess: ({ payload }) => {
             // The sync frequency dropdown mutates this saved query through dataWarehouseViewsLogic, which
             // doesn't own our `savedQuery`. Reload it so the displayed frequency reflects the new value

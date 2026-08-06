@@ -59,7 +59,11 @@ impl RawHermesFrame {
                 Ok(self.handle_resolution_error(HermesError::NoSourcemapUploaded(chunk_id)))
             }
             Err(ResolveError::ResolutionError(e)) => {
-                tracing::warn!("Unexpected Hermes symbol resolution error: {:?}", e);
+                tracing::warn!(
+                    team_id,
+                    "Unexpected Hermes symbol resolution error: {:?}",
+                    e
+                );
                 Ok(self.handle_resolution_error(HermesError::InvalidMap(e.to_string())))
             }
             Err(ResolveError::UnhandledError(e)) => Err(e),
@@ -152,7 +156,6 @@ impl From<(&RawHermesFrame, HermesError)> for Frame {
             junk_drawer: None,
             code_variables: None,
             context: None,
-            release: None,
             suspicious: false,
             module: None,
         };
@@ -194,7 +197,6 @@ impl From<(&RawHermesFrame, Token<'_>, Option<String>, usize)> for Frame {
             junk_drawer: None,
             code_variables: None,
             context: get_token_context(&token, token.get_src_line() as usize, context_lines),
-            release: None,
             suspicious: false,
             module: None,
         };
@@ -229,7 +231,6 @@ impl From<&RawHermesFrame> for Frame {
             junk_drawer: None,
             code_variables: None,
             context: None,
-            release: None,
             synthetic: raw_frame.meta.synthetic,
             suspicious: false,
             module: None,

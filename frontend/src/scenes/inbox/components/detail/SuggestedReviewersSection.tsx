@@ -97,6 +97,7 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
         <DetailSection
             icon={<IconPeople />}
             title="Reviewers"
+            collapsible
             afterTitle={
                 <Tooltip title="Suggested reviewers are tracked in PostHog. To request a review on GitHub, add them on the pull request directly.">
                     <span className="-m-1 flex cursor-help items-center p-1 text-base text-tertiary">
@@ -245,8 +246,8 @@ function ReviewerRow({
     )
 
     return (
-        <div className="group flex items-start gap-2 rounded px-1.5 py-1.5">
-            {/* no row hover: the row isn't clickable, only the remove button (revealed on group hover) is */}
+        <div className="group grid grid-cols-[minmax(8rem,10rem)_minmax(0,1fr)_auto] items-center gap-2 rounded px-1.5 py-1.5">
+            {/* no row hover: the row isn't clickable, only the remove button is */}
             <Tooltip
                 title={
                     reviewer.user
@@ -256,7 +257,7 @@ function ReviewerRow({
                         : `${displayName} hasn't connected their GitHub account to PostHog. Ask them to do so in Settings!`
                 }
             >
-                <span className={!reviewer.user ? 'opacity-75' : undefined}>
+                <span className={!reviewer.user ? 'min-w-0 opacity-75' : 'min-w-0'}>
                     {/* The GitHub handle's link is merged into the name: clicking it opens the
                         reviewer's GitHub profile, flagged by the external-link icon. */}
                     {githubUrl ? (
@@ -274,7 +275,7 @@ function ReviewerRow({
             </Tooltip>
             <div className="flex flex-col min-w-0 flex-1 gap-0.5">
                 {reviewer.relevant_commits.length > 0 && (
-                    <span className="text-[0.6875rem] text-tertiary">
+                    <span className="text-xs text-tertiary">
                         {reviewer.relevant_commits.map((commit, i) => (
                             <span key={commit.sha}>
                                 {i > 0 && ', '}
@@ -289,7 +290,7 @@ function ReviewerRow({
                         ))}
                     </span>
                 )}
-                {reason && <span className="text-[0.6875rem] text-tertiary leading-snug">{reason}</span>}
+                {reason && <span className="text-xs text-tertiary leading-snug">{reason}</span>}
             </div>
             <LemonButton
                 size="xsmall"
@@ -298,7 +299,9 @@ function ReviewerRow({
                 disabledReason={disabled ? 'Updating…' : undefined}
                 onClick={onRemove}
                 tooltip={`Remove ${reviewer.github_login || reviewer.user?.first_name || 'reviewer'}`}
-                className="opacity-0 transition-opacity group-hover:opacity-100"
+                // Hover reveal keeps rows quiet with a mouse, but a coarse pointer (phone, tablet) has no
+                // hover state, so the button stays visible there and whenever the row holds keyboard focus.
+                className="opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"
             />
         </div>
     )
