@@ -98,10 +98,12 @@ class AuthError(Exception):
 class Credential:
     """One host's cached OAuth state: the self-registered client, plus the tokens it minted.
 
-    ``granted`` is what the server said it issued, not what was asked for, because /authorize
-    clamps a request to the client's ceiling and a token can come back narrower than the ask.
-    ``registered`` is that ceiling, so a caller needing a scope outside it needs a new client
-    rather than just new consent.
+    Three scope tuples, narrowest first. ``granted`` is what the server said it issued, not what
+    was asked for, because /authorize clamps a request to the client's ceiling and a token can come
+    back narrower than the ask. ``registered`` is that ceiling, so a caller needing a scope outside
+    it needs a new client rather than just new consent. ``requested`` is what we asked the server to
+    register, a superset of ``registered`` when the server stripped something, kept so a scope the
+    server refuses is not re-requested on every call.
     """
 
     host: str
@@ -111,8 +113,6 @@ class Credential:
     expires_at: float | None = None
     granted: tuple[str, ...] = ()
     registered: tuple[str, ...] = ()
-    # What we asked the server to register, which is a superset of `registered` when the server
-    # stripped something. Kept so a scope the server refuses is not re-requested on every call.
     requested: tuple[str, ...] = ()
 
     def is_fresh(self, *, now: float | None = None) -> bool:
@@ -122,6 +122,8 @@ class Credential:
 
     def covers(self, scopes: Iterable[str]) -> bool:
         granted = set(self.granted)
+        # An empty `granted` means the server reported no scopes, which is "unknown" rather than
+        # "none", so it satisfies any ask.
         return not granted or set(scopes) <= granted
 
     def as_json(self) -> dict[str, Any]:
@@ -137,9 +139,16 @@ class Credential:
         }
 
 
+def _normalize_host(host: str) -> str:
+    return host.rstrip("/")
+
+
 def _cache_path(host: str) -> Path:
-    """One file per host, named after it. Two hosts can hold credentials at once (us, eu, a local
-    stack), and the name has to survive being a filename, so keep only unreserved characters."""
+    """One file per host, named after it.
+
+    Two hosts can hold credentials at once (us, eu, a local stack), and the name has to survive
+    being a filename, so keep only unreserved characters.
+    """
     slug = "".join(char if char.isalnum() else "-" for char in urlparse(host).netloc or host)
     return _CACHE_ROOT / f"{slug}.json"
 
@@ -202,8 +211,11 @@ def forget(host: str = DEFAULT_HOST) -> bool:
     return existed
 
 
-def key_from_env() -> str | None:
-    """A personal API key from the environment, if one is set.
+def key_in_env() -> tuple[str, str] | None:
+    """The variable holding a personal API key and the key itself, or None when neither is set.
+
+    Returns both so no caller re-derives which variable won: `status` reports the source, and a
+    second scan would disagree with this one about whether a whitespace-only value counts.
 
     ``POSTHOG_AUTH_HEADER`` holds a whole ``Bearer <key>`` header value, so strip the scheme
     rather than sending it twice.
@@ -216,12 +228,14 @@ def key_from_env() -> str | None:
         # its quotes attached and the `Bearer ` prefix no longer matches.
         if len(raw) > 1 and raw[0] == raw[-1] and raw[0] in "\"'":
             raw = raw[1:-1].strip()
-        return raw.removeprefix("Bearer ").strip()
+        return var, raw.removeprefix("Bearer ").strip()
     return None
 
 
-def _normalize_host(host: str) -> str:
-    return host.rstrip("/")
+def key_from_env() -> str | None:
+    """Just the key, for callers that do not care which variable carried it."""
+    found = key_in_env()
+    return found[1] if found else None
 
 
 def token(
@@ -251,16 +265,16 @@ def token(
     if interactive is None:
         interactive = sys.stdin.isatty()
     if not interactive:
-        short = credential is not None and not credential.covers(scopes)
-        missing = " ".join(scope for scope in scopes if scope not in (credential.granted if credential else ()))
+        if credential is not None and not credential.covers(scopes):
+            missing = " ".join(scope for scope in scopes if scope not in credential.granted)
+            headline = f"hogli is signed in to {host} but not for {missing}."
+            command = f"`hogli auth:posthog:login --scope {missing}`"
+        else:
+            headline = f"hogli is not signed in to {host}."
+            command = "`hogli auth:posthog:login`"
         raise AuthError(
-            (
-                f"hogli is signed in to {host} but not for {missing}.\n"
-                if short
-                else f"hogli is not signed in to {host}.\n"
-            )
-            + f"  Run `hogli auth:posthog:login{f' --scope {missing}' if short else ''}` once. "
-            "It opens a browser and asks for no API key.\n"
+            f"{headline}\n"
+            f"  Run {command} once. It opens a browser and asks for no API key.\n"
             f"  Or set {KEY_ENV_VARS[0]} for an unattended caller."
         )
     return login(scopes=scopes, host=host).access_token
@@ -297,11 +311,9 @@ def login(
 
     refused = [scope for scope in wanted if scope not in registered]
     if refused:
-        # Refusing here leaves the registration unsaved, so retrying a bad scope name registers a
-        # fresh client each time. Those rows carry no grant and never reach Connected applications,
-        # which is why this is not worth making `access_token` optional to persist.
-        # Known before the browser opens: /authorize clamps to the ceiling above, so consenting
-        # would mint a token missing these and the failure would land after the user's click.
+        # Checked before the browser opens because /authorize clamps to the ceiling above, so
+        # consenting would mint a token missing these and fail after the user's click. The cost is
+        # an unsaved client registration per retry, which carries no grant and needs no revoking.
         raise AuthError(
             f"{host} will not grant {' '.join(refused)} to a self-registered client.\n"
             "  Check the scope name, and note that privileged scopes need an admin-registered app."
@@ -312,11 +324,12 @@ def login(
     state = secrets.token_urlsafe(24)
 
     with _CallbackServer() as server:
+        redirect_uri = server.redirect_uri
         url = f"{host}/oauth/authorize/?" + urlencode(
             {
                 "client_id": client_id,
                 "response_type": "code",
-                "redirect_uri": server.redirect_uri,
+                "redirect_uri": redirect_uri,
                 "scope": " ".join(wanted),
                 "state": state,
                 "code_challenge": challenge,
@@ -324,7 +337,6 @@ def login(
             }
         )
         code = server.collect(url, state=state, open_browser=open_browser)
-        redirect_uri = server.redirect_uri
 
     credential = _exchange(
         host,
@@ -542,10 +554,9 @@ class _CallbackServer:
         # remote box the listener is unreachable, so the address bar is where the code arrives.
         if open_browser:
             click.echo(f"Opening your browser to approve hogli. If nothing happens, open:\n  {url}", err=True)
-            # On a thread, because `webbrowser.open` blocks until the browser exits for a
-            # terminal-mode one (and for anything $BROWSER points at that doesn't detach). Opening
-            # in the foreground would deadlock: the request it blocks on is the redirect only this
-            # listener can serve.
+            # On a thread because `webbrowser.open` blocks until the browser exits for a
+            # terminal-mode browser, or anything $BROWSER points at that doesn't detach. In the
+            # foreground it would deadlock on the redirect only this listener can serve.
             threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
         else:
             click.echo(f"Open this URL to approve hogli:\n  {url}", err=True)

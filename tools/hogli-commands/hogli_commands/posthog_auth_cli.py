@@ -10,9 +10,9 @@ command that just needs a token imports the module, not this surface.
 
 from __future__ import annotations
 
-import os
 import json
 import time
+from typing import NoReturn
 
 import click
 
@@ -31,7 +31,7 @@ _HOST_OPTION = click.option(
 )
 
 
-def _fail(error: posthog_auth.AuthError) -> None:
+def _fail(error: posthog_auth.AuthError) -> NoReturn:
     click.secho(error.message, fg="red", err=True)
     raise SystemExit(error.exit_code)
 
@@ -73,6 +73,7 @@ def posthog_login(host: str, scopes: tuple[str, ...], no_browser: bool) -> None:
 @_HOST_OPTION
 @click.option("--json", "as_json", is_flag=True, help="Emit JSON instead of a table.")
 def posthog_status(host: str, as_json: bool) -> None:
+    host = host.rstrip("/")
     credential = posthog_auth.load(host)
     env_key = posthog_auth.key_from_env()
     # Both output shapes report the same verdict: a script gating on the exit code must not read
@@ -82,7 +83,7 @@ def posthog_status(host: str, as_json: bool) -> None:
         click.echo(
             json.dumps(
                 {
-                    "host": host.rstrip("/"),
+                    "host": host,
                     "environment_key_set": bool(env_key),
                     "credential": posthog_auth.redact(credential).as_json() if credential else None,
                 },
@@ -91,34 +92,31 @@ def posthog_status(host: str, as_json: bool) -> None:
         )
         raise SystemExit(0 if configured else posthog_auth.EXIT_NOT_CONFIGURED)
 
-    if env_key:
-        source = next((var for var in posthog_auth.KEY_ENV_VARS if os.environ.get(var)), posthog_auth.KEY_ENV_VARS[0])
-        click.echo(f"environment    {source} is set, and it wins over any cached credential")
+    if found := posthog_auth.key_in_env():
+        click.echo(f"environment    {found[0]} is set, and it wins over any cached credential")
     if credential is None:
-        click.echo(f"credential     none cached for {host.rstrip('/')}. Run `hogli auth:posthog:login`")
+        click.echo(f"credential     none cached for {host}. Run `hogli auth:posthog:login`")
         raise SystemExit(0 if env_key else posthog_auth.EXIT_NOT_CONFIGURED)
+
     remaining = None if credential.expires_at is None else int(credential.expires_at - time.time())
+    if remaining is None:
+        lifetime = "no expiry reported"
+    elif remaining > 0:
+        lifetime = f"expires in {remaining // 60}m"
+    else:
+        lifetime = "expired"
     click.echo(f"host           {credential.host}")
     click.echo(f"client         {credential.client_id}")
     click.echo(f"scopes         {' '.join(credential.granted) or '(none reported)'}")
-    click.echo(
-        "access token   "
-        + (
-            "no expiry reported"
-            if remaining is None
-            else f"expires in {remaining // 60}m"
-            if remaining > 0
-            else "expired"
-        )
-        + (", refreshable" if credential.refresh_token else ", not refreshable")
-    )
+    click.echo(f"access token   {lifetime}" + (", refreshable" if credential.refresh_token else ", not refreshable"))
 
 
 @click.command(name="auth:posthog:logout", help="Forget hogli's cached PostHog credential.")
 @_HOST_OPTION
 def posthog_logout(host: str) -> None:
+    host = host.rstrip("/")
     if posthog_auth.forget(host):
-        click.echo(f"Forgot the cached credential for {host.rstrip('/')}.")
+        click.echo(f"Forgot the cached credential for {host}.")
         click.echo("Revoke the grant itself under Settings → Connected apps.", err=True)
     else:
-        click.echo(f"No cached credential for {host.rstrip('/')}.")
+        click.echo(f"No cached credential for {host}.")
