@@ -858,19 +858,18 @@ MCP_ANALYTICS_EVENT_METRICS: dict[str, str] = {
 }
 
 
-def _get_mcp_analytics_event_metric_counts(
-    begin: datetime, end: datetime, use_new_events_schema: bool
-) -> dict[str, list[tuple[int, int]]]:
+def _get_mcp_analytics_event_metric_counts(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
     """One grouped query for all `MCP_ANALYTICS_EVENT_METRICS`, fanned out in Python.
 
     Mirrors `_get_ai_sub_sdk_event_metric_counts`'s "one query, group by two dims, fan out"
-    shape, but groups by `event` (not `$ai_lib`). Uses the same dedup expression *and* the same
-    calendar-aligned splitting as `mcp_tool_call_events`, so counts are directly comparable
-    across every MCP Analytics metric.
+    shape, but groups by `event` (not `$ai_lib`).
 
-    Reads through `events_read_table` like the rest of this module, rather than hardcoding
-    `events` the way `mcp_tool_call_events` still does: today the gate resolves to the same
-    table, so this is a no-op, but it keeps these metrics correct once it flips.
+    Reads `events` directly, matching `mcp_tool_call_events` rather than the
+    `events_read_table(use_new)` the rest of this module uses. The two must agree: every MCP
+    metric shares one dedup expression so the counts stay comparable, and that expression is the
+    legacy `events` ORDER BY key. The JSON table sorts by full-precision `timestamp` and raw
+    `distinct_id`/`uuid` instead, so the same expression does not dedup it equivalently. Moving
+    these metrics onto that table means changing how they dedup, for the whole module at once.
     """
     quoted_events = ", ".join(f"'{event}'" for event in MCP_ANALYTICS_EVENT_METRICS)
     # nosemgrep: clickhouse-fstring-param-audit - event names are internal constants, not user input
@@ -879,7 +878,7 @@ def _get_mcp_analytics_event_metric_counts(
             team_id,
             event,
             uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))) AS count
-        FROM {events_read_table(use_new_events_schema)}
+        FROM events
         PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
         WHERE event IN ({quoted_events})
         GROUP BY team_id, event
@@ -1061,9 +1060,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             ai_lib_expression=ai_lib_expression,
             use_new_events_schema=use_new,
         )
-        mcp_analytics_counts_by_metric = _get_mcp_analytics_event_metric_counts(
-            begin=begin, end=end, use_new_events_schema=use_new
-        )
+        mcp_analytics_counts_by_metric = _get_mcp_analytics_event_metric_counts(begin=begin, end=end)
 
     # Fold the AI sub-counts in and remove them from node_events (the main scan counts every
     # posthog-node event as node_events). max(0, count) guards against tiny cross-query ingestion jitter.

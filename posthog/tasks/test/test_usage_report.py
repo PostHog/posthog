@@ -50,6 +50,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.tasks.usage_report import (
+    MCP_ANALYTICS_EVENT_METRICS,
     OrgReport,
     UsageReportCounters,
     _add_team_report_to_org_reports,
@@ -58,6 +59,7 @@ from posthog.tasks.usage_report import (
     _get_all_usage_data_as_team_rows,
     _get_full_org_usage_report,
     _get_full_org_usage_report_as_dict,
+    _get_mcp_analytics_event_metric_counts,
     _get_team_report,
     _get_teams_for_usage_reports,
     capture_event,
@@ -1568,23 +1570,15 @@ class TestQueryUsageReportSQL:
         assert result["mcp_tool_call_events"] == [(1, 4)]
 
         # The other 7 MCP Analytics events share one grouped query, and reuse `$mcp_tool_call`'s
-        # dedup expression so every MCP metric is counted the same way.
+        # dedup expression and table so every MCP metric is counted the same way.
         mcp_analytics_query = mock_sync_execute.call_args_list[1].args[0]
         assert dedup_expression in mcp_analytics_query
         assert "GROUP BY team_id, event" in mcp_analytics_query
-        for event_name in [
-            "$mcp_missing_capability",
-            "$mcp_initialize",
-            "$mcp_tools_list",
-            "$mcp_resource_read",
-            "$mcp_resources_list",
-            "$mcp_prompt_get",
-            "$mcp_prompts_list",
-        ]:
-            assert f"'{event_name}'" in mcp_analytics_query
+        assert "FROM events" in mcp_analytics_query
         # `$mcp_tool_call` keeps its own untouched query; `$mcp_custom` is never emitted verbatim.
         assert "'$mcp_tool_call'" not in mcp_analytics_query
         assert "'$mcp_custom'" not in mcp_analytics_query
+        # One grouped query for the 7, not one query each.
         assert mock_sync_execute.call_count == 2
 
         # AI counts are folded back in and subtracted from node_events (10 - 2 - 3 = 5).
@@ -5549,6 +5543,27 @@ class TestCalendarAlignedQuerySplitting(SimpleTestCase):
                 {"begin": datetime(2023, 1, 3), "end": end},
             ],
         )
+
+    @patch("posthog.tasks.usage_report.sync_execute")
+    def test_mcp_analytics_counts_sum_per_metric_across_splits_and_teams(self, mock_sync_execute: MagicMock) -> None:
+        # A period spanning 3 days splits 3 ways, so a team's count for one event arrives in
+        # pieces that must be added, not overwritten, and kept separate per team and per event.
+        mock_sync_execute.side_effect = [
+            [(1, "$mcp_initialize", 2), (2, "$mcp_initialize", 5)],
+            [(1, "$mcp_initialize", 3), (1, "$mcp_tools_list", 7)],
+            [(1, "$mcp_initialize", 4), ("unexpected", "$mcp_not_a_real_event", 9)],
+        ]
+
+        result = _get_mcp_analytics_event_metric_counts(
+            begin=datetime(2023, 1, 1, 12, 0), end=datetime(2023, 1, 3, 12, 0)
+        )
+
+        self.assertEqual(sorted(result["mcp_initialize_events"]), [(1, 9), (2, 5)])
+        self.assertEqual(result["mcp_tools_list_events"], [(1, 7)])
+        # Every metric key is present even when no row mentioned it, so `_get_all_usage_data`
+        # never KeyErrors on a quiet event.
+        self.assertEqual(result["mcp_prompts_list_events"], [])
+        self.assertEqual(set(result), set(MCP_ANALYTICS_EVENT_METRICS.values()))
 
 
 class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, TestCase):
