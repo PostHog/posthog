@@ -227,8 +227,8 @@ export const MetricHeader = ({
     const isLastPrimaryMetric = isPrimaryMetric && sectionUuids.length <= 1
 
     const handleMoveSection = (): void => {
-        // Same path the reorder modal used for moves: it flips shared-metric links, prunes the
-        // ordering arrays and realigns existing results in one update.
+        // Flips shared-metric links, prunes the ordering arrays and realigns existing
+        // results in one update.
         moveMetricsBetweenSections(isPrimaryMetric === false, sectionUuids, [], [metricUuid])
     }
 
