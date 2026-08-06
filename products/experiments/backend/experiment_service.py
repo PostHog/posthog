@@ -43,6 +43,8 @@ from posthog.exceptions import (
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQueryTimeOut,
 )
+from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.activity_logging.utils import get_changed_fields_local
 from posthog.models.filters.filter import Filter
 from posthog.models.person.util import get_person_ids_and_uuids_by_uuids
@@ -2277,6 +2279,19 @@ class ExperimentService:
 
         # end_date intentionally left null — metrics keep flowing.
 
+        # The flag write above logs under the FeatureFlag scope only; without this entry the
+        # experiment's History tab shows nothing for the freeze.
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+            user=self.user,
+            was_impersonated=is_impersonated_session(request),
+            item_id=experiment.pk,
+            scope="Experiment",
+            activity="exposure_frozen",
+            detail=Detail(name=experiment.name),
+        )
+
         self._report_lifecycle_event(experiment, "experiment exposure frozen", request=request)
 
         # flag_save_ms includes the transaction commit, so it carries the on-commit flag cache
@@ -2534,6 +2549,17 @@ class ExperimentService:
         # Only after the flag no longer references them: soft-delete the now-orphaned snapshots.
         self._delete_orphaned_snapshot_cohorts(cohort_ids)
         cohort_cleanup_done_at = time.monotonic()
+
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+            user=self.user,
+            was_impersonated=is_impersonated_session(request),
+            item_id=experiment.pk,
+            scope="Experiment",
+            activity="exposure_unfrozen",
+            detail=Detail(name=experiment.name),
+        )
 
         self._report_lifecycle_event(experiment, "experiment exposure unfrozen", request=request)
 
