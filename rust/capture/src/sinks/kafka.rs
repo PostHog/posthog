@@ -20,7 +20,7 @@
 use crate::api::CaptureError;
 use crate::config::{EnvelopeCompression, KafkaConfig};
 use crate::ordering::OrderingGuarantee;
-use crate::pipeline::{self, Lane, LaneDecision, Pipeline};
+use crate::pipeline::{self, Address, AddressDecision, Lane, Pipeline};
 use crate::serialization::Serializer;
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
 use crate::sinks::registry::{Output, OutputRegistry};
@@ -200,25 +200,27 @@ impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
 
 /// Bridge a pure address decision to the sink's configured [`Output`]. The
 /// sink owns this mapping only until the outputs layer exists to own the
-/// `(pipeline, lane)` → output table. [`pipeline::resolve`] never pairs a
-/// pipeline with a lane it does not have (heatmaps never overflow, only
-/// analytics reroutes historical), so the collapsed arms below map those
-/// unreachable pairs to the pipeline's main output rather than growing an
-/// error path every caller would have to handle.
-fn output_for(decision: &LaneDecision) -> Output {
-    match (decision.pipeline, &decision.lane) {
-        (_, Lane::Dlq) => Output::Dlq,
-        (_, Lane::Custom(topic)) => Output::Custom(topic.clone()),
-        (Pipeline::Analytics, Lane::Main) => Output::AnalyticsMain,
-        (Pipeline::Analytics, Lane::Overflow) => Output::AnalyticsOverflow,
-        (Pipeline::Analytics, Lane::Historical) => Output::AnalyticsHistorical,
-        (Pipeline::Ai, Lane::Main | Lane::Historical) => Output::AiMain,
-        (Pipeline::Ai, Lane::Overflow) => Output::AiOverflow,
-        (Pipeline::Warnings, _) => Output::ClientWarningsMain,
-        (Pipeline::Heatmaps, _) => Output::HeatmapsMain,
-        (Pipeline::ErrorTracking, _) => Output::ErrorTrackingMain,
-        (Pipeline::Replay, Lane::Main | Lane::Historical) => Output::SessionReplayMain,
-        (Pipeline::Replay, Lane::Overflow) => Output::SessionReplayOverflow,
+/// address → output table. [`pipeline::resolve`] never pairs a pipeline with
+/// a lane it does not have (heatmaps never overflow, only analytics reroutes
+/// historical), so the collapsed arms below map those unreachable pairs to
+/// the pipeline's main output rather than growing an error path every caller
+/// would have to handle.
+fn output_for(decision: &AddressDecision) -> Output {
+    match &decision.address {
+        Address::Dlq => Output::Dlq,
+        Address::Custom(topic) => Output::Custom(topic.clone()),
+        Address::Lane { pipeline, lane } => match (pipeline, lane) {
+            (Pipeline::Analytics, Lane::Main) => Output::AnalyticsMain,
+            (Pipeline::Analytics, Lane::Overflow) => Output::AnalyticsOverflow,
+            (Pipeline::Analytics, Lane::Historical) => Output::AnalyticsHistorical,
+            (Pipeline::Ai, Lane::Main | Lane::Historical) => Output::AiMain,
+            (Pipeline::Ai, Lane::Overflow) => Output::AiOverflow,
+            (Pipeline::Warnings, _) => Output::ClientWarningsMain,
+            (Pipeline::Heatmaps, _) => Output::HeatmapsMain,
+            (Pipeline::ErrorTracking, _) => Output::ErrorTrackingMain,
+            (Pipeline::Replay, Lane::Main | Lane::Historical) => Output::SessionReplayMain,
+            (Pipeline::Replay, Lane::Overflow) => Output::SessionReplayOverflow,
+        },
     }
 }
 

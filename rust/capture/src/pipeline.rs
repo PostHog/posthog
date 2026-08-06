@@ -3,11 +3,10 @@
 //! [`resolve`] folds the intent stamped on [`ProcessedEventMetadata`] during
 //! processing (restrictions, overflow reasons, the historical flag) through
 //! one precedence chain — dlq > custom > historical > overflow > main — and
-//! returns a [`LaneDecision`]: which [`Pipeline`] the event belongs to, which
-//! [`Lane`] of that pipeline it publishes to, and the customer-facing
-//! [`OrderingGuarantee`] the sink realizes as a partition key. The decision is
-//! pure — no counters, no headers, no I/O; side effects are implied by the
-//! address and applied by the layer that realizes it.
+//! returns an [`AddressDecision`]: the [`Address`] the event publishes to and
+//! the customer-facing [`OrderingGuarantee`] the sink realizes as a partition
+//! key. The decision is pure — no counters, no headers, no I/O; side effects
+//! are implied by the address and applied by the layer that realizes it.
 //!
 //! The sink still invokes `resolve` from its prep path and bridges the
 //! decision to its configured topics; the invocation site moves up when the
@@ -31,57 +30,56 @@ pub enum Pipeline {
     Replay,
 }
 
-impl Pipeline {
-    /// Extract the pipeline half of a [`DataType`]. The lane half
-    /// (main vs historical) is [`resolve`]'s job.
-    pub fn from_data_type(data_type: DataType) -> Self {
-        match data_type {
-            DataType::AnalyticsMain | DataType::AnalyticsHistorical => Pipeline::Analytics,
-            DataType::AiEvents => Pipeline::Ai,
-            DataType::HeatmapMain => Pipeline::Heatmaps,
-            DataType::ClientIngestionWarning => Pipeline::Warnings,
-            DataType::ExceptionErrorTracking => Pipeline::ErrorTracking,
-            DataType::SnapshotMain => Pipeline::Replay,
-        }
-    }
-}
-
 /// A lane of a pipeline. Flat for now — every pipeline shares this shape, and
 /// `resolve` only ever pairs a pipeline with the lanes it actually has (the
 /// typed-per-pipeline lanes step makes invalid pairs unrepresentable).
-/// `Dlq` and `Custom` are admin redirects that cut across the per-pipeline
-/// routing; `Custom` carries its own topic outside the lane model.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Lane {
     Main,
     Overflow,
     Historical,
+}
+
+/// Where an event publishes: a lane of its pipeline, or an admin redirect
+/// that sits outside the pipeline-lane model. The redirects carry no
+/// pipeline because nothing consumes one — every pipeline shares a single
+/// dlq output today (per-pipeline dlq rows arrive with typed addresses), and
+/// a custom redirect carries its own topic.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Address {
+    Lane { pipeline: Pipeline, lane: Lane },
     Dlq,
     Custom(String),
 }
 
-/// The pure routing decision for a single event: which pipeline, which lane,
-/// and which ordering guarantee. Depends only on [`ProcessedEventMetadata`]
-/// (stamped upstream by the pipeline) and the AI overflow valve — the one
-/// piece of deployment config that changes a routing decision rather than a
-/// topic name. Side effects are not part of the decision: the dlq header set
-/// and the reroute counters follow from the address, and the
-/// person-processing header follows from
+/// The pure routing decision for a single event: which address, and which
+/// ordering guarantee. Depends only on [`ProcessedEventMetadata`] (stamped
+/// upstream by the pipeline) and the AI overflow valve — the one piece of
+/// deployment config that changes a routing decision rather than a topic
+/// name. Side effects are not part of the decision: the dlq header set and
+/// the reroute counters follow from the address, and the person-processing
+/// header follows from
 /// [`ProcessedEventMetadata::person_processing_disabled`] — the stamped flag,
 /// or a `ForceLimited` reason, which implies the skip on its own.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LaneDecision {
-    pub pipeline: Pipeline,
-    pub lane: Lane,
+pub struct AddressDecision {
+    pub address: Address,
     pub ordering: OrderingGuarantee,
 }
 
-impl LaneDecision {
-    fn new(pipeline: Pipeline, lane: Lane, ordering: OrderingGuarantee) -> Self {
+impl AddressDecision {
+    fn lane(pipeline: Pipeline, lane: Lane, ordering: OrderingGuarantee) -> Self {
         Self {
-            pipeline,
-            lane,
+            address: Address::Lane { pipeline, lane },
             ordering,
+        }
+    }
+
+    /// Both admin redirects key on the event key.
+    fn redirect(address: Address) -> Self {
+        Self {
+            address,
+            ordering: OrderingGuarantee::PerDistinctId,
         }
     }
 }
@@ -95,29 +93,19 @@ impl LaneDecision {
 pub fn resolve(
     metadata: &ProcessedEventMetadata,
     ai_events_overflow_armed: bool,
-) -> Result<LaneDecision, CaptureError> {
-    let pipeline = Pipeline::from_data_type(metadata.data_type);
-
+) -> Result<AddressDecision, CaptureError> {
     // redirect_to_dlq takes priority over all other routing.
     if metadata.redirect_to_dlq {
-        return Ok(LaneDecision::new(
-            pipeline,
-            Lane::Dlq,
-            OrderingGuarantee::PerDistinctId,
-        ));
+        return Ok(AddressDecision::redirect(Address::Dlq));
     }
 
     if let Some(ref topic) = metadata.redirect_to_topic {
-        return Ok(LaneDecision::new(
-            pipeline,
-            Lane::Custom(topic.clone()),
-            OrderingGuarantee::PerDistinctId,
-        ));
+        return Ok(AddressDecision::redirect(Address::Custom(topic.clone())));
     }
 
     Ok(match metadata.data_type {
-        DataType::AnalyticsHistorical => LaneDecision::new(
-            pipeline,
+        DataType::AnalyticsHistorical => AddressDecision::lane(
+            Pipeline::Analytics,
             // Historical events never overflow — force_overflow and
             // overflow_reason are deliberately ignored here.
             Lane::Historical,
@@ -127,16 +115,18 @@ pub fn resolve(
             // Precedence: force_overflow (restrictions) -> overflow_reason
             // (pipeline-stamped) -> default main-lane routing.
             if metadata.force_overflow {
-                LaneDecision::new(
-                    pipeline,
+                AddressDecision::lane(
+                    Pipeline::Analytics,
                     Lane::Overflow,
                     person_ordering(metadata.person_processing_disabled()),
                 )
             } else {
                 match &metadata.overflow_reason {
-                    Some(OverflowReason::ForceLimited) => {
-                        LaneDecision::new(pipeline, Lane::Overflow, OrderingGuarantee::None)
-                    }
+                    Some(OverflowReason::ForceLimited) => AddressDecision::lane(
+                        Pipeline::Analytics,
+                        Lane::Overflow,
+                        OrderingGuarantee::None,
+                    ),
                     // The person flag alone decides the key here, in both
                     // directions. A burst keeps its key while person processing
                     // is on — the overflow consumer updates persons keyed on
@@ -147,8 +137,8 @@ pub fn resolve(
                     // already off (the global rate limiter stamps its verdict
                     // before the overflow limiter overwrites the reason) must
                     // not get its partition back.
-                    Some(OverflowReason::RateLimited { .. }) => LaneDecision::new(
-                        pipeline,
+                    Some(OverflowReason::RateLimited { .. }) => AddressDecision::lane(
+                        Pipeline::Analytics,
                         Lane::Overflow,
                         person_ordering(metadata.person_processing_disabled()),
                     ),
@@ -156,8 +146,8 @@ pub fn resolve(
                     // so an analytics event cannot carry it — the shared
                     // OverflowReason enum forces the arm, which treats the
                     // impossible stamp as unstamped.
-                    Some(OverflowReason::ReplayLimited) | None => LaneDecision::new(
-                        pipeline,
+                    Some(OverflowReason::ReplayLimited) | None => AddressDecision::lane(
+                        Pipeline::Analytics,
                         Lane::Main,
                         person_ordering(metadata.person_processing_disabled()),
                     ),
@@ -177,42 +167,56 @@ pub fn resolve(
             // Main/Overflow-shaped destinations). AI events never reroute
             // historical.
             if ai_events_overflow_armed && metadata.force_overflow {
-                LaneDecision::new(
-                    pipeline,
+                AddressDecision::lane(
+                    Pipeline::Ai,
                     Lane::Overflow,
                     person_ordering(metadata.person_processing_disabled()),
                 )
             } else if ai_events_overflow_armed {
                 match &metadata.overflow_reason {
                     Some(OverflowReason::ForceLimited) => {
-                        LaneDecision::new(pipeline, Lane::Overflow, OrderingGuarantee::None)
+                        AddressDecision::lane(Pipeline::Ai, Lane::Overflow, OrderingGuarantee::None)
                     }
                     Some(OverflowReason::RateLimited {
                         preserve_locality: true,
-                    }) => LaneDecision::new(
-                        pipeline,
+                    }) => AddressDecision::lane(
+                        Pipeline::Ai,
                         Lane::Overflow,
                         // Same precedence as the analytics overflow lane above.
                         person_ordering(metadata.person_processing_disabled()),
                     ),
                     Some(OverflowReason::RateLimited {
                         preserve_locality: false,
-                    }) => LaneDecision::new(pipeline, Lane::Overflow, OrderingGuarantee::None),
+                    }) => {
+                        AddressDecision::lane(Pipeline::Ai, Lane::Overflow, OrderingGuarantee::None)
+                    }
                     // ReplayLimited cannot be stamped on the AI lane either;
                     // treated as unstamped, as above.
-                    Some(OverflowReason::ReplayLimited) | None => {
-                        LaneDecision::new(pipeline, Lane::Main, OrderingGuarantee::PerDistinctId)
-                    }
+                    Some(OverflowReason::ReplayLimited) | None => AddressDecision::lane(
+                        Pipeline::Ai,
+                        Lane::Main,
+                        OrderingGuarantee::PerDistinctId,
+                    ),
                 }
             } else {
-                LaneDecision::new(pipeline, Lane::Main, OrderingGuarantee::PerDistinctId)
+                AddressDecision::lane(Pipeline::Ai, Lane::Main, OrderingGuarantee::PerDistinctId)
             }
         }
-        DataType::ClientIngestionWarning
-        | DataType::HeatmapMain
-        | DataType::ExceptionErrorTracking => {
-            LaneDecision::new(pipeline, Lane::Main, OrderingGuarantee::PerDistinctId)
-        }
+        DataType::ClientIngestionWarning => AddressDecision::lane(
+            Pipeline::Warnings,
+            Lane::Main,
+            OrderingGuarantee::PerDistinctId,
+        ),
+        DataType::HeatmapMain => AddressDecision::lane(
+            Pipeline::Heatmaps,
+            Lane::Main,
+            OrderingGuarantee::PerDistinctId,
+        ),
+        DataType::ExceptionErrorTracking => AddressDecision::lane(
+            Pipeline::ErrorTracking,
+            Lane::Main,
+            OrderingGuarantee::PerDistinctId,
+        ),
         DataType::SnapshotMain => {
             // Precedence: force_overflow (restrictions) -> overflow_reason
             // (pipeline-stamped ReplayLimited) -> default main-lane routing.
@@ -231,7 +235,7 @@ pub fn resolve(
             } else {
                 Lane::Main
             };
-            LaneDecision::new(pipeline, lane, OrderingGuarantee::PerSession)
+            AddressDecision::lane(Pipeline::Replay, lane, OrderingGuarantee::PerSession)
         }
     })
 }
@@ -257,16 +261,8 @@ mod tests {
         }
     }
 
-    #[rstest]
-    #[case(DataType::AnalyticsMain, Pipeline::Analytics)]
-    #[case(DataType::AnalyticsHistorical, Pipeline::Analytics)]
-    #[case(DataType::AiEvents, Pipeline::Ai)]
-    #[case(DataType::ClientIngestionWarning, Pipeline::Warnings)]
-    #[case(DataType::HeatmapMain, Pipeline::Heatmaps)]
-    #[case(DataType::ExceptionErrorTracking, Pipeline::ErrorTracking)]
-    #[case(DataType::SnapshotMain, Pipeline::Replay)]
-    fn pipeline_classification(#[case] data_type: DataType, #[case] expected: Pipeline) {
-        assert_eq!(Pipeline::from_data_type(data_type), expected);
+    fn lane(pipeline: Pipeline, lane: Lane) -> Address {
+        Address::Lane { pipeline, lane }
     }
 
     #[test]
@@ -279,9 +275,8 @@ mod tests {
         m.force_overflow = true;
         assert_eq!(
             resolve(&m, false).unwrap(),
-            LaneDecision {
-                pipeline: Pipeline::Analytics,
-                lane: Lane::Dlq,
+            AddressDecision {
+                address: Address::Dlq,
                 ordering: OrderingGuarantee::PerDistinctId,
             }
         );
@@ -295,9 +290,8 @@ mod tests {
         m.force_overflow = true;
         assert_eq!(
             resolve(&m, false).unwrap(),
-            LaneDecision {
-                pipeline: Pipeline::Analytics,
-                lane: Lane::Custom("my_topic".to_string()),
+            AddressDecision {
+                address: Address::Custom("my_topic".to_string()),
                 ordering: OrderingGuarantee::PerDistinctId,
             }
         );
@@ -314,12 +308,15 @@ mod tests {
     fn per_datatype_addresses(
         #[case] data_type: DataType,
         #[case] pipeline: Pipeline,
-        #[case] lane: Lane,
+        #[case] expected_lane: Lane,
     ) {
         let m = meta(data_type);
         let d = resolve(&m, false).unwrap();
-        assert_eq!(d.pipeline, pipeline, "wrong pipeline for {data_type:?}");
-        assert_eq!(d.lane, lane, "wrong lane for {data_type:?}");
+        assert_eq!(
+            d.address,
+            lane(pipeline, expected_lane),
+            "wrong address for {data_type:?}"
+        );
     }
 
     #[test]
@@ -336,7 +333,10 @@ mod tests {
             resolve(&m, false).unwrap().ordering,
             OrderingGuarantee::None
         );
-        assert_eq!(resolve(&m, false).unwrap().lane, Lane::Overflow);
+        assert_eq!(
+            resolve(&m, false).unwrap().address,
+            lane(Pipeline::Analytics, Lane::Overflow)
+        );
     }
 
     #[test]
@@ -347,9 +347,8 @@ mod tests {
         force_limited.overflow_reason = Some(OverflowReason::ForceLimited);
         assert_eq!(
             resolve(&force_limited, false).unwrap(),
-            LaneDecision {
-                pipeline: Pipeline::Analytics,
-                lane: Lane::Overflow,
+            AddressDecision {
+                address: lane(Pipeline::Analytics, Lane::Overflow),
                 ordering: OrderingGuarantee::None,
             }
         );
@@ -362,7 +361,10 @@ mod tests {
             resolve(&preserve, false).unwrap().ordering,
             OrderingGuarantee::PerDistinctId
         );
-        assert_eq!(resolve(&preserve, false).unwrap().lane, Lane::Overflow);
+        assert_eq!(
+            resolve(&preserve, false).unwrap().address,
+            lane(Pipeline::Analytics, Lane::Overflow)
+        );
 
         // The locality preference is irrelevant on the analytics lane: a
         // person-on burst keeps its key either way, because the overflow
@@ -375,7 +377,10 @@ mod tests {
             resolve(&no_preserve, false).unwrap().ordering,
             OrderingGuarantee::PerDistinctId
         );
-        assert_eq!(resolve(&no_preserve, false).unwrap().lane, Lane::Overflow);
+        assert_eq!(
+            resolve(&no_preserve, false).unwrap().address,
+            lane(Pipeline::Analytics, Lane::Overflow)
+        );
         no_preserve.skip_person_processing = true;
         assert_eq!(
             resolve(&no_preserve, false).unwrap().ordering,
@@ -387,7 +392,10 @@ mod tests {
         // treated as unstamped.
         let mut replay = base;
         replay.overflow_reason = Some(OverflowReason::ReplayLimited);
-        assert_eq!(resolve(&replay, false).unwrap().lane, Lane::Main);
+        assert_eq!(
+            resolve(&replay, false).unwrap().address,
+            lane(Pipeline::Analytics, Lane::Main)
+        );
     }
 
     /// The global rate limiter stamps `skip_person_processing` before the
@@ -417,9 +425,8 @@ mod tests {
         m.skip_person_processing = true;
         assert_eq!(
             resolve(&m, armed).unwrap(),
-            LaneDecision {
-                pipeline: expected_pipeline,
-                lane: Lane::Overflow,
+            AddressDecision {
+                address: lane(expected_pipeline, Lane::Overflow),
                 ordering: OrderingGuarantee::None,
             }
         );
@@ -433,15 +440,17 @@ mod tests {
         m.force_overflow = true;
         assert_eq!(
             resolve(&m, false).unwrap(),
-            LaneDecision {
-                pipeline: Pipeline::Ai,
-                lane: Lane::Main,
+            AddressDecision {
+                address: lane(Pipeline::Ai, Lane::Main),
                 ordering: OrderingGuarantee::PerDistinctId,
             }
         );
 
         // Valve armed: mirrors the analytics main lane's overflow handling.
-        assert_eq!(resolve(&m, true).unwrap().lane, Lane::Overflow);
+        assert_eq!(
+            resolve(&m, true).unwrap().address,
+            lane(Pipeline::Ai, Lane::Overflow)
+        );
         assert_eq!(
             resolve(&m, true).unwrap().ordering,
             OrderingGuarantee::PerDistinctId
@@ -453,13 +462,15 @@ mod tests {
         force_limited.overflow_reason = Some(OverflowReason::ForceLimited);
         assert_eq!(
             resolve(&force_limited, true).unwrap(),
-            LaneDecision {
-                pipeline: Pipeline::Ai,
-                lane: Lane::Overflow,
+            AddressDecision {
+                address: lane(Pipeline::Ai, Lane::Overflow),
                 ordering: OrderingGuarantee::None,
             }
         );
-        assert_eq!(resolve(&force_limited, false).unwrap().lane, Lane::Main);
+        assert_eq!(
+            resolve(&force_limited, false).unwrap().address,
+            lane(Pipeline::Ai, Lane::Main)
+        );
     }
 
     #[test]
@@ -471,9 +482,8 @@ mod tests {
         for armed in [false, true] {
             assert_eq!(
                 resolve(&m, armed).unwrap(),
-                LaneDecision {
-                    pipeline: Pipeline::Ai,
-                    lane: Lane::Main,
+                AddressDecision {
+                    address: lane(Pipeline::Ai, Lane::Main),
                     ordering: OrderingGuarantee::PerDistinctId,
                 },
                 "armed={armed}"
@@ -486,15 +496,17 @@ mod tests {
         let mut m = meta(DataType::SnapshotMain);
         assert_eq!(
             resolve(&m, false).unwrap(),
-            LaneDecision {
-                pipeline: Pipeline::Replay,
-                lane: Lane::Main,
+            AddressDecision {
+                address: lane(Pipeline::Replay, Lane::Main),
                 ordering: OrderingGuarantee::PerSession,
             }
         );
 
         m.force_overflow = true;
-        assert_eq!(resolve(&m, false).unwrap().lane, Lane::Overflow);
+        assert_eq!(
+            resolve(&m, false).unwrap().address,
+            lane(Pipeline::Replay, Lane::Overflow)
+        );
         assert_eq!(
             resolve(&m, false).unwrap().ordering,
             OrderingGuarantee::PerSession
@@ -502,7 +514,10 @@ mod tests {
 
         m.force_overflow = false;
         m.overflow_reason = Some(OverflowReason::ReplayLimited);
-        assert_eq!(resolve(&m, false).unwrap().lane, Lane::Overflow);
+        assert_eq!(
+            resolve(&m, false).unwrap().address,
+            lane(Pipeline::Replay, Lane::Overflow)
+        );
     }
 
     /// A replay event with no session id has no realizable address — the
@@ -520,6 +535,6 @@ mod tests {
         // A dlq redirect keys on the event key, so it stays realizable
         // without a session id.
         m.redirect_to_dlq = true;
-        assert_eq!(resolve(&m, false).unwrap().lane, Lane::Dlq);
+        assert_eq!(resolve(&m, false).unwrap().address, Address::Dlq);
     }
 }
