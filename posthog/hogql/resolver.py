@@ -2342,8 +2342,9 @@ class Resolver(CloningVisitor):
         node.type = loop_type
 
         if isinstance(node.type, ast.ExpressionFieldType):
-            # only swap out expression fields in ClickHouse
-            if self.dialect == "clickhouse":
+            # HogQL preserves the virtual field name for display; execution dialects must expand
+            # the expression so its child fields resolve before the target printer sees them.
+            if self.dialect != "hogql":
                 new_expr = clone_expr(node.type.expr)
                 new_node: ast.Expr = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
 

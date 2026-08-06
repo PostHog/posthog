@@ -17,6 +17,7 @@ from posthog.models.scoping import team_scope
 
 from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.data_warehouse.backend.presentation.views.expression import DataWarehouseExpressionSerializer
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 
 class TestExpressionApi(APIBaseTest):
@@ -132,16 +133,84 @@ class TestExpressionApi(APIBaseTest):
             ],
         )
 
-    def test_connection_scoped_expression_stays_out_of_default_database(self):
-        with team_scope(self.team.pk):
-            DataWarehouseExpression.objects.create(
-                team=self.team,
-                table_name="events",
-                field_name="scoped_field",
-                expression="upper(event)",
-                connection_id=uuid4(),
-            )
+    @parameterized.expand(
+        [
+            (
+                "postgres",
+                "Postgres",
+                {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "postgres",
+                    "user": "postgres",
+                    "password": "postgres",
+                    "schema": "public",
+                },
+            ),
+            (
+                "clickhouse",
+                "ClickHouse",
+                {
+                    "host": "localhost",
+                    "port": 8443,
+                    "database": "posthog",
+                    "user": "default",
+                    "password": "password",
+                },
+            ),
+        ]
+    )
+    def test_connection_scoped_expression_saves_in_source_dialect(
+        self, _name: str, source_type: str, job_inputs: dict[str, object]
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid4()),
+            connection_id=str(uuid4()),
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=source_type,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="direct",
+            job_inputs=job_inputs,
+        )
+        DataWarehouseTable.objects.create(
+            name="events",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="",
+            columns={
+                "id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True},
+                "team_id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True},
+            },
+        )
 
+        create_response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_expressions/",
+            {
+                "table_name": "events",
+                "field_name": "scoped_field",
+                "expression": "id + 1",
+                "connection_id": str(source.id),
+            },
+        )
+        self.assertEqual(create_response.status_code, 201, create_response.content)
+
+        expression_id = create_response.json()["id"]
+        update_response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_expressions/{expression_id}/",
+            {"expression": "id + 2"},
+        )
+        self.assertEqual(update_response.status_code, 200, update_response.content)
+        self.assertEqual(update_response.json()["expression"], "id + 2")
+
+        direct_database = Database.create_for(
+            team=self.team,
+            user=self.user,
+            connection_id=str(source.id),
+        )
+        field = direct_database.get_table("events").fields["scoped_field"]
+        assert isinstance(field, ExpressionField)
         self.assertNotIn("scoped_field", self._database().get_table("events").fields)
 
     def test_stale_expression_degrades_instead_of_breaking_schema(self):

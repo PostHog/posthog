@@ -5,9 +5,11 @@ from django.db import IntegrityError, transaction
 from rest_framework import filters, response, serializers, viewsets
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import ExpressionField
+from posthog.hogql.direct_connection import resolve_database_for_connection
+from posthog.hogql.direct_sql import get_adapter
 from posthog.hogql.errors import BaseHogQLError, ExposedHogQLError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_and_print_ast
@@ -50,26 +52,14 @@ class DataWarehouseExpressionSerializer(serializers.ModelSerializer):
             },
         }
 
-    def _database(self, connection_id: Optional[str]) -> Database:
-        cache_key = f"database_{connection_id}"
-        database = self.context.get(cache_key)
-        if not database:
-            database = Database.create_for(
-                team_id=self.context["team_id"],
-                user=cast(User, self.context["request"].user),
-                connection_id=connection_id,
-            )
-            # Cache on the shared context so a list response builds each database at most once.
-            self.context[cache_key] = database
-        return database
-
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         instance = cast(Optional[DataWarehouseExpression], self.instance)
         table_name = attrs.get("table_name", instance.table_name if instance else None)
         field_name = attrs.get("field_name", instance.field_name if instance else None)
         expression = attrs.get("expression", instance.expression if instance else None)
         connection_id = attrs.get("connection_id", instance.connection_id if instance else None)
-        team_id = self.context["team_id"]
+        team = self.context["get_team"]()
+        team_id = team.pk
 
         if not table_name:
             raise serializers.ValidationError({"table_name": ["Table name must not be empty."]})
@@ -81,7 +71,12 @@ class DataWarehouseExpressionSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"expression": ["Expression must not be empty."]})
 
         try:
-            database = self._database(str(connection_id) if connection_id else None)
+            source, database = resolve_database_for_connection(
+                team=team,
+                connection_id=str(connection_id) if connection_id else None,
+                user=cast(User, self.context["request"].user),
+                error_factory=ValueError,
+            )
         except Exception:
             if connection_id:
                 raise serializers.ValidationError({"connection_id": ["Invalid connection."]})
@@ -129,12 +124,21 @@ class DataWarehouseExpressionSerializer(serializers.ModelSerializer):
         previous_field = table.fields.get(field_name)
         table.fields[field_name] = ExpressionField(name=field_name, expr=expr_node, isolate_scope=True)
         try:
-            context = HogQLContext(team_id=team_id, database=database, enable_select_queries=True)
+            dialect: HogQLDialect = "clickhouse"
+            if source is not None:
+                adapter = get_adapter(source.direct_engine)
+                dialect = adapter.dialect if adapter is not None and adapter.dialect is not None else "postgres"
+            context = HogQLContext(
+                team_id=team_id,
+                database=database,
+                enable_select_queries=True,
+                is_direct_query=source is not None,
+            )
             probe_query = ast.SelectQuery(
                 select=[ast.Field(chain=[field_name])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=cast(list[str | int], table_name.split(".")))),
             )
-            prepare_and_print_ast(probe_query, context, "clickhouse")
+            prepare_and_print_ast(probe_query, context, dialect)
         except ExposedHogQLError as e:
             raise serializers.ValidationError({"expression": [str(e)]})
         except RecursionError:
