@@ -5879,7 +5879,7 @@ snapshots:
     scenes-app-experiments--draft-experiment--light:
         hash: v1.k794b7964.74192966b20280489fdc67329370f7c5b675e67a8e18512b61ac71e6c982c0f7.NrgEIHQRT87ytfEBzJVtAVuW3Wn06aWA8erEOgDlmpE
     scenes-app-experiments--experiment-asymmetric-intervals--dark:
-        hash: v1.k794b7964.5467f631734e8f360299aa3d5e4a8da5d7ecc2dbe47a5d0727ddfb0dbc9e7ce6.ZGcS-wnQsOO1G4M5I_hw9Aba6YZ1hKpvya9gfWsZvCs
+        hash: v1.k794b7964.aa2e1954e34d3bf3bae366e96d1d738a9576eb3535fa5f6b610f187bd8c8644f.NzIUnefqXLRK3LTnOPpL7972hJIwcXXMjSLXPmK9MuE
     scenes-app-experiments--experiment-asymmetric-intervals--light:
         hash: v1.k794b7964.b2bc93939d938d962fbd42530c5c06ea637feef8192291232d4726aed5805cb4.Hl0K2n_pRnLrochHVl4MEGZG6PcHg72tGPuBxwQc9J8
     scenes-app-experiments--experiment-exposures-expanded--dark:
@@ -5889,9 +5889,9 @@ snapshots:
     scenes-app-experiments--experiment-frequentist-five-variants--dark:
         hash: v1.k794b7964.e8a5b05a1e2fac506182f04dd0fb26649c927ca30a0166fd6dedefc6db83a3e7.bpIufNF51-pPDeWrq6e-Hu3o6Au6R9QlRzAUNeOcYgE
     scenes-app-experiments--experiment-frequentist-five-variants--light:
-        hash: v1.k794b7964.ca65930ed4fba58aa886be84c0489a0702ef118abac3516ed530db42a772ad71.fp95LwvCUvwV1spa0Back9q7nUlZVypBoc4UMXJh9qc
+        hash: v1.k794b7964.467244e1b3678d7ed48d65486bda0175bf803f3b6b88409ff4fc31cb86a6e4be.CiD-wox9uMHSDNpfzgcY1Nk1r_f0_wDAFAG_12RsRh8
     scenes-app-experiments--experiment-frequentist-two-variants--dark:
-        hash: v1.k794b7964.045c33562841fedac0650c2b70ad4fda3b5bac5a2f43fc01310759ba3347a24f.ZwvpM3E6g3mcUx0ZrbltZHnAWoaSX7wlgu79kfGkRb8
+        hash: v1.k794b7964.aa6f33f30d218a8d77d1f97aa5a650735df960b3859f75d755336d717cc50754._0xzc6w5jbUAOfZxxT9tzHyFGbVgcBfVQZhGtrfNtUI
     scenes-app-experiments--experiment-frequentist-two-variants--light:
         hash: v1.k794b7964.78c1d7249257f5c718f08f0891a67457acd2dd9db209f029e07e6b40032bc0f2.1OlEHxGwB9WRLVeWyifax0PiHjsUA46RUx0np37kSjM
     scenes-app-experiments--experiment-with-funnel-metric--dark:
