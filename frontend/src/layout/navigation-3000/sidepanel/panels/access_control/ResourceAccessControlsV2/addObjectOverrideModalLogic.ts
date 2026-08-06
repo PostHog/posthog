@@ -286,8 +286,12 @@ export interface addObjectOverrideModalLogicActions {
         objectOptions: ObjectOption[]
         payload?: any
     }
-    objectResolvedFromUrl: (option: ObjectOption) => {
+    objectResolvedFromUrl: (
+        option: ObjectOption,
+        resource: APIScopeObject
+    ) => {
         option: ObjectOption
+        resource: APIScopeObject
     }
     openModal: () => {
         value: true
@@ -687,7 +691,7 @@ export const addObjectOverrideModalLogic = kea<addObjectOverrideModalLogicType>(
         setObjectId: (objectId: string | null) => ({ objectId }),
         setSelectedObject: (option: ObjectOption | null) => ({ option }),
         resolveObjectUrl: (resource: APIScopeObject, lookupId: string) => ({ resource, lookupId }),
-        objectResolvedFromUrl: (option: ObjectOption) => ({ option }),
+        objectResolvedFromUrl: (option: ObjectOption, resource: APIScopeObject) => ({ option, resource }),
         setLevel: (level: AccessControlLevel) => ({ level }),
         submitRule: true,
     }),
@@ -698,7 +702,9 @@ export const addObjectOverrideModalLogic = kea<addObjectOverrideModalLogicType>(
             'dashboard' as APIScopeObject,
             {
                 setResource: (_, { resource }) => resource,
-                resolveObjectUrl: (_, { resource }) => resource,
+                // Only a resolved URL flips the type, together with the object it selects; flipping
+                // on the lookup itself would leave resource and objectId mismatched when it fails
+                objectResolvedFromUrl: (_, { resource }) => resource,
                 closeModal: () => 'dashboard' as APIScopeObject,
             },
         ],
@@ -802,7 +808,7 @@ export const addObjectOverrideModalLogic = kea<addObjectOverrideModalLogicType>(
                     lemonToast.error("Couldn't find that object in this project")
                     return
                 }
-                actions.objectResolvedFromUrl(option)
+                actions.objectResolvedFromUrl(option, resource)
             } catch {
                 lemonToast.error("Couldn't find that object in this project")
             }
