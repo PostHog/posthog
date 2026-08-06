@@ -350,14 +350,19 @@ SESSION_COOKIE_CREATED_AT_KEY = get_from_env("SESSION_COOKIE_CREATED_AT_KEY", "s
 # tests that assert posthoganalytics.feature_enabled call counts.
 SESSION_RISK_ENABLED = get_from_env("SESSION_RISK_ENABLED", not TEST, type_cast=str_to_bool)
 # Kill switch for the real-time signup enrichment workflow (products/growth/backend/enrichment).
-# Off by default: it must stay off until the launch fill-rate/failure alert is in place, and v0 is
-# US-only. Fire-and-forget from signup, so this only gates whether the workflow is dispatched at all.
+# Off by default: it must stay off until the launch fill-rate/failure alert is in place. Also the
+# de facto per-region toggle, since it is the only region-specific control — dispatch itself is
+# open to both US and EU (see get_instance_region gate in signup_enrichment/trigger.py), so a
+# region stays enrichment-free only by leaving this unset there. Fire-and-forget from signup, so
+# this only gates whether the workflow is dispatched at all.
 GROWTH_SIGNUP_ENRICHMENT_ENABLED = get_from_env("GROWTH_SIGNUP_ENRICHMENT_ENABLED", False, type_cast=str_to_bool)
 # The internal analytics project the enrichment pipeline reads/writes bridge and mirror data
-# against (products/growth/backend/enrichment). Defaults to project 2, the internal project the
-# enrichment group properties are projected onto; env-overridable since that id differs across
-# cloud deployments.
-GROWTH_ENRICHMENT_INTERNAL_TEAM_ID = get_from_env("GROWTH_ENRICHMENT_INTERNAL_TEAM_ID", 2, type_cast=int)
+# against (products/growth/backend/enrichment). Region-defaulted to the deployment's own internal
+# project (the same team split the usage report uses), so enrichment lookups never touch another
+# region's project; env-overridable since the id differs across cloud deployments.
+GROWTH_ENRICHMENT_INTERNAL_TEAM_ID = get_from_env(
+    "GROWTH_ENRICHMENT_INTERNAL_TEAM_ID", 1 if (CLOUD_DEPLOYMENT or "").upper() == "EU" else 2, type_cast=int
+)
 # Session keys for risk-based step-up (posthog/session/risk.py). Named so every reader/writer shares
 # one source of truth, like SESSION_COOKIE_CREATED_AT_KEY above.
 SESSION_STEP_UP_REQUIRED_KEY = get_from_env("SESSION_STEP_UP_REQUIRED_KEY", "step_up_required")

@@ -15,7 +15,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.exceptions_capture import capture_exception
-from posthog.ph_client import get_client
+from posthog.ph_client import get_regional_ph_client
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
@@ -99,7 +99,12 @@ async def enrich_signup_organization_activity(
             logger.info("signup_enrichment_recheck_skipped_org_deleted")
             return {"matched": False, "fields_filled": 0, "org_deleted": True}
 
-    pha_client = get_client()
+    # Region-local on purpose: EU enrichment lands in the EU internal project, US in US — the
+    # same split the usage report uses. Never fall back to a cross-region client here.
+    pha_client = get_regional_ph_client()
+    if pha_client is None:
+        logger.error("signup_enrichment_no_regional_client")
+        return {"matched": False, "fields_filled": 0}
 
     try:
         fields = await enrich_organization(
