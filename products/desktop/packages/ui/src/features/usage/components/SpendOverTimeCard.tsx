@@ -54,47 +54,52 @@ function SpendTooltip({
   context: TooltipContext;
   day: SpendAnalysisFilledDay | undefined;
 }) {
+  const dailySpend = context.seriesData.find(
+    (series) => series.series.key === "daily-spend",
+  )?.value;
+  const cumulativeSpend = context.seriesData.find(
+    (series) => series.series.key === "cumulative-spend",
+  )?.value;
+  const modelColor = context.seriesData[0]?.color ?? "var(--data-color-1)";
+
   return (
     <TooltipSurface>
-      <div className="mb-1 font-semibold opacity-60">{context.label}</div>
-      {context.seriesData.map((series) => (
+      <div className="mb-2">
+        <div className="font-semibold">
+          {new Intl.DateTimeFormat("en-US", {
+            day: "numeric",
+            month: "short",
+            timeZone: "UTC",
+            year: "numeric",
+          }).format(new Date(`${context.label}T00:00:00Z`))}
+        </div>
+        <div className="opacity-60">Daily breakdown</div>
+      </div>
+      {day?.models.map((model) => (
         <div
-          key={series.series.key}
-          className="flex min-w-0 items-center gap-2 rounded px-1.5 py-0.5"
+          key={model.model}
+          className="flex min-w-0 items-center gap-2 px-1.5 py-0.5"
         >
-          <TooltipSwatch color={series.color} />
-          <span className="flex-1 truncate">{series.series.label}</span>
-          <strong className="tabular-nums">{formatUsd(series.value)}</strong>
+          <TooltipSwatch color={modelColor} />
+          <span className="flex-1 truncate">{model.model}</span>
+          <strong className="tabular-nums">{formatUsd(model.cost_usd)}</strong>
+          <span className="tabular-nums opacity-60">
+            {formatTokens(model.input_tokens + model.output_tokens)}
+          </span>
         </div>
       ))}
-      {day && (day.input_tokens > 0 || day.output_tokens > 0) ? (
-        <div className="mt-2 border-current/25 border-t pt-1 text-center opacity-60">
-          {formatTokens(day.input_tokens + day.output_tokens)} tokens
+      <div className="mt-2 border-current/25 border-t pt-2">
+        <div className="flex items-center gap-3 px-1.5 py-0.5">
+          <strong className="flex-1">Daily total</strong>
+          <strong className="tabular-nums">{formatUsd(dailySpend ?? 0)}</strong>
         </div>
-      ) : null}
-      {day?.models.length ? (
-        <div className="mt-1 border-current/25 border-t pt-1">
-          <div className="mb-1 px-1.5 font-semibold opacity-60">
-            Model breakdown
-          </div>
-          <div>
-            {day.models.map((model) => (
-              <div key={model.model} className="rounded px-1.5 py-0.5">
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="flex-1 truncate">{model.model}</span>
-                  <strong className="tabular-nums">
-                    {formatUsd(model.cost_usd)}
-                  </strong>
-                </div>
-                <div className="text-xs opacity-60">
-                  {formatTokens(model.input_tokens + model.output_tokens)}{" "}
-                  tokens
-                </div>
-              </div>
-            ))}
-          </div>
+        <div className="flex items-center gap-3 px-1.5 py-0.5">
+          <strong className="flex-1">Cumulative total</strong>
+          <strong className="tabular-nums">
+            {formatUsd(cumulativeSpend ?? 0)}
+          </strong>
         </div>
-      ) : null}
+      </div>
     </TooltipSurface>
   );
 }
