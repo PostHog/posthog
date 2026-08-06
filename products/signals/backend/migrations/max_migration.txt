@@ -1,1 +1,1 @@
-0087_signalscoutconfig_tags
+0088_signalscoutconfig_model

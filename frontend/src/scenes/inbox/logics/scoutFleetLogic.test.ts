@@ -50,6 +50,7 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     status_changed_at: null,
     auto_pause_exempt: false,
     network_access: 'trusted',
+    model: null,
     created_at: '2026-07-22T00:00:00Z',
 }
 
