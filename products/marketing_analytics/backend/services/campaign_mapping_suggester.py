@@ -13,9 +13,11 @@ Pure function. Feed it `get_campaigns_with_spend` and `get_utm_campaign_catalogu
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, NamedTuple
 
 import structlog
+
+from posthog.schema import NativeMarketingSource
 
 from posthog.helpers.fuzzy_search import fuzzy_rank
 
@@ -27,7 +29,6 @@ from products.marketing_analytics.backend.services.native_integrations import (
 from products.marketing_analytics.backend.services.types import Campaign, TeamMappings
 from products.marketing_analytics.backend.services.utm_matching import (
     build_campaign_lookup,
-    get_match_value,
     get_match_value_raw,
     group_campaigns_by_source,
     normalize_source_name,
@@ -113,9 +114,6 @@ def suggest_campaign_name_mappings(
     already_matched = set(build_campaign_lookup(campaigns, mappings))
     already_mapped = {raw for aliases in mappings.campaign_aliases.values() for raw in aliases}
     campaigns_by_source = group_campaigns_by_source(campaigns)
-    all_match_values = {
-        get_match_value(campaign, mappings) for group in campaigns_by_source.values() for campaign in group
-    }
 
     # Per platform, not global: name reuse is the norm, and a global set let Meta's `brand`
     # traffic disqualify Google's own `brand` campaign.
@@ -146,7 +144,6 @@ def suggest_campaign_name_mappings(
             orphan=orphan,
             campaigns_by_source=campaigns_by_source,
             mappings=mappings,
-            all_match_values=all_match_values,
             seen_by_source=seen_by_source,
             claimed_clean_names=claimed_clean_names,
             result=result,
@@ -203,20 +200,30 @@ def differs_only_by_period(a: str, b: str) -> bool:
     return bool(diff) and all(_is_period_token(token) for token in diff.elements())
 
 
+class _Target(NamedTuple):
+    campaign: Campaign
+    native: NativeMarketingSource
+
+
+def _refuse(orphan: _Orphan, reason: str, candidates: list[tuple[str, float]] | None = None) -> AmbiguousCampaign:
+    return AmbiguousCampaign(
+        raw_utm_campaign=orphan.raw_utm_campaign,
+        event_count=orphan.event_count,
+        observed_utm_source=orphan.dominant_utm_source,
+        candidates=candidates or [],
+        reason=reason,
+    )
+
+
 def _classify(
     *,
     orphan: _Orphan,
     campaigns_by_source: dict[str, list[Campaign]],
     mappings: TeamMappings,
-    all_match_values: set[str],
     seen_by_source: dict[str, set[str]],
     claimed_clean_names: dict[str, str],
     result: CampaignMappingSuggestions,
 ) -> None:
-    # An exact match for some integration's value is a collision, not a typo.
-    if orphan.raw_utm_campaign in all_match_values:
-        return
-
     scoped_source = resolve_source(orphan.dominant_utm_source, mappings)
     scoped_group = campaigns_by_source.get(scoped_source)
 
@@ -235,19 +242,19 @@ def _classify(
         else {value for values in seen_by_source.values() for value in values}
     )
 
-    by_value: dict[str, Campaign] = {}
+    by_value: dict[str, _Target] = {}
     # Which platforms carry each value; only ever >1 unscoped. See the guard on `top_value`.
     natives_by_value: dict[str, set[str]] = {}
     for campaign in candidates:
         value = get_match_value_raw(campaign, mappings)
         if not value or value.lower() in seen:
             continue
-        native_key = native_for_primary_source(campaign.source_name)
-        if native_key is None:
+        native = native_for_primary_source(campaign.source_name)
+        if native is None:
             continue
-        natives_by_value.setdefault(value, set()).add(native_key.value)
-        if value not in by_value or campaign.spend > by_value[value].spend:
-            by_value[value] = campaign
+        natives_by_value.setdefault(value, set()).add(native.value)
+        if value not in by_value or campaign.spend > by_value[value].campaign.spend:
+            by_value[value] = _Target(campaign, native)
 
     # MARGIN_FLOOR, not `cutoff`: a sub-cutoff runner-up still proves ambiguity, and filtering it
     # out here made a 90.9-vs-85.5 pair read as a lone match at margin 100.
@@ -266,15 +273,11 @@ def _classify(
 
     if not ranked:
         result.unresolved.append(
-            AmbiguousCampaign(
-                raw_utm_campaign=orphan.raw_utm_campaign,
-                event_count=orphan.event_count,
-                observed_utm_source=orphan.dominant_utm_source,
-                reason=(
-                    f"No platform campaign is within {cutoff:.0f}% similarity of "
-                    f"'{orphan.raw_utm_campaign}'. Either the campaign was renamed beyond what edit "
-                    "distance can match, or this traffic isn't from a connected ad platform."
-                ),
+            _refuse(
+                orphan,
+                f"No platform campaign is within {cutoff:.0f}% similarity of "
+                f"'{orphan.raw_utm_campaign}'. Either the campaign was renamed beyond what edit "
+                "distance can match, or this traffic isn't from a connected ad platform.",
             )
         )
         return
@@ -284,17 +287,13 @@ def _classify(
 
     if margin < MIN_MARGIN:
         result.ambiguous.append(
-            AmbiguousCampaign(
-                raw_utm_campaign=orphan.raw_utm_campaign,
-                event_count=orphan.event_count,
-                observed_utm_source=orphan.dominant_utm_source,
-                candidates=ranked,
-                reason=(
-                    f"'{orphan.raw_utm_campaign}' is a near-equal match for "
-                    f"{' and '.join(value for value, _ in ranked[:2])} "
-                    f"({ranked[0][1]:.0f}% vs {ranked[1][1]:.0f}%). Picking one could attribute this "
-                    "campaign's traffic to the wrong ad spend, so it needs a human."
-                ),
+            _refuse(
+                orphan,
+                f"'{orphan.raw_utm_campaign}' is a near-equal match for "
+                f"{' and '.join(value for value, _ in ranked[:2])} "
+                f"({ranked[0][1]:.0f}% vs {ranked[1][1]:.0f}%). Picking one could attribute this "
+                "campaign's traffic to the wrong ad spend, so it needs a human.",
+                ranked,
             )
         )
         return
@@ -304,25 +303,18 @@ def _classify(
     contenders = natives_by_value.get(top_value, set())
     if len(contenders) > 1:
         result.ambiguous.append(
-            AmbiguousCampaign(
-                raw_utm_campaign=orphan.raw_utm_campaign,
-                event_count=orphan.event_count,
-                observed_utm_source=orphan.dominant_utm_source,
-                candidates=ranked,
-                reason=(
-                    f"'{top_value}' is a campaign on {' and '.join(sorted(contenders))}, and "
-                    f"utm_source='{orphan.dominant_utm_source}' doesn't say which one this traffic "
-                    "belongs to. Mapping it to the wrong platform would move real spend, so it "
-                    "needs a human."
-                ),
+            _refuse(
+                orphan,
+                f"'{top_value}' is a campaign on {' and '.join(sorted(contenders))}, and "
+                f"utm_source='{orphan.dominant_utm_source}' doesn't say which one this traffic "
+                "belongs to. Mapping it to the wrong platform would move real spend, so it "
+                "needs a human.",
+                ranked,
             )
         )
         return
 
-    campaign = by_value[top_value]
-    native = native_for_primary_source(campaign.source_name)
-    if native is None:
-        return
+    campaign, native = by_value[top_value]
 
     claimed_by = claimed_clean_names.get(top_value)
     if claimed_by is not None and claimed_by != orphan.dominant_utm_source:

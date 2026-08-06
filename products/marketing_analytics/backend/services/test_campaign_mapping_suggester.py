@@ -182,6 +182,19 @@ class TestProposals:
         assert result.proposals == []
         assert [u.raw_utm_campaign for u in result.unresolved] == ["spring_sale_202"]
 
+    def test_a_candidate_between_the_ranking_floor_and_the_cutoff_is_no_match(self):
+        # 85.7: survives MARGIN_FLOOR's 73 and gets ranked, then fails SCORE_CUTOFF's 88. The
+        # module's headline threshold, and the only line applying it had no test — every other
+        # refusal here goes through the period guard or the margin instead.
+        campaigns = [_campaign("spring_sale_2024")]
+        utm_events = _events(("sprig_sl_204", "google", 500))
+
+        result = suggest_campaign_name_mappings(campaigns, utm_events, NO_MAPPINGS)
+
+        assert result.proposals == []
+        assert result.ambiguous == []
+        assert [u.raw_utm_campaign for u in result.unresolved] == ["sprig_sl_204"]
+
     def test_orders_proposals_by_spend_at_stake(self):
         campaigns = [_campaign("cheap_campaign", spend=10.0), _campaign("costly_campaign", "2", spend=50000.0)]
         utm_events = _events(("cheap_campaig", "google", 900), ("costly_campaig", "google", 100))
