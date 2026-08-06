@@ -617,6 +617,9 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "Internet Archive", "search_crawler", "Bot", "Internet Archive", documentation_url="https://archive.org/"
     ),
     "jobcrawler": BotDefinition("jobcrawler", "search_crawler", "Bot", "Unknown"),
+    "JobsToInbox": BotDefinition(
+        "Jobs to Inbox", "search_crawler", "Bot", "Jobs to Inbox", documentation_url="https://www.jobstoinbox.com/"
+    ),
     "FlamingoBot": BotDefinition("FlamingoBot", "search_crawler", "Bot", "hackernews.pink"),
     # Archival / research crawlers
     "heritrix": BotDefinition(
@@ -662,6 +665,9 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "AIWebIndex": BotDefinition(
         "AIWebIndex", "ai_crawler", "AI Agent", "Lyrenth", documentation_url="https://lyrenth.com/bot"
     ),
+    # AI assistants (user-triggered fetches). Anchored on the full `grok-agent` token so the
+    # Grok iOS app's in-app browser (`... Safari/604.1 GrokApp/1.4.x`) stays Regular.
+    "grok-agent": BotDefinition("Grok Agent", "ai_assistant", "AI Agent", "xAI"),
     # SEO / marketing crawlers
     "MBCrawler": BotDefinition(
         "Monitor Backlinks",

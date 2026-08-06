@@ -78,6 +78,8 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/1.21459.0 Chrome/148.0.7778.271 Electron/42.5.1 Safari/537.36",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Claude/1.20186.1 Chrome/148.0.7778.271 Electron/42.5.1 Safari/537.36 MSIX",
         "ChatGPT/1.2026.190 (Windows_NT 10.0.26200; x86_64; build ) Electron/39.2.7 Chrome/142.0.7444.235",
+        # Server-side additions (prod $http_log Vercel log drain, 7d)
+        "Mozilla/5.0 (compatible; grok-agent/1.0; +https://x.ai)",
     ],
     "search_crawler": [
         "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
@@ -129,6 +131,7 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "meta-webindexer/1.1 (facebook)",
         "Mozilla/5.0 (compatible; archive.org_bot Zeno/warc; +http://archive.org/details/archive.org_bot)",
         "jobcrawler/0.1",
+        "Mozilla/5.0 (compatible; JobsToInbox/1.0; +https://www.jobstoinbox.com)",
         "FlamingoBot (hackernews.pink)",
         "heritrix/3.14.2 (+image-meta.com)",
         "crawlcrawl-actors/1.0",
@@ -289,6 +292,10 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
         "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
         "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+        # In-app browser of the Grok iOS app, which is a real person browsing. It is here so
+        # that shortening the `grok-agent` pattern to `grok` fails this suite instead of
+        # silently reclassifying those people as bots.
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 26_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Mobile/15E148 Safari/604.1 GrokApp/1.4.9",
     ],
 }
 
