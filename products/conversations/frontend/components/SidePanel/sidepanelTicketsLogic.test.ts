@@ -5,6 +5,7 @@ import { CONVERSATIONS_MESSAGE_MAX_LENGTH, supportLogic } from 'lib/components/S
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { initKeaTests } from '~/test/init'
 import { BillingType } from '~/types'
@@ -39,6 +40,25 @@ describe('sidepanelTicketsLogic', () => {
     afterEach(() => {
         logic?.unmount()
         delete (posthog as any).conversations
+    })
+
+    // We don't support self-hosted, and the conversations extension is cloud-only — but this logic
+    // mounts there anyway, because the tickets scene declares it in its SceneExport. Left ungated it
+    // retries a widget that never arrives and then tells a self-hosted user to email us, contradicting
+    // the community-forum message the scene itself renders.
+    it('does not touch the conversations widget on self-hosted', async () => {
+        preflightLogic.mount()
+        preflightLogic.actions.loadPreflightSuccess({ cloud: false, is_debug: false } as any)
+        ;(posthog.capture as jest.Mock).mockClear()
+
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect((posthog as any).conversations.getTickets).not.toHaveBeenCalled()
+        expect(
+            (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === 'support widget load failed')
+        ).toHaveLength(0)
     })
 
     it('opens the composer with the prefilled message when the support form intent exists at mount', async () => {

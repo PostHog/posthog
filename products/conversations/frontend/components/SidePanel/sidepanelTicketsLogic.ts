@@ -27,6 +27,7 @@ import {
 import { EMAIL_SUPPORT_BUTTON, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import type { BillingType } from '~/types'
@@ -64,6 +65,7 @@ export interface sidepanelTicketsLogicValues {
     billing: BillingType | null // billingLogic
     billingLoading: boolean // billingLogic
     isCurrentOrganizationNew: boolean // organizationLogic
+    isCloudOrDev: boolean | undefined // preflightLogic
     sidePanelOpen: boolean // sidePanelStateLogic
     isBillingIssue: boolean // supportLogic
     isEmailFormOpen: boolean // supportLogic
@@ -226,6 +228,8 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             ['billing', 'billingLoading'],
             organizationLogic,
             ['isCurrentOrganizationNew'],
+            preflightLogic,
+            ['isCloudOrDev'],
         ],
         actions: [
             supportLogic,
@@ -418,6 +422,18 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             }
         },
         loadTickets: async () => {
+            // We don't support self-hosted, and the conversations extension is cloud-only — both the
+            // panel and the tickets scene already render a community-forum message instead. This logic
+            // still mounts there (the scene declares it in its SceneExport), so without this it would
+            // retry a widget that will never arrive and then tell a self-hosted user to email us.
+            //
+            // Explicitly `=== false` rather than falsy: `isCloudOrDev` is undefined until preflight
+            // resolves, and treating that as self-hosted would block the first load on cloud. Retries
+            // re-read it, so a self-hosted instance stops as soon as preflight lands — well inside the
+            // 20 attempts it takes to warn.
+            if (values.isCloudOrDev === false) {
+                return
+            }
             if (cache.conversationsRetryTimer) {
                 clearTimeout(cache.conversationsRetryTimer)
                 cache.conversationsRetryTimer = null
