@@ -267,14 +267,22 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
         # Fixed seconds via the funnels realization (month means 31 days), never calendar INTERVAL
         # arithmetic, so a journey's gap G always equals the emitted funnel's conversion window.
         return parse_expr(
-            f"toIntervalSecond({conversion_window_to_seconds(self.gap_interval, self.gap_interval_unit)})"
+            "toIntervalSecond({seconds})",
+            placeholders={
+                "seconds": ast.Constant(value=conversion_window_to_seconds(self.gap_interval, self.gap_interval_unit))
+            },
         )
 
     def _window_interval_expr(self) -> ast.Expr:
         # Window W realized the same fixed-seconds way as the gap, so it always equals the emitted
         # funnel's conversion window.
         return parse_expr(
-            f"toIntervalSecond({conversion_window_to_seconds(self.window_interval, self.window_interval_unit)})"
+            "toIntervalSecond({seconds})",
+            placeholders={
+                "seconds": ast.Constant(
+                    value=conversion_window_to_seconds(self.window_interval, self.window_interval_unit)
+                )
+            },
         )
 
     def _split_interval_expr(self) -> ast.Expr:
@@ -289,12 +297,12 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
         """The per-actor event tuples in the order the grid reads them. Ascending time everywhere except
         an end anchor, which sorts descending so the anchor (each actor's latest anchor event) lands at
         step 0 and the grid reads backward in time toward it."""
-        events = "groupArray(tuple(timestamp, path_item))"
+        events = parse_expr("groupArray(tuple(timestamp, path_item))")
         if self.is_anchored and self.anchor is not None and self.anchor.type == PathsV2AnchorType.END:
             # arrayReverse(arraySort(...)), not arrayReverseSort: HogQL aliases arrayReverseSort to the
             # ascending arraySort, which would silently keep forward order.
-            return parse_expr(f"arrayReverse(arraySort(x -> x.1, {events}))")
-        return parse_expr(f"arraySort(x -> x.1, {events})")
+            return parse_expr("arrayReverse(arraySort(x -> x.1, {events}))", placeholders={"events": events})
+        return parse_expr("arraySort(x -> x.1, {events})", placeholders={"events": events})
 
     def _event_base_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         """One row per in-range event matching a step source and no excluded item:
