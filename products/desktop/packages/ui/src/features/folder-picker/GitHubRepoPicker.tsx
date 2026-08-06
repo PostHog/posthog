@@ -90,10 +90,6 @@ export function GitHubRepoPicker({
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const [uncontrolledSearchQuery, setUncontrolledSearchQuery] = useState("");
   const [visibleLimit, setVisibleLimit] = useState(COMBOBOX_INITIAL_LIMIT);
-  const [paginationSnapshot, setPaginationSnapshot] = useState<string[] | null>(
-    null,
-  );
-  const paginationWasLoadingRef = useRef(false);
   const open = controlledOpen ?? uncontrolledOpen;
   const searchQuery = controlledSearchQuery ?? uncontrolledSearchQuery;
   const remoteMode =
@@ -101,10 +97,7 @@ export function GitHubRepoPicker({
     onSearchQueryChange !== undefined ||
     controlledHasMore !== undefined ||
     onLoadMore !== undefined;
-  const effectiveIsLoadingMore = isLoadingMore || paginationSnapshot !== null;
-  const displayedRepositories = paginationSnapshot
-    ? Array.from(new Set([...paginationSnapshot, ...repositories]))
-    : repositories;
+  const effectiveIsLoadingMore = isLoadingMore;
   const showInlineLoadingState =
     remoteMode && open && isLoading && !effectiveIsLoadingMore;
   const onlyRepo =
@@ -128,30 +121,6 @@ export function GitHubRepoPicker({
   );
 
   useEffect(() => {
-    if (!paginationSnapshot) return;
-
-    if (isLoading || isLoadingMore) {
-      paginationWasLoadingRef.current = true;
-      return;
-    }
-
-    if (
-      paginationWasLoadingRef.current ||
-      repositories.length !== paginationSnapshot.length ||
-      !hasMore
-    ) {
-      paginationWasLoadingRef.current = false;
-      setPaginationSnapshot(null);
-    }
-  }, [
-    hasMore,
-    isLoading,
-    isLoadingMore,
-    paginationSnapshot,
-    repositories.length,
-  ]);
-
-  useEffect(() => {
     if (onlyRepo && value !== onlyRepo) {
       onChange(onlyRepo);
     }
@@ -161,8 +130,6 @@ export function GitHubRepoPicker({
     if (!hasMore || isLoading || effectiveIsLoadingMore) return;
 
     if (remoteMode) {
-      paginationWasLoadingRef.current = false;
-      setPaginationSnapshot(repositories);
       onLoadMore?.();
       return;
     }
@@ -227,7 +194,7 @@ export function GitHubRepoPicker({
 
   return (
     <Combobox
-      items={displayedRepositories}
+      items={repositories}
       filter={remoteMode ? null : undefined}
       limit={remoteMode ? undefined : visibleLimit}
       value={value}
@@ -239,8 +206,6 @@ export function GitHubRepoPicker({
         setUncontrolledOpen(nextOpen);
         onOpenChange?.(nextOpen);
         if (!nextOpen) {
-          setPaginationSnapshot(null);
-          paginationWasLoadingRef.current = false;
           setUncontrolledSearchQuery("");
           onSearchQueryChange?.("");
           setVisibleLimit(COMBOBOX_INITIAL_LIMIT);
@@ -248,8 +213,6 @@ export function GitHubRepoPicker({
       }}
       inputValue={searchQuery}
       onInputValueChange={(nextSearchQuery) => {
-        setPaginationSnapshot(null);
-        paginationWasLoadingRef.current = false;
         setUncontrolledSearchQuery(nextSearchQuery);
         onSearchQueryChange?.(nextSearchQuery);
         setVisibleLimit(COMBOBOX_INITIAL_LIMIT);

@@ -64,9 +64,7 @@ describe("GitHubRepoPicker", () => {
     rerender(
       <GitHubRepoPicker
         {...pickerProps}
-        repositories={[]}
-        isLoading
-        isLoadingMore={false}
+        isLoadingMore
         onLoadMore={onLoadMore}
       />,
     );

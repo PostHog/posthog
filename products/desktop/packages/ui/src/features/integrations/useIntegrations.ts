@@ -8,12 +8,17 @@ import {
 import { REPOSITORIES_SERVICE } from "@posthog/core/integrations/identifiers";
 import {
   combineGithubRepositories,
-  combineRepositoryPicker,
   combineUserGithubRepositories,
+  computeNextRepositoryPickerOffsets,
+  computeRepositoryNextOffset,
+  flattenRepositoryPickerPages,
   getIntegrationIdForRepo,
   getRepoEntry,
   isEmptyRepositoryMap,
   isRepoInIntegration,
+  REPOSITORY_PICKER_PAGE_SIZE,
+  type RepositoryPickerOffsets,
+  type RepositoryPickerPage,
   resolveEffectiveUserRepositoryMap,
   resolveUserRepositoryCacheAction,
   type UserRepositoryIntegrationRef,
@@ -141,34 +146,12 @@ function useAllUserGithubRepositories(
   });
 }
 
-const REPOSITORIES_PAGE_SIZE = 50;
-
-function useRepositoryPickerLimit(resetKey: string) {
-  const [request, setRequest] = useState({
-    key: resetKey,
-    limit: REPOSITORIES_PAGE_SIZE,
-  });
-  const requestedLimit =
-    request.key === resetKey ? request.limit : REPOSITORIES_PAGE_SIZE;
-  const loadMore = useCallback(() => {
-    setRequest((current) => ({
-      key: resetKey,
-      limit:
-        (current.key === resetKey ? current.limit : REPOSITORIES_PAGE_SIZE) +
-        REPOSITORIES_PAGE_SIZE,
-    }));
-  }, [resetKey]);
-
-  return { requestedLimit, loadMore };
-}
-
 export function useGithubRepositories(
   search?: string,
   enabled: boolean = true,
   integrationId?: number | null,
 ) {
   const client = useOptionalAuthenticatedClient();
-  const queryClient = useQueryClient();
   const { githubIntegrations } = useIntegrationSelectors();
   const matchingGithubIntegrations = useMemo(
     () =>
@@ -180,60 +163,59 @@ export function useGithubRepositories(
     [githubIntegrations, integrationId],
   );
   const deferredSearch = useDeferredValue(search?.trim() ?? "");
-  const paginationKey = `${matchingGithubIntegrations.map((integration) => integration.id).join(",")}:${deferredSearch}`;
-  const { requestedLimit, loadMore } = useRepositoryPickerLimit(paginationKey);
+  const integrationIds = matchingGithubIntegrations.map(
+    (integration) => integration.id,
+  );
   const queryEnabled =
     enabled && !!client && matchingGithubIntegrations.length > 0;
 
-  const { repositoryMap, isPending, isRefreshing, hasMore } = useQueries({
-    queries: matchingGithubIntegrations.map((integration) => ({
-      queryKey: integrationKeys.repositoryPicker(
-        integration.id,
-        deferredSearch,
+  const query = useAuthenticatedInfiniteQuery<
+    RepositoryPickerPage<number>,
+    RepositoryPickerOffsets
+  >(
+    integrationKeys.repositoryPickerPages(integrationIds, deferredSearch),
+    async (authenticatedClient, offsets) => ({
+      integrations: await Promise.all(
+        matchingGithubIntegrations
+          .filter(
+            (integration) => offsets[String(integration.id)] !== undefined,
+          )
+          .map(async (integration) => {
+            const offset = offsets[String(integration.id)] ?? 0;
+            const page = await authenticatedClient.getGithubRepositoriesPage(
+              integration.id,
+              offset,
+              REPOSITORY_PICKER_PAGE_SIZE,
+              deferredSearch,
+            );
+            return {
+              key: String(integration.id),
+              ref: integration.id,
+              ...page,
+              nextOffset: computeRepositoryNextOffset(offset, page),
+            };
+          }),
       ),
-      queryFn: async () => {
-        if (!client) throw new Error("Not authenticated");
-
-        const page = await client.getGithubRepositoriesPage(
-          integration.id,
-          0,
-          requestedLimit,
-          deferredSearch,
-        );
-
-        return { ref: integration.id, ...page };
-      },
+    }),
+    {
       enabled: queryEnabled,
-      staleTime: 5 * 60 * 1000,
-      meta: AUTH_SCOPED_QUERY_META,
-    })),
-    combine: combineRepositoryPicker<number>,
-  });
-
-  useEffect(() => {
-    if (!queryEnabled || requestedLimit === REPOSITORIES_PAGE_SIZE) return;
-
-    void Promise.all(
-      matchingGithubIntegrations.map((integration) =>
-        queryClient.refetchQueries({
-          queryKey: integrationKeys.repositoryPicker(
-            integration.id,
-            deferredSearch,
-          ),
-          exact: true,
-        }),
+      initialPageParam: Object.fromEntries(
+        integrationIds.map((id) => [String(id), 0]),
       ),
-    );
-  }, [
-    deferredSearch,
-    matchingGithubIntegrations,
-    queryClient,
-    queryEnabled,
-    requestedLimit,
-  ]);
+      getNextPageParam: computeNextRepositoryPickerOffsets,
+      staleTime: 5 * 60 * 1000,
+    },
+  );
 
-  const isFetchingMore =
-    requestedLimit > REPOSITORIES_PAGE_SIZE && (isPending || isRefreshing);
+  const { repositoryMap, hasMore } = useMemo(
+    () => flattenRepositoryPickerPages(query.data?.pages),
+    [query.data?.pages],
+  );
+
+  const loadMore = useCallback(() => {
+    if (!query.hasNextPage || query.isFetching) return;
+    void query.fetchNextPage();
+  }, [query.fetchNextPage, query.hasNextPage, query.isFetching]);
 
   const getIntegrationIdForRepository = useCallback(
     (repoKey: string) => getIntegrationIdForRepo(repositoryMap, repoKey),
@@ -243,9 +225,11 @@ export function useGithubRepositories(
   return {
     repositories: Object.keys(repositoryMap),
     getIntegrationIdForRepo: getIntegrationIdForRepository,
-    isPending: queryEnabled ? isPending && !isFetchingMore : false,
-    isFetchingMore: queryEnabled ? isFetchingMore : false,
-    isRefreshing: queryEnabled ? isRefreshing : false,
+    isPending: queryEnabled ? query.isPending : false,
+    isFetchingMore: query.isFetchingNextPage,
+    isRefreshing: queryEnabled
+      ? query.isRefetching && !query.isFetchingNextPage
+      : false,
     hasMore,
     loadMore,
   };
@@ -256,74 +240,75 @@ export function useUserGithubRepositories(
   enabled: boolean = true,
 ) {
   const client = useOptionalAuthenticatedClient();
-  const queryClient = useQueryClient();
   const { data: githubIntegrations = [] } = useUserGithubIntegrations();
   const deferredSearch = useDeferredValue(search?.trim() ?? "");
-  const paginationKey = `${githubIntegrations.map((integration) => integration.installation_id).join(",")}:${deferredSearch}`;
-  const { requestedLimit, loadMore } = useRepositoryPickerLimit(paginationKey);
+  const installationIds = githubIntegrations.map(
+    (integration) => integration.installation_id,
+  );
   const queryEnabled = enabled && !!client && githubIntegrations.length > 0;
 
-  const { repositoryMap, isPending, isRefreshing, hasMore } = useQueries({
-    queries: githubIntegrations.map((integration) => ({
-      queryKey: userGithubIntegrationKeys.repositoryPicker(
-        integration.installation_id,
-        deferredSearch,
+  const query = useAuthenticatedInfiniteQuery<
+    RepositoryPickerPage<UserRepositoryIntegrationRef>,
+    RepositoryPickerOffsets
+  >(
+    userGithubIntegrationKeys.repositoryPickerPages(
+      installationIds,
+      deferredSearch,
+    ),
+    async (authenticatedClient, offsets) => ({
+      integrations: await Promise.all(
+        githubIntegrations
+          .filter(
+            (integration) => offsets[integration.installation_id] !== undefined,
+          )
+          .map(async (integration) => {
+            const offset = offsets[integration.installation_id] ?? 0;
+            const page =
+              await authenticatedClient.getGithubUserRepositoriesPage(
+                integration.installation_id,
+                offset,
+                REPOSITORY_PICKER_PAGE_SIZE,
+                deferredSearch,
+              );
+            return {
+              key: integration.installation_id,
+              ref: {
+                userIntegrationId: integration.id,
+                installationId: integration.installation_id,
+              },
+              ...page,
+              nextOffset: computeRepositoryNextOffset(offset, page),
+            };
+          }),
       ),
-      queryFn: async () => {
-        if (!client) throw new Error("Not authenticated");
-
-        const page = await client.getGithubUserRepositoriesPage(
-          integration.installation_id,
-          0,
-          requestedLimit,
-          deferredSearch,
-        );
-
-        return {
-          ref: {
-            userIntegrationId: integration.id,
-            installationId: integration.installation_id,
-          },
-          ...page,
-        };
-      },
+    }),
+    {
       enabled: queryEnabled,
-      staleTime: 5 * 60 * 1000,
-      meta: AUTH_SCOPED_QUERY_META,
-    })),
-    combine: combineRepositoryPicker<UserRepositoryIntegrationRef>,
-  });
-
-  useEffect(() => {
-    if (!queryEnabled || requestedLimit === REPOSITORIES_PAGE_SIZE) return;
-
-    void Promise.all(
-      githubIntegrations.map((integration) =>
-        queryClient.refetchQueries({
-          queryKey: userGithubIntegrationKeys.repositoryPicker(
-            integration.installation_id,
-            deferredSearch,
-          ),
-          exact: true,
-        }),
+      initialPageParam: Object.fromEntries(
+        installationIds.map((id) => [id, 0]),
       ),
-    );
-  }, [
-    deferredSearch,
-    githubIntegrations,
-    queryClient,
-    queryEnabled,
-    requestedLimit,
-  ]);
+      getNextPageParam: computeNextRepositoryPickerOffsets,
+      staleTime: 5 * 60 * 1000,
+    },
+  );
 
-  const isFetchingMore =
-    requestedLimit > REPOSITORIES_PAGE_SIZE && (isPending || isRefreshing);
+  const { repositoryMap, hasMore } = useMemo(
+    () => flattenRepositoryPickerPages(query.data?.pages),
+    [query.data?.pages],
+  );
+
+  const loadMore = useCallback(() => {
+    if (!query.hasNextPage || query.isFetching) return;
+    void query.fetchNextPage();
+  }, [query.fetchNextPage, query.hasNextPage, query.isFetching]);
 
   return {
     repositories: Object.keys(repositoryMap),
-    isPending: queryEnabled ? isPending && !isFetchingMore : false,
-    isFetchingMore: queryEnabled ? isFetchingMore : false,
-    isRefreshing: queryEnabled ? isRefreshing : false,
+    isPending: queryEnabled ? query.isPending : false,
+    isFetchingMore: query.isFetchingNextPage,
+    isRefreshing: queryEnabled
+      ? query.isRefetching && !query.isFetchingNextPage
+      : false,
     hasMore,
     loadMore,
   };
