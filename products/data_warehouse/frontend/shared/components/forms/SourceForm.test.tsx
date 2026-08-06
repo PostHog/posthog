@@ -57,6 +57,8 @@ const CONNECTION_STRING_FIELD: SourceFieldInputConfig = {
     name: 'connection_string',
     label: 'Connection String',
     required: true,
+    // tls=true keeps the trailofbits mongodb-insecure-transport semgrep rule happy; the value is
+    // never asserted, so don't drop it back to a bare mongodb:// string.
     placeholder: 'mongodb://host:port/db?tls=true',
     secret: true,
 }
