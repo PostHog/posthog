@@ -126,6 +126,7 @@ function TestAccountFiltersConfig(): JSX.Element {
                         onChange={handleChange}
                         taxonomicGroupTypes={[
                             TaxonomicFilterGroupType.EventProperties,
+                            TaxonomicFilterGroupType.EventMetadata,
                             TaxonomicFilterGroupType.PersonProperties,
                             TaxonomicFilterGroupType.EventFeatureFlags,
                             ...groupsTaxonomicTypes,
