@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { combineUrl } from 'kea-router'
 import { useEffect } from 'react'
 import { twMerge } from 'tailwind-merge'
 
@@ -237,16 +238,18 @@ function Login(): JSX.Element {
                             </LemonField>
                         )}
                         {hasNoConfiguredLoginMethod && (
-                            <div className="py-2.5 px-3 text-sm leading-normal text-primary text-left bg-warning-highlight border border-warning rounded">
-                                No sign-in method is set up for this account. Use{' '}
-                                <Link
-                                    to={[urls.passwordReset(), { email: login.email }]}
+                            <div className="flex flex-col gap-2 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-warning-highlight border border-warning rounded">
+                                <span>No sign-in method is set up for this account.</span>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    center
+                                    fullWidth
+                                    to={combineUrl(urls.passwordReset(), { email: login.email }).url}
                                     data-attr="forgot-password"
-                                    className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
                                 >
-                                    Forgot password?
-                                </Link>{' '}
-                                to set a password by email.
+                                    Set a password by email
+                                </LemonButton>
                             </div>
                         )}
                         {autoRedirectingToProvider && (

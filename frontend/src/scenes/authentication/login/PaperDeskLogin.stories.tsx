@@ -18,6 +18,7 @@ type StoryArgs = {
     samlAvailable: boolean
     ssoEnforcement: 'none' | 'google-oauth2' | 'github' | 'gitlab' | 'saml'
     generalError: 'none' | 'invalid_credentials' | 'code_based_verification_sent'
+    noLoginMethod: boolean
 }
 
 const meta: Meta<StoryArgs> = {
@@ -45,6 +46,7 @@ const meta: Meta<StoryArgs> = {
             name: 'General error',
             options: ['none', 'invalid_credentials', 'code_based_verification_sent'],
         },
+        noLoginMethod: { control: 'boolean', name: 'No configured login method' },
     },
     args: {
         cloud: true,
@@ -55,6 +57,7 @@ const meta: Meta<StoryArgs> = {
         samlAvailable: false,
         ssoEnforcement: 'none',
         generalError: 'none',
+        noLoginMethod: false,
     },
 }
 export default meta
@@ -68,6 +71,7 @@ const Template: StoryFn<StoryArgs> = ({
     samlAvailable,
     ssoEnforcement,
     generalError,
+    noLoginMethod,
 }) => {
     const enforcement = ssoEnforcement === 'none' ? null : ssoEnforcement
 
@@ -89,16 +93,23 @@ const Template: StoryFn<StoryArgs> = ({
             },
         },
         post: {
-            '/api/login/precheck': { sso_enforcement: enforcement, saml_available: samlAvailable },
+            '/api/login/precheck': noLoginMethod
+                ? {
+                      sso_enforcement: null,
+                      saml_available: false,
+                      password_login_available: false,
+                      social_providers: [],
+                  }
+                : { sso_enforcement: enforcement, saml_available: samlAvailable },
         },
     })
 
     useEffect(() => {
-        if (enforcement) {
+        if (enforcement || noLoginMethod) {
             loginLogic.actions.setLoginValue('email', 'test@posthog.com')
             loginLogic.actions.precheck({ email: 'test@posthog.com' })
         }
-    }, [enforcement])
+    }, [enforcement, noLoginMethod])
 
     useEffect(() => {
         if (generalError !== 'none') {
@@ -134,3 +145,6 @@ LoginError.args = { generalError: 'invalid_credentials' }
 
 export const EmailVerification: StoryFn<StoryArgs> = Template.bind({})
 EmailVerification.args = { generalError: 'code_based_verification_sent' }
+
+export const NoConfiguredLoginMethod: StoryFn<StoryArgs> = Template.bind({})
+NoConfiguredLoginMethod.args = { noLoginMethod: true }

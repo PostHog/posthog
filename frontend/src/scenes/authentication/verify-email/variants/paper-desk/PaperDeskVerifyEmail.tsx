@@ -212,12 +212,11 @@ function VerifyEmail(): JSX.Element {
             <PaperDeskCard
                 footer={
                     <p className="mt-5 mb-0 text-sm text-secondary text-center">
-                        Wrong address?{' '}
                         <Link
                             to={urls.signup()}
-                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                            className="font-semibold cursor-pointer underline underline-offset-2 text-warning"
                         >
-                            Start over →
+                            Wrong address? Start over →
                         </Link>
                     </p>
                 }
