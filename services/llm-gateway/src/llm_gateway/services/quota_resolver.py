@@ -63,7 +63,7 @@ _RETRY_DELAYS_SECONDS: tuple[float, ...] = (
 # (the billing product config for AI credits and `posthog_code_usage`).
 _USD_PER_CREDIT = 0.01
 
-_POSTHOG_CODE_COMPONENT_RESOURCES = {
+_POSTHOG_DESKTOP_COMPONENT_RESOURCES = {
     "token_credits": "posthog_code_token_credits",
     "compute_credits": "sandbox_compute_credits",
     "cpu_millicore_seconds": "sandbox_compute_cpu_millicore_seconds",
@@ -79,7 +79,7 @@ class QuotaResourceStatus:
     # synced numbers. None means unknown (unsynced org, fail-open) — never $0.
     used_usd: float | None = None
     limit_usd: float | None = None
-    posthog_code_usage: dict[str, object] | None = None
+    posthog_desktop_usage: dict[str, object] | None = None
 
 
 def _optional_number(value: object) -> float | None:
@@ -103,13 +103,13 @@ def _optional_integer(value: object) -> int | None:
     return None
 
 
-def _posthog_code_usage(data: dict[str, object]) -> dict[str, object] | None:
+def _posthog_desktop_usage(data: dict[str, object]) -> dict[str, object] | None:
     limited = data.get("limited")
     if not isinstance(limited, dict):
         return None
     components: dict[str, object] = {
         output_key: _optional_integer(resource.get("usage")) if isinstance(resource, dict) else None
-        for output_key, resource_key in _POSTHOG_CODE_COMPONENT_RESOURCES.items()
+        for output_key, resource_key in _POSTHOG_DESKTOP_COMPONENT_RESOURCES.items()
         for resource in (limited.get(resource_key),)
     }
     if all(value is None for value in components.values()):
@@ -242,7 +242,7 @@ class QuotaResolver:
             code_usage_billing_active=bool(data.get("code_usage_billing_active")),
             used_usd=_credits_to_usd(resource.get("usage")),
             limit_usd=_credits_to_usd(resource.get("limit")),
-            posthog_code_usage=_posthog_code_usage(data) if resource_key == "posthog_code_credits" else None,
+            posthog_desktop_usage=_posthog_desktop_usage(data) if resource_key == "posthog_code_credits" else None,
         ), self._cache_ttl
 
     async def _get_cached(self, resource_key: str, team_id: int) -> QuotaResourceStatus | None:
@@ -260,8 +260,8 @@ class QuotaResolver:
                 code_usage_billing_active=bool(payload.get("code_usage_billing_active")),
                 used_usd=_optional_number(payload.get("used_usd")),
                 limit_usd=_optional_number(payload.get("limit_usd")),
-                posthog_code_usage=payload.get("posthog_code_usage")
-                if isinstance(payload.get("posthog_code_usage"), dict)
+                posthog_desktop_usage=payload.get("posthog_desktop_usage")
+                if isinstance(payload.get("posthog_desktop_usage"), dict)
                 else None,
             )
         except Exception:
@@ -279,8 +279,8 @@ class QuotaResolver:
                     "used_usd": status.used_usd,
                     "limit_usd": status.limit_usd,
                     **(
-                        {"posthog_code_usage": status.posthog_code_usage}
-                        if status.posthog_code_usage is not None
+                        {"posthog_desktop_usage": status.posthog_desktop_usage}
+                        if status.posthog_desktop_usage is not None
                         else {}
                     ),
                 }

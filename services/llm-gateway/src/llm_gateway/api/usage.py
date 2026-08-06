@@ -147,7 +147,7 @@ async def get_usage(
             exhausted=credits_exhausted,
             used_usd=quota_status.used_usd,
             limit_usd=quota_status.limit_usd,
-            breakdown=quota_status.posthog_code_usage if product == POSTHOG_CODE_PRODUCT else None,
+            breakdown=quota_status.posthog_desktop_usage if product == POSTHOG_CODE_PRODUCT else None,
         ),
         is_rate_limited=burst_status.exceeded or sustained_status.exceeded or credits_exhausted,
         is_pro=is_pro_plan(plan_info.plan_key),

@@ -264,7 +264,7 @@ class TestQuotaResolver:
 
         assert status.used_usd is None
         assert status.limit_usd is None
-        assert status.posthog_code_usage is None
+        assert status.posthog_desktop_usage is None
 
     @pytest.mark.asyncio
     async def test_usd_numbers_round_trip_through_the_cache(self) -> None:
@@ -322,10 +322,10 @@ class TestQuotaResolver:
         first = await resolver.get_resource_status("posthog_code_credits", 42, "Bearer phx_test")
         cached = await resolver.get_resource_status("posthog_code_credits", 42, "Bearer phx_test")
 
-        assert first.posthog_code_usage == breakdown
-        assert cached.posthog_code_usage == breakdown
-        token_credits = first.posthog_code_usage["token_credits"]
-        compute_credits = first.posthog_code_usage["compute_credits"]
+        assert first.posthog_desktop_usage == breakdown
+        assert cached.posthog_desktop_usage == breakdown
+        token_credits = first.posthog_desktop_usage["token_credits"]
+        compute_credits = first.posthog_desktop_usage["compute_credits"]
         assert isinstance(token_credits, int)
         assert isinstance(compute_credits, int)
         assert token_credits + compute_credits == 1301
@@ -352,9 +352,9 @@ class TestQuotaResolver:
 
         status = await resolver.get_resource_status("posthog_code_credits", 42, "Bearer phx_test")
 
-        assert status.posthog_code_usage is not None
-        assert status.posthog_code_usage["token_credits"] == 0
-        assert status.posthog_code_usage["compute_credits"] == 0
+        assert status.posthog_desktop_usage is not None
+        assert status.posthog_desktop_usage["token_credits"] == 0
+        assert status.posthog_desktop_usage["compute_credits"] == 0
 
     @pytest.mark.asyncio
     async def test_parses_real_quota_limits_wire_shape(self) -> None:
@@ -383,7 +383,7 @@ class TestQuotaResolver:
 
         status = await resolver.get_resource_status("posthog_code_credits", 42, "Bearer phx_test")
 
-        assert status.posthog_code_usage == {
+        assert status.posthog_desktop_usage == {
             "token_credits": 33,
             "compute_credits": 24,
             "cpu_millicore_seconds": 0,

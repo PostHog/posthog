@@ -463,7 +463,7 @@ class TestUsageEndpoint:
                 limited=False,
                 used_usd=13.01,
                 limit_usd=20.0,
-                posthog_code_usage=component_breakdown,
+                posthog_desktop_usage=component_breakdown,
             )
         )
         data = authenticated_usage_client.get(

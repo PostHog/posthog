@@ -96,7 +96,7 @@ class TestQuotaLimitsAPI(APIBaseTest):
         self.assertEqual(limited["events"], {"limited": False, "usage": None, "limit": None})
 
     def test_reports_desktop_component_usage_as_json_integers(self) -> None:
-        # The gateway's Desktop breakdown parser (`_posthog_code_usage`) drops any
+        # The gateway's Desktop breakdown parser (`_posthog_desktop_usage`) drops any
         # component whose usage is not a JSON integer, so a float here silently
         # nulls the breakdown. Asserts exact JSON types, not just values.
         self.organization.usage = {
