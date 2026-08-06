@@ -35,6 +35,7 @@ import {
     NodeKind,
     PathsFilter,
     PathsQuery,
+    PathsV2Query,
     ProductAnalyticsInsightQueryNode,
     RetentionFilter,
     RetentionQuery,
@@ -98,6 +99,7 @@ export interface QueryPropertyCache
         Omit<Partial<FunnelsQuery>, 'kind' | 'response' | 'series'>,
         Omit<Partial<RetentionQuery>, 'kind' | 'response' | 'series'>,
         Omit<Partial<PathsQuery>, 'kind' | 'response'>,
+        Omit<Partial<PathsV2Query>, 'kind' | 'response'>,
         Omit<Partial<StickinessQuery>, 'kind' | 'response' | 'series'>,
         Omit<Partial<LifecycleQuery>, 'kind' | 'response' | 'series'> {
     series?: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[]
@@ -834,6 +836,9 @@ const buildInsightFilter = (
     if (isPathsQuery(query)) {
         const vizProps = getCommonVisualizationProperties(query, cache.commonFilter)
         return { pathsFilter: { ...query.pathsFilter, ...cache.pathsFilter, ...vizProps } }
+    }
+    if (isPathsV2Query(query)) {
+        return { pathsV2Filter: { ...query.pathsV2Filter, ...cache.pathsV2Filter } }
     }
     if (isLifecycleQuery(query)) {
         const vizProps = getCommonVisualizationProperties(query, cache.commonFilter)

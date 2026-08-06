@@ -15,7 +15,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
-import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
+import { INSIGHT_TYPES_METADATA, isInsightTypeCreatable } from 'scenes/saved-insights/insightTypesMetadata'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -162,12 +162,7 @@ function useNewInsightCards(): {
 
     const byType: Partial<Record<InsightType, NewInsightCardSpec>> = {}
     for (const [insightType, metadata] of Object.entries(INSIGHT_TYPES_METADATA)) {
-        if (
-            !metadata.inMenu ||
-            insightType === InsightType.JSON ||
-            (!featureFlags[FEATURE_FLAGS.HOG] && insightType === InsightType.HOG) ||
-            (!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_PATHS_V2] && insightType === InsightType.JOURNEYS)
-        ) {
+        if (!isInsightTypeCreatable(metadata, featureFlags) || insightType === InsightType.JSON) {
             continue
         }
         const spec: NewInsightCardSpec = {

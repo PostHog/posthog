@@ -192,6 +192,40 @@ describe('insightNavLogic', () => {
                 expect(builtLogic.values.activeView).toEqual(InsightType.JOURNEYS)
                 expect(builtLogic.values.tabs.map((tab) => tab.type)).toContain(InsightType.JOURNEYS)
             })
+
+            it('keeps the journeys filter when switching away and back', async () => {
+                const journeysQuery: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.PathsV2Query,
+                        pathsV2Filter: {
+                            stepSources: [{ event: '$screen', namingProperty: '$screen_name' }],
+                        },
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(journeysQuery)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.JOURNEYS)
+                }).toFinishAllListeners()
+
+                expect(builtInsightDataLogic.values.query).toMatchObject({
+                    kind: 'InsightVizNode',
+                    source: {
+                        kind: 'PathsV2Query',
+                        pathsV2Filter: {
+                            stepSources: [{ event: '$screen', namingProperty: '$screen_name' }],
+                        },
+                    },
+                })
+            })
         })
 
         describe('query cache', () => {

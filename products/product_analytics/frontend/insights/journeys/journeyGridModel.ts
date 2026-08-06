@@ -1,7 +1,7 @@
 import { PathsV2Item, PathsV2Results } from '~/queries/schema/schema-general'
 
 export const OTHER_ROW_KEY = 'other'
-export const DROP_OFF_ROW_KEY = 'dropOff'
+const DROP_OFF_ROW_KEY = 'dropOff'
 
 export type JourneyGridRowKind = 'item' | 'other' | 'dropOff'
 
@@ -143,13 +143,4 @@ export function ribbonPath(x0: number, y0: number, t0: number, x1: number, y1: n
         `C ${xm},${y1 + t1} ${xm},${y0 + t0} ${x0},${y0 + t0}`,
         'Z',
     ].join(' ')
-}
-
-export function middleEllipsis(name: string, max: number): string {
-    if (name.length <= max) {
-        return name
-    }
-    const head = Math.ceil((max - 1) * 0.6)
-    const tail = max - 1 - head
-    return `${name.slice(0, head)}…${name.slice(name.length - tail)}`
 }
