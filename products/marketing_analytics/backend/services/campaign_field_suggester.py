@@ -15,8 +15,7 @@ Pure function, no queries. Feed it `get_campaigns_with_spend` and
 `get_utm_campaign_catalogue` output.
 """
 
-from dataclasses import asdict, dataclass, field
-from typing import Any
+from dataclasses import dataclass, field
 
 import structlog
 
@@ -120,9 +119,6 @@ class FieldPreferenceSuggestion:
     # Campaigns still unmatched even after switching. These need their ad URLs
     # fixed; no mapping or preference change reaches them.
     still_unmatched_examples: list[str] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
 
 
 def suggest_campaign_field_preferences(

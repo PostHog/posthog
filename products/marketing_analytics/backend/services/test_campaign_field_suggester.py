@@ -371,7 +371,11 @@ class TestReporting:
         assert MIN_CONFIDENCE <= modest_suggestion.confidence < total_suggestion.confidence <= MAX_CONFIDENCE
         assert total_suggestion.confidence < 1.0
 
-    def test_orders_integrations_by_spend_at_risk(self):
+    def test_orders_integrations_by_the_spend_a_switch_recovers(self):
+        # Both integrations match 0% by name here, so `spend_at_risk` and `spend_recovered`
+        # coincide and this fixture alone can't tell which is the sort key. The case where they
+        # disagree is `TestRanking.test_a_barely_helpful_switch_does_not_outrank_a_repair`; this
+        # one only pins that bigger recovery comes first.
         google = _named_campaigns(10, source="google", spend=100.0)
         meta = _named_campaigns(10, source="meta", spend=900.0)
         utm_events = {
