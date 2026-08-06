@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from tempfile import NamedTemporaryFile
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
@@ -6,16 +7,41 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.storage.object_storage import ObjectStorageError
+
 from products.exports.backend.models.exported_asset import (
     SEVEN_DAYS,
     SIX_MONTHS,
     TWELVE_MONTHS,
     ExportedAsset,
     get_content_response,
+    save_content_from_file,
 )
 
 
 class TestExportedAssetModel(APIBaseTest):
+    def test_large_content_preserves_object_storage_failure(self) -> None:
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            created_by=self.user,
+            export_format=ExportedAsset.ExportFormat.JSONL,
+        )
+        with NamedTemporaryFile() as content_file:
+            content_file.write(b"large")
+            content_file.flush()
+            storage_error = ObjectStorageError("storage unavailable")
+            with (
+                self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"),
+                patch(
+                    "products.exports.backend.models.exported_asset.object_storage.write_from_file",
+                    side_effect=storage_error,
+                ),
+                self.assertRaises(ObjectStorageError) as error,
+            ):
+                save_content_from_file(asset, content_file.name, max_database_bytes=1)
+
+        self.assertIs(error.exception, storage_error)
+
     def test_exported_asset_inside_ttl_is_visible_to_both_managers(self) -> None:
         asset = ExportedAsset.objects.create(
             team=self.team,
@@ -95,6 +121,7 @@ class TestExportedAssetExpiresAfter(APIBaseTest):
             (ExportedAsset.ExportFormat.WEBM, TWELVE_MONTHS),
             (ExportedAsset.ExportFormat.GIF, TWELVE_MONTHS),
             (ExportedAsset.ExportFormat.JSON, SIX_MONTHS),
+            (ExportedAsset.ExportFormat.JSONL, SEVEN_DAYS),
         ]
     )
     @freeze_time("2024-06-15T10:30:00Z")
@@ -179,17 +206,35 @@ class TestExportedAssetFilename(APIBaseTest):
         )
         assert asset.filename == "power-users-50-rollout-2024-06-15-103000.csv"
 
+    @parameterized.expand(
+        [
+            (ExportedAsset.ExportFormat.XLSX, "xlsx"),
+            (ExportedAsset.ExportFormat.JSONL, "jsonl"),
+        ]
+    )
     @freeze_time("2024-06-15T10:30:00Z")
-    def test_xlsx_format_extension(self) -> None:
+    def test_tabular_format_extension(self, export_format: str, expected_extension: str) -> None:
         asset = ExportedAsset.objects.create(
             team=self.team,
-            export_format=ExportedAsset.ExportFormat.XLSX,
+            export_format=export_format,
             export_context={"filename": "cohort-test"},
         )
-        assert asset.filename == "cohort-test-2024-06-15-103000.xlsx"
+        assert asset.filename == f"cohort-test-2024-06-15-103000.{expected_extension}"
 
 
 class TestDirectContentResponse(APIBaseTest):
+    def test_serves_empty_content(self) -> None:
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.JSONL,
+            content=b"",
+        )
+
+        response = get_content_response(asset)
+
+        assert response.status_code == 200
+        assert response.content == b""
+
     @parameterized.expand(
         [
             ("bounded_png_serves_bytes", ExportedAsset.ExportFormat.PNG, 200),

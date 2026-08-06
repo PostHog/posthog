@@ -658,12 +658,12 @@ describe('TrendsLineChart', () => {
             },
         })
 
-        it('explains why drill-down is unavailable instead of opening the persons modal', async () => {
+        it('offers no click affordance and does not open the persons modal', async () => {
             renderInsight({ query: multiSeriesFormulaQuery })
 
             await chart.hoverTooltip(2)
 
-            expect(chart.getTooltip()?.textContent).toContain("Drill-down isn't available for formula insights")
+            expect(chart.getTooltip()?.textContent).not.toContain('Click to view')
             await chart.clickTooltipRow('Pageview')
             expect(personsModal.get()).not.toBeInTheDocument()
         })
@@ -677,9 +677,7 @@ describe('TrendsLineChart', () => {
             })
 
             await chart.hoverTooltip(2)
-            expect(chart.getTooltip()?.textContent).toContain(
-                "Drill-down isn't available for formula insights. Click to view the insight."
-            )
+            expect(chart.getTooltip()?.textContent).toContain('Click to view the insight')
 
             await chart.clickTooltipRow('Pageview')
 

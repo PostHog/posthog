@@ -221,9 +221,45 @@ describe('subscriptionSceneLogic', () => {
             source,
             previous_feedback: null,
         })
+        // A feedback landing is also a click-through on the delivered report.
+        expect(captureSpy).toHaveBeenCalledWith('ai_report_clicked', {
+            subscription_id: 2,
+            delivery_id: 'd-123',
+            link: 'feedback',
+            source,
+        })
         // The replace must remove the params so a refresh doesn't double-capture.
         expect(router.values.searchParams).toEqual({})
         expect(captureSpy.mock.calls.filter(([event]) => event === 'ai_report_feedback')).toHaveLength(1)
+
+        logic.unmount()
+        captureSpy.mockRestore()
+    })
+
+    it('captures ai_report_clicked from the report CTA delivery param and strips it', async () => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/`]: () => [200, MOCK_AI_SUBSCRIPTION],
+            },
+        })
+        initKeaTests()
+        const captureSpy = jest.spyOn(posthog, 'capture')
+
+        const logic = subscriptionSceneLogic({ id: '2' })
+        logic.mount()
+        await expectLogic(logic, () => {
+            router.actions.push('/subscriptions/2', { delivery: 'd-123', utm_medium: 'email' })
+        }).toFinishAllListeners()
+
+        expect(captureSpy).toHaveBeenCalledWith('ai_report_clicked', {
+            subscription_id: 2,
+            delivery_id: 'd-123',
+            link: 'manage',
+            source: 'email',
+        })
+        expect(captureSpy.mock.calls.filter(([event]) => event === 'ai_report_feedback')).toHaveLength(0)
+        // Only the delivery param is consumed — utm params stay for posthog-js.
+        expect(router.values.searchParams).toEqual({ utm_medium: 'email' })
 
         logic.unmount()
         captureSpy.mockRestore()

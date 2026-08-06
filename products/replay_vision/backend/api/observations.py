@@ -61,10 +61,13 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
+from products.replay_vision.backend.scanner_access import (
+    scanner_for_reading_observations,
+    scanners_for_reading_observations,
+)
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.access import has_tasks_access
 
 from ee.hogai.utils.untrusted import as_untrusted_data
 
@@ -726,7 +729,7 @@ class ReplayObservationViewSet(
             scanner_id = uuid.UUID(self.kwargs["parent_lookup_scanner_id"])
         except (KeyError, ValueError):
             raise NotFound()
-        scanner = ReplayScanner.objects.filter(team_id=self.team_id, id=scanner_id).first()
+        scanner = scanner_for_reading_observations(self.team_id, scanner_id)
         if scanner is None:
             raise NotFound()
         # Observations expose recording-derived output, so they inherit the scanner's RBAC and also require session_recording read.
@@ -876,8 +879,6 @@ class ReplayObservationViewSet(
         # the session route's get_object only object-checks the observation row.
         self.check_object_permissions(self.request, scanner)
         user = cast(User, request.user)
-        if not has_tasks_access(user):
-            raise PermissionDenied("Creating a task requires access to PostHog Desktop.")
         content = _observation_task_content(observation, scanner)
         # Lock the observation row so a client retry or concurrent double submit returns the task the
         # first call minted instead of creating a duplicate to triage.
@@ -1096,7 +1097,7 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         # row rather than its scanner, so scope explicitly to the scanners this caller can read.
         readable_scanner_ids = list(
             self.user_access_control.filter_queryset_by_access_level(
-                ReplayScanner.objects.filter(team_id=self.team_id)
+                scanners_for_reading_observations(self.team_id)
             ).values_list("id", flat=True)
         )
         queryset = (

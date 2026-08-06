@@ -729,6 +729,10 @@ class TestClickHouseSourceRetryableErrors:
             "('Connection broken: IncompleteRead(0 bytes read)', IncompleteRead(0 bytes read))",
             "('Connection broken: IncompleteRead(12345 bytes read, 67 more expected)', "
             "IncompleteRead(12345 bytes read, 67 more expected))",
+            # The server accepted the connection but never answered within our timeout —
+            # typically ClickHouse Cloud still cold-resuming past our allowance.
+            "Error HTTPSConnectionPool(host='play.clickhouse.com', port=8443): Read timed out. "
+            "(read timeout=120) executing HTTP request attempt 1 (https://play.clickhouse.com:8443)",
         ],
     )
     def test_transient_errors_are_retryable(self, source, error_msg):
