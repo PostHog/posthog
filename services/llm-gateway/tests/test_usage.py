@@ -452,7 +452,7 @@ class TestUsageEndpoint:
     ) -> None:
         from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
-        component_breakdown = {
+        component_breakdown: dict[str, object] = {
             "token_credits": 1234,
             "compute_credits": 67,
             "cpu_millicore_seconds": 9_876_543_210,
