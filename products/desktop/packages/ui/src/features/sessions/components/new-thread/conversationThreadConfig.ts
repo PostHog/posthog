@@ -39,7 +39,10 @@ export const grouping = {
    * their own row regardless of collapse mode (e.g. the cloud setup / clone
    * progress card).
    */
-  alwaysVisibleUpdates: new Set<string>(["progress_group"]),
+  alwaysVisibleUpdates: new Set<string>([
+    "progress_group",
+    "agent_thought_chunk",
+  ]),
   /** Max distinct tool icons shown in a collapsed chip's icon strip. */
   maxIconsInChip: 10,
 } as const;

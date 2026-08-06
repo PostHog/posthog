@@ -32,6 +32,19 @@ function toolCallItem(
   } as unknown as ConversationItem;
 }
 
+function thoughtItem(id: string): ConversationItem {
+  return {
+    type: "session_update",
+    id,
+    update: {
+      sessionUpdate: "agent_thought_chunk",
+      content: { type: "text", text: "Considering the next step" },
+    },
+    thoughtComplete: true,
+    turnContext: turnContext(),
+  } as ConversationItem;
+}
+
 describe("buildThreadGroups MCP detection", () => {
   it("keeps a tool call with only the posthog meta channel standalone (codex adapters)", () => {
     const mcpItem = toolCallItem("t1", {
@@ -72,6 +85,27 @@ describe("buildThreadGroups MCP detection", () => {
     // Both folded items still map to the group's row for find-in-thread.
     expect(grouping.idToRowIndex.get("t1")).toBe(0);
     expect(grouping.idToRowIndex.get("t2")).toBe(0);
+  });
+
+  it("keeps thoughts outside adjacent tool groups", () => {
+    const grouping = buildThreadGroups(
+      [
+        toolCallItem("t1", undefined),
+        thoughtItem("thought-1"),
+        toolCallItem("t2", undefined),
+      ],
+      {},
+    );
+
+    expect(grouping.rows.map((row) => row.kind)).toEqual([
+      "tool_group",
+      "item",
+      "tool_group",
+    ]);
+    expect(grouping.rows[1]).toMatchObject({
+      kind: "item",
+      item: { id: "thought-1" },
+    });
   });
 
   it("counts only spawned agents as subagents", () => {

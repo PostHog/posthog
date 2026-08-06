@@ -36,27 +36,6 @@ function subagentItem(
   } as SessionUpdateItem;
 }
 
-function thoughtItem(
-  id: string,
-  options: { thoughtComplete: boolean; turnComplete?: boolean },
-): SessionUpdateItem {
-  return {
-    type: "session_update",
-    id,
-    update: {
-      sessionUpdate: "agent_thought_chunk",
-      content: { type: "text", text: "weighing the options" },
-    },
-    thoughtComplete: options.thoughtComplete,
-    turnContext: {
-      toolCalls: new Map(),
-      childItems: new Map(),
-      turnCancelled: false,
-      turnComplete: options.turnComplete ?? true,
-    },
-  } as SessionUpdateItem;
-}
-
 function renderGroup(items: SessionUpdateItem[]) {
   return render(
     <ServiceProvider container={new Container()}>
@@ -85,18 +64,6 @@ describe("ToolGroup", () => {
         subagentItem("spawn-2", running),
       ],
       expected: "Subagents",
-    },
-    {
-      name: "reads as thinking while a trailing thought streams",
-      items: [
-        subagentItem("spawn-1", running),
-        subagentItem("spawn-2", running),
-        thoughtItem("thought-1", {
-          thoughtComplete: false,
-          turnComplete: false,
-        }),
-      ],
-      expected: "Thinking…",
     },
   ])("$name", ({ items, expected }) => {
     renderGroup(items);

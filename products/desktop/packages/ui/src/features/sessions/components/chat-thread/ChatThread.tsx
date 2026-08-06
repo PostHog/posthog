@@ -150,12 +150,6 @@ function isToolCallItem(item: ConversationItem): item is SessionUpdateItem {
   );
 }
 
-function isSessionUpdateItem(
-  item: ConversationItem,
-): item is SessionUpdateItem {
-  return item.type === "session_update";
-}
-
 /**
  * Session-updates that `SessionUpdateView` always renders as `null`. They produce no row, so they
  * must not break a contiguous tool run.
@@ -188,26 +182,6 @@ function isInvisibleItem(item: ConversationItem): boolean {
 }
 
 /**
- * A thought joins a tool run instead of breaking it, because between two calls it narrates the
- * stretch of work the run already stands for. The group's body still lists it in order. Prose to
- * the user (`agent_message_chunk`) does break a run, since that is addressed to the reader rather
- * than describing the work.
- */
-function isThoughtItem(item: ConversationItem): boolean {
-  return (
-    item.type === "session_update" &&
-    item.update.sessionUpdate === "agent_thought_chunk"
-  );
-}
-
-/**
- * Collapse each contiguous run of ≥2 tool-call updates into a single `ToolGroupItem`. A run is
- * broken by any *visible* non-tool, non-thought item (prose, status) so groups follow reading
- * order; invisible updates (see {@link INVISIBLE_UPDATES}) are transparent and don't split a run.
- * A lone tool call passes through untouched as a single marker, and so do the thoughts around it:
- * thoughts ride along a run, they never make one.
- */
-/**
  * Item arrays for settled runs, keyed on the run's (stable) first item.
  *
  * Grouping re-runs over the whole thread on every streamed chunk, so a completed run produces a
@@ -233,34 +207,31 @@ function stableRunItems(run: SessionUpdateItem[]): SessionUpdateItem[] {
   return run;
 }
 
-function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
+/**
+ * Collapse each contiguous run of ≥2 tool-call updates into a single `ToolGroupItem`. A visible
+ * non-tool item breaks the run so thoughts and prose keep their place in the conversation.
+ * Invisible updates remain transparent because they produce no row.
+ */
+export function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
   const out: ThreadItem[] = [];
-  // The buffer holds the active run in order: tools, the thoughts between them, and any invisible
-  // items interleaved with either.
   let buffer: ConversationItem[] = [];
-  let toolCount = 0;
 
   const flush = () => {
-    if (toolCount >= 2) {
+    const tools = buffer.filter(isToolCallItem);
+    if (tools.length >= 2) {
       out.push({
         type: "tool_group",
-        // Keyed on the first tool call so the id survives thoughts appending around it.
-        id: buffer.filter(isToolCallItem)[0].id,
-        items: stableRunItems(buffer.filter(isSessionUpdateItem)),
+        id: tools[0].id,
+        items: stableRunItems(tools),
       });
     } else {
       out.push(...buffer);
     }
     buffer = [];
-    toolCount = 0;
   };
 
   for (const item of items) {
-    if (isToolCallItem(item)) {
-      buffer.push(item);
-      toolCount++;
-    } else if (isInvisibleItem(item) || isThoughtItem(item)) {
-      // Don't break the run; carry it along in order.
+    if (isToolCallItem(item) || isInvisibleItem(item)) {
       buffer.push(item);
     } else {
       flush();
