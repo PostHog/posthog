@@ -19,6 +19,20 @@ const notificationBus = {
   ),
 } as unknown as NotificationBus;
 
+function task(overrides: Partial<Task> = {}): Task {
+  return {
+    id: "task-1",
+    task_number: 1,
+    slug: "channel-task",
+    title: "Channel task",
+    description: "Test task",
+    created_at: "2026-07-27T08:00:00Z",
+    updated_at: "2026-07-27T09:00:00Z",
+    origin_product: "code",
+    ...overrides,
+  };
+}
+
 describe("TaskActivityContribution", () => {
   let queryClient: QueryClient;
   let contribution: TaskActivityContribution;
@@ -77,10 +91,10 @@ describe("TaskActivityContribution", () => {
         pageParams: [undefined],
       },
     );
-    queryClient.setQueryData<Task>(taskKeys.detail("task-1"), {
-      id: "task-1",
-      channel: "channel-1",
-    } as Task);
+    queryClient.setQueryData<Task>(
+      taskKeys.detail("task-1"),
+      task({ channel: "channel-1" }),
+    );
 
     activityListener?.({
       taskId: "task-1",
@@ -125,10 +139,10 @@ describe("TaskActivityContribution", () => {
         pageParams: [undefined],
       },
     );
-    queryClient.setQueryData<Task>(taskKeys.detail("task-1"), {
-      id: "task-1",
-      channel: "stale-channel",
-    } as Task);
+    queryClient.setQueryData<Task>(
+      taskKeys.detail("task-1"),
+      task({ channel: "stale-channel" }),
+    );
 
     activityListener?.({
       taskId: "task-1",
