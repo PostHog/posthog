@@ -10,7 +10,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 
 import { initKeaTests } from '~/test/init'
 
-import { LemonFormDialog } from './LemonDialog'
+import { LemonDialog, LemonFormDialog } from './LemonDialog'
 
 describe('LemonFormDialog', () => {
     let captureException: jest.SpyInstance
@@ -94,5 +94,21 @@ describe('LemonFormDialog', () => {
         await waitForElementToBeRemoved(() => screen.queryByText('Submit'))
         expect(onSubmit).toHaveBeenCalled()
         expect(captureException).not.toHaveBeenCalled()
+    })
+
+    // A synchronous throw from a non-await primary button used to skip the close, freezing the dialog
+    // on a dead-looking button with no feedback — the exact way a dropped confirm click surfaced.
+    it('closes and captures when a synchronous primary button click throws', async () => {
+        const error = new Error('boom')
+        const onClick = jest.fn(() => {
+            throw error
+        })
+
+        render(<LemonDialog title="Test dialog" primaryButton={{ children: 'Confirm', onClick }} />)
+        await userEvent.click(screen.getByText('Confirm'))
+
+        await waitForElementToBeRemoved(() => screen.queryByText('Confirm'))
+        expect(onClick).toHaveBeenCalled()
+        expect(captureException).toHaveBeenCalledWith(error)
     })
 })

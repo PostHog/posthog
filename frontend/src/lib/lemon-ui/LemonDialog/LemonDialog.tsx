@@ -131,7 +131,14 @@ const LemonDialogComponent = forwardRef<LemonDialogRef, LemonDialogProps>(functi
                             isLoadingCallback?.(false)
                         }
                     } else {
-                        button.onClick?.(e)
+                        try {
+                            button.onClick?.(e)
+                        } catch (error) {
+                            // A synchronous throw here would skip the close below and leave the dialog
+                            // frozen on a dead-looking button with no feedback. Capture it (the handler
+                            // surfaces any user-facing message itself) and fall through to close.
+                            captureUnexpectedSubmitError(error)
+                        }
                     }
 
                     if (!preventClosing) {

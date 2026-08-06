@@ -639,8 +639,11 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         // Mirrors featureFlagLogic's listener of the same name, so both surfaces of the
         // disable-and-archive experiment are driven from a logic rather than from the row component.
         toggleFeatureFlagActive: ({ id, active }) => {
+            // The confirmation dialog renders in a detached React root, so resolve the action against
+            // the currently mounted logic at click time rather than closing over `actions` here — a
+            // stale reference would let the confirm click silently drop.
             const applyUpdate = (payload: Partial<FeatureFlagType>): void => {
-                actions.updateFeatureFlag({ id, payload })
+                featureFlagsLogic.findMounted()?.actions.updateFeatureFlag({ id, payload })
             }
             const openControlDialog = (onConfirm?: () => void, onCancel?: () => void): void => {
                 LemonDialog.open({

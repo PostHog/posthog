@@ -20,6 +20,7 @@ import type { DeepPartial, FieldName } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
+import posthog from 'posthog-js'
 import { createElement } from 'react'
 
 import api, { PaginatedResponse } from 'lib/api'
@@ -3461,6 +3462,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             })
         },
         updateFeatureFlagActiveFailure: ({ errorObject }) => {
+            posthog.capture('feature flag toggle failed', {
+                flag_id: values.featureFlag.id,
+                error_status: errorObject?.status,
+            })
             if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
                 return
             }
@@ -3514,6 +3519,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         updateFeatureFlagActiveSuccess: ({ featureFlagActiveUpdate }) => {
             if (featureFlagActiveUpdate) {
+                posthog.capture('feature flag toggle succeeded', {
+                    flag_id: featureFlagActiveUpdate.id,
+                    active: featureFlagActiveUpdate.active,
+                })
                 lemonToast.success(`Feature flag ${featureFlagActiveUpdate.active ? 'enabled' : 'disabled'}`)
                 actions.setFeatureFlag(featureFlagActiveUpdate)
                 actions.updateFlag(featureFlagActiveUpdate)
@@ -3998,12 +4007,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 {
                     originalFlag: values.originalFeatureFlag,
                     updatedFlag,
+                    // The confirmation dialog renders in a detached React root and can outlive this
+                    // logic build (a flag reload remounts it). A closure over `actions` from here would
+                    // then dispatch into a stale build and the toggle would silently do nothing, so
+                    // resolve the action against the currently mounted instance at click time instead.
                     onConfirm: () => {
-                        actions.updateFeatureFlagActive(active)
+                        featureFlagLogic.findMounted(props)?.actions.updateFeatureFlagActive(active)
                     },
                     requireStatusConfirmation: true,
                     onDisableAndArchive: () => {
-                        actions.updateFeatureFlagArchived({ archived: true, via: 'disable-confirmation' })
+                        featureFlagLogic
+                            .findMounted(props)
+                            ?.actions.updateFeatureFlagArchived({ archived: true, via: 'disable-confirmation' })
                     },
                 },
                 breakpoint,

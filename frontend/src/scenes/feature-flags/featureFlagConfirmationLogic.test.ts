@@ -78,4 +78,29 @@ describe('checkFeatureFlagConfirmation', () => {
 
         expect(disableDialogReached()).toBe(true)
     })
+
+    // The enable side had no telemetry, so a dropped enable confirmation was only ever visible in a
+    // session replay. This mirrors the disable-side event so the next occurrence is measurable.
+    it('reports the enable confirmation shown when enabling', () => {
+        const shown = checkFeatureFlagConfirmation(
+            disabledFlag,
+            activeFlag,
+            false,
+            undefined,
+            false,
+            onConfirm,
+            [],
+            false,
+            true
+        )
+
+        expect(shown).toBe(true)
+        expect(openDialog).toHaveBeenCalledTimes(1)
+        expect(
+            (posthog.capture as jest.Mock).mock.calls.some(
+                ([name, props]) =>
+                    name === 'feature flag enable confirmation shown' && props?.source === 'feature-flag-detail'
+            )
+        ).toBe(true)
+    })
 })

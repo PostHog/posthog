@@ -1839,6 +1839,34 @@ describe('featureFlagLogic', () => {
             ])
             dialogOpenSpy.mockRestore()
         })
+
+        // Guards the enable-side drop: the confirm dialog renders in a detached React root, so if its
+        // onConfirm stops dispatching to the live logic, the click is silently swallowed — the switch
+        // never flips and no toast appears. Assert the confirmed enable reaches persisted state.
+        it('persists the enabled state and reports it after the enable confirmation is confirmed', async () => {
+            const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            jest.spyOn(api, 'update').mockResolvedValueOnce({ ...MOCK_FEATURE_FLAG, active: true })
+            logic.actions.setFeatureFlag({ ...MOCK_FEATURE_FLAG, active: false })
+
+            await expectLogic(logic, () => logic.actions.toggleFeatureFlagActive(true)).toFinishAllListeners()
+
+            expect(capturesOf('feature flag enable confirmation shown')).toEqual([
+                ['feature flag enable confirmation shown', { source: 'feature-flag-detail' }],
+            ])
+
+            const dialogProps = dialogOpenSpy.mock.calls[0][0]
+            expect(dialogProps.primaryButton?.children).toBe('Enable flag')
+
+            dialogProps.primaryButton?.onClick?.(undefined as any)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(expect.stringContaining('/feature_flags/1'), { active: true })
+            expect(logic.values.featureFlag.active).toBe(true)
+            expect(capturesOf('feature flag toggle succeeded')).toEqual([
+                ['feature flag toggle succeeded', { flag_id: 1, active: true }],
+            ])
+            dialogOpenSpy.mockRestore()
+        })
     })
 
     describe('updateFeatureFlagArchived archive telemetry', () => {

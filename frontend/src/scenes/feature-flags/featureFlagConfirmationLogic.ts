@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { objectsEqual } from 'lib/utils/objects'
 
@@ -160,6 +161,11 @@ export function checkFeatureFlagConfirmation(
                 openControlDialog: openStatusConfirmationModal,
             })
             return true
+        }
+        // Mirror of the disable-side telemetry so an enable confirmation that never lands a state
+        // change is measurable rather than only visible in a session replay.
+        if (updatedFlag.active) {
+            posthog.capture('feature flag enable confirmation shown', { source: 'feature-flag-detail' })
         }
         openStatusConfirmationModal()
         return true
