@@ -171,16 +171,21 @@ def set_default_slack_notification_channel(team_id: int, value: str | None) -> N
         SignalTeamConfig,  # noqa: PLC0415 — avoids importing model layer at facade import time
     )
 
-    # Two steps rather than update_or_create: a team whose config row predates the row's existence
-    # has none yet, and creating it with the channel already set would emit a "created" activity,
-    # which handle_signal_team_config_change drops as auto-provisioning. Creating the defaults row
-    # first makes the channel an "updated" entry that the activity log keeps.
-    config, _ = SignalTeamConfig.objects.get_or_create(team_id=team_id)
     channel = value or None
-    if config.default_slack_notification_channel == channel:
-        return
-    config.default_slack_notification_channel = channel
-    config.save(update_fields=["default_slack_notification_channel", "updated_at"])
+    # Read-modify-write under a row lock, for two reasons:
+    #   1. A team whose config row predates the row's existence has none yet, and creating it with
+    #      the channel already set would emit a "created" activity that handle_signal_team_config_change
+    #      drops as auto-provisioning. Creating the defaults row first, then saving only the channel,
+    #      makes it an "updated" entry the activity log keeps.
+    #   2. That "updated" save persists only the channel, but the activity diff compares the whole
+    #      in-memory row against a fresh snapshot. Without the lock, a concurrent write to another
+    #      setting between the read and the save would surface as a phantom revert of that setting.
+    with transaction.atomic():
+        config, _ = SignalTeamConfig.objects.select_for_update().get_or_create(team_id=team_id)
+        if config.default_slack_notification_channel == channel:
+            return
+        config.default_slack_notification_channel = channel
+        config.save(update_fields=["default_slack_notification_channel", "updated_at"])
 
 
 # ---------------------------------------------------------------------------
