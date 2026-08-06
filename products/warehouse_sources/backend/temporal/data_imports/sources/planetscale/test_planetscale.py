@@ -52,6 +52,14 @@ def test_connection_always_uses_tls_and_the_olap_workload():
         assert kwargs["init_command"] == "SET workload = 'OLAP';"
 
 
+def test_connection_verifies_the_server_certificate_and_hostname():
+    with _connect(_config()) as kwargs:
+        # Without these, pymysql accepts any valid certificate for any host, so anyone able to
+        # redirect the connection could impersonate PlanetScale and capture the credentials.
+        assert kwargs["ssl_verify_cert"] is True
+        assert kwargs["ssl_verify_identity"] is True
+
+
 def test_connection_details_come_from_the_config():
     with _connect(_config()) as kwargs:
         assert kwargs["host"] == "aws.connect.psdb.cloud"

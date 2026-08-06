@@ -48,6 +48,12 @@ class PlanetScaleImplementation(MySQLImplementation):
                 "password": config.password,
                 "connect_timeout": 10,
                 "ssl_ca": ssl_ca,
+                # PlanetScale serves a publicly trusted certificate for the connect host, so both
+                # chain and hostname verification can be required. Without `ssl_verify_identity`
+                # pymysql accepts any valid certificate, which lets anyone able to redirect the
+                # connection impersonate PlanetScale and capture these credentials.
+                "ssl_verify_cert": True,
+                "ssl_verify_identity": True,
                 "conv": _MYSQL_SAFE_CONVERSIONS,
                 "init_command": _VITESS_OLAP_INIT_COMMAND,
             }
