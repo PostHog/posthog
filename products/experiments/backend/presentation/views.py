@@ -10,12 +10,14 @@ This will be refactored incrementally in subsequent PRs to match the product arc
 
 import json
 import asyncio
+import logging
 from typing import Any, Literal, cast
 
 from django.conf import settings
 from django.db.models import BooleanField, Case, Exists, OuterRef, Prefetch, Q, QuerySet, Value, When
 from django.utils.text import slugify
 
+import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from opentelemetry import trace
 from rest_framework import serializers, viewsets
@@ -42,6 +44,8 @@ from posthog.rate_limit import (
     SessionBucketsSustainedRateThrottle,
     SessionContextsBurstRateThrottle,
     SessionContextsSustainedRateThrottle,
+    SessionEventDeltasBurstRateThrottle,
+    SessionEventDeltasSustainedRateThrottle,
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControl
@@ -79,6 +83,8 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentSessionContextResponseSerializer,
     ExperimentSessionContextsRequestSerializer,
     ExperimentSessionContextsResponseSerializer,
+    ExperimentSessionEventDeltaRequestSerializer,
+    ExperimentSessionEventDeltaResponseSerializer,
     ExperimentWriteSerializer,
     RecalculateMetricsRequestSerializer,
     RunningTimeCalculationInputSerializer,
@@ -109,6 +115,13 @@ from products.experiments.backend.session_buckets import (
     get_experiment_session_bucket,
 )
 from products.experiments.backend.session_context import get_session_experiment_context, get_session_experiment_contexts
+from products.experiments.backend.session_event_deltas import (
+    EXPERIMENT_BEHAVIOR_COMPARISON_FLAG,
+    SessionEventDeltasUnavailable,
+    all_card_session_ids,
+    finalize_watch_cards,
+    get_experiment_session_event_deltas,
+)
 from products.experiments.backend.temporal.models import (
     ExperimentMetricsRecalculationWorkflowInputs as MetricsRecalcInputs,
 )
@@ -116,6 +129,7 @@ from products.feature_flags.backend.models.evaluation_context import FeatureFlag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.tasks.backend.facade import api as tasks_facade
 
+logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 # Heavy JSON columns the list view never renders. Deferred for the list action so large
@@ -1489,6 +1503,98 @@ class EnterpriseExperimentsViewSet(
             _accessible_session_ids(request, self.user_access_control, self.team, scan.candidate_session_ids),
         )
         return Response(ExperimentSessionBucketResponseSerializer(result).data)
+
+    @validated_request(
+        request_serializer=ExperimentSessionEventDeltaRequestSerializer,
+        responses={200: OpenApiResponse(response=ExperimentSessionEventDeltaResponseSerializer)},
+    )
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="session_event_deltas",
+        required_scopes=["experiment:read", "session_recording:read"],
+        # The heaviest read in this family: it compares every event name in the window, so unlike
+        # the bucket scan there is no event-name predicate for ClickHouse to prune on.
+        throttle_classes=[SessionEventDeltasBurstRateThrottle, SessionEventDeltasSustainedRateThrottle],
+    )
+    def session_event_deltas(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        """The recordings worth watching for this experiment, grouped into cards.
+
+        Each card is one sentence and the recordings that back it: an event one variant did clearly
+        more than the others, an error signal concentrated in one variant, or a shortcut to a
+        metric event happening on screen. Every card's count is a count of recordings that actually
+        exist, so handing its session ids to the recordings list can't come back empty. POST to
+        take the same throttle and cache posture as the other reads in this family rather than
+        because it carries a body: it takes no parameters, and it only reads.
+
+        It reports no effect size. The experiment's own metric events never enter the comparison,
+        and cards carry a direction and a band rather than a rate, a ratio or a person count: the
+        experiment's results already state magnitudes, computed per person over the whole run
+        window, and this reads one session per person over a clamped one. Two numbers for the same
+        event would read as a contradiction, so this surface states none.
+        """
+        experiment: Experiment = self.get_object()
+
+        if not self._session_event_deltas_enabled():
+            raise NotFound("Comparing an experiment's session behavior isn't available for this organization.")
+
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Comparing an experiment's session behavior requires session replay access.")
+
+        try:
+            result = get_experiment_session_event_deltas(
+                team=self.team,
+                # user threads through to the HogQL queries: exposure criteria can filter on
+                # arbitrary properties, which must respect the viewer's property-level access
+                # control.
+                user=cast(User, request.user),
+                experiment=experiment,
+            )
+        except SessionEventDeltasUnavailable as error:
+            raise ValidationError(str(error))
+
+        # Applied to the computed shelf rather than inside the scan, as the session buckets do it:
+        # the shelf is cached per viewer, so filtering on read honors a revocation that lands while
+        # an entry is warm. The resource-level check above grants the replay product, not every
+        # recording in it — without this a viewer denied one recording could still read its id, the
+        # variant it was in, and an event it contains.
+        result = finalize_watch_cards(
+            result,
+            _accessible_session_ids(request, self.user_access_control, self.team, all_card_session_ids(result)),
+        )
+        return Response(ExperimentSessionEventDeltaResponseSerializer(result).data)
+
+    def _session_event_deltas_enabled(self) -> bool:
+        # Scoped to the experiment's organization rather than the caller's current one: the read is
+        # heavy enough that who pays for it has to be decided by the data being read, not by which
+        # org the viewer happens to be looking at PostHog as. The org is the identity too, so every
+        # viewer in it resolves the same value under a percentage rollout.
+        organization_id = str(self.organization_id)
+        try:
+            return bool(
+                posthoganalytics.feature_enabled(
+                    EXPERIMENT_BEHAVIOR_COMPARISON_FLAG,
+                    organization_id,
+                    groups={"organization": organization_id},
+                    # Without the group's own properties local evaluation of a group-targeted flag is
+                    # inconclusive, so every call would fall through to a synchronous request to
+                    # PostHog before the heaviest read on the tab even starts.
+                    group_properties={"organization": {"id": organization_id}},
+                    # Enforced rather than left to the properties above, the way
+                    # `resolve_default_exposure_event` does it on this same request path. The cost
+                    # of that is that the flag's release conditions have to stay locally decidable:
+                    # organization-group targeting only. A cohort or person-property condition makes
+                    # local evaluation inconclusive, which returns None and reads as False here, so
+                    # it would turn the endpoint off for every organization at once.
+                    only_evaluate_locally=True,
+                    # A gate, not a measurement: the $feature_flag_called this would otherwise
+                    # capture per request says nothing the endpoint's own query tags don't.
+                    send_feature_flag_events=False,
+                )
+            )
+        except Exception:
+            logger.warning("Failed to evaluate the experiment behavior comparison flag", exc_info=True)
+            return False
 
 
 def _serialize_recalculation(recalc: ExperimentMetricsRecalculation, active_run: dict | None = None) -> dict:

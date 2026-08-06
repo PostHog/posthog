@@ -45,8 +45,6 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Optional
 
-from django.db import models
-from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from posthog.schema import EventsNode
@@ -57,7 +55,6 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.models import EventProperty
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
@@ -79,6 +76,7 @@ from products.experiments.backend.metric_events import (
     MetricSourceRole,
     SharedHogQLDatabase,
     build_source_condition,
+    never_session_linked_events,
     node_signature,
     resolve_metric_events,
 )
@@ -281,7 +279,7 @@ def get_experiment_session_bucket(
     lookup_names: set[str] = {exposure_event} if exposure_event is not None else set()
     for metric in requested:
         lookup_names |= _concrete_event_names(metric)
-    never_linked = _never_session_linked_events(team, lookup_names)
+    never_linked = never_session_linked_events(team, lookup_names)
     # Both default exposure events mean "this user was enrolled via the flag", which the stamped
     # flag property implies too, so either can take the fallback.
     use_exposure_fallback = (
@@ -467,24 +465,6 @@ def _source_event_names(metric: MetricEventSource) -> Optional[set[str]]:
             return None
         names.add(source.node.event)
     return names
-
-
-def _never_session_linked_events(team: Team, event_names: set[str]) -> set[str]:
-    """Event names never ingested with a `$session_id` property — only ever captured
-    server-side, so no recordings filter on them can match. The same `EventProperty` fact the
-    taxonomy `seen_together` endpoint serves the tab, read directly so the verdict doesn't
-    depend on the caller knowing to check."""
-    if not event_names:
-        return set()
-    seen = (
-        EventProperty.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        )
-        .filter(effective_project_id=team.project_id, event__in=sorted(event_names), property="$session_id")
-        .values_list("event", flat=True)
-        .distinct()
-    )
-    return event_names - set(seen)
 
 
 def _metric_condition(metric: MetricEventSource, team: Team) -> ast.Expr:

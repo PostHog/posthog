@@ -39,10 +39,13 @@ import {
 import {
     experimentsSessionBucketsCreate,
     experimentsSessionContextsCreate,
+    experimentsSessionEventDeltasCreate,
 } from 'products/experiments/frontend/generated/api'
 import type {
     ExperimentSessionBucketResponseApi,
     ExperimentSessionBucketEnumApi,
+    ExperimentSessionEventDeltaResponseApi,
+    ExperimentWatchCardApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
 import type { ExperimentIdType } from '../../../types'
@@ -146,6 +149,8 @@ export interface experimentReplayTabLogicValues {
     linkabilityLoaded: boolean // viewRecordingsLinkabilityLogic
     seenTogetherMapLoading: boolean // viewRecordingsLinkabilityLogic
     unlinkableEventNames: Set<string> // viewRecordingsLinkabilityLogic
+    behaviorComparisonAvailable: boolean
+    behaviorComparisonOpen: boolean
     bucketSessionIds: string[] | undefined
     effectiveMetricUuids: string[]
     effectiveVariantKey: string | null
@@ -155,11 +160,15 @@ export interface experimentReplayTabLogicValues {
     metricOptions: ExperimentReplayMetricOption[]
     recordingsFilters: RecordingUniversalFilters
     selectedMetricUuids: string[]
+    selectedWatchCard: ExperimentWatchCardApi | null
     selectedVariantKey: string | null
     sessionBucket: ExperimentSessionBucket | null
     sessionBucketError: string | null
     sessionBucketLoading: boolean
     sessionBucketRequest: ExperimentSessionBucketRequest | null
+    sessionEventDeltas: ExperimentSessionEventDeltaResponseApi | null
+    sessionEventDeltasError: string | null
+    sessionEventDeltasLoading: boolean
     usingExposureFallback: boolean
     variantKeys: string[]
 }
@@ -190,6 +199,21 @@ export interface experimentReplayTabLogicActions {
         } | null
         payload?: unknown
     }
+    loadSessionEventDeltas: (_?: unknown) => unknown
+    loadSessionEventDeltasFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSessionEventDeltasSuccess: (
+        sessionEventDeltas: ExperimentSessionEventDeltaResponseApi,
+        payload?: unknown
+    ) => {
+        sessionEventDeltas: ExperimentSessionEventDeltaResponseApi
+        payload?: unknown
+    }
     playlistFiltersChanged: (filters: RecordingUniversalFilters) => {
         filters: RecordingUniversalFilters
     }
@@ -201,6 +225,9 @@ export interface experimentReplayTabLogicActions {
     }
     recordingsLoaded: (sessionIds: string[]) => {
         sessionIds: string[]
+    }
+    selectWatchCard: (card: ExperimentWatchCardApi | null) => {
+        card: ExperimentWatchCardApi | null
     }
     setMetricFilterMode: (mode: ExperimentReplayMetricFilterMode) => {
         mode: ExperimentReplayMetricFilterMode
@@ -214,6 +241,9 @@ export interface experimentReplayTabLogicActions {
     }
     setSelectedVariantKey: (variantKey: string | null) => {
         variantKey: string | null
+    }
+    toggleBehaviorComparison: () => {
+        value: true
     }
 }
 
@@ -254,6 +284,7 @@ export interface experimentReplayTabLogicMeta {
             unlinkableEventNames: Set<string>,
             seenTogetherMapLoading: boolean,
             bucketSessionIds: string[] | undefined,
+            selectedWatchCard: any,
             arg: any
         ) => RecordingUniversalFilters
     }
@@ -296,6 +327,8 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         recordingsLoaded: (sessionIds: string[]) => ({ sessionIds }),
         recordingOpened: (sessionId: string) => ({ sessionId }),
         prefetchSessionContexts: (sessionIds: string[]) => ({ sessionIds }),
+        toggleBehaviorComparison: true,
+        selectWatchCard: (card: ExperimentWatchCardApi | null) => ({ card }),
     }),
     loaders(({ values, props }) => ({
         sessionBucket: [
@@ -318,6 +351,19 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 },
             },
         ],
+        sessionEventDeltas: [
+            null as ExperimentSessionEventDeltaResponseApi | null,
+            {
+                loadSessionEventDeltas: async (_: unknown = null, breakpoint) => {
+                    const response = await experimentsSessionEventDeltasCreate(
+                        String(values.currentProjectId),
+                        Number(props.experiment.id)
+                    )
+                    breakpoint()
+                    return response
+                },
+            },
+        ],
     })),
     reducers({
         // null = "All" (every exposed session, regardless of variant). Persisted (keyed per
@@ -328,6 +374,11 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             { persist: true },
             {
                 setSelectedVariantKey: (_, { variantKey }) => variantKey,
+                // A card's recordings are one variant's, so the facet moves with it — visibly, so
+                // nothing narrows unannounced. Here rather than from a listener dispatching
+                // setSelectedVariantKey, which would let that action stay the user's own and so
+                // able to clear the card below without clearing the one just selected.
+                selectWatchCard: (state: string | null, { card }) => (card ? card.variant : state),
             },
         ],
         // Empty = no metric filter. Every selected metric narrows the playlist further (AND) —
@@ -342,6 +393,9 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                     selected
                         ? [...state.filter((uuid) => uuid !== metricUuid), metricUuid]
                         : state.filter((uuid) => uuid !== metricUuid),
+                // Cleared alongside the mode reset below. Carrying a selection through would invert
+                // what it meant: "didn't fire this metric" would silently become "fired it".
+                selectWatchCard: (state, { card }) => (card ? [] : state),
             },
         ],
         // Persisted with the facets it composes with. 'fired_all' keeps the client-side event
@@ -351,6 +405,11 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             { persist: true },
             {
                 setMetricFilterMode: (_, { mode }) => mode,
+                // A bucket answers its own question with a capped session set, which would fight the
+                // card's own session set. Reset here rather than from a listener: dispatching
+                // setMetricFilterMode would clear the card this action just selected.
+                selectWatchCard: (state, { card }) =>
+                    card ? ('fired_all' as ExperimentReplayMetricFilterMode) : state,
             },
         ],
         // The playlist's most recently loaded page, kept so opening a recording can re-warm
@@ -373,11 +432,56 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 loadSessionBucketFailure: (_, { error, errorObject }) => errorObject?.detail || error || 'unknown',
             },
         ],
+        // The comparison is the heaviest read on this tab, so it is opened rather than loaded with
+        // the tab. Not persisted: reopening the tab shouldn't silently re-run it.
+        behaviorComparisonOpen: [
+            false,
+            {
+                toggleBehaviorComparison: (open: boolean) => !open,
+            },
+        ],
+        // Same discipline as the bucket error: a failed comparison must not fall through to an
+        // empty list, which would read as "the variants behaved the same".
+        sessionEventDeltasError: [
+            null as string | null,
+            {
+                loadSessionEventDeltas: () => null,
+                loadSessionEventDeltasSuccess: () => null,
+                loadSessionEventDeltasFailure: (_, { error, errorObject }) => errorObject?.detail || error || 'unknown',
+            },
+        ],
+        // The card whose recordings the playlist is showing, kept apart from the metric
+        // selection: its session set comes from the shelf rather than from the experiment's
+        // metrics.
+        selectedWatchCard: [
+            null as ExperimentWatchCardApi | null,
+            {
+                selectWatchCard: (_, { card }) => card,
+                // Any facet the user moves themselves replaces the question the list answers, so
+                // the two never stack. Left stacked they don't compose, they contradict: a card's
+                // ids are one variant's and AND to an empty list under another, while a metric
+                // picked on top is dropped from the query but still reads as applied in the
+                // trigger and the caption.
+                setMetricFilterMode: () => null,
+                setSelectedVariantKey: () => null,
+                setMetricSelected: () => null,
+                // Closing the shelf takes away the only way to deselect, so the list would stay
+                // narrowed with nothing on screen saying why.
+                toggleBehaviorComparison: () => null,
+            },
+        ],
     }),
     selectors({
         variantKeys: [
             () => [(_, props) => props.experiment],
             (experiment: Experiment): string[] => getExperimentVariants(experiment).map((variant) => variant.key),
+        ],
+        // The comparison is rolled out per organization while its query cost is watched, and the
+        // endpoint refuses the call either way. Gated here rather than in the component so the
+        // panel and the request can't disagree about who has it.
+        behaviorComparisonAvailable: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.EXPERIMENT_BEHAVIOR_COMPARISON],
         ],
         // Exposure is the whole list here, so an unmatchable exposure event with no fallback means
         // there is nothing to show at all. Only custom exposure criteria end up here: the default
@@ -578,6 +682,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 s.unlinkableEventNames,
                 s.seenTogetherMapLoading,
                 s.bucketSessionIds,
+                s.selectedWatchCard,
                 (_, props) => props.experiment,
             ],
             (
@@ -587,6 +692,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 unlinkableEventNames: Set<string>,
                 seenTogetherMapLoading: boolean,
                 bucketSessionIds: string[] | undefined,
+                selectedWatchCard: ExperimentWatchCardApi | null,
                 experiment: Experiment
             ): RecordingUniversalFilters => {
                 // A recordings query carries a single AND/OR operand across the whole flattened
@@ -605,7 +711,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 // fail-open posture every linkability consumer shares.
                 const seenFilters = new Set<string>()
                 const metricFilters =
-                    seenTogetherMapLoading || bucketSessionIds !== undefined
+                    seenTogetherMapLoading || bucketSessionIds !== undefined || selectedWatchCard !== null
                         ? // A bucket already encodes the metric condition in the session set it
                           // returns, so also ANDing the event filters would narrow it a second time.
                           []
@@ -635,10 +741,12 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 ).filters
                 return {
                     ...DEFAULT_RECORDING_FILTERS,
-                    // The exposure filter stays in place alongside the bucket: the returned ids are
-                    // a subset of the exposed sessions, so this only keeps the list's definition
-                    // visible in the filter UI.
-                    session_ids: bucketSessionIds,
+                    // The exposure filter stays in place alongside the bucket or card: their ids
+                    // are a subset of the exposed sessions, so this only keeps the list's
+                    // definition visible in the filter UI. A card's recordings are pre-checked
+                    // against replay existence, so unlike an event filter this list can't come
+                    // back empty.
+                    session_ids: selectedWatchCard ? selectedWatchCard.session_ids : bucketSessionIds,
                     date_from: experiment.start_date ?? DEFAULT_RECORDING_FILTERS.date_from,
                     date_to: experiment.end_date ?? null,
                     filter_test_accounts: experiment.exposure_criteria?.filterTestAccounts ?? false,
@@ -684,6 +792,20 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 values.bucketSessionIds !== undefined
             ) {
                 actions.setMetricFilterMode('fired_all')
+            }
+            // The playlist's own "Show all" control clears session_ids; when a card put them
+            // there, that is the same intent as leaving the card, so follow it rather than
+            // pushing the ids straight back.
+            if (values.selectedWatchCard !== null && filters.session_ids == null) {
+                actions.selectWatchCard(null)
+            }
+        },
+        // Opening the panel is what runs the comparison — it is the heaviest read here, and most
+        // visits to the tab don't want it. Reopening reuses what's loaded; the server-side cache
+        // covers a deliberate reload.
+        toggleBehaviorComparison: () => {
+            if (values.behaviorComparisonOpen && !values.sessionEventDeltas) {
+                actions.loadSessionEventDeltas()
             }
         },
         // Prefetch experiment context for the freshly loaded page of recordings, so opening

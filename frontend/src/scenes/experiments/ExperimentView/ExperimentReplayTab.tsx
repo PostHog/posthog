@@ -25,6 +25,7 @@ import { SummarizeSessionReplaysButton } from '../components/SummarizeSessionRep
 import { isLaunched } from '../experimentStatus'
 import { NOT_A_FUNNEL_REASON } from '../utils'
 import { EXPOSURE_FALLBACK_NOTICE, EXPOSURE_UNLINKABLE_REASON } from '../viewRecordingsLinkabilityLogic'
+import { ExperimentBehaviorComparison, ExperimentBehaviorComparisonToggle } from './ExperimentBehaviorComparison'
 import {
     ExperimentReplayMetricFilterMode,
     ExperimentReplayMetricOption,
@@ -301,6 +302,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                         </DropdownMenuContent>
                     </DropdownMenu>
                 )}
+                <ExperimentBehaviorComparisonToggle experiment={experiment} />
                 <div className="ml-auto">
                     <SummarizeSessionReplaysButton experiment={experiment} />
                 </div>
@@ -325,6 +327,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                     )}
                 </div>
             )}
+            <ExperimentBehaviorComparison experiment={experiment} />
             <div className="SessionRecordingPlaylistHeightWrapper">
                 <SessionRecordingsPlaylist
                     logicKey={`experiment-${experiment.id}`}

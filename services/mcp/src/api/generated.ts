@@ -30061,6 +30061,136 @@ export namespace Schemas {
     }
 
     /**
+     * * `behavior` - behavior
+     * * `friction` - friction
+     * * `metric` - metric
+     */
+    export type ExperimentWatchCardKindEnum = typeof ExperimentWatchCardKindEnum[keyof typeof ExperimentWatchCardKindEnum];
+
+
+    export const ExperimentWatchCardKindEnum = {
+      Behavior: 'behavior',
+      Friction: 'friction',
+      Metric: 'metric',
+    } as const;
+
+    /**
+     * * `only` - only
+     * * `far_more` - far_more
+     * * `more` - more
+     * * `slightly_more` - slightly_more
+     */
+    export type ExperimentWatchCardStrengthEnum = typeof ExperimentWatchCardStrengthEnum[keyof typeof ExperimentWatchCardStrengthEnum];
+
+
+    export const ExperimentWatchCardStrengthEnum = {
+      Only: 'only',
+      FarMore: 'far_more',
+      More: 'more',
+      SlightlyMore: 'slightly_more',
+    } as const;
+
+    /**
+     * One group of recordings worth opening, and the sentence that justifies it.
+     *
+     * Deliberately no rate, no ratio and no person count: a precise number next to an event name is
+     * an effect size, and the experiment's results publish those for everything it measures, computed
+     * over a different window and a different unit. The only number here is how many recordings the
+     * card can actually show.
+     */
+    export interface ExperimentWatchCard {
+      /** What the card is: 'behavior' for an event this variant did clearly more than the other variants together, 'friction' for the same finding on an error or rage signal, 'metric' for a shortcut to recordings around one of the experiment's own metric events. Metric cards claim nothing about how the metric moved: that is the experiment results' answer.
+       *
+       * * `behavior` - behavior
+       * * `friction` - friction
+       * * `metric` - metric */
+      kind: ExperimentWatchCardKindEnum;
+      /** The event behind the card. */
+      event: string;
+      /** The variant whose recordings these are: for comparison cards, the one that did the event more. */
+      variant: string;
+      /** How far apart this variant and the rest are, as a band rather than a number: 'only' when nobody in the other variants did it at all among the people compared, then 'far_more', 'more' and 'slightly_more'. Read off the conservative end of the difference, so a card that clears the bar only because the sample is large reports as slight. Null on metric cards, which compare nothing. Present a band as a comparison ('far more common in test'), never convert it into a multiple.
+       *
+       * * `only` - only
+       * * `far_more` - far_more
+       * * `more` - more
+       * * `slightly_more` - slightly_more */
+      strength: ExperimentWatchCardStrengthEnum | null;
+      /**
+         * The metric whose event this card shortcuts to. Null outside metric cards.
+         * @nullable
+         */
+      metric_name: string | null;
+      /** How many recordings the card carries, at most 20. Every card is backed by recordings that actually exist: a finding whose sessions were never recorded is dropped rather than promised. */
+      recording_count: number;
+      /** The recordings themselves, most recent first, ready to hand to the recordings list as-is. */
+      session_ids: string[];
+    }
+
+    /**
+     * One variant's compared population.
+     */
+    export interface ExperimentWatchArm {
+      /** The variant key. */
+      key: string;
+      /** Exposed people the comparison covered for this variant. People rather than sessions because a variant can change how often the flag is evaluated again later, which moves a variant's session count without anyone behaving differently. Each person is read from the first session the comparison covers them in, so every variant gets the same amount of behavior per person. */
+      persons: number;
+      /** Exposed sessions those people were seen in, which is more than the comparison reads: it says how much recorded material sits behind the variant. */
+      sessions: number;
+    }
+
+    /**
+     * * `exclude` - exclude
+     * * `first_seen` - first_seen
+     */
+    export type ExperimentWatchMultipleVariantHandlingEnum = typeof ExperimentWatchMultipleVariantHandlingEnum[keyof typeof ExperimentWatchMultipleVariantHandlingEnum];
+
+
+    export const ExperimentWatchMultipleVariantHandlingEnum = {
+      Exclude: 'exclude',
+      FirstSeen: 'first_seen',
+    } as const;
+
+    /**
+     * The recordings worth watching for this experiment, grouped into cards.
+     *
+     * Descriptive, never a result: cards say where behavior visibly differed and hand over the
+     * recordings, while the experiment's results measure its metrics over the whole run window and
+     * state the magnitudes. Nothing here says a variant is winning.
+     */
+    export interface ExperimentSessionEventDeltaResponse {
+      /** The shelf, strongest comparison first, then metric shortcuts. Events the variants can't be told apart on get no card at all rather than a weak one, so an empty shelf means no difference was big enough to be sure of, not that nothing was measured. The experiment's own metric events never appear as comparisons: see metric_events. */
+      cards: ExperimentWatchCard[];
+      /** Every variant's compared population, in the flag's variant order. */
+      arms: ExperimentWatchArm[];
+      /** People who saw more than one variant and were left out of every card. Always 0 when the experiment attributes such users to the variant they saw first. */
+      multiple_variant_persons: number;
+      /** How the experiment handles someone who saw more than one variant, followed here so the cards split their people the same way the analysis does.
+       *
+       * * `exclude` - exclude
+       * * `first_seen` - first_seen */
+      multiple_variant_handling: ExperimentWatchMultipleVariantHandlingEnum;
+      /** The experiment's own metric events, which never enter the behavior comparison. They are the events it was built to move, so they would top the ranking on nearly every experiment, and the experiment's results already say what happened to them with the statistics that go with a result. They can appear as 'metric' shortcut cards, which claim nothing. */
+      metric_events: string[];
+      /** Start of what was actually compared. The requested window is the experiment's run window clamped to its most recent 14 days, but a busy experiment reaches the session ceiling long before that, and this reports where the compared sessions really begin - often hours rather than days back. Display this, not the experiment's own dates. */
+      date_from: string;
+      /** End of what was compared: the experiment's end date, or now while it runs. */
+      date_to: string;
+      /** Whether the project's test-account filters were applied, following the experiment's exposure criteria, the same rule the experiment's recordings list uses. */
+      filter_test_accounts: boolean;
+      /** True when the compared sessions were matched on the stamped $feature/<flag key> event property instead of the exposure event, because the default exposure event has only ever been captured server-side and can never match a session. The sessions then mean 'the flag was active in this session', and the variant comes from the flag's value on each event, so a returning user can be counted under a variant they were re-bucketed into later. */
+      used_exposure_fallback: boolean;
+      /** True when the experiment had more exposed sessions in the requested window than one comparison covers, so the most recent ones were used and date_from is later than the experiment's own window. Every variant is still covered over the same stretch of time. */
+      sessions_truncated: boolean;
+      /** True when the project has more distinct event names in the window than one comparison can rank, so some were never considered. */
+      events_truncated: boolean;
+      /** How many exposed people a variant needs before it can be compared at all. Below it a variant's cards would be noise whatever the evidence bar allows. */
+      min_arm_persons: number;
+      /** True when fewer than two variants have min_arm_persons exposed people, so no comparison exists and cards is empty. Say 'too early to compare' and show the arms' counts; an empty shelf presented without this would read as 'the variants behaved identically'. */
+      too_early: boolean;
+    }
+
+    /**
      * The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.
      * @nullable
      */
