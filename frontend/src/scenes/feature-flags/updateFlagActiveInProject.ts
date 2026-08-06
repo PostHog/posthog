@@ -42,11 +42,20 @@ export function confirmFlagActiveToggleInProject({
 }
 
 /**
+ * Whether a flag update failed because it needs approval, meaning the change was recorded as a
+ * change request instead of being applied. Split out from the toast handling below so bulk callers
+ * can count these without showing a toast per flag.
+ */
+export function isFlagApprovalRequiredError(e: any): boolean {
+    return e?.status === 409 && !!e?.data?.change_request_id
+}
+
+/**
  * Handle an approval-required 409 from a flag update: show the approval toast and announce
  * the created change request. Returns whether the error was an approval-required response.
  */
 export function handleFlagApprovalRequired(e: any, flagId: number, actionDescription: string): boolean {
-    if (e?.status === 409 && e?.data?.change_request_id) {
+    if (isFlagApprovalRequiredError(e)) {
         showApprovalRequiredToast(e.data.change_request_id, actionDescription)
         dispatchChangeRequestCreated({ resourceType: 'feature_flag', resourceId: flagId })
         return true

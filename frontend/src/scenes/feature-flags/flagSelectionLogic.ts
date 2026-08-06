@@ -8,13 +8,17 @@ import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
+import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
+import { featureFlagsPartialUpdate } from 'products/feature_flags/frontend/generated/api'
 import type { CopyFlagsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 
 import type { OrganizationType } from '../../types'
+import { reportFeatureFlagsBulkArchived } from './featureFlagArchiveDialog'
 import { featureFlagsLogic } from './featureFlagsLogic'
+import { isFlagApprovalRequiredError } from './updateFlagActiveInProject'
 
 export type FlagRolloutState = 'fully_rolled_out' | 'not_rolled_out' | 'partial'
 
@@ -29,6 +33,24 @@ export interface BulkDeleteResult {
     deleted: DeletedFlagInfo[]
     errors: Array<{ id: number; key?: string; reason: string }>
 }
+
+export interface BulkArchiveFailure {
+    id: number
+    errorMessage: string
+    /** The flag wasn't archived because the change needs approval — a change request was created. */
+    approvalPending: boolean
+}
+
+export interface BulkArchiveResult {
+    archivedIds: number[]
+    failed: BulkArchiveFailure[]
+}
+
+/**
+ * Bulk archive issues one request per flag, so it's capped the same way bulk copy is rather than
+ * letting a "select all matching" run fan out to thousands of sequential requests.
+ */
+export const BULK_ARCHIVE_MAX_FLAGS = 100
 
 export const BULK_COPY_MAX_FLAGS = 100
 // Mirrors MAX_COPY_FLAGS_TARGET_PROJECTS in
@@ -97,6 +119,26 @@ function summarizeBulkCopy(
         }
     }
     return { level: 'error', message: 'No flags were copied' }
+}
+
+function summarizeBulkArchive(
+    archivedCount: number,
+    failed: BulkArchiveFailure[]
+): { level: 'success' | 'warning' | 'error'; message: string } {
+    const pendingApprovalCount = failed.filter((failure) => failure.approvalPending).length
+    const hardFailureCount = failed.length - pendingApprovalCount
+    if (failed.length === 0) {
+        return { level: 'success', message: `Archived ${pluralize(archivedCount, 'flag')}` }
+    }
+    if (archivedCount > 0 || pendingApprovalCount > 0) {
+        const parts = [
+            archivedCount > 0 ? `Archived ${pluralize(archivedCount, 'flag')}` : null,
+            pendingApprovalCount > 0 ? `${pluralize(pendingApprovalCount, 'flag')} pending approval` : null,
+            hardFailureCount > 0 ? `${pluralize(hardFailureCount, 'flag')} failed` : null,
+        ].filter((part): part is string => part !== null)
+        return { level: 'warning', message: parts.join(', ') }
+    }
+    return { level: 'error', message: 'No flags were archived' }
 }
 
 function errorMessageFrom(error: unknown): string {
@@ -191,6 +233,12 @@ export interface flagSelectionLogicValues {
     } // featureFlagsLogic
     currentOrganization: OrganizationType | null // organizationLogic
     currentProjectId: number | null // projectLogic
+    bulkArchiveProgress: {
+        done: number
+        total: number
+    } | null
+    bulkArchiveResult: BulkArchiveResult | null
+    bulkArchiveRunning: boolean
     bulkCopyDisableCopiedFlag: boolean
     bulkCopyFlagCount: number
     bulkCopyHardFailures: BulkCopyFailure[]
@@ -235,6 +283,12 @@ export interface flagSelectionLogicActions {
         projectCount: number
     } // eventUsageLogic
     loadFeatureFlags: (_?: void | undefined) => void // featureFlagsLogic
+    bulkArchiveFlags: (ids: number[]) => {
+        ids: number[]
+    }
+    bulkArchiveFlagsFinished: (result: BulkArchiveResult | null) => {
+        result: BulkArchiveResult | null
+    }
     bulkCopyFlags: () => {
         value: true
     }
@@ -273,6 +327,13 @@ export interface flagSelectionLogicActions {
     }
     openBulkCopyModal: (params: BulkCopyParams) => {
         params: BulkCopyParams
+    }
+    setBulkArchiveProgress: (
+        done: number,
+        total: number
+    ) => {
+        done: number
+        total: number
     }
     setBulkCopyDisableCopiedFlag: (disableCopiedFlag: boolean) => {
         disableCopiedFlag: boolean
@@ -354,6 +415,9 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
         setBulkCopyProgress: (done: number, total: number) => ({ done, total }),
         bulkCopyFlags: true,
         bulkCopyFlagsFinished: (result: BulkCopyResult | null) => ({ result }),
+        setBulkArchiveProgress: (done: number, total: number) => ({ done, total }),
+        bulkArchiveFlags: (ids: number[]) => ({ ids }),
+        bulkArchiveFlagsFinished: (result: BulkArchiveResult | null) => ({ result }),
     }),
 
     reducers({
@@ -422,6 +486,27 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                 bulkCopyFlagsFinished: (_, { result }) => result,
             },
         ],
+        bulkArchiveRunning: [
+            false,
+            {
+                bulkArchiveFlags: () => true,
+                bulkArchiveFlagsFinished: () => false,
+            },
+        ],
+        bulkArchiveProgress: [
+            null as { done: number; total: number } | null,
+            {
+                bulkArchiveFlags: () => null,
+                setBulkArchiveProgress: (_, { done, total }) => ({ done, total }),
+            },
+        ],
+        bulkArchiveResult: [
+            null as BulkArchiveResult | null,
+            {
+                bulkArchiveFlags: () => null,
+                bulkArchiveFlagsFinished: (_, { result }) => result,
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
@@ -485,6 +570,46 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                 actions.showResultsModal(bulkDeleteResponse)
                 actions.loadFeatureFlags()
             }
+        },
+        bulkArchiveFlags: async ({ ids }) => {
+            const projectId = values.currentProjectId
+            if (!projectId || ids.length === 0) {
+                actions.bulkArchiveFlagsFinished(null)
+                return
+            }
+            if (ids.length > BULK_ARCHIVE_MAX_FLAGS) {
+                lemonToast.error(`Bulk archive supports up to ${BULK_ARCHIVE_MAX_FLAGS} flags at once.`)
+                actions.bulkArchiveFlagsFinished(null)
+                return
+            }
+
+            const archivedIds: number[] = []
+            const failed: BulkArchiveFailure[] = []
+
+            actions.setBulkArchiveProgress(0, ids.length)
+            // One request per flag through the regular update endpoint, on purpose: archiving disables
+            // the flag, so each one has to pass the approval gate the same way a single archive does.
+            // Sequential keeps the write load and the rollback ordering the same as archiving by hand.
+            for (const [index, id] of ids.entries()) {
+                try {
+                    await featureFlagsPartialUpdate(String(projectId), id, { archived: true, active: false })
+                    archivedIds.push(id)
+                } catch (error) {
+                    const approvalPending = isFlagApprovalRequiredError(error)
+                    if (approvalPending) {
+                        dispatchChangeRequestCreated({ resourceType: 'feature_flag', resourceId: id })
+                    }
+                    failed.push({ id, errorMessage: errorMessageFrom(error), approvalPending })
+                }
+                actions.setBulkArchiveProgress(index + 1, ids.length)
+            }
+
+            actions.bulkArchiveFlagsFinished({ archivedIds, failed })
+            actions.loadFeatureFlags()
+            reportFeatureFlagsBulkArchived(archivedIds.length, failed.length)
+
+            const { level, message } = summarizeBulkArchive(archivedIds.length, failed)
+            lemonToast[level](message)
         },
         bulkCopyFlags: async () => {
             const params = values.bulkCopyParams
@@ -566,7 +691,7 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
     })),
 
     beforeUnload(({ values }) => ({
-        enabled: () => values.bulkDeleteResponseLoading || values.bulkCopyRunning,
+        enabled: () => values.bulkDeleteResponseLoading || values.bulkCopyRunning || values.bulkArchiveRunning,
         message: 'A bulk flag operation is in progress. Leaving may interrupt it.',
     })),
 ])

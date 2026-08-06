@@ -2,12 +2,19 @@ import posthog from 'posthog-js'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
+import { pluralize } from 'lib/utils/strings'
+
 import { FeatureFlagType } from '~/types'
 
 export type FeatureFlagArchivedSource = 'archive-dialog' | 'disable-confirmation'
 
 export function reportFeatureFlagArchived(via: FeatureFlagArchivedSource): void {
     posthog.capture('feature flag archived', { via })
+}
+
+/** One event per bulk action rather than per flag, matching how bulk copy reports itself. */
+export function reportFeatureFlagsBulkArchived(archivedCount: number, failedCount: number): void {
+    posthog.capture('feature flags bulk archived', { archived_count: archivedCount, failed_count: failedCount })
 }
 
 /**
@@ -24,6 +31,29 @@ export function openFeatureFlagArchiveDialog(
         description: featureFlag.active
             ? 'This flag is currently enabled — archiving will disable it and immediately roll it back from users matching the release conditions. Archived flags are hidden from the flag list, but linked experiments and surveys keep their data.'
             : 'Archived flags are hidden from the flag list, but linked experiments and surveys keep their data. You can unarchive it at any time.',
+        primaryButton: {
+            children: 'Archive',
+            type: 'primary',
+            onClick: onArchive,
+            size: 'small',
+        },
+        secondaryButton: {
+            children: 'Cancel',
+            type: 'tertiary',
+            size: 'small',
+        },
+    })
+}
+
+/**
+ * Opens the archive confirmation dialog for the flags selected in the list. The copy can't name a
+ * single flag's state, so it warns about enabled flags in general.
+ */
+export function openBulkArchiveFlagsDialog(flagCount: number, onArchive: () => void): void {
+    LemonDialog.open({
+        title: `Archive ${pluralize(flagCount, 'flag')}?`,
+        description:
+            'Any of these flags that are still enabled will be disabled, and immediately rolled back from users matching their release conditions. Archived flags are hidden from the flag list, but linked experiments and surveys keep their data. You can unarchive them at any time.',
         primaryButton: {
             children: 'Archive',
             type: 'primary',
