@@ -77,8 +77,8 @@ export interface sidepanelTicketsLogicValues {
     supportResponseTime: string | null // supportLogic
     canCreateTicket: boolean
     currentTicket: ConversationTicket | null
-    hasSupportExemption: boolean
     hasMoreMessages: boolean
+    hasSupportExemption: boolean
     isBillingResolved: boolean
     messageSending: boolean
     messages: ChatMessage[]
@@ -358,13 +358,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         // the account isn't — free plans can end up with tickets via billing questions or PostHog AI
         // bug reports, and abandoning those threads helps nobody.
         canCreateTicket: [
-            (s) => [
-                s.billing,
-                s.isCurrentOrganizationNew,
-                s.hasSupportExemption,
-                s.isBillingIssue,
-                s.isErrorReport,
-            ],
+            (s) => [s.billing, s.isCurrentOrganizationNew, s.hasSupportExemption, s.isBillingIssue, s.isErrorReport],
             (
                 billing: BillingType | null,
                 isCurrentOrganizationNew: boolean,

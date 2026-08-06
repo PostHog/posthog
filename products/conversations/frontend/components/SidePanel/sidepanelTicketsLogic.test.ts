@@ -180,6 +180,28 @@ describe('sidepanelTicketsLogic', () => {
         ).toHaveLength(0)
     })
 
+    // Covers the live `isErrorReport` arm rather than the sticky reducer: a CTA that carries an
+    // exception without opening the composer never reaches `startTicketFromSupportForm`, which is
+    // exactly how three billing CTAs silently lost their exemption.
+    it('grants the exemption to a crash report that never opens the composer', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        setSubscriptionLevel('free')
+        expect(logic.values.canCreateTicket).toBe(false)
+
+        await expectLogic(logic, () => {
+            supportLogic.actions.openSupportForm({
+                kind: 'bug',
+                exception_event: { uuid: 'exc-1', event: '$exception' },
+                target: 'sidePanel',
+            })
+        }).toFinishAllListeners()
+
+        expect(logic.values.hasSupportExemption).toBe(false)
+        expect(logic.values.canCreateTicket).toBe(true)
+    })
+
     // The crash card promises "we'll attach the exception ID, stack trace and session replay". It sends
     // an exception and no message, so a prefill guarded on the message alone dropped it silently.
     it('carries the exception into the composer even when the CTA sends no message', async () => {
