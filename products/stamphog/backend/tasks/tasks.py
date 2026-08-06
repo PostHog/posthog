@@ -110,12 +110,15 @@ _AUTHOR_PERMISSION_ALLOW_CACHE_SECONDS = 60
 _AUTHOR_PERMISSION_DENY_CACHE_SECONDS = 10 * 60
 
 
-_PR_URL_RE = re.compile(r"github\.com/([^/\s]+/[^/\s]+)/pull/(\d+)")
+# Anchored to the github.com host (optional scheme / www) so a lookalike host that merely contains
+# the substring — notgithub.com/..., or evil.com/github.com/... — can't be parsed into a repo we
+# then resolve a config for and queue a review against.
+_PR_URL_RE = re.compile(r"^(?:https?://)?(?:www\.)?github\.com/([^/\s]+/[^/\s]+)/pull/(\d+)")
 
 
 def _parse_pr_url(pr_url: str) -> tuple[str, int] | None:
     """(owner/repo, pr_number) out of a GitHub PR URL, or None when it doesn't look like one."""
-    match = _PR_URL_RE.search(pr_url or "")
+    match = _PR_URL_RE.match((pr_url or "").strip())
     if match is None:
         return None
     return match.group(1), int(match.group(2))

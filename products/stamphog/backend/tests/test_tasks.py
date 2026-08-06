@@ -14,6 +14,7 @@ from products.stamphog.backend.facade.enums import ReviewMode, ReviewRunStatus
 from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.tasks import (
     _INBOX_OPT_OUT_DISMISS_MESSAGE,
+    _parse_pr_url,
     _upsert_pull_request,
     process_inbox_pr_review,
     process_installation_event,
@@ -1057,3 +1058,25 @@ def test_inbox_receiver_leg_skips_a_closed_pr(team, repo_config):
     with team_scope(team.id):
         assert ReviewRun.objects.count() == 0
     mock_execute.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "pr_url,expected",
+    [
+        ("https://github.com/acme/widgets/pull/42", ("acme/widgets", 42)),
+        ("http://github.com/acme/widgets/pull/1", ("acme/widgets", 1)),
+        ("github.com/acme/widgets/pull/7", ("acme/widgets", 7)),
+        ("https://www.github.com/acme/widgets/pull/9", ("acme/widgets", 9)),
+        ("  https://github.com/acme/widgets/pull/5  ", ("acme/widgets", 5)),
+        # Lookalike hosts must not parse — the value gates config resolution and review queuing, so a
+        # substring match on github.com would let a member point a run at an unrelated repo's PR.
+        ("https://notgithub.com/acme/widgets/pull/9", None),
+        ("https://evil.com/github.com/acme/widgets/pull/9", None),
+        ("https://github.com.evil.com/acme/widgets/pull/9", None),
+        ("https://gitlab.com/acme/widgets/pull/9", None),
+        ("not a url", None),
+        ("", None),
+    ],
+)
+def test_parse_pr_url_anchors_the_github_host(pr_url, expected):
+    assert _parse_pr_url(pr_url) == expected
