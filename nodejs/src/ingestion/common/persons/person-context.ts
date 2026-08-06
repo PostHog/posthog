@@ -84,7 +84,9 @@ export class PersonContext {
             writesDisabled: false,
         },
         /** Fold plan shared by this event's consecutive $identify run; see person-merge-fold.ts. */
-        public readonly mergeFoldPlan?: MergeFoldPlan
+        public readonly mergeFoldPlan?: MergeFoldPlan,
+        /** New-world merge behavior for this team: lifecycle-mark claims plus tombstone deletes. */
+        public readonly mergeTombstoneEnabled: boolean = false
     ) {
         this.eventProperties = event.properties!
         this.personlessRollout = {

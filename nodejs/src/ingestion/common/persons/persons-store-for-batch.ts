@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
-import { InternalPersonWithDistinctId } from '~/common/persons/repositories/person-repository'
+import { InternalPersonWithDistinctId, LifecycleMarkPerson } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
 import { Properties } from '~/plugin-scaffold'
@@ -40,6 +40,15 @@ export interface PersonsStoreTransactionForBatch {
     ): Promise<[InternalPerson, PersonMessage[], boolean]>
 
     deletePerson(person: InternalPerson, distinctId: string): Promise<PersonMessage[]>
+
+    /** Claims the persons in the lifecycle mark table until commit; conflicts throw. */
+    claimLifecycleMarks(opId: string, teamId: number, persons: LifecycleMarkPerson[], distinctId: string): Promise<void>
+
+    /** Releases a merge's lifecycle marks; same transaction as the claim. */
+    releaseLifecycleMarks(opId: string, distinctId: string): Promise<void>
+
+    /** Whether the person is live; only meaningful while holding its lifecycle mark. */
+    isPersonLive(person: InternalPerson, distinctId: string): Promise<boolean>
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]>
 
@@ -231,6 +240,23 @@ class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactionForBat
 
     deletePerson(person: InternalPerson, distinctId: string): Promise<PersonMessage[]> {
         return this.tx.deletePerson(person, distinctId)
+    }
+
+    claimLifecycleMarks(
+        opId: string,
+        teamId: number,
+        persons: LifecycleMarkPerson[],
+        distinctId: string
+    ): Promise<void> {
+        return this.tx.claimLifecycleMarks(opId, teamId, persons, distinctId)
+    }
+
+    releaseLifecycleMarks(opId: string, distinctId: string): Promise<void> {
+        return this.tx.releaseLifecycleMarks(opId, distinctId)
+    }
+
+    isPersonLive(person: InternalPerson, distinctId: string): Promise<boolean> {
+        return this.tx.isPersonLive(person, distinctId)
     }
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]> {
@@ -448,6 +474,24 @@ export class BatchBoundPersonsStore implements PersonsStoreForBatch {
         tx?: PersonRepositoryTransaction
     ): Promise<PersonMessage[]> {
         return this.store.deletePerson(person, distinctId, tx)
+    }
+
+    claimLifecycleMarks(
+        opId: string,
+        teamId: number,
+        persons: LifecycleMarkPerson[],
+        distinctId: string,
+        tx?: PersonRepositoryTransaction
+    ): Promise<void> {
+        return this.store.claimLifecycleMarks(opId, teamId, persons, distinctId, tx)
+    }
+
+    releaseLifecycleMarks(opId: string, distinctId: string, tx?: PersonRepositoryTransaction): Promise<void> {
+        return this.store.releaseLifecycleMarks(opId, distinctId, tx)
+    }
+
+    isPersonLive(person: InternalPerson, distinctId: string, tx?: PersonRepositoryTransaction): Promise<boolean> {
+        return this.store.isPersonLive(person, distinctId, tx)
     }
 
     updateCohortsAndFeatureFlagsForMerge(

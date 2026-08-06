@@ -13,7 +13,12 @@ import { NoRowsUpdatedError, UUIDT } from '~/common/utils/utils'
 import { createTeam, insertRow, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, InternalPerson, PropertyUpdateOperation, Team } from '~/types'
 
-import { DistinctIdConflictError, PersonPropertiesSizeViolationError } from './person-repository'
+import {
+    DistinctIdConflictError,
+    PersonClaimedByLifecycleOpError,
+    PersonPropertiesSizeViolationError,
+    PersonTombstoneBlockedError,
+} from './person-repository'
 import { PostgresPersonRepository } from './postgres-person-repository'
 import { createPersonUpdateFields, fetchDistinctIdValues, fetchDistinctIds } from './test-helpers'
 
@@ -474,6 +479,143 @@ describe('PostgresPersonRepository', () => {
             await expect(repository.addDistinctId(person, 'already-owned-did', 0)).rejects.toThrow(
                 DistinctIdConflictError
             )
+        })
+
+        it('isPersonLive is true for a live person and false for a tombstoned one', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const person = await createTestPerson(team.id, 'live-check-did')
+
+            await expect(repository.isPersonLive(person)).resolves.toBe(true)
+            await tombstonePerson(person)
+            await expect(repository.isPersonLive(person)).resolves.toBe(false)
+        })
+
+        describe('lifecycle marks', () => {
+            async function countLifecycleRows(opId: string): Promise<{ ops: number; persons: number }> {
+                const ops = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    'SELECT count(*) AS count FROM lifecycle_op WHERE op_id = $1',
+                    [opId],
+                    'countLifecycleOps'
+                )
+                const persons = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    'SELECT count(*) AS count FROM lifecycle_op_person WHERE op_id = $1',
+                    [opId],
+                    'countLifecycleOpPersons'
+                )
+                return { ops: Number(ops.rows[0].count), persons: Number(persons.rows[0].count) }
+            }
+
+            it('claim and release leave no rows behind', async () => {
+                const team = await getFirstTeam(hub.postgres)
+                const person = await createTestPerson(team.id, 'mark-roundtrip-did')
+                const opId = new UUIDT().toString()
+
+                await repository.claimLifecycleMarks(opId, team.id, [
+                    { personId: person.id, personUuid: person.uuid, role: 'target' },
+                ])
+                await expect(countLifecycleRows(opId)).resolves.toEqual({ ops: 1, persons: 1 })
+
+                await repository.releaseLifecycleMarks(opId)
+                await expect(countLifecycleRows(opId)).resolves.toEqual({ ops: 0, persons: 0 })
+            })
+
+            it('claiming a person held by a live operation throws PersonClaimedByLifecycleOpError', async () => {
+                const team = await getFirstTeam(hub.postgres)
+                const person = await createTestPerson(team.id, 'mark-conflict-did')
+                const sagaOpId = new UUIDT().toString()
+                // A delete saga's live claim: committed in its own transaction and held
+                // across ours, exactly what the mark index arbitrates against.
+                await repository.claimLifecycleMarks(sagaOpId, team.id, [
+                    { personId: person.id, personUuid: person.uuid, role: 'source' },
+                ])
+
+                const mergeOpId = new UUIDT().toString()
+                await expect(
+                    repository.claimLifecycleMarks(mergeOpId, team.id, [
+                        { personId: person.id, personUuid: person.uuid, role: 'target' },
+                    ])
+                ).rejects.toThrow(PersonClaimedByLifecycleOpError)
+
+                await repository.releaseLifecycleMarks(sagaOpId)
+            })
+
+            it('a released mark no longer blocks a new claim', async () => {
+                const team = await getFirstTeam(hub.postgres)
+                const person = await createTestPerson(team.id, 'mark-released-did')
+                const firstOpId = new UUIDT().toString()
+                await repository.claimLifecycleMarks(firstOpId, team.id, [
+                    { personId: person.id, personUuid: person.uuid, role: 'target' },
+                ])
+                await repository.releaseLifecycleMarks(firstOpId)
+
+                const secondOpId = new UUIDT().toString()
+                await repository.claimLifecycleMarks(secondOpId, team.id, [
+                    { personId: person.id, personUuid: person.uuid, role: 'target' },
+                ])
+                await repository.releaseLifecycleMarks(secondOpId)
+            })
+        })
+
+        describe('tombstone-mode deletes', () => {
+            let tombstoneRepository: PostgresPersonRepository
+
+            beforeEach(() => {
+                tombstoneRepository = new PostgresPersonRepository(postgres, {
+                    calculatePropertiesSize: 0,
+                    personPropertiesDbConstraintLimitBytes: 1024 * 1024,
+                    personPropertiesTrimTargetBytes: 512 * 1024,
+                    personMergeTombstoneTeamAllowlist: '*',
+                })
+            })
+
+            it('deletePerson tombstones the row at the exact death version with scrubbed properties', async () => {
+                const team = await getFirstTeam(hub.postgres)
+                const person = await createTestPerson(team.id, 'ts-delete-did', { secret: 'x' })
+                await tombstoneDistinctId(team.id, 'ts-delete-did')
+
+                const messages = await tombstoneRepository.deletePerson(person)
+
+                expect(messages).toHaveLength(1)
+                const message = parseJSON(messages[0].value!.toString())
+                expect(message).toMatchObject({ id: person.uuid, is_deleted: 1, version: 1, properties: '{}' })
+
+                const { rows } = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    'SELECT is_deleted, version, properties FROM posthog_person WHERE team_id = $1 AND id = $2',
+                    [team.id, person.id],
+                    'fetchTombstonedPerson'
+                )
+                expect(rows[0].is_deleted).toBe(true)
+                expect(Number(rows[0].version)).toBe(1)
+                expect(rows[0].properties).toEqual({})
+            })
+
+            it('deletePerson refuses while live distinct ids still point at the person', async () => {
+                const team = await getFirstTeam(hub.postgres)
+                const person = await createTestPerson(team.id, 'ts-blocked-did')
+
+                await expect(tombstoneRepository.deletePerson(person)).rejects.toThrow(PersonTombstoneBlockedError)
+                await expect(repository.fetchPerson(team.id, 'ts-blocked-did')).resolves.toMatchObject({
+                    uuid: person.uuid,
+                })
+            })
+
+            it('deletePersons tombstones fresh persons and skips already-tombstoned ones', async () => {
+                const team = await getFirstTeam(hub.postgres)
+                const alreadyDead = await createTestPerson(team.id, 'ts-batch-dead-did')
+                const fresh = await createTestPerson(team.id, 'ts-batch-fresh-did')
+                await tombstoneDistinctId(team.id, 'ts-batch-dead-did')
+                await tombstoneDistinctId(team.id, 'ts-batch-fresh-did')
+                await tombstonePerson(alreadyDead)
+
+                const messages = await tombstoneRepository.deletePersons([alreadyDead, fresh])
+
+                expect(messages).toHaveLength(1)
+                const message = parseJSON(messages[0].value!.toString())
+                expect(message).toMatchObject({ id: fresh.uuid, is_deleted: 1, version: 1 })
+            })
         })
     })
 

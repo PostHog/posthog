@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
-import { InternalPersonWithDistinctId } from '~/common/persons/repositories/person-repository'
+import { InternalPersonWithDistinctId, LifecycleMarkPerson } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
 import { BatchWritingStore } from '~/ingestion/common/stores/batch-writing-store'
@@ -94,6 +94,24 @@ export interface PersonsStore extends BatchWritingStore<FlushResult> {
      * Deletes a person
      */
     deletePerson(person: InternalPerson, distinctId: string, tx?: PersonRepositoryTransaction): Promise<PersonMessage[]>
+
+    /**
+     * Claims the persons in the lifecycle mark table for a merge; at most one live
+     * operation may hold a person. Held until the transaction commits.
+     */
+    claimLifecycleMarks(
+        opId: string,
+        teamId: number,
+        persons: LifecycleMarkPerson[],
+        distinctId: string,
+        tx?: PersonRepositoryTransaction
+    ): Promise<void>
+
+    /** Releases a merge's lifecycle marks; same transaction as the claim. */
+    releaseLifecycleMarks(opId: string, distinctId: string, tx?: PersonRepositoryTransaction): Promise<void>
+
+    /** Whether the person is live; only meaningful while holding its lifecycle mark. */
+    isPersonLive(person: InternalPerson, distinctId: string, tx?: PersonRepositoryTransaction): Promise<boolean>
 
     /**
      * Adds a distinct ID to a person

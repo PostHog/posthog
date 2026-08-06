@@ -23,6 +23,7 @@ import { isFilteredPersonUpdateProperty } from '~/common/persons/person-property
 import { PersonUpdate, fromInternalPerson, toInternalPerson } from '~/common/persons/person-update-batch'
 import {
     InternalPersonWithDistinctId,
+    LifecycleMarkPerson,
     PersonMessage,
     PersonPropertiesSizeViolationError,
     PersonRepository,
@@ -54,6 +55,9 @@ type MethodName =
     | 'updatePersonForMerge'
     | 'deletePerson'
     | 'deletePersons'
+    | 'claimLifecycleMarks'
+    | 'releaseLifecycleMarks'
+    | 'isPersonLive'
     | 'addDistinctId'
     | 'moveDistinctIds'
     | 'moveDistinctIdsFromPersons'
@@ -1397,6 +1401,27 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         this.clearAllCachesForPersonId(person.team_id, person.id)
 
         return response
+    }
+
+    async claimLifecycleMarks(
+        opId: string,
+        teamId: number,
+        persons: LifecycleMarkPerson[],
+        distinctId: string,
+        tx?: PersonRepositoryTransaction
+    ): Promise<void> {
+        this.incrementDatabaseOperation('claimLifecycleMarks', distinctId)
+        return await (tx || this.personRepository).claimLifecycleMarks(opId, teamId, persons)
+    }
+
+    async releaseLifecycleMarks(opId: string, distinctId: string, tx?: PersonRepositoryTransaction): Promise<void> {
+        this.incrementDatabaseOperation('releaseLifecycleMarks', distinctId)
+        return await (tx || this.personRepository).releaseLifecycleMarks(opId)
+    }
+
+    async isPersonLive(person: InternalPerson, distinctId: string, tx?: PersonRepositoryTransaction): Promise<boolean> {
+        this.incrementDatabaseOperation('isPersonLive', distinctId)
+        return await (tx || this.personRepository).isPersonLive(person)
     }
 
     async fetchPersonsForUpdateByDistinctIds(

@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
 
+import { buildIntegerMatcher } from '~/common/config/config'
 import { PERSON_DISTINCT_IDS_OUTPUT } from '~/common/outputs/persons'
 import {
     oversizedPersonPropertiesTrimmedCounter,
@@ -29,14 +30,18 @@ import {
     RawPerson,
     Team,
     TeamId,
+    ValueMatcher,
 } from '~/types'
 
 import {
     DistinctIdConflictError,
     InternalPersonWithDistinctId,
+    LifecycleMarkPerson,
+    PersonClaimedByLifecycleOpError,
     PersonMessage,
     PersonPropertiesSizeViolationError,
     PersonRepository,
+    PersonTombstoneBlockedError,
 } from './person-repository'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { PostgresPersonRepositoryTransaction } from './postgres-person-repository-transaction'
@@ -74,24 +79,29 @@ export interface PostgresPersonRepositoryOptions {
     personPropertiesDbConstraintLimitBytes: number
     /** Target JSON size (stringified) to trim down to when remediating oversized properties */
     personPropertiesTrimTargetBytes: number
+    /** Teams whose merge deletes tombstone the person row instead of hard-deleting it ('*' for all) */
+    personMergeTombstoneTeamAllowlist: string
 }
 
 const DEFAULT_OPTIONS: PostgresPersonRepositoryOptions = {
     calculatePropertiesSize: 0,
     personPropertiesDbConstraintLimitBytes: DEFAULT_PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES,
     personPropertiesTrimTargetBytes: DEFAULT_PERSON_PROPERTIES_TRIM_TARGET_BYTES,
+    personMergeTombstoneTeamAllowlist: '',
 }
 
 export class PostgresPersonRepository
     implements PersonRepository, RawPostgresPersonRepository, PersonRepositoryTransaction
 {
     private options: PostgresPersonRepositoryOptions
+    private isTombstoneTeam: ValueMatcher<number>
 
     constructor(
         private postgres: PostgresRouter,
         options?: Partial<PostgresPersonRepositoryOptions>
     ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
+        this.isTombstoneTeam = buildIntegerMatcher(this.options.personMergeTombstoneTeamAllowlist, true)
     }
 
     private async handleOversizedPersonProperties(
@@ -724,6 +734,10 @@ export class PostgresPersonRepository
     }
 
     async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<PersonMessage[]> {
+        if (this.isTombstoneTeam(person.team_id)) {
+            return await this.tombstonePersons([person], tx)
+        }
+
         let rows: { version: string }[] = []
         try {
             const result = await this.postgres.query<{ version: string }>(
@@ -748,9 +762,89 @@ export class PostgresPersonRepository
 
         if (rows.length > 0) {
             const [row] = rows
-            kafkaMessages = [generateKafkaPersonUpdateMessage({ ...person, version: Number(row.version || 0) }, true)]
+            kafkaMessages = [
+                // The +100 outranks any version bump that landed between our stale read and the
+                // delete; keep in sync with delete_person in posthog/models/person/util.py.
+                generateKafkaPersonUpdateMessage({ ...person, version: Number(row.version || 0) + 100 }, true),
+            ]
         }
         return kafkaMessages
+    }
+
+    /**
+     * Tombstone-mode delete: the row stays in place as the key's version floor, with the
+     * death version stamped atomically and the properties scrubbed.
+     *
+     * Runs under the merge's lifecycle marks, which exclude every concurrent identity
+     * mutation of these persons. The live-mapping guard on the stamp is therefore an
+     * invariant assertion rather than the primary defense: rows it finds mean an
+     * identity-mutation path skipped the mark claim. PersonTombstoneBlockedError feeds
+     * the same refresh-and-retry handling as the hard delete's FK violation.
+     */
+    private async tombstonePersons(persons: InternalPerson[], tx?: TransactionClient): Promise<PersonMessage[]> {
+        const teamId = persons[0].team_id
+        const personById = new Map(persons.map((person) => [person.id, person]))
+        const personIds = [...personById.keys()].sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : 1))
+
+        try {
+            const locked = await this.postgres.query<{ id: string }>(
+                tx ?? PostgresUse.PERSONS_WRITE,
+                `SELECT id FROM posthog_person
+                 WHERE team_id = $1 AND id = ANY($2::bigint[]) AND is_deleted = false
+                 ORDER BY id`,
+                [teamId, personIds],
+                'tombstonePersonsPrecheck'
+            )
+            if (locked.rows.length === 0) {
+                // Already tombstoned or gone — same outcome as an empty DELETE.
+                return []
+            }
+            const lockedIds = locked.rows.map((row) => row.id)
+
+            const { rows } = await this.postgres.query<{ id: string; version: string }>(
+                tx ?? PostgresUse.PERSONS_WRITE,
+                `UPDATE posthog_person p
+                 SET is_deleted = true,
+                     version = COALESCE(version, 0) + 1,
+                     properties = '{}'::jsonb,
+                     properties_last_updated_at = '{}'::jsonb,
+                     properties_last_operation = '{}'::jsonb
+                 WHERE team_id = $1 AND id = ANY($2::bigint[]) AND is_deleted = false
+                   AND NOT EXISTS (
+                       SELECT 1 FROM posthog_persondistinctid d
+                       WHERE d.team_id = $1 AND d.person_id = p.id AND d.is_deleted = false
+                   )
+                 RETURNING id, version`,
+                [teamId, lockedIds],
+                'tombstonePersons'
+            )
+
+            if (rows.length < lockedIds.length) {
+                throw new PersonTombstoneBlockedError('Live distinct ids still point at the person', teamId)
+            }
+
+            return rows.flatMap((row) => {
+                const person = personById.get(String(row.id))
+                if (!person) {
+                    return []
+                }
+                return [
+                    generateKafkaPersonUpdateMessage(
+                        { ...person, properties: {}, version: Number(row.version || 0) },
+                        true
+                    ),
+                ]
+            })
+        } catch (error) {
+            if (error.code === '40P01') {
+                // Deadlock detected — assume someone else is deleting and skip.
+                logger.warn('🔒', 'Deadlock detected — assume someone else is deleting and skip.', {
+                    team_id: teamId,
+                    person_ids: personIds,
+                })
+            }
+            throw error
+        }
     }
 
     async deletePersons(persons: InternalPerson[], tx?: TransactionClient): Promise<PersonMessage[]> {
@@ -760,6 +854,10 @@ export class PostgresPersonRepository
 
         // All persons in a folded merge belong to one team.
         const teamId = persons[0].team_id
+        if (this.isTombstoneTeam(teamId)) {
+            return await this.tombstonePersons(persons, tx)
+        }
+
         const personById = new Map(persons.map((person) => [person.id, person]))
         // Postgres acquires the row locks in index scan order (btree scans sort
         // the id keys ascending), not in array-parameter order, so concurrent
@@ -792,8 +890,87 @@ export class PostgresPersonRepository
             if (!person) {
                 return []
             }
-            return [generateKafkaPersonUpdateMessage({ ...person, version: Number(row.version || 0) }, true)]
+            return [
+                // The +100 outranks any version bump that landed between our stale read and the
+                // delete; keep in sync with delete_person in posthog/models/person/util.py.
+                generateKafkaPersonUpdateMessage({ ...person, version: Number(row.version || 0) + 100 }, true),
+            ]
         })
+    }
+
+    async claimLifecycleMarks(
+        opId: string,
+        teamId: number,
+        persons: LifecycleMarkPerson[],
+        tx?: TransactionClient
+    ): Promise<void> {
+        // Sorted claims keep the mark-index insert order deterministic across concurrent
+        // merges touching overlapping persons, so they block instead of deadlocking.
+        const sorted = [...persons].sort((a, b) => (BigInt(a.personId) < BigInt(b.personId) ? -1 : 1))
+        try {
+            await this.postgres.query(
+                tx ?? PostgresUse.PERSONS_WRITE,
+                `INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request, completed_at)
+                 VALUES ($1, 'merge', $2, 'completed', $3::jsonb, now())`,
+                [opId, teamId, JSON.stringify({ source: 'ingestion-merge' })],
+                'claimLifecycleOp'
+            )
+            await this.postgres.query(
+                tx ?? PostgresUse.PERSONS_WRITE,
+                `INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, ordinal, status)
+                 SELECT $1, $2, u.person_id, u.person_uuid, u.role, u.ordinal, 'marked'
+                 FROM unnest($3::bigint[], $4::uuid[], $5::text[], $6::int[]) AS u(person_id, person_uuid, role, ordinal)`,
+                [
+                    opId,
+                    teamId,
+                    sorted.map((p) => p.personId),
+                    sorted.map((p) => p.personUuid),
+                    sorted.map((p) => p.role),
+                    sorted.map((p) => p.ordinal ?? null),
+                ],
+                'claimLifecycleMarks'
+            )
+        } catch (error) {
+            // The mark index turns "someone else holds this person" into a unique
+            // violation; a duplicate op_id means a concurrent delivery of the same event.
+            if (
+                error.code === '23505' &&
+                ['lifecycle_op_person_mark', 'lifecycle_op_pkey'].includes(error.constraint)
+            ) {
+                throw new PersonClaimedByLifecycleOpError(
+                    'Person is claimed by a concurrent lifecycle operation',
+                    teamId
+                )
+            }
+            throw error
+        }
+    }
+
+    async releaseLifecycleMarks(opId: string, tx?: TransactionClient): Promise<void> {
+        // lifecycle_op_person rows go with the header via ON DELETE CASCADE. Running in
+        // the claiming transaction means committed state never contains this merge's
+        // marks: a concurrent claimant blocked on the index proceeds the moment we
+        // commit, and the delete saga's sweeper never sees an ingestion op to resume.
+        await this.postgres.query(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            'DELETE FROM lifecycle_op WHERE op_id = $1',
+            [opId],
+            'releaseLifecycleMarks'
+        )
+    }
+
+    async isPersonLive(person: InternalPerson, tx?: TransactionClient): Promise<boolean> {
+        // Run this as its own statement after claimLifecycleMarks: a claim that waited
+        // on the mark index resumes with its original snapshot, so only a fresh
+        // statement reliably sees a tombstone committed during the wait. Under the mark
+        // the answer is then stable until commit.
+        const { rows } = await this.postgres.query(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            'SELECT 1 FROM posthog_person WHERE team_id = $1 AND id = $2 AND is_deleted = false',
+            [person.team_id, person.id],
+            'isPersonLive'
+        )
+        return rows.length > 0
     }
 
     async addDistinctId(

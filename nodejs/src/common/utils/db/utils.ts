@@ -135,6 +135,8 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
     return properties
 }
 
+// Serializes the person verbatim — deletion call sites own the version they emit
+// (the +100 fudge for hard deletes, the exact stamped death version for tombstones).
 export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted = false): PersonMessage {
     return {
         output: PERSONS_OUTPUT,
@@ -146,7 +148,7 @@ export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDelet
                 team_id: person.team_id,
                 is_identified: Number(person.is_identified),
                 is_deleted: Number(isDeleted),
-                version: person.version + (isDeleted ? 100 : 0), // keep in sync with delete_person in posthog/models/person/util.py
+                version: person.version,
                 last_seen_at: person.last_seen_at
                     ? castTimestampOrNow(person.last_seen_at, TimestampFormat.ClickHouseSecondPrecision)
                     : null,

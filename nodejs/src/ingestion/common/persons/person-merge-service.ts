@@ -4,6 +4,10 @@ import { Counter, Histogram } from 'prom-client'
 import { personMergeFailureCounter } from '~/common/persons/metrics'
 import { PersonMessage } from '~/common/persons/person-message'
 import { isDistinctIdIllegal } from '~/common/persons/person-utils'
+import {
+    PersonClaimedByLifecycleOpError,
+    PersonTombstoneBlockedError,
+} from '~/common/persons/repositories/person-repository'
 import { timeoutGuard } from '~/common/utils/db/utils'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
@@ -79,7 +83,11 @@ function foldFallbackReason(error: unknown): 'limit' | 'conflict' | 'deadlock' |
     if (error instanceof MergeFoldLimitError) {
         return 'limit'
     }
-    if (error instanceof MergeFoldConflictError) {
+    if (
+        error instanceof MergeFoldConflictError ||
+        error instanceof PersonTombstoneBlockedError ||
+        error instanceof PersonClaimedByLifecycleOpError
+    ) {
         return 'conflict'
     }
     if ((error as { code?: string })?.code === '40P01') {
@@ -141,6 +149,29 @@ export class PersonMergeService {
                 )
             }
         } catch (e) {
+            if (e instanceof PersonClaimedByLifecycleOpError) {
+                // Expected contention, not a failure: another lifecycle operation held one of
+                // the persons through every retry. Drop the merge with a warning; the event's
+                // property updates still apply to whatever the distinct ids resolve to next.
+                await emitIngestionWarning(this.context.outputs, this.context.team.id, {
+                    type: 'merge_race_condition',
+                    details: {
+                        distinctId: this.context.distinctId,
+                        eventUuid: this.context.event.uuid,
+                        sourcePersonDistinctId: String(
+                            this.context.eventProperties['$anon_distinct_id'] ?? this.context.eventProperties['alias']
+                        ),
+                        targetPersonDistinctId: this.context.distinctId,
+                    },
+                    pipelineStep: 'person-merge',
+                    alwaysSend: true,
+                })
+                logger.warn('🤔', 'merge dropped: person claimed by a concurrent lifecycle operation', {
+                    team_id: this.context.team.id,
+                    distinctId: this.context.distinctId,
+                })
+                return mergeSuccess(undefined, Promise.resolve(), true)
+            }
             captureException(e, {
                 tags: { team_id: this.context.team.id, pipeline_step: 'processPersonsStep' },
                 extra: {
@@ -266,6 +297,22 @@ export class PersonMergeService {
 
             this.discardOverrideCounts()
             const result = await this.context.personStore.inTransaction('mergeDistinctIds-OneExists', async (tx) => {
+                // New-world merges claim the person's lifecycle mark, which keeps a concurrent
+                // tombstone from landing between this check and the distinct id insert (an
+                // orphaned mapping); old-world merges rely on the delete's FK violation instead.
+                if (this.context.mergeTombstoneEnabled) {
+                    await tx.claimLifecycleMarks(
+                        this.context.event.uuid,
+                        existingPerson.team_id,
+                        [{ personId: existingPerson.id, personUuid: existingPerson.uuid, role: 'target' }],
+                        this.context.distinctId
+                    )
+                    if (!(await tx.isPersonLive(existingPerson, this.context.distinctId))) {
+                        throw new TargetPersonNotFoundError(
+                            'Person was deleted before the merge could add a distinct id'
+                        )
+                    }
+                }
                 // See comment above about `distinctIdVersion`
                 const insertedDistinctId = this.context.personlessRollout.writesDisabled
                     ? false
@@ -275,6 +322,9 @@ export class PersonMergeService {
 
                 const kafkaMessages = await tx.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion)
                 await this.context.produceMessages(kafkaMessages)
+                if (this.context.mergeTombstoneEnabled) {
+                    await tx.releaseLifecycleMarks(this.context.event.uuid, this.context.distinctId)
+                }
                 return mergeSuccess(existingPerson, Promise.resolve(), true)
             })
             this.flushOverrideCounts()
@@ -579,6 +629,27 @@ export class PersonMergeService {
         const [mergedPerson, kafkaMessages] = await this.context.personStore.inTransaction(
             'mergePeopleFold',
             async (tx) => {
+                // New-world folds claim every person, keeping concurrent lifecycle operations
+                // (other merges, the delete saga) off the targets and sources until commit.
+                if (this.context.mergeTombstoneEnabled) {
+                    await tx.claimLifecycleMarks(
+                        this.context.event.uuid,
+                        currentTarget.team_id,
+                        [
+                            { personId: currentTarget.id, personUuid: currentTarget.uuid, role: 'target' },
+                            ...mergeSources.map((source, index) => ({
+                                personId: source.id,
+                                personUuid: source.uuid,
+                                role: 'source' as const,
+                                ordinal: index,
+                            })),
+                        ],
+                        this.context.distinctId
+                    )
+                    if (!(await tx.isPersonLive(currentTarget, this.context.distinctId))) {
+                        throw new MergeFoldConflictError('Fold target was deleted concurrently')
+                    }
+                }
                 const expectedMoveCount = await this.assertFoldSourcesWithinMoveBounds(tx, mergeSources)
 
                 let person = currentTarget
@@ -635,6 +706,9 @@ export class PersonMergeService {
                     deleteMessages = await tx.deletePersons(mergeSources, this.context.distinctId)
                 }
 
+                if (this.context.mergeTombstoneEnabled) {
+                    await tx.releaseLifecycleMarks(this.context.event.uuid, this.context.distinctId)
+                }
                 return [person, [...updateMessages, ...moveResult.messages, ...addMessages, ...deleteMessages]]
             }
         )
@@ -777,6 +851,34 @@ export class PersonMergeService {
             const [mergedPerson, kafkaMessages] = await this.context.personStore.inTransaction(
                 'mergePeople',
                 async (tx) => {
+                    // New-world merges claim both persons in the lifecycle mark table: at
+                    // most one live operation (merge or delete saga) may hold a person, so
+                    // nothing can tombstone the target or mutate the source's identity under
+                    // this transaction. The liveness check is a separate statement because a
+                    // claim that waited on the mark index resumes with a stale snapshot.
+                    if (this.context.mergeTombstoneEnabled) {
+                        await tx.claimLifecycleMarks(
+                            this.context.event.uuid,
+                            currentTargetPerson.team_id,
+                            [
+                                {
+                                    personId: currentTargetPerson.id,
+                                    personUuid: currentTargetPerson.uuid,
+                                    role: 'target',
+                                },
+                                {
+                                    personId: currentSourcePerson.id,
+                                    personUuid: currentSourcePerson.uuid,
+                                    role: 'source',
+                                    ordinal: 0,
+                                },
+                            ],
+                            this.context.distinctId
+                        )
+                        if (!(await tx.isPersonLive(currentTargetPerson, this.context.distinctId))) {
+                            throw new TargetPersonNotFoundError('Target person was deleted concurrently')
+                        }
+                    }
                     const [person, updatePersonMessages] = await tx.updatePersonForMerge(
                         currentTargetPerson,
                         {
@@ -824,6 +926,9 @@ export class PersonMergeService {
                     )
 
                     const deletePersonMessages = await tx.deletePerson(currentSourcePerson, this.context.distinctId)
+                    if (this.context.mergeTombstoneEnabled) {
+                        await tx.releaseLifecycleMarks(this.context.event.uuid, this.context.distinctId)
+                    }
                     return [person, [...updatePersonMessages, ...allDistinctIdMessages, ...deletePersonMessages]]
                 }
             )
@@ -853,11 +958,11 @@ export class PersonMergeService {
                 return mergeError(error)
             } else if (error instanceof PersonMergeLimitExceededError) {
                 return mergeError(error)
-            } else if (error.code === '23503') {
-                // Foreign key constraint violation when attempting to delete the source person.
-                // This occurs when a concurrent merge operation adds a distinct ID to the source person
-                // after we've already moved the distinct IDs we knew about, but before the DELETE executes.
-                // The retry mechanism will:
+            } else if (error.code === '23503' || error instanceof PersonTombstoneBlockedError) {
+                // A concurrent merge added a distinct ID to the source person after we've already
+                // moved the distinct IDs we knew about, but before the delete executed — surfaced
+                // as a foreign key violation by the hard delete, or as PersonTombstoneBlockedError
+                // by the tombstone's live-mapping guard. The retry mechanism will:
                 // 1. Refresh the source person data to see all distinct IDs (including newly added ones)
                 // 2. Move ALL distinct IDs to the target person
                 // 3. Successfully delete the now-empty source person
