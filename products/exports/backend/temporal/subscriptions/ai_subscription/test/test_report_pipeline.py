@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, ResolutionError
 
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     _MAX_CONCURRENT_STEPS,
     QUERY_FAILED_PREFIX,
@@ -260,6 +262,19 @@ async def test_run_steps_non_retryable_error_degrades_to_placeholder(mock_execut
     assert diagnostics[0].ok is False
     assert diagnostics[0].error_type == "RuntimeError"
     assert diagnostics[0].hogql == "SELECT 1"
+
+
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_placeholder_omits_undisclosed_error_type(mock_executor_cls: MagicMock) -> None:
+    # Synthesis paraphrases the placeholder into the delivered report, so an out-of-memory failure must
+    # not be named there — the recipient never wrote the query and can't act on the scan size. The type
+    # still has to reach the diagnostic, which is where we debug it.
+    mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=ClickHouseQueryMemoryLimitExceeded())
+    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
+    assert failed == 1
+    assert rendered[0] == f"### s0\n\n_{QUERY_FAILED_PREFIX} — metric not computed, not empty data._"
+    assert diagnostics[0].error_type == "ClickHouseQueryMemoryLimitExceeded"
+    assert diagnostics[0].human_readable_error is None
 
 
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)

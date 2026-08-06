@@ -6,6 +6,17 @@ from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
 from posthog.slo.types import SloConfig
 
+# Query-failure exception classes an AI report never names in owner- or recipient-facing copy.
+# Out-of-memory is the case that matters: the reader didn't write the query — the assistant did — so
+# the stock advice to shorten the date range or narrow the filters is something they cannot act on,
+# and the scan size is ours to fix. The type still lands in the delivery's query diagnostics, the
+# worker logs, and error tracking, so it stays visible to us. Insight and dashboard exports treat the
+# same failure as user-actionable (see USER_QUERY_ERRORS in the exports failure handler), which is
+# right there — the owner of that subscription does own the query that ran.
+# Held as a name rather than the class so this module stays free of Django/DRF imports for the
+# Temporal workflow sandbox; the test pins it to ClickHouseQueryMemoryLimitExceeded.__name__.
+UNDISCLOSED_QUERY_ERROR_TYPES = frozenset({"ClickHouseQueryMemoryLimitExceeded"})
+
 
 def safe_error_message(exc: BaseException) -> typing.Optional[str]:
     """Owner-safe snippet of an exception, or None when the text may carry team-scoped data.
@@ -266,7 +277,10 @@ class GenerateAIReportResult:
     def failure_error(self) -> dict[str, str]:
         # Access-safe reason recorded on a fully-degraded delivery's error column: failure counts and
         # error-type names only (query_error_types are exception class names), never raw query content.
-        detail = f" ({', '.join(self.query_error_types)})" if self.query_error_types else ""
+        # The delivery history surfaces this message on hover, so undisclosed types drop out of the
+        # detail — the report still reads as failed, without pointing at a cause the owner can't act on.
+        disclosed_types = [t for t in self.query_error_types if t not in UNDISCLOSED_QUERY_ERROR_TYPES]
+        detail = f" ({', '.join(disclosed_types)})" if disclosed_types else ""
         subject = (
             "The query the AI generated"
             if self.total_step_count == 1

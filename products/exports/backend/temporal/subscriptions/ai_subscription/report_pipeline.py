@@ -45,7 +45,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     build_enriched_prompt,
     build_frozen_prompt,
 )
-from products.exports.backend.temporal.subscriptions.types import safe_error_message
+from products.exports.backend.temporal.subscriptions.types import UNDISCLOSED_QUERY_ERROR_TYPES, safe_error_message
 
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.llm import MaxChatOpenAI
@@ -446,20 +446,25 @@ async def _run_steps(
                     break
                 current_hogql = fixed
 
+        # type only — ClickHouse errors can echo team-scoped identifiers
+        type_name = type(last_exc).__name__ if last_exc is not None else "UnknownError"
         logger.warning(
             "ai_report.query_failed",
             trace_correlation_id=trace_correlation_id,
             step_description=safe_description,
+            error_type=type_name,
             exc_info=last_exc,
         )
         if last_exc is not None:
             capture_exception(last_exc, {"trace_correlation_id": trace_correlation_id, "stage": "query"})
-        # type only — ClickHouse errors can echo team-scoped identifiers
-        type_name = type(last_exc).__name__ if last_exc is not None else "UnknownError"
+        # Synthesis paraphrases this line into the delivered report, so naming the exception type here
+        # puts it in front of the reader. Undisclosed types stay unnamed; the log line above and error
+        # tracking are where we pick those up instead.
+        cause = "" if type_name in UNDISCLOSED_QUERY_ERROR_TYPES else f" ({type_name})"
         # Explicit failure marker, distinct from a genuinely-empty result, so synthesis reports the
         # metric as "could not be computed" instead of paraphrasing the failure into "no data".
         return (
-            f"### {safe_description}\n\n_{QUERY_FAILED_PREFIX} ({type_name}) — metric not computed, not empty data._",
+            f"### {safe_description}\n\n_{QUERY_FAILED_PREFIX}{cause} — metric not computed, not empty data._",
             QueryStepDiagnostic(
                 description=safe_description,
                 hogql=window.render_window_filter(current_hogql),
