@@ -95,6 +95,9 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   // Required scopes the last refreshed grant did not carry. Drives the scope-reauth
   // prompt for a stored grant that predates a scope the app now needs.
   private missingRequiredScopes: string[] = [];
+  // Set once the user completes an interactive grant, which retires the scope-reauth prompt for
+  // the rest of the run whether or not the new grant carries the scopes.
+  private scopeReauthAnswered = false;
   private impersonationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   // Serializes session-state commits so overlapping selections can't
   // interleave across async encryption (see commitSessionState).
@@ -693,12 +696,16 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
    * scope-reauth prompt instead of running on a token whose missing scope only shows up as a
    * feature that appears not to exist.
    *
-   * Checked on refresh only. The fresh interactive grant clears the flag unconditionally, which
-   * caps this at one prompt: if the server clamps the scope away again, the user is let in with a
-   * warning rather than bounced back through login forever. A login loop is worse than a missing
-   * scope, and shipping the scope list has broken login before (see shared/src/oauth.ts).
+   * Checked on refresh only, and never again once the user has answered the prompt in this run.
+   * The prompt is a blocking dialog, so an install whose server cannot grant the scope must not
+   * be able to reach it twice: the user would sign in, refresh, and be blocked again with no way
+   * forward. A login loop is worse than a missing scope, and shipping the scope list has broken
+   * login before (see shared/src/oauth.ts).
    */
   private recordRefreshedGrantScopes(grantedScope: string | undefined): void {
+    if (this.scopeReauthAnswered) {
+      return;
+    }
     this.missingRequiredScopes = findMissingRequiredScopes(grantedScope);
     if (this.missingRequiredScopes.length > 0) {
       this.logger.warn(
@@ -890,8 +897,8 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       throw new Error(result.error || fallbackError);
     }
 
-    // A fresh grant is the answer to the scope-reauth prompt, so it always clears the flag —
-    // even when the server clamped the scope away again. See recordRefreshedGrantScopes.
+    // A fresh grant is the answer to the scope-reauth prompt, so it retires the prompt for this
+    // run even when the server clamped the scope away again. See recordRefreshedGrantScopes.
     const stillMissing = findMissingRequiredScopes(result.data.scope);
     if (stillMissing.length > 0) {
       this.logger.warn("Fresh grant is still missing required scopes", {
@@ -899,6 +906,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       });
     }
     this.missingRequiredScopes = [];
+    this.scopeReauthAnswered = true;
 
     const session = await this.createSessionFromTokenResponse(result.data, {
       cloudRegion: region,

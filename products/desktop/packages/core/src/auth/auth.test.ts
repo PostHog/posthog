@@ -444,6 +444,32 @@ describe("AuthService", () => {
     },
   );
 
+  // The prompt is a blocking dialog, so an install whose server cannot grant the scope must not
+  // reach it twice: the user would sign in, refresh, and be blocked again with no way forward.
+  it("retires the prompt once the user re-authenticates into a still-narrowed grant", async () => {
+    seedStoredSession({ selectedProjectId: 42 });
+    oauthFlow.refreshToken.mockResolvedValue(
+      mockTokenResponse({ scope: "insight:read" }),
+    );
+    oauthFlow.startFlow.mockResolvedValue(
+      mockTokenResponse({ scope: "insight:read" }),
+    );
+    stubAuthFetch();
+
+    await service.initialize();
+    expect(service.getState()).toMatchObject({ needsScopeReauth: true });
+
+    await service.login("us");
+    expect(service.getState()).toMatchObject({ needsScopeReauth: false });
+
+    await service.refreshAccessToken();
+
+    expect(service.getState()).toMatchObject({
+      status: "authenticated",
+      needsScopeReauth: false,
+    });
+  });
+
   it("restores an authenticated session by refreshing the stored refresh token", async () => {
     seedStoredSession({ selectedProjectId: 42 });
     oauthFlow.refreshToken.mockResolvedValue(
