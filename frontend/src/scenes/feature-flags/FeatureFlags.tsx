@@ -578,7 +578,7 @@ export function OverviewTab({
 
             {/* Outside the selection toolbar, which unmounts as soon as the selection is cleared */}
             {bulkArchiveRunning && bulkArchiveProgress && (
-                <div className="text-muted text-sm">
+                <div className="text-muted text-sm" role="status" aria-live="polite">
                     Archiving flags… {bulkArchiveProgress.done} of {bulkArchiveProgress.total}
                 </div>
             )}

@@ -16,7 +16,6 @@ import { featureFlagsPartialUpdate } from 'products/feature_flags/frontend/gener
 import type { CopyFlagsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 
 import type { OrganizationType } from '../../types'
-import { reportFeatureFlagsBulkArchived } from './featureFlagArchiveDialog'
 import { featureFlagsLogic } from './featureFlagsLogic'
 import { isFlagApprovalRequiredError } from './updateFlagActiveInProject'
 
@@ -282,6 +281,15 @@ export interface flagSelectionLogicActions {
         flagCount: number
         projectCount: number
     } // eventUsageLogic
+    reportFeatureFlagsBulkArchived: (
+        archivedCount: number,
+        pendingApprovalCount: number,
+        failedCount: number
+    ) => {
+        archivedCount: number
+        failedCount: number
+        pendingApprovalCount: number
+    } // eventUsageLogic
     loadFeatureFlags: (_?: void | undefined) => void // featureFlagsLogic
     bulkArchiveFlags: (ids: number[]) => {
         ids: number[]
@@ -400,7 +408,12 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             organizationLogic,
             ['currentOrganization'],
         ],
-        actions: [featureFlagsLogic({}), ['loadFeatureFlags'], eventUsageLogic, ['reportFeatureFlagBulkCopy']],
+        actions: [
+            featureFlagsLogic({}),
+            ['loadFeatureFlags'],
+            eventUsageLogic,
+            ['reportFeatureFlagBulkCopy', 'reportFeatureFlagsBulkArchived'],
+        ],
     })),
 
     actions({
@@ -607,7 +620,7 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             actions.bulkArchiveFlagsFinished({ archivedIds, failed })
             actions.loadFeatureFlags()
             const pendingApprovalCount = failed.filter((failure) => failure.approvalPending).length
-            reportFeatureFlagsBulkArchived(
+            actions.reportFeatureFlagsBulkArchived(
                 archivedIds.length,
                 pendingApprovalCount,
                 failed.length - pendingApprovalCount

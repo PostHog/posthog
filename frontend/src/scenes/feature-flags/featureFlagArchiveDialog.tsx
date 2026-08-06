@@ -12,19 +12,6 @@ export function reportFeatureFlagArchived(via: FeatureFlagArchivedSource): void 
     posthog.capture('feature flag archived', { via })
 }
 
-/** One event per bulk action rather than per flag, matching how bulk copy reports itself. */
-export function reportFeatureFlagsBulkArchived(
-    archivedCount: number,
-    pendingApprovalCount: number,
-    failedCount: number
-): void {
-    posthog.capture('feature flags bulk archived', {
-        archived_count: archivedCount,
-        pending_approval_count: pendingApprovalCount,
-        failed_count: failedCount,
-    })
-}
-
 /**
  * Opens the archive confirmation dialog for a feature flag. The warning copy lives here so the
  * detail page and the list share one source of truth — only the confirm callback differs.

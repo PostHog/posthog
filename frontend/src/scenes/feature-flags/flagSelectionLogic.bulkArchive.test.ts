@@ -1,9 +1,16 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { BULK_ARCHIVE_MAX_FLAGS, flagSelectionLogic } from './flagSelectionLogic'
+
+jest.mock('scenes/approvals/utils', () => ({
+    ...jest.requireActual('scenes/approvals/utils'),
+    dispatchChangeRequestCreated: jest.fn(),
+}))
 
 describe('flagSelectionLogic bulk archive', () => {
     let logic: ReturnType<typeof flagSelectionLogic.build>
@@ -26,6 +33,7 @@ describe('flagSelectionLogic bulk archive', () => {
     }
 
     beforeEach(() => {
+        jest.clearAllMocks()
         initKeaTests()
     })
 
@@ -71,14 +79,19 @@ describe('flagSelectionLogic bulk archive', () => {
             { id: 1, errorMessage: expect.any(String), approvalPending: true },
             { id: 2, errorMessage: 'Server error', approvalPending: false },
         ])
+        // The approvals UI only learns about the bulk-archive change request through this dispatch
+        expect(dispatchChangeRequestCreated).toHaveBeenCalledWith({ resourceType: 'feature_flag', resourceId: 1 })
     })
 
-    it('refuses to run above the flag cap without issuing any archive requests', async () => {
+    it.each([
+        ['an empty selection', []],
+        ['a selection above the cap', Array.from({ length: BULK_ARCHIVE_MAX_FLAGS + 1 }, (_, i) => i + 1)],
+    ])('refuses to run for %s without issuing any archive requests', async (_label, ids) => {
         useArchiveMocks()
         logic = flagSelectionLogic()
         logic.mount()
 
-        logic.actions.bulkArchiveFlags(Array.from({ length: BULK_ARCHIVE_MAX_FLAGS + 1 }, (_, i) => i + 1))
+        logic.actions.bulkArchiveFlags(ids)
         await expectLogic(logic).toFinishAllListeners()
 
         expect(archiveRequests).toHaveLength(0)

@@ -1285,6 +1285,15 @@ export interface eventUsageLogicActions {
     reportFeatureFlagScheduleSuccess: () => {
         value: true
     }
+    reportFeatureFlagsBulkArchived: (
+        archivedCount: number,
+        pendingApprovalCount: number,
+        failedCount: number
+    ) => {
+        archivedCount: number
+        failedCount: number
+        pendingApprovalCount: number
+    }
     reportFlagsCodeExampleInteraction: (optionType: string) => {
         optionType: string
     }
@@ -2564,6 +2573,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             projectCount,
             failedCount,
         }),
+        reportFeatureFlagsBulkArchived: (archivedCount: number, pendingApprovalCount: number, failedCount: number) => ({
+            archivedCount,
+            pendingApprovalCount,
+            failedCount,
+        }),
         reportFeatureFlagScheduleSuccess: true,
         reportFeatureFlagScheduleFailure: (error) => ({ error }),
         reportInviteMembersButtonClicked: true,
@@ -3750,6 +3764,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('feature flags bulk copied', {
                 flag_count: flagCount,
                 project_count: projectCount,
+                failed_count: failedCount,
+            })
+        },
+        reportFeatureFlagsBulkArchived: ({ archivedCount, pendingApprovalCount, failedCount }) => {
+            posthog.capture('feature flags bulk archived', {
+                archived_count: archivedCount,
+                pending_approval_count: pendingApprovalCount,
                 failed_count: failedCount,
             })
         },
