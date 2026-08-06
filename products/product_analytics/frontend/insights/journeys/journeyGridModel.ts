@@ -35,12 +35,38 @@ export interface JourneyGridRibbon {
     fractionOfSource: number
     sourceLabel: string
     targetLabel: string
+    /** The endpoints' path items; null for an endpoint on the column's other row. */
+    sourceItem: PathsV2Item | null
+    targetItem: PathsV2Item | null
+    /** Position-free count of the transition at any step; only on open-mode named-named edges. */
+    anyStepCount: number | null
 }
 
 export interface JourneyGridModel {
     columns: JourneyGridColumn[]
     ribbons: JourneyGridRibbon[]
     maxRibbonCount: number
+}
+
+/** The active hover-preview chain resolved against the grid: per-card chain counts plus the
+ * ribbons connecting them. Card keys are `${stepIndex}:${rowKey}`, ribbon keys match ribbon.key. */
+export interface JourneyChainHighlight {
+    chain: PathsV2Item[]
+    countByCardKey: Record<string, number>
+    ribbonKeys: Set<string>
+}
+
+export function chainCardKey(stepIndex: number, item: PathsV2Item): string {
+    return `${stepIndex}:${journeyItemKey(item)}`
+}
+
+export function isCardOnChain(chain: PathsV2Item[] | null, stepIndex: number, rowKey: string): boolean {
+    return (
+        chain !== null &&
+        stepIndex < chain.length &&
+        journeyItemKey(chain[stepIndex]) === rowKey &&
+        rowKey !== OTHER_ROW_KEY
+    )
 }
 
 export function journeyItemKey(item: PathsV2Item): string {
@@ -125,6 +151,9 @@ export function buildJourneyGridModel(results: PathsV2Results | null): JourneyGr
             fractionOfSource: sourceRow.count > 0 ? edge.count / sourceRow.count : 0,
             sourceLabel: sourceRow.label,
             targetLabel: targetRow.label,
+            sourceItem: edge.source ?? null,
+            targetItem: edge.target ?? null,
+            anyStepCount: edge.anyStepCount ?? null,
         })
     }
 
