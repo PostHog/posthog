@@ -44,7 +44,7 @@ import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { BreakdownKeyType, BreakdownType, EntityFilter, FilterType, FunnelVizType, StepOrderValue } from '~/types'
 
-import { presetForStepSources } from 'products/product_analytics/frontend/insights/journeys/stepSourcePresets'
+import { summarizeJourneys } from 'products/product_analytics/frontend/insights/journeys/journeysSummary'
 
 function summarizeSingularBreakdown(
     breakdown: BreakdownKeyType | undefined,
@@ -224,9 +224,7 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
         }
         return summary
     } else if (isPathsV2Query(query)) {
-        // A placeholder until the dedicated journeys summary lands with the insight-platform polish
-        const preset = presetForStepSources(query.pathsV2Filter?.stepSources ?? undefined)
-        return preset ? `User journeys based on ${preset.label.toLowerCase()}` : 'User journeys'
+        return summarizeJourneys(query.pathsV2Filter)
     } else if (isStickinessQuery(query)) {
         return capitalizeFirstLetter(
             query.series
