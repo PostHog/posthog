@@ -43,6 +43,7 @@ pub mod throttle;
 
 use std::time::Duration;
 
+use common_kafka::error::error_code_tag;
 use common_kafka::kafka_producer::ThreadedKafkaContext;
 use metrics::{counter, gauge};
 use rdkafka::error::KafkaError;
@@ -63,7 +64,22 @@ pub use throttle::{ThrottleDecision, WarningThrottle};
 /// cardinality_capped | queue_full | serialize_error | enqueue_error`.
 /// Delivery-time outcomes (reported asynchronously for each `emitted`
 /// message): `delivered | delivery_failed`.
+///
+/// The Node.js `clientwarnings` consumer exports this same name for the rows it
+/// writes, at a later stage and far higher volume. Only this side carries
+/// `source`, so queries must scope by it (or by namespace) to avoid summing
+/// both stages.
 pub const INGESTION_WARNINGS_TOTAL: &str = "ingestion_warnings_total";
+
+/// Counter of delivery failures by cause: labels `source`, `path`, and `error`
+/// (a [`common_kafka::error::error_code_tag`] tag, shared with capture's sink
+/// metrics so the two can be queried together). Separates a bad topic from an
+/// unreachable broker, which `delivery_failed` alone cannot.
+///
+/// Its own metric because an `error` label on only one outcome of
+/// [`INGESTION_WARNINGS_TOTAL`] would break aggregations over the rest.
+pub const INGESTION_WARNINGS_DELIVERY_ERRORS_TOTAL: &str =
+    "ingestion_warnings_delivery_errors_total";
 
 /// Gauge of `(token, type)` keys currently tracked by the throttle, updated
 /// on each sweep. The early-warning signal for the cardinality cap.
@@ -74,6 +90,14 @@ pub const INGESTION_WARNINGS_THROTTLE_KEYS: &str = "ingestion_warnings_throttle_
 /// are disabled, because otherwise a misconfigured pod reporting `0` would be
 /// indistinguishable from an intentionally quiet one. Absence means "off",
 /// `0` means "broken".
+///
+/// Every emission carries a `reason` label naming the cause: `ok` when healthy,
+/// otherwise the misconfiguration (capture uses `hosts_unset`, `topic_unset`,
+/// `no_handle`, `producer_create_failed`). Labelling both states keeps their
+/// label sets identical, so `min(...) == 0` works without aggregating it away.
+///
+/// Emit only after the process installs its global metrics recorder; earlier
+/// `gauge!` calls are silently dropped.
 ///
 /// `1` means the emitter was built, not that its cluster is reachable:
 /// construction deliberately skips the broker ping, so a producer pointed at a
@@ -128,6 +152,49 @@ pub const CAPTURE_LEGACY_RATE_LIMIT: WarningSource = WarningSource {
     service: serializer::SOURCE_CAPTURE,
     path: "legacy_analytics",
     pipeline_step: "capture_rate_limit",
+};
+
+/// Capture's legacy analytics validation path (`rust/capture/src/events/analytics.rs`
+/// and its `v0_endpoint` caller). Unlike `CAPTURE_V1_ANALYTICS`, the legacy
+/// pipeline aborts the whole request on the first invalid event, so warnings
+/// from this source charge the full batch's event count rather than a per-event
+/// tally.
+pub const CAPTURE_LEGACY_ANALYTICS: WarningSource = WarningSource {
+    service: serializer::SOURCE_CAPTURE,
+    path: "legacy_analytics",
+    pipeline_step: "capture_validation",
+};
+
+/// Capture's AI events endpoint (`rust/capture/src/ai_endpoint.rs`, `/i/v0/ai`).
+/// One multipart event per request, so warnings from this source always carry
+/// `count = 1`.
+pub const CAPTURE_AI_EVENTS: WarningSource = WarningSource {
+    service: serializer::SOURCE_CAPTURE,
+    path: "ai_events",
+    pipeline_step: "capture_validation",
+};
+
+/// Capture's OTLP trace endpoint (`rust/capture/src/otel`, `/i/v0/ai/otel`).
+/// Split from `CAPTURE_AI_EVENTS` by `path` because the two AI endpoints take
+/// unrelated payload formats and fail for unrelated reasons, so a spike in one
+/// says nothing about the other.
+pub const CAPTURE_AI_OTEL: WarningSource = WarningSource {
+    service: serializer::SOURCE_CAPTURE,
+    path: "ai_otel",
+    pipeline_step: "capture_validation",
+};
+
+/// Capture's session replay endpoint (`rust/capture/src/events/recordings.rs`,
+/// `/s`). Like `CAPTURE_LEGACY_ANALYTICS`, a validation failure aborts the whole
+/// request, so warnings charge the batch's event count; unlike it, the batch was
+/// on its way to becoming a single `$snapshot_items` message, so "the batch" and
+/// "the message" are the same thing here. One source rather than a validation /
+/// rate-limit pair because `CaptureMode::Recordings` registers no other route and
+/// runs no per-distinct_id limiter.
+pub const CAPTURE_REPLAY: WarningSource = WarningSource {
+    service: serializer::SOURCE_CAPTURE,
+    path: "replay",
+    pipeline_step: "capture_validation",
 };
 
 /// Sink-agnostic emitter seam. The Kafka implementation is
@@ -317,17 +384,38 @@ pub struct WarningDelivery {
     pub source: WarningSource,
 }
 
+/// Metric label for a delivery failure: capture's shared [`error_code_tag`]
+/// vocabulary, or `unknown` when the error carries no rdkafka code (a cancel or
+/// purge during flush, for one). `&'static str`, so the poll thread never
+/// allocates to label a failure.
+fn delivery_error_tag(err: &KafkaError) -> &'static str {
+    err.rdkafka_error_code()
+        .map(error_code_tag)
+        .unwrap_or("unknown")
+}
+
 /// Delivery-report callback for the warnings `ThreadedProducer`. Runs on
 /// rdkafka's poll thread for every produced message and ticks the
 /// `delivered`/`delivery_failed` outcome — the async half of the `emitted`
 /// counter, which alone only proves the message entered the local queue.
 /// Without this, a broken topic or broker at rollout looks healthy while
-/// nothing lands. Metric-only (no per-message log) since a broken topic at
-/// rollout would otherwise flood logs at post-throttle volume.
+/// nothing lands. Failures also tick
+/// [`INGESTION_WARNINGS_DELIVERY_ERRORS_TOTAL`] with the error code.
+/// Metric-only (no per-message log) since a broken topic at rollout would
+/// otherwise flood logs at post-throttle volume.
 pub fn observe_delivery(result: &DeliveryResult, delivery: WarningDelivery) {
     let outcome = match result {
         Ok(_) => "delivered",
-        Err(_) => "delivery_failed",
+        Err((err, _message)) => {
+            counter!(
+                INGESTION_WARNINGS_DELIVERY_ERRORS_TOTAL,
+                "source" => delivery.source.service,
+                "path" => delivery.source.path,
+                "error" => delivery_error_tag(err),
+            )
+            .increment(1);
+            "delivery_failed"
+        }
     };
     counter!(
         INGESTION_WARNINGS_TOTAL,
@@ -344,6 +432,7 @@ mod tests {
     use common_kafka::config::KafkaConfig;
     use common_kafka::kafka_producer::create_threaded_kafka_producer_no_ping;
     use common_liveness::SyncLivenessReporter;
+    use rstest::rstest;
 
     use super::*;
 
@@ -375,6 +464,22 @@ mod tests {
         };
         create_threaded_kafka_producer_no_ping(&config, AlwaysHealthy, observe_delivery)
             .expect("client config is valid, so creation cannot fail without a broker round-trip")
+    }
+
+    // Errors reaching a delivery report don't all carry an rdkafka code. Without
+    // the fallback they'd land as an empty label, merging every one of them into
+    // a single anonymous series.
+    #[rstest]
+    #[case::has_code(
+        KafkaError::MessageProduction(RDKafkaErrorCode::MessageTimedOut),
+        "message_timed_out"
+    )]
+    #[case::carries_no_code(KafkaError::Canceled, "unknown")]
+    fn delivery_error_tag_names_the_code_or_falls_back(
+        #[case] err: KafkaError,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(delivery_error_tag(&err), expected);
     }
 
     #[test]

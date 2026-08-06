@@ -11,6 +11,7 @@ import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboar
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
+import * as featureFlagLib from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
@@ -169,6 +170,9 @@ describe('dashboardLogic', () => {
             11: {
                 ...dashboardResult(11, [], { date_from: '-24h' }),
             },
+            13: {
+                ...dashboardResult(13, []),
+            },
         }
         useMocks({
             get: {
@@ -183,6 +187,13 @@ describe('dashboardLogic', () => {
                 '/api/environments/:team_id/dashboards/5/': { ...dashboards[5] },
                 '/api/environments/:team_id/dashboards/6/': { ...dashboards[6] },
                 '/api/environments/:team_id/dashboards/7/': () => [500, '💣'],
+                '/api/environments/:team_id/dashboards/13/': () => [404, { detail: 'Not found.' }],
+                '/api/environments/:team_id/dashboards/14/': () => [401, { detail: 'Authentication expired.' }],
+                '/api/environments/:team_id/dashboards/15/': () => [
+                    403,
+                    { code: 'permission_denied', detail: 'Access denied.' },
+                ],
+                '/api/environments/:team_id/dashboards/16/': () => [504, { detail: 'Gateway timeout.' }],
                 '/api/environments/:team_id/dashboards/8/': { ...dashboards[8] },
                 '/api/environments/:team_id/dashboards/9/': { ...dashboards[9] },
                 '/api/environments/:team_id/dashboards/10/': { ...dashboards[10] },
@@ -845,6 +856,72 @@ describe('dashboardLogic', () => {
                 restoreSpy.mockRestore()
             })
 
+            it('discarding after a previewed filter change reloads tiles', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                    logic.actions.setDates('-14d', null)
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                })
+                    .toDispatchActions([
+                        // anchor at the discard dispatch, so the refresh matched below is the
+                        // discard-triggered one and not an earlier (initial load / preview) one
+                        logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
+                        'refreshDashboardItems',
+                    ])
+                    .toFinishAllListeners()
+            })
+
+            it('discarding without a previewed filter change does not reload tiles', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                })
+                    .toDispatchActions([
+                        // anchor at the discard dispatch, so only actions after it are considered
+                        logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
+                    ])
+                    .toFinishAllListeners()
+                    .toNotHaveDispatchedActions(['refreshDashboardItems'])
+            })
+
+            it('discarding an unapplied filter edit above the auto-preview limit does not reload tiles', async () => {
+                // The skip-reload check relies on unpreviewed edits never reaching the URL:
+                // when the dashboard is over the auto-preview limit, filter edits stay
+                // intermittent (no URL write, no refresh) until "Apply filters" is clicked.
+                const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(1)
+
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.canAutoPreview).toBe(false)
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                    logic.actions.setDates('-14d', null)
+                }).toFinishAllListeners()
+
+                expect(router.values.searchParams[dashboardUtils.SEARCH_PARAM_FILTERS_KEY]).toBeUndefined()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                })
+                    .toDispatchActions([
+                        logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
+                    ])
+                    .toFinishAllListeners()
+                    .toNotHaveDispatchedActions(['refreshDashboardItems'])
+
+                payloadSpy.mockRestore()
+            })
+
             it('filter edit source clears layout edit mode', async () => {
                 await expectLogic(logic).toFinishAllListeners()
 
@@ -1159,6 +1236,223 @@ describe('dashboardLogic', () => {
                 dashboardFailedToLoad: true,
             })
         })
+
+        it.each([
+            { id: 14, accessDenied: false },
+            { id: 15, accessDenied: true },
+            { id: 16, accessDenied: false },
+        ])('classifies dashboard HTTP failures for dashboard $id', async ({ id, accessDenied }) => {
+            logic = dashboardLogic({ id })
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.accessDeniedToDashboard).toBe(accessDenied)
+            expect(logic.values.dashboardFailedToLoad).toBe(true)
+            expect(logic.values.error404).toBe(false)
+        })
+
+        it('treats an invalid successful response as a load failure', async () => {
+            jest.spyOn(api, 'getResponse').mockResolvedValueOnce(
+                new Response('<html>Bad gateway</html>', { status: 200 })
+            )
+            logic = dashboardLogic({ id: 17 })
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.dashboardFailedToLoad).toBe(true)
+            expect(logic.values.error404).toBe(false)
+        })
+
+        describe('when the dashboard GET returns 404', () => {
+            beforeEach(() => {
+                logic = dashboardLogic({ id: 13 })
+                logic.mount()
+            })
+
+            // The NotFound scene is gated on error404, so the loader must set it once the fetch
+            // settles as a 404 — and must NOT set it before the request has been made.
+            it('sets error404 after a settled 404 and not before', async () => {
+                expect(logic.values.error404).toBe(false)
+
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.dashboard).toBeNull()
+                expect(logic.values.dashboardFailedToLoad).toBe(false)
+                expect(logic.values.error404).toBe(true)
+            })
+        })
+    })
+
+    describe('tile streaming failure classification', () => {
+        let lemonToastErrorSpy: jest.SpiedFunction<typeof lemonToast.error>
+
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
+        beforeEach(() => {
+            lemonToastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+        })
+
+        afterEach(() => {
+            lemonToastErrorSpy.mockRestore()
+        })
+
+        // A genuine 404 from the stream's initial response is the only signal that flips the scene to
+        // "Dashboard not found". A stream error whose message merely mentions 404 (e.g. a tile query that
+        // failed upstream) carries no status and must stay a toast — string-matching '404' used to turn
+        // these blips into a hard NotFound on valid, loaded dashboards.
+        it('only marks NotFound on a real 404 status, not a message that mentions 404', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ message: 'Query failed with code 404 upstream' })
+            }).toFinishAllListeners()
+            expect(logic.values.error404).toBe(false)
+            expect(logic.values.dashboardFailedToLoad).toBe(false)
+            expect(lemonToastErrorSpy).toHaveBeenCalled()
+
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ message: 'gone', status: 404 })
+            }).toFinishAllListeners()
+            expect(logic.values.error404).toBe(true)
+        })
+
+        it('makes a definitive 404 authoritative over an earlier stream failure and stale dashboard', async () => {
+            logic.actions.tileStreamingFailure({ message: 'network dropped mid-connect' })
+            expect(logic.values.dashboardFailedToLoad).toBe(true)
+
+            logic.actions.loadDashboardMetadataSuccess(dashboardResult(5, []))
+            expect(logic.values.dashboard).not.toBeNull()
+
+            logic.actions.setDashboardStreamFailed()
+            logic.actions.tileStreamingFailure({ message: 'gone', status: 404 })
+
+            expect(logic.values.error404).toBe(true)
+            expect(logic.values.dashboardFailedToLoad).toBe(false)
+            expect(logic.values.accessDeniedToDashboard).toBe(false)
+            expect(logic.values.dashboard).toBeNull()
+        })
+
+        it('fails a completed stream without metadata and disposes it on unmount', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.dashboardNotFound()
+
+            const disposeStream = jest.fn()
+            jest.spyOn(api.dashboards, 'streamTiles').mockImplementation(
+                async (_id, _params, _onMessage, onComplete) => {
+                    onComplete()
+                    return disposeStream
+                }
+            )
+
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboardStreaming({ action: DashboardLoadAction.InitialLoad })
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboardFailedToLoad).toBe(true)
+            expect(logic.values.error404).toBe(false)
+
+            logic.unmount()
+            expect(disposeStream).toHaveBeenCalledTimes(1)
+        })
+
+        it('clears NotFound when a streaming retry starts or delivers metadata', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ message: 'gone', status: 404 })
+            }).toFinishAllListeners()
+            expect(logic.values.error404).toBe(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboardStreaming({ action: DashboardLoadAction.InitialLoad })
+            }).toFinishAllListeners()
+            expect(logic.values.error404).toBe(false)
+
+            logic.actions.tileStreamingFailure({ message: 'gone', status: 404 })
+            expect(logic.values.error404).toBe(true)
+
+            logic.actions.loadDashboardMetadataSuccess(dashboardResult(5, []))
+            expect(logic.values.error404).toBe(false)
+        })
+
+        it('clears access denied when a streaming retry starts or delivers metadata', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.tileStreamingFailure({
+                message: 'forbidden',
+                status: 403,
+                code: 'permission_denied',
+            })
+            expect(logic.values.accessDeniedToDashboard).toBe(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboardStreaming({ action: DashboardLoadAction.InitialLoad })
+            }).toFinishAllListeners()
+            expect(logic.values.accessDeniedToDashboard).toBe(false)
+
+            logic.actions.tileStreamingFailure({
+                message: 'forbidden',
+                status: 403,
+                code: 'permission_denied',
+            })
+            expect(logic.values.accessDeniedToDashboard).toBe(true)
+
+            logic.actions.loadDashboardMetadataSuccess(dashboardResult(5, []))
+            expect(logic.values.accessDeniedToDashboard).toBe(false)
+        })
+
+        it('routes a 403 status to access denied and other errors to a toast', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({
+                    message: 'forbidden',
+                    status: 403,
+                    code: 'permission_denied',
+                })
+            }).toFinishAllListeners()
+            expect(logic.values.accessDeniedToDashboard).toBe(true)
+            expect(logic.values.error404).toBe(false)
+
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ message: 'HTTP 500: something broke', status: 500 })
+            }).toFinishAllListeners()
+            expect(lemonToastErrorSpy).toHaveBeenCalledWith(expect.stringContaining('something broke'))
+            expect(logic.values.dashboardFailedToLoad).toBe(true)
+        })
+
+        it('marks the load failed (not NotFound) when a transient error leaves no dashboard', async () => {
+            expect(logic.values.dashboard).toBeNull()
+
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ message: 'network dropped mid-connect' })
+            }).toDispatchActions(['setDashboardStreamFailed'])
+
+            expect(logic.values.dashboardFailedToLoad).toBe(true)
+            expect(logic.values.error404).toBe(false)
+        })
+
+        // fetchEventSource auto-retries transient failures, so the stream can recover on its own:
+        // metadata arriving after a failure must clear the load-error state, not leave it latched
+        // over a fully loaded dashboard.
+        it('clears the failed state when a stream retry delivers metadata', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ message: 'network dropped mid-connect' })
+            }).toDispatchActions(['setDashboardStreamFailed'])
+            expect(logic.values.dashboardFailedToLoad).toBe(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboardMetadataSuccess(dashboardResult(5, []))
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboardFailedToLoad).toBe(false)
+            expect(logic.values.dashboard).not.toBeNull()
+        })
     })
 
     describe('when a dashboard item API errors', () => {
@@ -1286,6 +1580,31 @@ describe('dashboardLogic', () => {
                 expect(logic.values.oldestRefreshed?.toISOString()).toEqual(dayjs(staleIso).toISOString())
                 expect(logic.values.effectiveLastRefresh?.toISOString()).toEqual(dayjs(staleIso).toISOString())
             })
+
+            it('persisting the last refresh keeps refreshed results instead of an earlier snapshot', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                const snapshot = logic.values.dashboard!
+                dashboardsModel.actions.updateDashboardSuccess(snapshot)
+
+                const insight = snapshot.tiles.find((tile) => !!tile.insight)!.insight!
+                const freshResult = [{ count: 42 }]
+
+                await expectLogic(logic, () => {
+                    dashboardsModel.actions.updateDashboardInsight(
+                        { ...insight, result: freshResult, query: insight.query ?? null },
+                        undefined,
+                        5
+                    )
+                }).toFinishAllListeners()
+
+                await expectLogic(dashboardsModel, () => {
+                    logic.actions.updateDashboardLastRefresh(now())
+                }).toDispatchActions(['updateDashboard', 'updateDashboardSuccess'])
+
+                const refreshedTile = logic.values.tiles.find((tile) => tile.insight?.short_id === insight.short_id)
+                expect(refreshedTile?.insight?.result).toEqual(freshResult)
+            })
         })
 
         describe('insight refresh', () => {
@@ -1353,6 +1672,51 @@ describe('dashboardLogic', () => {
                             total: 2,
                         },
                     })
+            })
+
+            it('keeps tile data and marks the tile errored when a refresh terminates in a rejection stub', async () => {
+                const dashboard = dashboards[5]
+                const insight1 = dashboard.tiles[0].insight!
+                const insight2 = dashboard.tiles[1].insight!
+                const resultsBeforeRefresh = logic.values.insightTiles.map((t) => t.insight!.result)
+                expect(resultsBeforeRefresh.every((r) => r != null)).toBe(true)
+
+                // What getInsightWithRetry resolves to when the app-level concurrency limiter (or a
+                // server-side calculation error) rejects every attempt: an insight-shaped payload with
+                // no result and an errored query_status
+                const getInsightWithRetrySpy = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockImplementation(async (_teamId, insight) => ({
+                        ...insight,
+                        result: null,
+                        query_status: {
+                            id: 'rejected-query',
+                            team_id: 2,
+                            query_async: true,
+                            complete: false,
+                            error: true,
+                            error_code: null,
+                            error_message: 'concurrency_limit_exceeded',
+                        },
+                    }))
+
+                try {
+                    await expectLogic(logic, () => {
+                        logic.actions.triggerDashboardRefresh()
+                    }).toFinishAllListeners()
+
+                    // The stub must not be committed as a successful refresh: tiles keep their data
+                    expect(logic.values.insightTiles.map((t) => t.insight!.result)).toEqual(resultsBeforeRefresh)
+                    // and surface an error state instead of rendering the null result as an empty insight
+                    expect(logic.values.refreshStatus[insight1.short_id]).toEqual(
+                        expect.objectContaining({ errored: true })
+                    )
+                    expect(logic.values.refreshStatus[insight2.short_id]).toEqual(
+                        expect.objectContaining({ errored: true })
+                    )
+                } finally {
+                    getInsightWithRetrySpy.mockRestore()
+                }
             })
 
             it('pins the "X out of Y" denominator when a tile aborts mid-cycle and keeps siblings tracked', async () => {
@@ -1801,6 +2165,30 @@ describe('dashboardLogic', () => {
             })
                 .toDispatchActions(['saveEditModeChanges', 'saveEditModeChangesSuccess', 'refreshDashboardItems'])
                 .toFinishAllListeners()
+        })
+
+        it('applying a variable value refreshes every tile with the new value attached to the request', async () => {
+            await mountDashboardWithVariable({})
+
+            const getInsightWithRetrySpy = jest
+                .spyOn(dashboardUtils, 'getInsightWithRetry')
+                .mockImplementation(async (_teamId, insight) => insight)
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.overrideVariableValue(variableId, 'applied-value', false)
+                })
+                    .toDispatchActions(['overrideVariableValue', 'refreshDashboardItems'])
+                    .toFinishAllListeners()
+
+                expect(getInsightWithRetrySpy).toHaveBeenCalledTimes(1)
+                const variablesOverride = getInsightWithRetrySpy.mock.calls[0][7]
+                expect(variablesOverride).toEqual({
+                    [variableId]: expect.objectContaining({ code_name: 'organization', value: 'applied-value' }),
+                })
+            } finally {
+                getInsightWithRetrySpy.mockRestore()
+            }
         })
     })
 

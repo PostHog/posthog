@@ -1,3 +1,5 @@
+import './Nav.scss'
+
 import { Tabs } from '@base-ui/react/tabs'
 import { cva } from 'cva'
 import { useActions, useMountedLogic, useValues } from 'kea'
@@ -34,6 +36,7 @@ import {
     PanelLayoutNavIdentifier,
     panelLayoutLogic,
 } from '~/layout/panel-layout/panelLayoutLogic'
+import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
 
 import { NavSearchBar, NavSearchButton } from '../../../lib/components/NavSearchButton/NavSearchButton'
 import { navigation3000Logic } from '../../navigation-3000/navigationLogic'
@@ -132,6 +135,7 @@ export function Nav(): JSX.Element {
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { toggleCommand } = useActions(commandLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { sidebarDensity } = useValues(uiCustomizationLogic)
     const showCreateButton = useFeatureFlag('CREATE_BUTTON_NAV_EXPERIMENT', 'test')
     // When expanded, the search-bar variant swaps the icon-only search button for a full-width bar below the header
     const showNavSearchBar = featureFlags[FEATURE_FLAGS.CMD_K_NAV_EXPERIMENT] === 'search-bar' && !isLayoutNavCollapsed
@@ -185,6 +189,7 @@ export function Nav(): JSX.Element {
                     }),
                     isLayoutNavCollapsed && 'gap-px'
                 )}
+                data-nav-density={sidebarDensity}
                 ref={containerRef}
             >
                 <div

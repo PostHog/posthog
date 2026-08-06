@@ -18,16 +18,18 @@ Functions that bridge to those heavy surfaces import them lazily inside the func
 import re
 import hashlib
 import logging
-from collections.abc import Iterable, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import CharField, Count, Exists, F, Min, OuterRef, Q, QuerySet, Subquery
+from django.db.models import CharField, Count, Exists, F, Func, Min, OuterRef, Q, QuerySet, Subquery
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone as django_timezone
 
@@ -47,6 +49,9 @@ from products.tasks.backend.constants import (
     is_blocked_sandbox_env_key,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.github_repository_access import (
+    inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
+)
 from products.tasks.backend.logic.services.image_builder import (
     ensure_image_builder_task,
     is_custom_images_enabled,
@@ -55,9 +60,13 @@ from products.tasks.backend.logic.services.image_builder import (
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     Channel,
+    ChannelContextGeneration,
     ChannelFeedMessage,
+    ChannelInstructions,
+    ChannelStar,
     CodeInvite,
     CodeInviteRedemption,
+    MCPBuiltInAgentKey,
     SandboxCustomImage,
     SandboxEnvironment,
     SandboxSession,
@@ -65,11 +74,14 @@ from products.tasks.backend.models import (
     Task,
     TaskActivity,
     TaskAutomation,
+    TaskClientProvenance,
+    TaskPin,
     TaskRun,
     TaskSession,
     TaskThreadMessage,
     TaskThreadMessageMention,
 )
+from products.tasks.backend.pr_urls import merge_pr_output
 from products.tasks.backend.prompts import build_wizard_pr_agent_prompt, generate_wizard_head_branch
 from products.tasks.backend.visibility import task_control_q, task_run_visibility_q, task_visibility_q
 
@@ -141,6 +153,7 @@ __all__ = [
     "claim_and_fail_stale_run",
     "delete_sandbox_custom_image",
     "delete_sandbox_environment",
+    "ensure_personal_channel_id",
     "ensure_sandbox_custom_image_builder_task",
     "delete_task_automation",
     "edit_task_run_living_artifact",
@@ -172,7 +185,6 @@ __all__ = [
     "get_task_run_stream_info",
     "get_task_summaries",
     "is_internal_debug_team",
-    "is_signal_report_task",
     "is_task_controllable_by_user",
     "is_valid_sandbox_env_var_key",
     "latest_task_run_pr_merged_subquery",
@@ -410,6 +422,7 @@ def _task_detail_to_dto(
         origin_product=task.origin_product,
         runtime=task.runtime,
         repository=task.repository,
+        repositories=task.repositories or ([task.repository] if task.repository else []),
         github_integration=task.github_integration_id,
         github_user_integration=task.github_user_integration_id,
         signal_report=task.signal_report_id,
@@ -482,6 +495,70 @@ def get_task_run(run_id: str | UUID, team_id: int | None = None) -> contracts.Ta
     return _task_run_to_dto(run)
 
 
+def find_signal_implementation_run(
+    *, team_id: int, repository: str, head_branch: str | None
+) -> contracts.SignalImplementationRunDTO | None:
+    """The signals-origin implementation run that produced this PR, if any.
+
+    Matches the PR's head branch against ``state.self_driving_head_branch``, the branch name the
+    server generated at run creation (signals' auto_start) and stamped into PATCH-protected run
+    state. That stamp is the only end of the run->PR link no caller can write: ``output.pr_url``
+    and ``output.head_branch`` are settable by any team member with task access, so matching on
+    them would let one member aim the approve-first review carve-out at an App-authored PR whose
+    contents they chose. The head branch itself comes from GitHub (webhook payload or REST fetch),
+    so both ends of the join are attested.
+
+    Callers (stamphog's inbox carve-out) pass the repository the PR event came from and own fork
+    safety: pass ``head_branch`` only for a repo-native head, never a fork's (a fork's head ref is
+    attacker-controlled). Dropping failed and cancelled runs and soft-deleted tasks stops a dead
+    or disowned run from keeping the carve-out alive on later pushes. A COMPLETED run still
+    matches: success flips the run to COMPLETED right after it opens the PR, so excluding it
+    would end re-reviews the moment the implementation finishes.
+    """
+    # TODO(security): the run->PR link is only as strong as the branch NAME, and the name is not a
+    # secret. state.self_driving_head_branch is unforgeable, but the name it holds is readable by any
+    # team member (auto_start writes it into the task description, and TaskRunDetailSerializer exposes
+    # `state`) and low-entropy. A run that finishes WITHOUT opening a PR keeps its stamp yet leaves its
+    # branch unclaimed, so a member can read the name, have their own task's agent push an App-authored
+    # repo-native PR from that exact branch, then set_output the original run's pr_url to fire the
+    # carve-out: the head ref genuinely belongs to this run, so an approve-first review lands on a PR
+    # whose contents they chose. The real fix is to bind on the head SHA the sandbox actually pushed
+    # (recorded server-side into protected state) rather than the branch name, because a run that never
+    # pushed has no SHA to bind, which removes the unclaimed-branch surface entirely; re-reviews then
+    # pin to the PR identity once the first attested SHA establishes it. It is a heavy change (sandbox
+    # has to report the pushed SHA back, and the re-review path needs the PR-identity pin), so it is
+    # deferred. The exposure is intra-tenant and gated behind an opt-in toggle that defaults off, which
+    # makes it an accepted residual for the current internal rollout; close it before any external one.
+    if not head_branch:
+        return None
+    run = (
+        TaskRun.objects.filter(
+            team_id=team_id,
+            state__self_driving_head_branch=head_branch,
+            task__repository__iexact=repository.strip(),
+            task__deleted=False,
+        )
+        .exclude(status__in=(TaskRun.Status.FAILED, TaskRun.Status.CANCELLED))
+        .order_by("-created_at")
+        .select_related("task")
+        .first()
+    )
+    if run is None or run.team_id != team_id:
+        return None
+    task = run.task
+    # Belt and braces: only signals' auto_start stamps the branch key today, but the ai_stage and
+    # signal-report checks keep a future writer of the key from silently widening the carve-out.
+    if task.signal_report_id is None or (run.state or {}).get("ai_stage") != "implementation":
+        return None
+    return contracts.SignalImplementationRunDTO(
+        run_id=run.id,
+        task_id=task.id,
+        team_id=run.team_id,
+        signal_report_id=task.signal_report_id,
+        task_created_by_id=task.created_by_id,
+    )
+
+
 def get_wizard_pr_ready_email_context(run_id: str | UUID) -> contracts.WizardPrReadyEmailContextDTO | None:
     """Data ``send_wizard_pr_ready_email`` needs for a run, or ``None`` if the run has no PR URL yet."""
     run = TaskRun.objects.select_related("task").filter(id=run_id).first()
@@ -525,22 +602,8 @@ def task_exists(task_id: str | UUID, team_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id).exists()
 
 
-def is_signal_report_task(task_id: str | UUID, team_id: int) -> bool:
-    """Whether the task is a genuine Signals report task rather than a PostHog Code task.
-
-    True only when the origin is ``SIGNAL_REPORT`` and it links to a report in this team. The Inbox
-    "Create PR" / "Discuss" actions create such tasks, and acting on them is entitled through
-    self-driving (the ``product-autonomy`` Inbox, which is generally available) — not the PostHog
-    Code (``tasks``) product. So the ``run`` gate skips the Code entitlement for them, matching
-    auto-start, which runs the same tasks server-side without a Code check. The report link is
-    team-scoped by the write serializer, so a caller can't forge it onto another team's report.
-    """
-    return Task.objects.filter(
-        id=task_id,
-        team_id=team_id,
-        origin_product=Task.OriginProduct.SIGNAL_REPORT,
-        signal_report__isnull=False,
-    ).exists()
+def task_owned_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:
+    return Task.objects.filter(id=task_id, team_id=team_id, created_by_id=user_id).exists()
 
 
 def count_in_progress_runs_for_github_integration(team_id: int, integration_id: int) -> int:
@@ -864,6 +927,7 @@ def create_and_run_task(
     signal_report_id: str | None = None,
     internal: bool = False,
     sandbox_environment_id: str | None = None,
+    channel_id: str | UUID | None = None,
     **extra,
 ) -> contracts.CreatedTaskDTO:
     """Create a task and (optionally) kick off its processing workflow.
@@ -871,7 +935,19 @@ def create_and_run_task(
     Thin wrapper over ``Task.create_and_run`` that returns ids + the created run as a DTO
     instead of leaking the ORM ``Task``. ``team`` is a core ``posthog.Team`` (not a tasks
     model). Less-common keyword arguments are forwarded verbatim via ``**extra``.
+
+    ``channel_id`` files the task into a channel's feed; left NULL for non-channel surfaces.
+    An id the creator can't file into (see ``_visible_channel``) is ignored rather than
+    raising — feed placement must never break task creation.
     """
+    # create_pr=False sessions (research, repo selection, custom agents) can never open the
+    # billable PR, so the quota gate must not block them.
+    if origin_product == Task.OriginProduct.SIGNAL_REPORT and create_pr:
+        # Distinct stage from create_task's `manual_create`: the main caller here is the
+        # auto-start pipeline, whose over-quota hits must not pollute the manual-path
+        # dark-launch bucket.
+        enforce_self_driving_pr_quota(team, report_id=signal_report_id, stage="task_create")
+    channel = _visible_channel(channel_id, team.id, user_id) if channel_id is not None else None
     task = Task.create_and_run(
         team=team,
         title=title,
@@ -879,6 +955,7 @@ def create_and_run_task(
         origin_product=origin_product,
         user_id=user_id,
         repository=repository,
+        channel=channel,
         create_pr=create_pr,
         mode=mode,
         start_workflow=start_workflow,
@@ -983,6 +1060,7 @@ def create_task_without_run(
     title: str = "",
     description: str = "",
     repository: str | None = None,
+    mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
 ) -> UUID:
     """Create a Task row with no initial run, returning its id.
 
@@ -996,6 +1074,7 @@ def create_task_without_run(
         origin_product=origin_product,
         user_id=user_id,
         repository=repository,
+        mcp_builtin_agent_key=mcp_builtin_agent_key,
     )
     return task.id
 
@@ -1138,24 +1217,39 @@ def upsert_internal_sandbox_env(
 ) -> UUID:
     """Get-or-create an internal sandbox environment, reasserting policy on every call.
 
+    Only rows already carrying the requested ``internal`` flag are matched for reuse: users
+    can create environments with arbitrary names through the sandbox environment API, and a
+    same-named user row must never be adopted (or deleted) by internal provisioning — the
+    internal env is created alongside it instead. Reasserted policy covers the whole
+    execution surface, not just network: the user-controllable ``custom_image``,
+    ``environment_variables``, and ``repositories`` fields are cleared on every call, so
+    nothing a person set on a row (before or after it became internal) can ride into an
+    internally provisioned run.
+
     ``SandboxEnvironment`` has no unique constraint on ``(team_id, name)``, so concurrent
     callers can both INSERT. We dedupe on ``MultipleObjectsReturned`` by keeping the oldest
-    row and deleting the rest.
+    matching row and deleting the rest.
     """
     defaults: dict = {
         "network_access_level": network_access_level,
         "private": private,
-        "internal": internal,
+        "custom_image": None,
+        "environment_variables": {},
+        "repositories": [],
     }
     if allowed_domains is not None:
         defaults["allowed_domains"] = allowed_domains
         defaults["include_default_domains"] = include_default_domains
     try:
-        env, _ = SandboxEnvironment.objects.update_or_create(team_id=team_id, name=name, defaults=defaults)
+        env, _ = SandboxEnvironment.objects.update_or_create(
+            team_id=team_id, name=name, internal=internal, defaults=defaults
+        )
         return env.id
     except SandboxEnvironment.MultipleObjectsReturned:
         with transaction.atomic():
-            dupes = list(SandboxEnvironment.objects.filter(team_id=team_id, name=name).order_by("created_at"))
+            dupes = list(
+                SandboxEnvironment.objects.filter(team_id=team_id, name=name, internal=internal).order_by("created_at")
+            )
             keeper = dupes[0]
             SandboxEnvironment.objects.filter(id__in=[d.id for d in dupes[1:]]).delete()
         for key, value in defaults.items():
@@ -1752,6 +1846,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
         "github_credential_source",
         "pr_authorship_mode",
+        "repositories",
+        "verified_pr_urls",
         "sandbox_id",
         "sandbox_cpu_cores",
         "sandbox_memory_gb",
@@ -1793,6 +1889,13 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "loop_trigger_id",
         "trigger_context",
         "config_snapshot",
+        # Stamped once at run creation. The review carve-outs read ai_stage="implementation" as proof
+        # a run is self-driving, so a PATCHable value would forge that and unlock the bot/draft bypass.
+        "ai_stage",
+        # The server-generated head branch the run->PR link is keyed on (find_signal_implementation_run).
+        # A PATCHable value would let a caller re-aim the approve-first carve-out at any App-authored
+        # PR, which is the exact forgery the stamp exists to prevent.
+        "self_driving_head_branch",
         # The run's model posture, chosen at creation by the server-owned caller and read back out
         # of state when the run dispatches. It decides what the run costs, and for a run routed to
         # an unbilled gateway product (create_wizard_cloud_run pins claude-sonnet-5 for the
@@ -1849,6 +1952,14 @@ def _get_task_for_run_control(task_id: str | UUID, team_id: int, user_id: int | 
 def _get_visible_run(run_id: str | UUID, task_id: str | UUID, team_id: int) -> TaskRun | None:
     """A run scoped to its parent task + team. Caller is responsible for task visibility."""
     return _task_run_queryset().filter(pk=run_id, team_id=team_id, task_id=task_id).first()
+
+
+def task_run_exists(run_id: str | UUID, task_id: str | UUID, team_id: int) -> bool:
+    """Precheck so callers can 404 before doing expensive work (e.g. a render)."""
+    try:
+        return TaskRun.objects.filter(pk=run_id, team_id=team_id, task_id=task_id).exists()
+    except (ValueError, TypeError, DjangoValidationError):
+        return False
 
 
 def task_accessible_for_run_view(
@@ -2040,6 +2151,73 @@ def _send_wizard_pr_ready_email_for_pr(run: TaskRun) -> None:
     transaction.on_commit(lambda: send_wizard_pr_ready_email.delay(str(run.id)))
 
 
+def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> None:
+    """Queue an org-level self-driving quota re-evaluation when a self-driving-origin run records its first
+    PR URL. That write is the report's billable moment (products/signals/backend/billing.py), so
+    re-evaluating now lets the quota limiter flag the org within seconds of the PR that crosses
+    its limit (for runs created the same UTC day; `refresh_org_self_driving_quota` documents the
+    cross-midnight gap); the 15-minute quota cron only re-reads usage on its next tick. Dispatched
+    on commit so the task reads the committed pr_url; best-effort because the cron is the backstop.
+    Never raises: the callers signal workflow completion and run other PR side effects right after,
+    and a refresh hiccup must not abort those or turn an already-committed run write into a 500.
+    """
+    try:
+        if old_pr_url:
+            return
+        new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
+        if not new_pr_url or run.task.origin_product != Task.OriginProduct.SIGNAL_REPORT:
+            return
+        # Billing only ever counts GitHub PR URLs (billing.py validates the same prefix), so a
+        # recompute for any other output.pr_url string is a guaranteed no-op; don't let arbitrary
+        # client-written values enqueue org-wide refreshes. Literal kept local because tasks code
+        # must not import signals internals.
+        if not new_pr_url.startswith("https://github.com/"):
+            return
+        organization_id = Team.objects.filter(id=run.task.team_id).values_list("organization_id", flat=True).first()
+        if organization_id is None:
+            return
+        from ee.tasks.quota_limiting import (
+            refresh_org_self_driving_quota_task,  # noqa: PLC0415 — keep billing deps off the api import path
+        )
+
+        def _dispatch() -> None:
+            try:
+                refresh_org_self_driving_quota_task.delay(str(organization_id))
+            except Exception:
+                logger.warning(
+                    "self_driving_quota_refresh_dispatch_failed", extra={"run_id": str(run.id)}, exc_info=True
+                )
+
+        transaction.on_commit(_dispatch)
+    except Exception:
+        logger.warning("self_driving_quota_refresh_failed", extra={"run_id": str(run.id)}, exc_info=True)
+
+
+def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None, stage: str = "manual_create") -> None:
+    """Refuse to create a PR-opening self-driving task while the team's org is over its self-driving
+    credits quota with enforcement on. The implementation task is the step that leads to the
+    billable PR, so the manual create-from-report path must respect the same limit as the pipeline
+    auto-start gate (products/signals/backend/auto_start.py). Emits `signal_report_quota_paused`
+    at ``stage`` whenever the org is limited, so each caller's gate stays measurable during the
+    dark launch like every other gate. Raises ``QuotaLimitExceeded`` (402).
+    """
+    from posthog.exceptions import QuotaLimitExceeded  # noqa: PLC0415 — keep billing deps off the api import path
+
+    from products.signals.backend.quota import (  # noqa: PLC0415 — cross-product read kept off the api import path
+        capture_signal_report_quota_paused,
+        self_driving_quota_gate,
+    )
+
+    gate = self_driving_quota_gate(team)
+    if gate.limited:
+        capture_signal_report_quota_paused(team, report_id=report_id, stage=stage, enforced=gate.enforced)
+    if gate.enforced:
+        raise QuotaLimitExceeded(
+            "Your organization reached its self-driving pull request limit. "
+            "Increase the limit from the Inbox usage widget, or ask an org admin to do so."
+        )
+
+
 def update_task_run(
     run_id: str | UUID,
     task_id: str | UUID,
@@ -2097,7 +2275,8 @@ def update_task_run(
                 existing_output = run.output if isinstance(run.output, dict) else {}
                 # Same attested-key policy as set_task_run_output — this PATCH surface is
                 # caller-controlled too, so it can't be a back door to output.pr_merged.
-                setattr(run, key, _apply_caller_output(existing_output, value, {**existing_output, **value}))
+                merged_output = merge_pr_output(existing_output, value)
+                setattr(run, key, _apply_caller_output(existing_output, value, merged_output))
                 update_fields.add(key)
                 continue
             if key == "state_remove_keys":
@@ -2168,6 +2347,7 @@ def update_task_run(
 
     new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
     if new_pr_url and new_pr_url != old_pr_url:
+        _refresh_self_driving_quota_for_pr(run, old_pr_url)
         _post_slack_update_for_pr(run)
         _send_wizard_pr_ready_email_for_pr(run)
         post_pr_created_thread_update(run, new_pr_url)
@@ -2211,11 +2391,10 @@ def set_task_run_output(
     # Preserve PR facts a webhook may have written concurrently: this assignment is wholesale,
     # so a bare `= output` would drop output.pr_url recorded out of band.
     existing = run.output if isinstance(run.output, dict) else {}
-    merged = {**output}
-    if not merged.get("pr_url") and existing.get("pr_url"):
-        merged["pr_url"] = existing["pr_url"]
+    merged = merge_pr_output(existing, output)
     run.output = _apply_caller_output(existing, output, merged)
     run.save(update_fields=["output", "updated_at"])
+    _refresh_self_driving_quota_for_pr(run, existing.get("pr_url"))
     if task.json_schema:
         signal_workflow_completion(run.id, TaskRun.Status.COMPLETED, None)
     run.publish_stream_state_event()
@@ -2656,7 +2835,15 @@ def finalize_task_run_artifact_uploads(
     for storage_path in new_storage_paths:
         _tag_artifact_object(run, storage_path)
 
-    return finalized_entries, None
+    # Mint a fresh presigned download URL per response entry so the caller (e.g. the
+    # upload_artifact tool) can surface a link to the file. Presigned URLs expire, so
+    # they are attached to the response only and never written back to the manifest.
+    response_entries: list[dict] = []
+    for entry in finalized_entries:
+        presigned_url = object_storage.get_presigned_url(entry["storage_path"])
+        response_entries.append({**entry, "url": presigned_url} if presigned_url else dict(entry))
+
+    return response_entries, None
 
 
 def list_task_run_living_artifacts(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[dict] | None:
@@ -3761,6 +3948,25 @@ def task_visible(task_id: str | UUID, team_id: int, user_id: int | None, *, for_
     return _visible_task_qs(team_id, user_id, for_control=for_control).filter(id=task_id).exists()
 
 
+def list_pinned_task_ids(team_id: int, user_id: int) -> list[UUID]:
+    visible_tasks = _visible_task_qs(team_id, user_id).values("id")
+    return list(
+        TaskPin.objects.filter(user_id=user_id, task_id__in=Subquery(visible_tasks))
+        .order_by("-pinned_at")
+        .values_list("task_id", flat=True)
+    )
+
+
+def set_task_pinned(task_id: str | UUID, team_id: int, user_id: int, *, pinned: bool) -> bool | None:
+    if not task_visible(task_id, team_id, user_id):
+        return None
+    if pinned:
+        TaskPin.objects.get_or_create(user_id=user_id, task_id=task_id)
+    else:
+        TaskPin.objects.filter(user_id=user_id, task_id=task_id).delete()
+    return pinned
+
+
 async def select_repository_for_message(team_id: int, user_id: int, message: str, *, origin_product: str) -> str | None:
     """Pick the repository a free-form chat message is most likely about.
 
@@ -3884,18 +4090,27 @@ def list_tasks(team_id: int, user_id: int | None, *, filters: dict) -> list[cont
     return _tasks_to_dtos(_list_tasks_queryset(team_id, user_id, filters=filters), team_id)
 
 
+def inaccessible_repositories_via_integration(team_id: int, integration_id: int, repositories: list[str]) -> list[str]:
+    return _inaccessible_repositories_via_integration(team_id, integration_id, repositories)
+
+
 def list_task_repositories(team_id: int, user_id: int | None) -> list[str]:
     """Distinct repositories used by non-deleted, non-internal visible tasks for the team."""
-    repositories = (
-        Task.objects.filter(team_id=team_id, deleted=False, internal=False)
-        .filter(task_visibility_q(user_id))
+    tasks = Task.objects.filter(team_id=team_id, deleted=False, internal=False).filter(task_visibility_q(user_id))
+    plural = (
+        tasks.exclude(repositories=[])
+        .annotate(repository_name=Func(F("repositories"), function="unnest", output_field=CharField()))
+        .values_list("repository_name", flat=True)
+        .distinct()
+    )
+    legacy = (
+        tasks.filter(repositories=[])
         .exclude(repository__isnull=True)
-        .exclude(repository__exact="")
+        .exclude(repository="")
         .values_list("repository", flat=True)
         .distinct()
-        .order_by("repository")
     )
-    return [repo for repo in repositories if repo is not None]
+    return sorted(set(plural) | {repository for repository in legacy if repository})
 
 
 def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[contracts.TaskSummaryDTO]:
@@ -3947,7 +4162,13 @@ def compute_repository_readiness(team_id: int, *, repository: str, window_days: 
     return _compute(team=team, repository=repository, window_days=window_days, refresh=refresh)
 
 
-def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> contracts.TaskDetailDTO:
+def create_task(
+    team_id: int,
+    user_id: int | None,
+    *,
+    validated_data: dict,
+    client_provenance: TaskClientProvenance | None = None,
+) -> contracts.TaskDetailDTO:
     """Create a task, mirroring ``TaskSerializer.create`` byte-for-byte.
 
     Absorbs the cross-product ``SignalReportTask`` linkage, ``generate_task_title``, and
@@ -3969,6 +4190,7 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     validated_data = dict(validated_data)
     validated_data["team"] = team
     validated_data.setdefault("origin_product", Task.OriginProduct.USER_CREATED)
+    validated_data["client_provenance"] = client_provenance
     warm_branch_provided = "branch" in validated_data
     warm_branch = validated_data.pop("branch", None)
     warm_runtime_adapter = validated_data.pop("runtime_adapter", None)
@@ -3979,6 +4201,15 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     pending_user_message = (validated_data.pop("pending_user_message", None) or "").strip() or None
     pending_user_artifact_ids = validated_data.pop("pending_user_artifact_ids", None) or []
     warm_auto_publish = validated_data.pop("auto_publish", None)
+    channel = validated_data.get("channel")
+    if channel is not None and "repositories" not in validated_data and "repository" not in validated_data:
+        validated_data["repositories"] = channel.repositories
+        validated_data["github_integration"] = channel.github_integration
+    if "repositories" in validated_data:
+        repositories = validated_data["repositories"]
+        validated_data["repository"] = repositories[0] if repositories else None
+    elif "repository" in validated_data:
+        validated_data["repositories"] = [validated_data["repository"]] if validated_data["repository"] else []
 
     if user_id is not None:
         validated_data["created_by"] = User.objects.get(id=user_id)
@@ -3987,6 +4218,7 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
         warm_branch_provided
         and validated_data["origin_product"] == Task.OriginProduct.USER_CREATED
         and validated_data.get("repository")
+        and len(validated_data.get("repositories", [])) <= 1
         and user_id is not None
     ):
         warm_run = _find_idling_warm_run(
@@ -4037,6 +4269,11 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
                 update_fields.append("channel")
             if update_fields:
                 warm_task.save(update_fields=[*update_fields, "updated_at"])
+            if warm_task.client_provenance is None and client_provenance is not None:
+                Task.objects.filter(id=warm_task.id, client_provenance__isnull=True).update(
+                    client_provenance=client_provenance
+                )
+                warm_task.client_provenance = client_provenance
             _activate_warm_run(
                 warm_run,
                 warm_task,
@@ -4056,6 +4293,39 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
         default_integration = Integration.objects.filter(team=team, kind="github").first()
         if default_integration:
             validated_data["github_integration"] = default_integration
+
+    # Inbox "Create PR" / "Discuss" don't pre-select a repo, so resolve one here rather than
+    # creating a report-linked task that can never open a PR.
+    signal_report = validated_data.get("signal_report")
+    if (
+        signal_report is not None
+        and not validated_data.get("repository")
+        and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
+    ):
+        from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product read kept off the api import path
+            persisted_repo_selection,
+        )
+        from products.tasks.backend.logic.repo_selection.cascade import (  # noqa: PLC0415 — keeps repo-selection agent imports lazy
+            cascade_select_repository,
+        )
+
+        # The report's own selection is authoritative — including a scout's deliberate no-repo
+        # (`repository=None`), which must not fall through to the cascade.
+        selection = persisted_repo_selection(str(signal_report.id))
+        resolved_repository = (
+            selection.repository
+            if selection is not None
+            else cascade_select_repository(
+                team_id,
+                user_id,
+                validated_data.get("description") or "",
+                team=team,
+                single_repo_wins=True,
+                allow_refresh=False,
+            )
+        )
+        if resolved_repository:
+            validated_data["repository"] = resolved_repository
 
     if (
         validated_data.get("repository")
@@ -4079,6 +4349,14 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
         validated_data.setdefault("title_manually_set", False)
     elif title:
         validated_data.setdefault("title_manually_set", True)
+
+    # The write serializer binds the report as `signal_report` (a PK field); direct callers may
+    # pass `signal_report_id`. Either way this is the manual "start work from a report" path.
+    # Gated regardless of the relationship label: the label is client-selected and manually
+    # created tasks run PR-capable by default, so a "discussion" label must not dodge the limit.
+    report_ref = validated_data.get("signal_report") or validated_data.get("signal_report_id")
+    if report_ref and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT:
+        enforce_self_driving_pr_quota(team, report_id=str(getattr(report_ref, "id", report_ref)))
 
     logger.info("Creating task with data: %s", validated_data)
     with transaction.atomic():
@@ -4120,6 +4398,14 @@ def update_task(
     validated_data.pop("signal_report_task_relationship", None)
     validated_data.pop("origin_product", None)
     validated_data.pop("branch", None)
+    if "repositories" in validated_data:
+        repositories = validated_data["repositories"]
+        validated_data["repository"] = repositories[0] if repositories else None
+    elif "repository" in validated_data:
+        if len(task.repositories) <= 1:
+            validated_data["repositories"] = [validated_data["repository"]] if validated_data["repository"] else []
+        else:
+            validated_data.pop("repository")
     if "title" in validated_data and "title_manually_set" not in validated_data:
         validated_data["title_manually_set"] = True
     if "archived" in validated_data and validated_data["archived"] != task.archived:
@@ -4475,6 +4761,7 @@ def warm_task_sandbox(
     reasoning_effort: str | None = None,
     sandbox_environment_id: str | UUID | None = None,
     custom_image_id: str | UUID | None = None,
+    client_provenance: TaskClientProvenance | None = None,
 ) -> contracts.WarmTaskDTO | None:
     """Warm a full idling Run for a Code-app cloud task while the user composes.
 
@@ -4554,6 +4841,7 @@ def warm_task_sandbox(
         origin_product=Task.OriginProduct.USER_CREATED,
         user_id=user_id,
         repository=repository,
+        client_provenance=client_provenance,
     )
     assert task.created_by is not None  # create_without_run always sets created_by from user_id
 
@@ -4736,6 +5024,16 @@ def run_task(
         prev_wizard_head_branch = (previous_run.state or {}).get("wizard_head_branch")
         if prev_wizard_head_branch:
             extra_state["wizard_head_branch"] = prev_wizard_head_branch
+
+        # Same reasoning for a signals self-driving run: the head branch is baked into the original
+        # prompt, so the resumed run pushes it too, and the review carve-out's branch linkage
+        # (find_signal_implementation_run) only matches the successor if its stamp is carried
+        # forward — otherwise a resume (the usual recovery for a cancelled run) silently ends
+        # re-reviews. The key is PATCH-protected, so this server-side copy is the only way it
+        # reaches the successor run.
+        prev_self_driving_head_branch = (previous_run.state or {}).get("self_driving_head_branch")
+        if prev_self_driving_head_branch:
+            extra_state["self_driving_head_branch"] = prev_self_driving_head_branch
 
         # A read-only GitHub grant describes how the task was created, not one run — without the
         # carry-forward, a resumed successor of a repo-less read-only run falls through to the
@@ -5169,39 +5467,52 @@ def normalize_channel_name(name: str) -> str:
     return re.sub(r"\s+", "-", name.strip().lower())[:128]
 
 
-def _channel_to_dto(channel: Channel) -> contracts.ChannelDTO:
+def _channel_to_dto(channel: Channel, *, starred: bool = False) -> contracts.ChannelDTO:
     return contracts.ChannelDTO(
         id=channel.id,
         name=channel.name,
         channel_type=channel.channel_type,
+        github_integration=channel.github_integration_id,
+        repositories=channel.repositories,
         created_at=channel.created_at,
         created_by=_user_basic_info(channel.created_by if channel.created_by_id else None),
+        starred=starred,
     )
+
+
+def _team_channels(team_id: int) -> QuerySet[Channel]:
+    # for_team rather than a bare team_id filter so these reads also resolve outside request
+    # scope (Temporal activities), where the fail-closed manager raises on an unscoped read.
+    return Channel.objects.for_team(team_id)
 
 
 def _ensure_personal_channel(team_id: int, user_id: int) -> Channel:
     # select_related so _channel_to_dto doesn't lazy-load created_by per call.
+    channels = _team_channels(team_id).select_related("created_by")
+    lookup = {
+        "team_id": team_id,
+        "created_by_id": user_id,
+        "channel_type": Channel.ChannelType.PERSONAL,
+        "deleted": False,
+    }
     try:
-        channel, _ = Channel.objects.select_related("created_by").get_or_create(
-            team_id=team_id,
-            created_by_id=user_id,
-            channel_type=Channel.ChannelType.PERSONAL,
-            deleted=False,
-            defaults={"name": Channel.PERSONAL_CHANNEL_NAME},
-        )
+        channel, _ = channels.get_or_create(**lookup, defaults={"name": Channel.PERSONAL_CHANNEL_NAME})
     except IntegrityError:
-        channel = Channel.objects.select_related("created_by").get(
-            team_id=team_id,
-            created_by_id=user_id,
-            channel_type=Channel.ChannelType.PERSONAL,
-            deleted=False,
-        )
+        channel = channels.get(**lookup)
     return channel
+
+
+def ensure_personal_channel_id(team_id: int, user_id: int) -> UUID:
+    """Get-or-create the user's personal "#me" channel and return its id.
+
+    For callers outside a request (Temporal activities) that need somewhere to file a task.
+    """
+    return _ensure_personal_channel(team_id, user_id).id
 
 
 def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDTO]:
     """All live public channels plus the requester's personal channel (provisioned lazily),
-    personal first, then by name."""
+    personal first, then by name. ``starred`` reflects the requester's stars."""
     channels: list[Channel] = []
     if user_id is not None:
         channels.append(_ensure_personal_channel(team_id, user_id))
@@ -5210,7 +5521,12 @@ def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDT
         .select_related("created_by")
         .order_by("name")
     )
-    return [_channel_to_dto(channel) for channel in channels]
+    starred_ids: set = (
+        set(ChannelStar.objects.filter(team_id=team_id, user_id=user_id).values_list("channel_id", flat=True))
+        if user_id is not None
+        else set()
+    )
+    return [_channel_to_dto(channel, starred=channel.id in starred_ids) for channel in channels]
 
 
 def _emit_channel_created(channel: Channel, user_id: int | None) -> None:
@@ -5258,20 +5574,41 @@ def resolve_channel(team_id: int, user_id: int | None, *, name: str) -> contract
     return _channel_to_dto(channel)
 
 
-def rename_channel(channel_id: str | UUID, team_id: int, *, name: str) -> contracts.ChannelDTO | str:
-    """Rename a public channel. Returns the DTO, or an error kind: ``not_found`` /
-    ``invalid_name`` / ``personal`` / ``name_taken``."""
+def update_channel(
+    channel_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    name: str | None = None,
+    github_integration: Integration | None = None,
+    repositories: list[str] | None = None,
+) -> contracts.ChannelDTO | str:
+    """Update a channel, keeping repository configuration creator-owned."""
     channel = Channel.objects.filter(id=channel_id, team_id=team_id, deleted=False).first()
     if channel is None:
         return "not_found"
     if channel.channel_type == Channel.ChannelType.PERSONAL:
-        return "personal"
-    normalized = normalize_channel_name(name)
-    if not normalized:
-        return "invalid_name"
-    channel.name = normalized
+        if channel.created_by_id != user_id:
+            return "not_found"
+        if name is not None:
+            return "personal"
+    elif repositories is not None and channel.created_by_id != user_id:
+        return "not_found"
+    update_fields: list[str] = []
+    if name is not None:
+        normalized = normalize_channel_name(name)
+        if not normalized:
+            return "invalid_name"
+        channel.name = normalized
+        update_fields.append("name")
+    if repositories is not None:
+        channel.repositories = repositories
+        channel.github_integration = github_integration if repositories else None
+        update_fields.extend(["repositories", "github_integration"])
+    if not update_fields:
+        return _channel_to_dto(channel)
     try:
-        channel.save(update_fields=["name", "updated_at"])
+        channel.save(update_fields=[*update_fields, "updated_at"])
     except IntegrityError:
         return "name_taken"
     return _channel_to_dto(channel)
@@ -5307,15 +5644,27 @@ def _channel_feed_message_to_dto(message: ChannelFeedMessage) -> contracts.Chann
     )
 
 
+def visible_channels_q(user_id: int | None, *, relation: Literal["", "channel"] = "") -> Q:
+    """The channel-visibility rule as a queryset filter; see ``Channel.visible_to_q``
+    for the semantics. Exported for cross-product callers filtering channel-joined
+    querysets. Single-object callers use ``get_channel``."""
+    return Channel.visible_to_q(user_id, relation=relation)
+
+
+def channel_exists(team_id: int, channel_id: str | UUID, user_id: int | None) -> bool:
+    """Whether ``channel_id`` is a live channel in this team that the user may see."""
+    return Channel.objects.filter(Channel.visible_to_q(user_id), id=channel_id, team_id=team_id, deleted=False).exists()
+
+
 def _visible_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> Channel | None:
     """A channel the requester may read: any live public channel on the team, or their
     own personal channel. ``None`` when it's missing or someone else's personal channel."""
-    channel = Channel.objects.select_related("created_by").filter(id=channel_id, team_id=team_id, deleted=False).first()
-    if channel is None:
-        return None
-    if channel.channel_type == Channel.ChannelType.PERSONAL and channel.created_by_id != user_id:
-        return None
-    return channel
+    return (
+        _team_channels(team_id)
+        .select_related("created_by")
+        .filter(visible_channels_q(user_id), id=channel_id, deleted=False)
+        .first()
+    )
 
 
 def list_channel_feed_messages(
@@ -5373,6 +5722,199 @@ def create_channel_feed_message(
     return _channel_feed_message_to_dto(message)
 
 
+def get_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> contracts.ChannelDTO | None:
+    """One channel the requester may read, or ``None``."""
+    channel = _visible_channel(channel_id, team_id, user_id)
+    if channel is None:
+        return None
+    starred = user_id is not None and ChannelStar.objects.filter(channel_id=channel.id, user_id=user_id).exists()
+    return _channel_to_dto(channel, starred=starred)
+
+
+# --- Channel instructions (CONTEXT.md) ---
+
+# Generous cap on the markdown blob; channel instructions are descriptions, not documents.
+CHANNEL_INSTRUCTIONS_MAX_BYTES = 100_000
+MAX_CHANNEL_INSTRUCTIONS_VERSION = 2000
+
+
+@dataclass
+class ChannelInstructionsTooLargeError(Exception):
+    max_bytes: int
+
+
+@dataclass
+class ChannelInstructionsVersionConflictError(Exception):
+    current_version: int
+
+
+@dataclass
+class ChannelInstructionsVersionLimitError(Exception):
+    max_version: int
+
+
+def _instructions_to_dto(row: ChannelInstructions) -> contracts.ChannelInstructionsDTO:
+    return contracts.ChannelInstructionsDTO(
+        channel=row.channel_id,
+        content=row.content,
+        version=row.version,
+        created_at=row.created_at,
+        created_by=_user_basic_info(row.created_by if row.created_by_id else None),
+    )
+
+
+def _blank_instructions_dto(channel: Channel) -> contracts.ChannelInstructionsDTO:
+    """A channel with no published instructions reads as blank version 0, so
+    readers never 404 and a first publish guards on ``base_version: 0``."""
+    return contracts.ChannelInstructionsDTO(channel=channel.id, content="", version=0)
+
+
+def get_channel_instructions(
+    channel_id: str | UUID, team_id: int, user_id: int | None
+) -> contracts.ChannelInstructionsDTO | None:
+    """The channel's latest instructions (blank version 0 when none exist).
+    ``None`` when the channel isn't visible."""
+    channel = _visible_channel(channel_id, team_id, user_id)
+    if channel is None:
+        return None
+    latest = (
+        ChannelInstructions.objects.filter(channel_id=channel.id, deleted=False, is_latest=True)
+        .select_related("created_by")
+        .first()
+    )
+    return _instructions_to_dto(latest) if latest is not None else _blank_instructions_dto(channel)
+
+
+def list_channel_instruction_versions(
+    channel_id: str | UUID, team_id: int, user_id: int | None
+) -> list[contracts.ChannelInstructionsDTO] | None:
+    """The channel's instruction history, newest first. ``None`` when the channel isn't visible."""
+    if _visible_channel(channel_id, team_id, user_id) is None:
+        return None
+    versions = (
+        ChannelInstructions.objects.filter(channel_id=channel_id, team_id=team_id, deleted=False)
+        .select_related("created_by")
+        .order_by("-version", "-created_at", "-id")[:200]
+    )
+    return [_instructions_to_dto(row) for row in versions]
+
+
+def publish_channel_instructions(
+    channel_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    content: str,
+    base_version: int | None = None,
+) -> contracts.ChannelInstructionsDTO | None:
+    """Publish a new instructions version, superseding the current latest.
+
+    ``base_version`` guards against lost updates: when the current latest no
+    longer matches, ``ChannelInstructionsVersionConflictError`` is raised.
+    ``None`` when the channel isn't visible. Publishing clears the channel's
+    in-progress context-generation marker.
+    """
+    channel = _visible_channel(channel_id, team_id, user_id)
+    if channel is None:
+        return None
+    if len(content.encode("utf-8")) > CHANNEL_INSTRUCTIONS_MAX_BYTES:
+        raise ChannelInstructionsTooLargeError(max_bytes=CHANNEL_INSTRUCTIONS_MAX_BYTES)
+    with transaction.atomic():
+        current_latest = (
+            ChannelInstructions.objects.select_for_update()
+            .filter(channel_id=channel.id, deleted=False, is_latest=True)
+            .order_by("-version", "-created_at", "-id")
+            .first()
+        )
+        current_version = current_latest.version if current_latest is not None else 0
+        if base_version is not None and base_version != current_version:
+            raise ChannelInstructionsVersionConflictError(current_version=current_version)
+        if current_version >= MAX_CHANNEL_INSTRUCTIONS_VERSION:
+            raise ChannelInstructionsVersionLimitError(max_version=MAX_CHANNEL_INSTRUCTIONS_VERSION)
+        if current_latest is not None:
+            ChannelInstructions.objects.filter(pk=current_latest.pk).update(is_latest=False)
+        try:
+            # Nested savepoint: a lost-update race (the select_for_update above
+            # locks no row when none exists yet, and a concurrent delete clears
+            # is_latest without adding a lockable row) makes the insert collide
+            # with the (channel, version) uniqueness. Rolling back to the
+            # savepoint keeps this transaction usable so we can read the winner.
+            with transaction.atomic():
+                published = ChannelInstructions.objects.create(
+                    team_id=team_id,
+                    channel_id=channel.id,
+                    content=content,
+                    version=current_version + 1,
+                    is_latest=True,
+                    created_by_id=user_id,
+                )
+        except IntegrityError:
+            # Surface the race as the conflict the view maps to 409, not a 500.
+            latest = (
+                ChannelInstructions.objects.filter(channel_id=channel.id, deleted=False)
+                .order_by("-version", "-created_at", "-id")
+                .first()
+            )
+            raise ChannelInstructionsVersionConflictError(current_version=latest.version if latest is not None else 0)
+        # Publishing produced a result, so drop the in-progress generation marker.
+        ChannelContextGeneration.objects.filter(channel_id=channel.id).update(task_id=None)
+    return _instructions_to_dto(published)
+
+
+def delete_channel_instructions(channel_id: str | UUID, team_id: int, user_id: int | None) -> int | None:
+    """Soft-delete every instructions version. Returns the count, or ``None``
+    when the channel isn't visible."""
+    channel = _visible_channel(channel_id, team_id, user_id)
+    if channel is None:
+        return None
+    with transaction.atomic():
+        count = (
+            ChannelInstructions.objects.select_for_update()
+            .filter(channel_id=channel.id, deleted=False)
+            .update(deleted=True, is_latest=False)
+        )
+        ChannelContextGeneration.objects.filter(channel_id=channel.id).update(task_id=None)
+    return count
+
+
+def get_channel_context_generation(
+    channel_id: str | UUID, team_id: int, user_id: int | None
+) -> str | None | Literal["not_found"]:
+    """The id of the task currently generating the channel's CONTEXT.md, or ``None``."""
+    channel = _visible_channel(channel_id, team_id, user_id)
+    if channel is None:
+        return "not_found"
+    marker = ChannelContextGeneration.objects.filter(channel_id=channel.id).first()
+    return str(marker.task_id) if marker is not None and marker.task_id else None
+
+
+def set_channel_context_generation(
+    channel_id: str | UUID, team_id: int, user_id: int | None, *, task_id: str | UUID | None
+) -> str | None | Literal["not_found", "invalid_task"]:
+    """Set or clear the task associated with the channel's CONTEXT.md generation."""
+    channel = _visible_channel(channel_id, team_id, user_id)
+    if channel is None:
+        return "not_found"
+    if task_id is not None and not task_exists(task_id, team_id):
+        return "invalid_task"
+    ChannelContextGeneration.objects.update_or_create(
+        channel_id=channel.id, defaults={"team_id": team_id, "task_id": task_id}
+    )
+    return str(task_id) if task_id else None
+
+
+def star_channel(channel_id: str | UUID, team_id: int, user_id: int, *, starred: bool) -> bool:
+    """Star or unstar a channel for the requesting user. False when the channel isn't visible."""
+    channel = _visible_channel(channel_id, team_id, user_id)
+    if channel is None:
+        return False
+    if starred:
+        ChannelStar.objects.get_or_create(channel_id=channel.id, user_id=user_id, defaults={"team_id": team_id})
+    else:
+        ChannelStar.objects.filter(channel_id=channel.id, user_id=user_id).delete()
+    return True
+
+
 def _thread_message_to_dto(message: TaskThreadMessage) -> contracts.TaskThreadMessageDTO:
     return contracts.TaskThreadMessageDTO(
         id=message.id,
@@ -5421,23 +5963,30 @@ def create_thread_message(
     except Exception:
         logger.exception("Failed to project thread message activity", extra={"message_id": str(message.id)})
     try:
-        _index_thread_message_mentions(message)
+        mentioned_user_ids = resolve_mentioned_user_ids(
+            User, message.content, team_id=message.team_id, author_id=message.author_id
+        )
     except Exception:
-        # Mentions are best-effort: an indexing failure must never fail message creation.
+        mentioned_user_ids = []
+        logger.exception("Failed to resolve thread message mentions", extra={"message_id": str(message.id)})
+    try:
+        _index_thread_message_mentions(message, mentioned_user_ids)
+    except Exception:
+        # Mention indexing is best-effort: a failure must never fail message creation or discard resolved recipients.
         logger.exception("Failed to index thread message mentions", extra={"message_id": str(message.id)})
+    from products.tasks.backend.push_dispatcher import notify_task_thread_message  # noqa: PLC0415
+
+    notify_task_thread_message(message, mentioned_user_ids)
     # Fresh message: forwarded_by is None (no query) and author lazy-loads once.
     return _thread_message_to_dto(message)
 
 
-def _index_thread_message_mentions(message: TaskThreadMessage) -> None:
+def _index_thread_message_mentions(message: TaskThreadMessage, mentioned_user_ids: Collection[int]) -> None:
     """Create mention index rows for @[Name](email) tokens in the message content.
 
     Emails resolve case-insensitively, only to members of the team's organization;
     self-mentions are skipped (they are never notifications).
     """
-    mentioned_user_ids = resolve_mentioned_user_ids(
-        User, message.content, team_id=message.team_id, author_id=message.author_id
-    )
     mentions = [
         TaskThreadMessageMention(
             team_id=message.team_id,
@@ -5550,7 +6099,8 @@ def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
     Rows outlive visibility changes (a task moving to a private channel, say), so the
     visibility gate belongs on read rather than being enforced when projecting.
     """
-    return TaskActivity.objects.filter(team_id=team_id, user_id=user_id, task__in=_visible_task_qs(team_id, user_id))
+    visible_tasks = _visible_task_qs(team_id, user_id).filter(internal=False, archived=False)
+    return TaskActivity.objects.filter(team_id=team_id, user_id=user_id, task__in=visible_tasks)
 
 
 def count_unread_task_activity(team_id: int, user_id: int | None) -> int:
@@ -5702,7 +6252,10 @@ def _create_agent_thread_message(task: Task, content: str, *, event: str, payloa
     )
     project_thread_message_activity(message)
     try:
-        _index_thread_message_mentions(message)
+        mentioned_user_ids = resolve_mentioned_user_ids(
+            User, message.content, team_id=message.team_id, author_id=message.author_id
+        )
+        _index_thread_message_mentions(message, mentioned_user_ids)
     except Exception:
         logger.exception("Failed to index thread message mentions", extra={"message_id": str(message.id)})
 
@@ -5711,6 +6264,11 @@ def _agent_thread_updates_enabled(creator: User | None) -> bool:
     """Fail closed: no creator to key the flag on, or a flag-service error, means no post."""
     if creator is None:
         return False
+    # Local dev rarely has the server-side flag client wired up, and failing
+    # closed there silently drops every agent thread update (PR and canvas
+    # announcements vanish from task threads with nothing in the logs).
+    if settings.DEBUG:
+        return True
     distinct_id = creator.distinct_id or f"user_{creator.id}"
     try:
         return bool(
