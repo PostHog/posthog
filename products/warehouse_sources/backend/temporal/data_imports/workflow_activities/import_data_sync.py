@@ -8,6 +8,7 @@ from typing import Any, NoReturn, Optional
 from django.db import InterfaceError, OperationalError
 from django.db.models import Prefetch
 
+from requests.exceptions import HTTPError
 from structlog.contextvars import bind_contextvars
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
@@ -184,7 +185,10 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         await logger.adebug(f"schema.sync_type_config = {schema.sync_type_config}")
         await logger.adebug(f"reset_pipeline = {reset_pipeline}")
 
-        schema = await _get_external_data_schema(inputs.schema_id, inputs.team_id)
+        try:
+            schema = await _get_external_data_schema(inputs.schema_id, inputs.team_id)
+        except ExternalDataSchema.DoesNotExist as e:
+            await _handle_import_error(job_inputs, logger, e)
 
         processed_incremental_last_value = None
         processed_incremental_earliest_value = None
@@ -382,11 +386,30 @@ async def _handle_import_error(
     source_cls = SourceRegistry.get_source(job_inputs.job_type)
     error_msg = str(error)
 
+    # The schema this activity is running for can be deleted (or soft-deleted) between the job
+    # being created and this activity's mid-run re-fetch of it — every retry re-reads the same
+    # gone row, so it never turns into data regardless of source. Classify it here by type rather
+    # than depending on each source listing the message in get_non_retryable_errors.
+    if isinstance(error, ExternalDataSchema.DoesNotExist):
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
+
     # The shared REST engine raises RESTClientNonRetryableError only for responses retrying can
     # never turn into data (a non-JSON body on an otherwise-successful response). Honor that
     # contract by type so every REST-based source stops immediately, rather than depending on each
     # source listing the message in get_non_retryable_errors.
     if isinstance(error, RESTClientNonRetryableError):
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
+
+    # A 404 from the shared REST engine's fallback `raise_for_status()` path means the configured
+    # endpoint/resource doesn't exist — every retry replays the identical request against the same
+    # dead URL. Unlike 401 (a token needing refresh, which the REST engine's own retry re-mints) or
+    # 429/5xx (already RESTClientRetryableError), there's no self-recovering path for a 404, so
+    # classify it here rather than depending on each REST-based source listing it.
+    if isinstance(error, HTTPError) and error.response is not None and error.response.status_code == 404:
         await handle_non_retryable_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )

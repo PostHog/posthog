@@ -17,12 +17,23 @@ import { useWorkspace } from "@posthog/ui/features/workspace/useWorkspace";
  */
 export function useChannelTaskStatus(
   item: ChannelItemModel,
+  options?: {
+    /**
+     * Whether to resolve the PR's state. It is a query per row into the host,
+     * where it hits git (and GitHub), so a list that only glances at its rows —
+     * the space tree in the sidebar — leaves it off and shows the rest. The
+     * PR's existence still comes through `prUrl`, which costs nothing.
+     */
+    withPrStatus?: boolean;
+  },
 ): TaskStatusInput | null {
   const task = item.task ?? undefined;
   const taskData = useChannelTaskData(task);
   const workspace = useWorkspace(task?.id);
   const { prState, hasDiff } = useTaskPrStatus({
-    id: task?.id ?? "",
+    // An empty id is the hook's own "nothing to look up", so this asks for no
+    // query rather than one it throws away.
+    id: options?.withPrStatus === false ? "" : (task?.id ?? ""),
     cloudPrUrl: taskData?.cloudPrUrl ?? null,
     taskRunEnvironment: taskData?.taskRunEnvironment ?? null,
   });

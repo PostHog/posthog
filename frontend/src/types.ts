@@ -531,6 +531,8 @@ export interface PersonalAPIKeyType {
     value?: string
     is_legacy_hashing: boolean
     mask_value?: string | null
+    /** Full value, only present for the seeded local dev key when the backend reveal gate is on. */
+    local_dev_value?: string | null
     created_at: string
     last_used_at: string | null
     last_rolled_at: string | null
@@ -3028,6 +3030,7 @@ export enum InsightType {
     FUNNELS = 'FUNNELS',
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
+    JOURNEYS = 'JOURNEYS',
     JSON = 'JSON',
     SQL = 'SQL',
     HOG = 'HOG',
@@ -5502,14 +5505,23 @@ export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
 // `class SlackIntegrationScope(StrEnum)` in posthog/schema.py.
 export enum SlackIntegrationScope {
     APP_MENTIONS_READ = 'app_mentions:read',
+    ASSISTANT_WRITE = 'assistant:write',
+    CANVASES_WRITE = 'canvases:write',
     CHANNELS_HISTORY = 'channels:history',
+    CHANNELS_MANAGE = 'channels:manage',
     CHANNELS_READ = 'channels:read',
     CHAT_WRITE = 'chat:write',
     CHAT_WRITE_CUSTOMIZE = 'chat:write.customize',
+    COMMANDS = 'commands',
+    FILES_READ = 'files:read',
+    FILES_WRITE = 'files:write',
     GROUPS_HISTORY = 'groups:history',
     GROUPS_READ = 'groups:read',
+    IM_HISTORY = 'im:history',
     LINKS_READ = 'links:read',
     LINKS_WRITE = 'links:write',
+    MPIM_HISTORY = 'mpim:history',
+    MPIM_READ = 'mpim:read',
     REACTIONS_READ = 'reactions:read',
     REACTIONS_WRITE = 'reactions:write',
     TEAM_READ = 'team:read',
@@ -5519,23 +5531,13 @@ export enum SlackIntegrationScope {
 
 export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 
-// Scopes still pending Slack app-directory review. Requested only on the internal DEV instance
-// (settings.CLOUD_DEPLOYMENT == "DEV", surfaced as `preflight.region === Region.DEV`) where the
-// PostHog Slack app manifest already lists them; requesting them anywhere else fails with
-// `invalid_scope`. Move entries into SlackIntegrationScope once Slack approves the public app.
-export enum SlackIntegrationScopeInReview {
-    ASSISTANT_WRITE = 'assistant:write',
-    CANVASES_WRITE = 'canvases:write',
-    CHANNELS_MANAGE = 'channels:manage',
-    COMMANDS = 'commands',
-    FILES_READ = 'files:read',
-    FILES_WRITE = 'files:write',
-    IM_HISTORY = 'im:history',
-    MPIM_HISTORY = 'mpim:history',
-    MPIM_READ = 'mpim:read',
-}
-
-export const SLACK_INTEGRATION_SCOPES_IN_REVIEW = Object.values(SlackIntegrationScopeInReview)
+// Nothing is pending Slack app-directory review right now, so there is no in-review list.
+// To stage a scope that Slack hasn't approved yet, reintroduce a `SlackIntegrationScopeInReview`
+// enum here holding only the pending entries, re-export it from schema-general.ts, and have
+// `POSTHOG_SLACK_SCOPE` (posthog/models/integration.py) and `useSlackRequiredScopes` append it on
+// DEV/local only — requesting an unapproved scope anywhere else fails with `invalid_scope`.
+// The enum cannot be left empty between rounds: JSON Schema rejects a zero-length `enum`, so
+// `hogli build:schema` fails on it.
 
 export interface IntegrationType {
     id: number
@@ -7631,11 +7633,11 @@ export interface FeaturePreviewGateConfig {
     description: string
     docsURL?: string
     /**
-     * Support ticket target area for the "Request access" action. Set this for betas that aren't
-     * self-serve early-access features, so the gated state offers a way to request access instead
-     * of dead-ending on the feature previews page.
+     * Offer a "Request access" support CTA. Set this for betas that aren't self-serve early-access
+     * features, so the gated state offers a way to request access instead of dead-ending on the
+     * feature previews page.
      */
-    supportTargetArea?: string
+    offerRequestAccess?: boolean
 }
 
 export interface ProductManifest {
