@@ -34,15 +34,21 @@ TwilioAuth = tuple[str, str]
 # the Accounts resource to Standard and Restricted API keys with a 401 (error 20003), and a Standard
 # key is the credential this source recommends. Probing the account resource therefore rejected the
 # credential type our own caption tells users to create. The three candidates cover one Restricted-key
-# permission area each (Messaging, Voice, Phone Numbers), so a Restricted key scoped to any table in
-# this catalog still authenticates against at least one of them. An account that has never sent a
-# message returns 200 with an empty list, so probing real data does not penalize an unused account.
+# permission area each (Messaging, Voice, Phone Numbers), which is what a Restricted key scoped to this
+# catalog's high-volume tables can read. Twilio scopes the rest of the catalog separately though, so a
+# Restricted key granted only Recordings, say, is denied every candidate and fails here even though the
+# table it wants is readable. TWILIO_INVALID_CREDENTIALS_MESSAGE names that as a cause. Widening the
+# ladder to cover all 11 tables would make the all-denied path cost 11 sequential requests, so the
+# message carries it instead. An account that has never sent a message returns 200 with an empty list,
+# so probing real data does not penalize an unused account.
 CREDENTIAL_PROBE_ENDPOINTS: tuple[str, ...] = ("messages", "calls", "incoming_phone_numbers")
 
 TWILIO_INVALID_CREDENTIALS_MESSAGE = (
     "Twilio rejected these credentials. Check that the Account SID and secret are correct and have no "
     "extra spaces, and that the API key was created in the same Twilio account as that Account SID. "
-    "PostHog connects to api.twilio.com, so a key created in another Twilio region will not work."
+    "PostHog connects to api.twilio.com, so a key created in another Twilio region will not work. A "
+    "Restricted API key also needs read access to Messages, Calls, or Phone Numbers, which is how "
+    "PostHog checks the credential before you pick a table."
 )
 TWILIO_ACCOUNT_NOT_FOUND_MESSAGE = (
     "Twilio has no account with that Account SID. Copy the Account SID from your Twilio Console "
@@ -51,6 +57,10 @@ TWILIO_ACCOUNT_NOT_FOUND_MESSAGE = (
 TWILIO_MAIN_KEY_REQUIRED_MESSAGE = (
     "Twilio's Keys resource needs your Auth Token or a Main API key. Standard and Restricted API keys cannot read it."
 )
+# The schema picker interpolates a reason into its own sentence ("Source credentials cannot read this
+# table: {reason}. Grant the missing scope..."), so this has to be a fragment rather than the sentence
+# above, and it has to lead with the fix, since no scope grant makes a Standard key work here.
+TWILIO_MAIN_KEY_REQUIRED_REASON = "Twilio grants this resource only to your Auth Token or a Main API key"
 TWILIO_UNREACHABLE_MESSAGE = "Could not reach Twilio to validate credentials."
 
 
@@ -196,7 +206,7 @@ def check_endpoint_permissions(auth: TwilioAuth, account_sid: str, endpoints: li
         # Only an outright denial hides the table. A throttle, a server error, or a network blip must
         # not remove a table the credential can actually read.
         if _probe_status(auth, account_sid, endpoint) in (401, 403):
-            permissions[endpoint] = TWILIO_MAIN_KEY_REQUIRED_MESSAGE
+            permissions[endpoint] = TWILIO_MAIN_KEY_REQUIRED_REASON
     return permissions
 
 

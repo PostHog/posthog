@@ -14,7 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.set
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.source import TwilioSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.twilio import (
-    TWILIO_MAIN_KEY_REQUIRED_MESSAGE,
+    TWILIO_MAIN_KEY_REQUIRED_REASON,
     TwilioResumeConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -113,6 +113,14 @@ class TestTwilioSource:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["calls"])
         assert [s.name for s in schemas] == ["calls"]
 
+    def test_main_key_only_tables_default_off(self):
+        # One-shot setup builds its schema list straight from get_schemas and never calls
+        # get_endpoint_permissions, so without this the `keys` table is enabled for a Standard API
+        # key and its first sync fails non-retryably.
+        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
+        assert schemas["keys"].should_sync_default is False
+        assert all(s.should_sync_default for name, s in schemas.items() if name != "keys")
+
     @pytest.mark.parametrize(
         "config_factory, expected_auth",
         [
@@ -148,8 +156,8 @@ class TestTwilioSource:
     @pytest.mark.parametrize(
         "status_code, expected_keys_reason",
         [
-            (401, TWILIO_MAIN_KEY_REQUIRED_MESSAGE),
-            (403, TWILIO_MAIN_KEY_REQUIRED_MESSAGE),
+            (401, TWILIO_MAIN_KEY_REQUIRED_REASON),
+            (403, TWILIO_MAIN_KEY_REQUIRED_REASON),
             (200, None),
             # A throttle or a server error must not hide a table the credential can actually read.
             (429, None),

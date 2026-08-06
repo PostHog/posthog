@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.twi
     TWILIO_ACCOUNT_NOT_FOUND_MESSAGE,
     TWILIO_INVALID_CREDENTIALS_MESSAGE,
     TWILIO_MAIN_KEY_REQUIRED_MESSAGE,
+    TWILIO_MAIN_KEY_REQUIRED_REASON,
     TWILIO_UNREACHABLE_MESSAGE,
     TwilioResumeConfig,
     _build_initial_params,
@@ -285,6 +286,17 @@ class TestValidateCredentials:
     def test_probe_candidates_are_real_endpoints(self):
         # A typo here raises KeyError out of validate_credentials and 500s source creation.
         assert set(CREDENTIAL_PROBE_ENDPOINTS) <= set(TWILIO_ENDPOINTS)
+
+    def test_create_denial_message_names_restricted_key_scope(self):
+        # Only three of the eleven tables have a probe rung, so a Restricted key scoped elsewhere
+        # lands here and the message has to name scope alongside the SID, secret, and region causes.
+        assert "Restricted API key" in TWILIO_INVALID_CREDENTIALS_MESSAGE
+
+    def test_picker_reason_is_a_fragment(self):
+        # The schema picker interpolates this into "...cannot read this table: {reason}. Grant the
+        # missing scope...", so a trailing period doubles up and a full sentence reads as two.
+        assert not TWILIO_MAIN_KEY_REQUIRED_REASON.endswith(".")
+        assert TWILIO_MAIN_KEY_REQUIRED_REASON.count(".") == 0
 
 
 class TestPagination:

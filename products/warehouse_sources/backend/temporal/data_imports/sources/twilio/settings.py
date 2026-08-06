@@ -127,6 +127,11 @@ ENDPOINTS = tuple(TWILIO_ENDPOINTS.keys())
 # https://www.twilio.com/docs/iam/api-keys
 MAIN_KEY_ONLY_ENDPOINTS = frozenset({"keys"})
 
+# `get_endpoint_permissions` only runs on the schema-picker path, so one-shot setup would otherwise
+# enable a table it has no way to check. Defaulting these off covers both paths, since the picker and
+# `build_default_schemas` honor it, and the recommended credential is a Standard key.
+SHOULD_SYNC_DEFAULT: dict[str, bool] = {name: name not in MAIN_KEY_ONLY_ENDPOINTS for name in ENDPOINTS}
+
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in TWILIO_ENDPOINTS.items()
 }
