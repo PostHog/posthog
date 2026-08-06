@@ -12,6 +12,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions import capture_exception
 from posthog.settings.utils import get_from_env
+from posthog.temporal.common.errors import NonReportableError
 from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
@@ -32,7 +33,13 @@ def _is_transient_s3_connection_error(error: BaseException) -> bool:
     return isinstance(error, _TRANSIENT_S3_CONNECTION_EXCEPTIONS)
 
 
-class NonRetryableException(Exception):
+class NonRetryableException(NonReportableError):
+    """Raised only for errors already classified as a permanent customer/upstream condition
+    (bad credentials, denied permissions, a deleted remote) via a source's
+    ``get_non_retryable_errors`` or an equivalent shared-code check, never for a fresh,
+    unclassified failure. Subclassing ``NonReportableError`` keeps that already-known condition
+    out of error tracking instead of reporting it as a new bug on every occurrence."""
+
     @property
     def cause(self) -> Optional[BaseException]:
         """Cause of the exception.
@@ -59,7 +66,7 @@ S3_DELETE_TIME_BUFFER = 600
 
 # A zombie compaction+vacuum pass (a heartbeat-timed-out activity attempt still running) can keep
 # deleting source files for as long as its own rewrite takes - documented up to ~45s for a
-# fragmented table in delta_table_helper.py - which can outlive a single retry. Bound the retries
+# fragmented table in core/delta/maintenance.py - which can outlive a single retry. Bound the retries
 # with backoff instead, mirroring _purge_s3_prefix's approach to the same class of race.
 _COPY_FILES_MAX_ATTEMPTS = 4
 

@@ -156,6 +156,14 @@ class AccessControlSerializer(serializers.ModelSerializer):
         if data.get("role") and not team.organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
             raise exceptions.PermissionDenied("Role-based access controls require the Role-based access feature.")
 
+        # Neither relation is scoped by organization on the way in, so a rule could otherwise name
+        # a role or member from a different organization and cross the authorization boundary
+        if data.get("role") and data["role"].organization_id != team.organization_id:
+            raise serializers.ValidationError("The role must belong to the same organization as this project.")
+
+        if data.get("organization_member") and data["organization_member"].organization_id != team.organization_id:
+            raise serializers.ValidationError("The member must belong to the same organization as this project.")
+
         if resource_id:
             if str(the_object.pk) != str(resource_id):
                 raise exceptions.PermissionDenied(

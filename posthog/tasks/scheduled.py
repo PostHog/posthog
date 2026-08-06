@@ -73,6 +73,7 @@ from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refr
 from posthog.utils import get_crontab, get_instance_region
 
 from products.approvals.backend.tasks import expire_old_change_requests, validate_pending_change_requests
+from products.canvas.backend.tasks import cleanup_canvas_builds, sweep_canvas_builds
 from products.conversations.backend.tasks import (
     flush_pending_email_replies,
     poll_teams_shared_channels,
@@ -102,6 +103,7 @@ from products.signals.backend.tasks import (
     refresh_signal_repository_activity,
     sync_pending_signals_refund_credits,
 )
+from products.skills.backend.tasks import sync_community_skills
 from products.stamphog.backend.facade.tasks import DAILY_DIGEST_CRONTAB, send_daily_digests
 from products.streamlit_apps.backend.facade.api import (
     auto_restart_crashed_streamlit_sandboxes,
@@ -122,6 +124,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
     reap_stale_prewarm_heatmaps,
     report_stuck_heatmap_screenshots,
 )
+from products.workflows.backend.tasks.ses_account_reputation import poll_ses_account_reputation
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -346,6 +349,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="reconcile loop trigger schedules",
     )
 
+    # AWS SES account reputation → gauges for team-facing alerting (charts alerts/specs/ses.yaml)
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        poll_ses_account_reputation.s(),
+        name="poll SES account reputation",
+        expires_seconds=10 * 60,
+    )
+
     # Flags cache sync - hourly
     sender.add_periodic_task(
         crontab(hour="*", minute="15"),
@@ -520,6 +532,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="4", minute="15"),
         send_ai_observability_usage_reports.s(),
         name="send llm analytics usage reports",
+    )
+
+    # Sync the community skills catalog from GitHub hourly
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="20"),
+        sync_community_skills.s(),
+        name="sync community skills catalog",
     )
 
     # Send HogFunctions daily digest at 9:30 AM UTC (good for US and EU)
@@ -805,6 +825,20 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="0", minute=str(randrange(0, 40))),
         sync_all_surveys_cache.s(),
         name="sync all surveys cache",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="1", minute=str(randrange(0, 40))),
+        cleanup_canvas_builds.s(),
+        name="apply canvas build artifact retention",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/2"),
+        sweep_canvas_builds.s(),
+        name="recover stuck canvas builds",
     )
 
     sender.add_periodic_task(

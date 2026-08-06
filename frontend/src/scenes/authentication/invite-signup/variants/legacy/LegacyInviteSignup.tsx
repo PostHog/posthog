@@ -249,7 +249,6 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                                 e.preventDefault()
                                 openSupportForm({
                                     kind: 'support',
-                                    target_area: 'login',
                                     email: invite.target_email,
                                 })
                             }}

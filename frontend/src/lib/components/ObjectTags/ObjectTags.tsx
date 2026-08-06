@@ -22,6 +22,8 @@ interface ObjectTagsPropsBase {
     editLabel?: string
     /** Placeholder for the input shown while editing. Defaults to `try "official"`. */
     inputPlaceholder?: string
+    /** Makes each displayed tag clickable, e.g. to filter by it. */
+    onTagClick?: (tag: string) => void
 }
 
 export type ObjectTagsProps =
@@ -62,6 +64,7 @@ export function ObjectTags({
     addLabel = 'Add tag',
     editLabel = 'Edit tags',
     inputPlaceholder = 'try "official"',
+    onTagClick,
 }: ObjectTagsProps): JSX.Element {
     const objectTagId = useId()
     const logic = objectTagsLogic({ id: objectTagId, onChange })
@@ -108,7 +111,11 @@ export function ObjectTags({
                               .filter((t) => !!t)
                               .map((tag, index) => {
                                   return (
-                                      <LemonTag key={index} type={COLOR_OVERRIDES[tag] || colorForString(tag)}>
+                                      <LemonTag
+                                          key={index}
+                                          type={COLOR_OVERRIDES[tag] || colorForString(tag)}
+                                          onClick={onTagClick ? () => onTagClick(tag) : undefined}
+                                      >
                                           {tag}
                                       </LemonTag>
                                   )

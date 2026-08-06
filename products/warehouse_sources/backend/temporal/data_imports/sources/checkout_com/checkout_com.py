@@ -25,16 +25,29 @@ CHECKOUT_HOSTS = {
 # Disputes list pages cap at 250.
 PAGE_SIZE = 250
 
-# Checkout.com has no list-all-payments endpoint — bulk payment data only
-# exists via report files. Disputes are the one honest list surface.
+# Checkout.com has no list-all-payments endpoint; disputes are the one API list
+# surface. Bulk payment data ships as generated report files, handled in reports.py.
 ENDPOINTS = ("disputes",)
 
 
 @dataclasses.dataclass
 class CheckoutComResumeConfig:
+    """Checkpoint for whichever endpoint the running job syncs.
+
+    One dataclass covers disputes and the report tables because a job only ever
+    syncs one schema, so the unused fields simply stay at their defaults.
+    """
+
     # Disputes paginate with limit/skip; static params are rebuilt from job
     # inputs on resume.
-    skip: int
+    skip: int = 0
+    # Report tables checkpoint the last fully-yielded report, so a resume
+    # fast-forwards the listing and skips what already synced.
+    report_created_on: str | None = None
+    report_id: str | None = None
+    # Payments-search tables checkpoint the end of the last fully-processed
+    # search window, which becomes the next attempt's range start.
+    search_window_to: str | None = None
 
 
 def _hosts(environment: str) -> dict[str, str]:

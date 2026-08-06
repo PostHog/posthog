@@ -153,6 +153,28 @@ class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
         )
         assert res.status_code == status.HTTP_200_OK, res.json()
 
+    def test_project_change_rejected_if_role_belongs_to_another_organization(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        other_organization = Organization.objects.create(name="Other organization")
+        foreign_role = Role.objects.create(name="Foreign role", organization=other_organization)
+
+        res = self._put_project_access_control({"role": str(foreign_role.id), "access_level": "admin"})
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert res.json()["detail"] == "The role must belong to the same organization as this project."
+
+    def test_project_change_rejected_if_member_belongs_to_another_organization(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        other_organization = Organization.objects.create(name="Other organization")
+        foreign_membership = OrganizationMembership.objects.create(
+            organization=other_organization, user=self.user, level=OrganizationMembership.Level.MEMBER
+        )
+
+        res = self._put_project_access_control(
+            {"organization_member": str(foreign_membership.id), "access_level": "admin"}
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert res.json()["detail"] == "The member must belong to the same organization as this project."
+
 
 class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
     def test_action_access_level_cannot_be_below_viewer(self):
@@ -1180,7 +1202,9 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         with self.assertNumQueries(baseline + 6):
             self.client.get(f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}")
 
-        baseline = 8
+        # The 9th query is domain enforcement resolving the user's current organization — this
+        # endpoint is the only one here that doesn't already load it for other reasons.
+        baseline = 9
         # Project access doesn't double query the object
         with self.assertNumQueries(baseline + 10):
             # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
@@ -1229,7 +1253,9 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
     def test_query_counts_stable_for_project_access(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
 
-        baseline = 8
+        # The 9th query is domain enforcement resolving the user's current organization — this
+        # endpoint is the only one here that doesn't already load it for other reasons.
+        baseline = 9
         # Project access doesn't double query the object
         with self.assertNumQueries(baseline + 10):
             # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
