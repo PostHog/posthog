@@ -75,8 +75,8 @@ jobs:
             # Idempotency preflight. If this commit's image is already in ECR (a manual
             # re-run, or an earlier attempt that pushed to ECR before failing on another
             # registry) do NOT rebuild: a rebuild yields a new digest and would overwrite
-            # the immutable sha-<short>/<full-sha> tags. We reconcile from the existing
-            # digest instead (see "Reconcile tags from existing image" below). Uses
+            # the immutable full-SHA tags. We reconcile from the existing digest instead
+            # (see "Reconcile tags from existing image" below). Uses
             # batch-get-image because the ECR publish role has ecr:BatchGetImage but not
             # ecr:DescribeImages. A genuine miss exits 0 (a `None` result); a throttle,
             # credential, or network error exits non-zero and must fail the step — we can't
@@ -115,6 +115,7 @@ jobs:
                   push: true
                   tags: ${{ steps.docker-meta.outputs.tags }}
                   labels: ${{ steps.docker-meta.outputs.labels }}
+                  annotations: ${{ steps.docker-meta.outputs.annotations }}
                   platforms: linux/arm64,linux/amd64
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
@@ -183,6 +184,7 @@ jobs:
                   push: true
                   tags: ${{ steps.docker-meta.outputs.tags }}
                   labels: ${{ steps.docker-meta.outputs.labels }}
+                  annotations: ${{ steps.docker-meta.outputs.annotations }}
                   platforms: linux/arm64,linux/amd64
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
