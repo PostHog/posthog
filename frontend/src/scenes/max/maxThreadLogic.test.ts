@@ -3396,6 +3396,34 @@ describe('maxThreadLogic', () => {
                 inputDisabled: true,
             })
         })
+
+        it('stays enabled when a pending approval has no renderable card (stranded mid-stream)', async () => {
+            // A stream that drops mid-approval leaves pendingApprovalProposalId set but no approval
+            // data to render a card. The composer must not become a permanently dead box.
+            await expectLogic(logic, () => {
+                logic.actions.setPendingApproval('orphan-proposal')
+            }).toMatchValues({
+                inputDisabled: false,
+                inputDisabledReason: undefined,
+            })
+        })
+
+        it('disables with a reason when an actionable approval card is showing', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.addPendingApprovalData({
+                    proposal_id: 'proposal-1',
+                    original_tool_call_id: 'tool-1',
+                    tool_name: 'dangerous_tool',
+                    decision_status: 'pending',
+                    preview: 'Preview text',
+                    payload: {},
+                })
+                logic.actions.setPendingApproval('proposal-1')
+            }).toMatchValues({
+                inputDisabled: true,
+                inputDisabledReason: 'Approve or reject the request above to keep going',
+            })
+        })
     })
 
     describe('agent mode functionality', () => {

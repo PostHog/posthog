@@ -7,7 +7,7 @@ import React, { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconArrowRight, IconCheck, IconPencil, IconStopFilled, IconTrash, IconX } from '@posthog/icons'
-import { LemonButton, LemonSwitch, LemonTextArea, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, LemonTextArea, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -153,6 +153,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         conversation,
         threadLoading,
         inputDisabled,
+        inputDisabledReason,
         contextDisabledReason,
         queueDisabledReason,
         isSharedThread,
@@ -332,165 +333,169 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             </div>
                         </div>
                     )}
-                    <label
-                        htmlFor="question-input"
-                        className={cn(
-                            'input-like flex flex-col cursor-text',
-                            'border border-primary',
-                            'bg-[var(--color-bg-fill-input)]',
-                            isThreadVisible ? 'border-primary m-0.5 rounded-[7px]' : 'rounded-lg',
-                            '[--input-ring-size:2px]',
-                            !streamingActive && '[--input-ring-color:var(--color-ai)]'
-                        )}
-                    >
-                        {handsFreeActive ? (
-                            <HandsFreeSurface panelId={maxPanelId} />
-                        ) : (
-                            <SlashCommandAutocomplete
-                                visible={showAutocomplete}
-                                onClose={() => {
-                                    setShowAutocomplete(false)
-                                    setAutocompleteDismissed(true)
-                                }}
-                            >
-                                <div className="relative w-full">
-                                    {!inputValue && (
-                                        <div
-                                            id="textarea-hint"
-                                            className="text-secondary absolute top-4 left-4 text-sm pointer-events-none"
-                                        >
-                                            {conversation && isSharedThread ? (
-                                                `This thread was shared with you by ${conversation.user.first_name} ${conversation.user.last_name}`
-                                            ) : threadLoading ? (
-                                                'Thinking…'
-                                            ) : isThreadVisible ? (
-                                                placeholder || (
+                    <Tooltip title={inputDisabled ? inputDisabledReason : undefined} placement="top">
+                        <label
+                            htmlFor="question-input"
+                            className={cn(
+                                'input-like flex flex-col',
+                                inputDisabled ? 'cursor-not-allowed' : 'cursor-text',
+                                'border border-primary',
+                                'bg-[var(--color-bg-fill-input)]',
+                                isThreadVisible ? 'border-primary m-0.5 rounded-[7px]' : 'rounded-lg',
+                                '[--input-ring-size:2px]',
+                                !streamingActive && '[--input-ring-color:var(--color-ai)]'
+                            )}
+                        >
+                            {handsFreeActive ? (
+                                <HandsFreeSurface panelId={maxPanelId} />
+                            ) : (
+                                <SlashCommandAutocomplete
+                                    visible={showAutocomplete}
+                                    onClose={() => {
+                                        setShowAutocomplete(false)
+                                        setAutocompleteDismissed(true)
+                                    }}
+                                >
+                                    <div className="relative w-full">
+                                        {!inputValue && (
+                                            <div
+                                                id="textarea-hint"
+                                                className="text-secondary absolute top-4 left-4 text-sm pointer-events-none"
+                                            >
+                                                {conversation && isSharedThread ? (
+                                                    `This thread was shared with you by ${conversation.user.first_name} ${conversation.user.last_name}`
+                                                ) : threadLoading ? (
+                                                    'Thinking…'
+                                                ) : isThreadVisible ? (
+                                                    placeholder || (
+                                                        <>
+                                                            Ask follow-up{' '}
+                                                            <span className="text-tertiary opacity-80 contrast-more:opacity-100">
+                                                                or / for commands
+                                                            </span>
+                                                        </>
+                                                    )
+                                                ) : (
                                                     <>
-                                                        Ask follow-up{' '}
+                                                        Ask a question{' '}
                                                         <span className="text-tertiary opacity-80 contrast-more:opacity-100">
                                                             or / for commands
                                                         </span>
                                                     </>
-                                                )
-                                            ) : (
-                                                <>
-                                                    Ask a question{' '}
-                                                    <span className="text-tertiary opacity-80 contrast-more:opacity-100">
-                                                        or / for commands
-                                                    </span>
-                                                </>
-                                            )}
-                                        </div>
-                                    )}
-                                    {/* Postfix cue after a fill-in suggestion's typed-in prefix. */}
-                                    {showFillInHint && (
-                                        <div className="absolute top-4 left-4 right-4 overflow-hidden pointer-events-none">
-                                            <FillInHint text={inputValue} hint={fillInHint} />
-                                        </div>
-                                    )}
-                                    <LemonTextArea
-                                        aria-describedby={!inputValue ? 'textarea-hint' : undefined}
-                                        id="question-input"
-                                        data-attr="max-chat-input"
-                                        ref={textAreaRef}
-                                        value={isSharedThread ? '' : inputValue}
-                                        onChange={handleQuestionChange}
-                                        onBlur={(e) => {
-                                            debouncedSetQuestion.flush()
-                                            // Release any sandbox pre-warm when the user leaves the
-                                            // input without sending. No-op on LangGraph / unwarmed
-                                            // conversations.
-                                            //
-                                            // But clicking the send button blurs the textarea *before*
-                                            // its onClick fires the send — releasing here would cancel
-                                            // the very warm Run the send is about to consume. When focus
-                                            // moves to the send button, skip the release and let the send
-                                            // path consume the warm (it does so without a DELETE).
-                                            const next = e.relatedTarget as HTMLElement | null
-                                            if (next?.closest('[data-attr="max-send-message"]')) {
-                                                return
-                                            }
-                                            releaseSandboxPrewarm()
-                                        }}
-                                        onPressEnter={() => {
-                                            if (
-                                                hasQuestion &&
-                                                !submissionDisabledReason &&
-                                                (!threadLoading || queueingEnabled)
-                                            ) {
-                                                onSubmit?.()
-                                                submit(inputValue)
-                                            }
-                                        }}
-                                        onKeyDown={(event) => {
-                                            if (
-                                                event.key === 'ArrowUp' &&
-                                                !inputValue.trim() &&
-                                                queuedMessages.length > 0 &&
-                                                !editingQueueId
-                                            ) {
-                                                const target = event.currentTarget
-                                                const atStart = target.selectionStart === 0 && target.selectionEnd === 0
-                                                const isSingleLine = target.value.split('\n').length <= 1
-                                                if (!atStart || !isSingleLine) {
-                                                    return
-                                                }
-                                                const nextMessageId = queuedMessages[0]?.id
-                                                if (!nextMessageId) {
-                                                    return
-                                                }
-                                                event.preventDefault()
-                                                setEditingQueueId(nextMessageId)
-                                            }
-                                        }}
-                                        disabled={inputDisabled}
-                                        minRows={1}
-                                        maxRows={10}
-                                        className={cn(
-                                            '!border-none !bg-transparent min-h-16 py-2 pl-2 resize-none',
-                                            handsFreeFlagEnabled ? 'pr-20' : 'pr-12',
-                                            // Hide the native caret so only the enlarged fill-in caret shows.
-                                            showFillInHint && 'caret-transparent'
+                                                )}
+                                            </div>
                                         )}
-                                        hideFocus
-                                    />
-                                </div>
-                            </SlashCommandAutocomplete>
-                        )}
-
-                        {!isSharedThread &&
-                            !handsFreeActive && (
-                                // When the hands-free flag is on, reserve ~80px (pr-20) so the chip
-                                // row doesn't wrap under the absolutely-positioned mic + send pair.
-                                // Without the flag the row only has send and the legacy pr-12 is
-                                // enough — keep it so non-flagged users see the original layout.
-                                <div className={cn('pb-2', handsFreeFlagEnabled ? 'pr-20' : 'pr-12')}>
-                                    {!isThreadVisible ? (
-                                        <div
+                                        {/* Postfix cue after a fill-in suggestion's typed-in prefix. */}
+                                        {showFillInHint && (
+                                            <div className="absolute top-4 left-4 right-4 overflow-hidden pointer-events-none">
+                                                <FillInHint text={inputValue} hint={fillInHint} />
+                                            </div>
+                                        )}
+                                        <LemonTextArea
+                                            aria-describedby={!inputValue ? 'textarea-hint' : undefined}
+                                            id="question-input"
+                                            data-attr="max-chat-input"
+                                            ref={textAreaRef}
+                                            value={isSharedThread ? '' : inputValue}
+                                            onChange={handleQuestionChange}
+                                            onBlur={(e) => {
+                                                debouncedSetQuestion.flush()
+                                                // Release any sandbox pre-warm when the user leaves the
+                                                // input without sending. No-op on LangGraph / unwarmed
+                                                // conversations.
+                                                //
+                                                // But clicking the send button blurs the textarea *before*
+                                                // its onClick fires the send — releasing here would cancel
+                                                // the very warm Run the send is about to consume. When focus
+                                                // moves to the send button, skip the release and let the send
+                                                // path consume the warm (it does so without a DELETE).
+                                                const next = e.relatedTarget as HTMLElement | null
+                                                if (next?.closest('[data-attr="max-send-message"]')) {
+                                                    return
+                                                }
+                                                releaseSandboxPrewarm()
+                                            }}
+                                            onPressEnter={() => {
+                                                if (
+                                                    hasQuestion &&
+                                                    !submissionDisabledReason &&
+                                                    (!threadLoading || queueingEnabled)
+                                                ) {
+                                                    onSubmit?.()
+                                                    submit(inputValue)
+                                                }
+                                            }}
+                                            onKeyDown={(event) => {
+                                                if (
+                                                    event.key === 'ArrowUp' &&
+                                                    !inputValue.trim() &&
+                                                    queuedMessages.length > 0 &&
+                                                    !editingQueueId
+                                                ) {
+                                                    const target = event.currentTarget
+                                                    const atStart =
+                                                        target.selectionStart === 0 && target.selectionEnd === 0
+                                                    const isSingleLine = target.value.split('\n').length <= 1
+                                                    if (!atStart || !isSingleLine) {
+                                                        return
+                                                    }
+                                                    const nextMessageId = queuedMessages[0]?.id
+                                                    if (!nextMessageId) {
+                                                        return
+                                                    }
+                                                    event.preventDefault()
+                                                    setEditingQueueId(nextMessageId)
+                                                }
+                                            }}
+                                            disabled={inputDisabled}
+                                            minRows={1}
+                                            maxRows={10}
                                             className={cn(
-                                                'flex justify-between',
-                                                handsFreeFlagEnabled ? 'items-end flex-wrap gap-1' : 'items-start'
+                                                '!border-none !bg-transparent min-h-16 py-2 pl-2 resize-none',
+                                                handsFreeFlagEnabled ? 'pr-20' : 'pr-12',
+                                                // Hide the native caret so only the enlarged fill-in caret shows.
+                                                showFillInHint && 'caret-transparent'
                                             )}
-                                        >
-                                            <ContextDisplay size={contextDisplaySize} />
+                                            hideFocus
+                                        />
+                                    </div>
+                                </SlashCommandAutocomplete>
+                            )}
 
+                            {!isSharedThread &&
+                                !handsFreeActive && (
+                                    // When the hands-free flag is on, reserve ~80px (pr-20) so the chip
+                                    // row doesn't wrap under the absolutely-positioned mic + send pair.
+                                    // Without the flag the row only has send and the legacy pr-12 is
+                                    // enough — keep it so non-flagged users see the original layout.
+                                    <div className={cn('pb-2', handsFreeFlagEnabled ? 'pr-20' : 'pr-12')}>
+                                        {!isThreadVisible ? (
                                             <div
                                                 className={cn(
-                                                    'flex mr-1',
-                                                    handsFreeFlagEnabled
-                                                        ? 'items-end gap-1'
-                                                        : 'items-start gap-1 h-full mt-1'
+                                                    'flex justify-between',
+                                                    handsFreeFlagEnabled ? 'items-end flex-wrap gap-1' : 'items-start'
                                                 )}
                                             >
-                                                {topActions}
+                                                <ContextDisplay size={contextDisplaySize} />
+
+                                                <div
+                                                    className={cn(
+                                                        'flex mr-1',
+                                                        handsFreeFlagEnabled
+                                                            ? 'items-end gap-1'
+                                                            : 'items-start gap-1 h-full mt-1'
+                                                    )}
+                                                >
+                                                    {topActions}
+                                                </div>
                                             </div>
-                                        </div>
-                                    ) : (
-                                        <ContextDisplay size={contextDisplaySize} />
-                                    )}
-                                </div>
-                            )}
-                    </label>
+                                        ) : (
+                                            <ContextDisplay size={contextDisplaySize} />
+                                        )}
+                                    </div>
+                                )}
+                        </label>
+                    </Tooltip>
                     <div
                         className={cn(
                             'absolute flex items-center',

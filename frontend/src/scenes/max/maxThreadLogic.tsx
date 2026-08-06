@@ -193,6 +193,7 @@ export interface maxThreadLogicValues {
     filteredCommands: SlashCommand[]
     formPending: boolean
     inputDisabled: boolean
+    inputDisabledReason: string | undefined
     isAnotherAgenticIterationScheduled: boolean
     isConvertedConversation: boolean
     isImpersonatingExistingConversation: boolean
@@ -655,15 +656,27 @@ export interface maxThreadLogicMeta {
             dataProcessingAccepted: boolean,
             isSharedThread: boolean,
             isImpersonatingExistingConversation: boolean,
-            pendingApprovalProposalId: string | null,
-            resolvedApprovalStatuses: Record<
-                string,
-                {
-                    feedback?: string
-                    status: 'approved' | 'auto_rejected' | 'rejected'
-                }
-            >
+            activeDangerousOperationApproval: {
+                payload: Record<string, any>
+                preview: string
+                proposalId: string
+                status: 'pending_approval'
+                toolName: string
+            } | null
         ) => boolean
+        inputDisabledReason: (
+            formPending: boolean,
+            multiQuestionFormPending: boolean,
+            isSharedThread: boolean,
+            isImpersonatingExistingConversation: boolean,
+            activeDangerousOperationApproval: {
+                payload: Record<string, any>
+                preview: string
+                proposalId: string
+                status: 'pending_approval'
+                toolName: string
+            } | null
+        ) => string | undefined
         contextDisabledReason: (
             formPending: boolean,
             multiQuestionFormPending: boolean,
@@ -2710,8 +2723,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 s.dataProcessingAccepted,
                 s.isSharedThread,
                 s.isImpersonatingExistingConversation,
-                s.pendingApprovalProposalId,
-                s.resolvedApprovalStatuses,
+                s.activeDangerousOperationApproval,
             ],
             (
                 formPending: boolean,
@@ -2720,27 +2732,55 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 dataProcessingAccepted: boolean,
                 isSharedThread: boolean,
                 isImpersonatingExistingConversation: boolean,
-                pendingApprovalProposalId: string | null,
-                resolvedApprovalStatuses: Record<
-                    string,
-                    {
-                        feedback?: string
-                        status: 'approved' | 'auto_rejected' | 'rejected'
-                    }
-                >
+                activeDangerousOperationApproval: { proposalId: string } | null
             ) => {
-                // Check if there's an unresolved pending approval
-                const hasPendingApproval =
-                    pendingApprovalProposalId !== null && !resolvedApprovalStatuses[pendingApprovalProposalId]?.status
-
+                // Only block on an approval the user can actually resolve. Keying off the renderable
+                // card (activeDangerousOperationApproval) rather than a bare pendingApprovalProposalId
+                // means a stream that drops mid-approval — leaving the id set but no card to act on —
+                // no longer strands the composer as a permanently dead box. Sending a message
+                // auto-rejects any leftover proposal.
                 return (
                     isSharedThread ||
                     formPending ||
                     multiQuestionFormPending ||
                     (threadLoading && !dataProcessingAccepted) ||
                     isImpersonatingExistingConversation ||
-                    hasPendingApproval
+                    activeDangerousOperationApproval !== null
                 )
+            },
+        ],
+
+        inputDisabledReason: [
+            (s) => [
+                s.formPending,
+                s.multiQuestionFormPending,
+                s.isSharedThread,
+                s.isImpersonatingExistingConversation,
+                s.activeDangerousOperationApproval,
+            ],
+            (
+                formPending: boolean,
+                multiQuestionFormPending: boolean,
+                isSharedThread: boolean,
+                isImpersonatingExistingConversation: boolean,
+                activeDangerousOperationApproval: { proposalId: string } | null
+            ): string | undefined => {
+                if (isSharedThread) {
+                    return 'This thread was shared with you as read-only'
+                }
+                if (isImpersonatingExistingConversation) {
+                    return 'You should create new conversations during impersonation. Use the checkbox to override.'
+                }
+                if (activeDangerousOperationApproval !== null) {
+                    return 'Approve or reject the request above to keep going'
+                }
+                if (formPending) {
+                    return 'Please choose one of the options above'
+                }
+                if (multiQuestionFormPending) {
+                    return 'Please answer, skip, or dismiss the form above'
+                }
+                return undefined
             },
         ],
 
