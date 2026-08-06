@@ -17,6 +17,8 @@ import {
     LifecycleQuery,
     NodeKind,
     PathsQuery,
+    PathsV2AnchorType,
+    PathsV2Query,
     RetentionQuery,
     StickinessQuery,
     TrendsQuery,
@@ -433,6 +435,49 @@ describe('summarizing insights', () => {
 
             expect(result).toEqual('User paths based on page views starting at /landing-page and ending at /basket')
         })
+
+        it.each([
+            ['absent step sources (runner default)', undefined, 'Journeys based on page views'],
+            [
+                'a matching preset',
+                { stepSources: [{ event: '$screen', namingProperty: '$screen_name' }] },
+                'Journeys based on screen views',
+            ],
+            [
+                'custom step sources',
+                { stepSources: [{ event: '$pageview', namingProperty: '$pathname' }, { event: 'purchase' }] },
+                'Journeys based on Pageview and purchase',
+            ],
+            [
+                'a start anchor',
+                {
+                    anchor: {
+                        type: PathsV2AnchorType.Start,
+                        item: { event: '$pageview', label: '/landing-page' },
+                    },
+                },
+                'Journeys based on page views starting at /landing-page',
+            ],
+            [
+                'an end anchor with an empty label',
+                {
+                    anchor: { type: PathsV2AnchorType.End, item: { event: '$pageview', label: '' } },
+                },
+                'Journeys based on page views ending at (empty)',
+            ],
+        ] as [string, PathsV2Query['pathsV2Filter'], string][])(
+            'summarizes a Journeys insight with %s',
+            (_name, pathsV2Filter, expected) => {
+                const query: PathsV2Query = { kind: NodeKind.PathsV2Query, pathsV2Filter }
+
+                const result = summarizeInsight(
+                    { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
+                    summaryContext
+                )
+
+                expect(result).toEqual(expected)
+            }
+        )
 
         it('summarizes a Stickiness insight with a user-based series and an organization-based one', () => {
             const query: StickinessQuery = {

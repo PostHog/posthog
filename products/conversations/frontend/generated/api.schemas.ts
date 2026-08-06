@@ -53,6 +53,7 @@ export const TopicEnumApi = {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -65,6 +66,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -926,6 +928,8 @@ export interface TicketMessageApi {
     readonly author_name: string
     /** True for internal notes not visible to the customer. */
     readonly is_private: boolean
+    /** Edit count. 0 means never edited. */
+    readonly version: number
     readonly created_at: string
 }
 
@@ -936,6 +940,24 @@ export interface PaginatedTicketMessageListApi {
     /** @nullable */
     previous?: string | null
     results: TicketMessageApi[]
+}
+
+/**
+ * Payload for updating a private note on a ticket.
+ */
+export interface PatchedTicketNoteUpdateRequestApi {
+    /**
+     * Updated note content in markdown.
+     * @maxLength 5000
+     */
+    message?: string
+    /** Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. */
+    rich_content?: unknown
+}
+
+export interface TicketErrorApi {
+    detail: string
+    error_type?: string
 }
 
 /**
@@ -1049,11 +1071,6 @@ export interface ComposeTicketResponseApi {
     id: string
     /** Human-readable ticket number. */
     ticket_number: number
-}
-
-export interface TicketErrorApi {
-    detail: string
-    error_type?: string
 }
 
 /**

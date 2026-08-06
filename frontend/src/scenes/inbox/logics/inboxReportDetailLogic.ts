@@ -32,6 +32,7 @@ import {
     signalsReportPrReviewCommentReactionsCreate,
     signalsReportPrReviewCommentsCreate,
     signalsReportPrReviewCommentUpdate,
+    signalsReportsFeedbackCreate,
     signalsReportsSignalsRetrieve,
 } from 'products/signals/frontend/generated/api'
 import type {
@@ -198,6 +199,7 @@ export interface inboxReportDetailLogicValues {
     feedbackNoteDraft: string
     feedbackNoteOpen: boolean
     feedbackNoteSent: boolean
+    feedbackNoteSubmitting: boolean
     feedbackSentiment: InboxReportFeedbackSentiment | null
     hasImplementationPr: boolean
     hasPersonalGithub: boolean
@@ -414,6 +416,9 @@ export interface inboxReportDetailLogicActions {
     setFeedbackNoteDraft: (draft: string) => {
         draft: string
     }
+    setFeedbackNoteSubmitting: (submitting: boolean) => {
+        submitting: boolean
+    }
     setOptimisticReviewers: (reviewers: EnrichedReviewer[] | null) => {
         reviewers: EnrichedReviewer[] | null
     }
@@ -551,6 +556,9 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setFeedbackNoteDraft: (draft: string) => ({ draft }),
         // The note rides on the payload: the reducers below clear the draft, and listeners run after them.
         submitFeedbackNote: (note: string) => ({ note }),
+        // Driven by the submit listener only, so the re-entrancy guard and the Send button's
+        // loading state read the same flag.
+        setFeedbackNoteSubmitting: (submitting: boolean) => ({ submitting }),
     }),
 
     loaders(({ props, values }) => ({
@@ -759,6 +767,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 rateReport: () => false,
             },
         ],
+        feedbackNoteSubmitting: [
+            false,
+            {
+                setFeedbackNoteSubmitting: (_, { submitting }) => submitting,
+            },
+        ],
         // Human-readable diff-load failure (kea-loaders only exposes a boolean loading flag). A failed
         // compare usually means the branch was merged, deleted, or force-rewritten away.
         reportDiffError: [
@@ -767,7 +781,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 loadReportDiff: () => null,
                 loadReportDiffSuccess: () => null,
                 loadReportDiffFailure: () =>
-                    "Couldn't load the diff — the branch may have been merged, deleted, or rewritten.",
+                    "Couldn't load the diff. The branch may have been merged, deleted, or rewritten.",
             },
         ],
         // The commit artefact the current `reportDiff` was loaded for, so the artefact poll re-fetches
@@ -1071,17 +1085,42 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             captureInboxReportFeedback({ report: values.report, sentiment, surface: 'detail_footer' })
         },
         // Fires on its own event so the rating stays exactly one `Inbox report feedback` per click.
-        submitFeedbackNote: ({ note }) => {
+        submitFeedbackNote: async ({ note }) => {
             const trimmed = note.trim()
             if (!values.report || !values.feedbackSentiment || !trimmed) {
                 return
             }
-            captureInboxReportFeedbackNote({
-                report: values.report,
-                sentiment: values.feedbackSentiment,
-                note: trimmed,
-                surface: 'detail_footer',
-            })
+            // Re-entrancy guard: the send button hides on submit, but a double-click within the same
+            // frame can dispatch this twice before React unmounts it. `leave_note` mints a new row per
+            // call, so bail before a second POST leaves the scout a duplicate steering note. The flag
+            // resets in `finally` so a revised note (after re-rating) can still submit, and the Send
+            // button shows it as a loading state in the meantime.
+            if (values.feedbackNoteSubmitting) {
+                return
+            }
+            actions.setFeedbackNoteSubmitting(true)
+            const sentiment = values.feedbackSentiment
+            try {
+                captureInboxReportFeedbackNote({
+                    report: values.report,
+                    sentiment,
+                    note: trimmed,
+                    surface: 'detail_footer',
+                })
+                // Best-effort: also carry the note into the scout steering channel so the scout that filed
+                // the report reads it next run. The analytics event above is the durable record, so a
+                // failure here is swallowed rather than surfaced — the note is already captured.
+                try {
+                    await signalsReportsFeedbackCreate(String(teamLogic.values.currentTeamId), values.report.id, {
+                        sentiment,
+                        note: trimmed,
+                    })
+                } catch {
+                    // no-op: forwarding is a convenience on top of the recorded feedback
+                }
+            } finally {
+                actions.setFeedbackNoteSubmitting(false)
+            }
         },
         searchAvailableReviewers: async ({ query }, breakpoint) => {
             await breakpoint(300)

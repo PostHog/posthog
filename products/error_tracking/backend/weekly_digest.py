@@ -19,6 +19,11 @@ logger = structlog.get_logger(__name__)
 
 DIGEST_WEBHOOK_TIMEOUT_SECONDS = 10
 
+# Above HogQL's 60s default: digest scans on high-volume teams (14-day windows, plus a persons
+# join when test-account filters include person properties) legitimately run past 60s. Matches
+# the error_tracking ClickHouse profile's execution ceiling — keep the two in sync.
+DIGEST_MAX_EXECUTION_TIME_SECONDS = 120
+
 # Keep in sync with SOURCE_MAPS_DOCS_URL in sourceMapsFixWizardLogic.ts
 SOURCE_MAPS_DOCS_URL = "https://posthog.com/docs/error-tracking/upload-source-maps"
 
@@ -34,12 +39,13 @@ def get_org_ids_with_exceptions() -> list[str]:
     return org_ids
 
 
-def query_daily_rows(team: Team) -> list:
+def query_daily_rows(team: Team, filter_test_accounts: bool = True) -> list:
     """Per-day counts over 14 days. Explicit LIMIT: HogQL appends LIMIT 100 to unlimited selects.
 
     Missing ``$exception_issue_id`` = ingestion failure. Query errors propagate so the task retries
     instead of mistaking a failure for "no activity".
     """
+    from posthog.hogql.constants import HogQLGlobalSettings
     from posthog.hogql.query import execute_hogql_query
 
     from posthog.clickhouse.client.connection import ClickHouseUser
@@ -63,10 +69,11 @@ def query_daily_rows(team: Team) -> list:
             LIMIT 14
         """,
         team=team,
-        filters=HogQLFilters(filterTestAccounts=True),
+        filters=HogQLFilters(filterTestAccounts=filter_test_accounts),
         # Weekly batch job: Celery pinned this to the offline cluster process-wide, Temporal does not.
         workload=Workload.OFFLINE,
         ch_user=ClickHouseUser.ERROR_TRACKING,
+        settings=HogQLGlobalSettings(max_execution_time=DIGEST_MAX_EXECUTION_TIME_SECONDS),
     )
     return response.results or []
 
@@ -177,12 +184,19 @@ def get_exception_counts(team_ids: list[int] | None = None) -> list:
     """
 
     # Cross-team scan for a weekly batch job — keep it off the online cluster.
-    results = sync_execute(query, query_params, workload=Workload.OFFLINE, ch_user=ClickHouseUser.ERROR_TRACKING)
+    results = sync_execute(
+        query,
+        query_params,
+        workload=Workload.OFFLINE,
+        ch_user=ClickHouseUser.ERROR_TRACKING,
+        settings={"max_execution_time": DIGEST_MAX_EXECUTION_TIME_SECONDS},
+    )
     return results if isinstance(results, list) else []
 
 
-def get_crash_free_sessions(team: Team) -> dict:
+def get_crash_free_sessions(team: Team, filter_test_accounts: bool = True) -> dict:
     """Calculate crash free sessions rate for the last 7 days with previous week comparison."""
+    from posthog.hogql.constants import HogQLGlobalSettings
     from posthog.hogql.query import execute_hogql_query
 
     from posthog.clickhouse.client.connection import ClickHouseUser
@@ -210,10 +224,11 @@ def get_crash_free_sessions(team: Team) -> dict:
             AND {filters}
         """,
         team=team,
-        filters=HogQLFilters(filterTestAccounts=True),
+        filters=HogQLFilters(filterTestAccounts=filter_test_accounts),
         # Unfiltered 14-day session scan — the heaviest query here. Must stay off the online cluster.
         workload=Workload.OFFLINE,
         ch_user=ClickHouseUser.ERROR_TRACKING,
+        settings=HogQLGlobalSettings(max_execution_time=DIGEST_MAX_EXECUTION_TIME_SECONDS),
     )
 
     if not response.results or not response.results[0]:
@@ -272,7 +287,7 @@ def get_daily_exception_counts(team: Team, daily_rows: list | None = None) -> li
     return daily_counts
 
 
-def _query_issue_rows(team: Team) -> list:
+def _query_issue_rows(team: Team, filter_test_accounts: bool = True) -> list:
     """Ranked ``(issue_id, occurrence_count, daily_counts, is_new)`` rows for the last 7 days.
 
     ``LIMIT 5 BY is_new`` (≤10 rows) feeds both the top-issues and new-issues sections: the overall
@@ -281,6 +296,7 @@ def _query_issue_rows(team: Team) -> list:
     tracking UI. Newness is computed in-query — embedding issue ids would make the rendered SQL grow
     with issue cardinality (ClickHouse caps query text at 1 MiB).
     """
+    from posthog.hogql.constants import HogQLGlobalSettings
     from posthog.hogql.query import execute_hogql_query
 
     from posthog.clickhouse.client.connection import ClickHouseUser
@@ -315,10 +331,11 @@ def _query_issue_rows(team: Team) -> list:
             LIMIT 10
         """,
         team=team,
-        filters=HogQLFilters(filterTestAccounts=True),
+        filters=HogQLFilters(filterTestAccounts=filter_test_accounts),
         # Weekly batch job: Celery pinned this to the offline cluster process-wide, Temporal does not.
         workload=Workload.OFFLINE,
         ch_user=ClickHouseUser.ERROR_TRACKING,
+        settings=HogQLGlobalSettings(max_execution_time=DIGEST_MAX_EXECUTION_TIME_SECONDS),
     )
     return response.results or []
 
@@ -428,11 +445,17 @@ def get_source_maps_recommendation_for_team(team: Team) -> dict | None:
     }
 
 
-def build_team_digest_data(team: Team, daily_rows: list | None = None) -> dict[str, Any] | None:
+def build_team_digest_data(
+    team: Team, daily_rows: list | None = None, filter_test_accounts: bool = True
+) -> dict[str, Any] | None:
     """Assemble all digest data for one team, or None when it had no exceptions this week.
 
     ``daily_rows`` lets a caller that already queried the team's 14-day rows hand them in
     instead of paying for the same query twice.
+
+    ``filter_test_accounts=False`` builds from unfiltered queries, for teams whose test account
+    filters make every filtered query fail. The result carries ``test_account_filters_skipped``
+    so the email template can disclose that the filters were not applied.
     """
     # posthog.tasks.__init__ eagerly imports every task module (celery autoimport);
     # import the helper at call time so this module doesn't pull the task graph.
@@ -440,12 +463,12 @@ def build_team_digest_data(team: Team, daily_rows: list | None = None) -> dict[s
 
     # Two bounded ClickHouse passes + crash-free: three queries per team instead of five.
     if daily_rows is None:
-        daily_rows = query_daily_rows(team)
+        daily_rows = query_daily_rows(team, filter_test_accounts)
     counts = get_exception_summary_for_team(team, daily_rows)
     if not counts or counts["exception_count"] == 0:
         return None
 
-    issue_rows = _query_issue_rows(team)
+    issue_rows = _query_issue_rows(team, filter_test_accounts)
 
     return {
         "team": team,
@@ -457,8 +480,9 @@ def build_team_digest_data(team: Team, daily_rows: list | None = None) -> dict[s
         "top_issues": get_top_issues_for_team(team, issue_rows),
         "new_issues": get_new_issues_for_team(team, issue_rows),
         "daily_counts": get_daily_exception_counts(team, daily_rows),
-        "crash_free": get_crash_free_sessions(team),
+        "crash_free": get_crash_free_sessions(team, filter_test_accounts),
         "source_maps_recommendation": get_source_maps_recommendation_for_team(team),
+        "test_account_filters_skipped": not filter_test_accounts,
         "error_tracking_url": f"{settings.SITE_URL}/project/{team.pk}/error_tracking?utm_source=error_tracking_weekly_digest",
         "ingestion_failures_url": build_ingestion_failures_url(team.pk),
     }

@@ -1,7 +1,6 @@
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useLoopsPromoStore } from "@posthog/ui/features/loops/loopsPromoStore";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import {
   DEV_MODE_CLIENT,
@@ -24,8 +23,6 @@ export function AdvancedSettings() {
   const setDebugLogsCloudRuns = useSettingsStore(
     (s) => s.setDebugLogsCloudRuns,
   );
-  const useNewChatThread = useSettingsStore((s) => s.useNewChatThread);
-  const setUseNewChatThread = useSettingsStore((s) => s.setUseNewChatThread);
   const autoPublishCloudRuns = useSettingsStore((s) => s.autoPublishCloudRuns);
   const setAutoPublishCloudRuns = useSettingsStore(
     (s) => s.setAutoPublishCloudRuns,
@@ -101,7 +98,6 @@ export function AdvancedSettings() {
             useOnboardingStore.getState().resetOnboarding();
             useSetupStore.getState().resetSetup();
             useTourStore.getState().resetTours();
-            useLoopsPromoStore.getState().reset();
           }}
         >
           Reset
@@ -124,6 +120,7 @@ export function AdvancedSettings() {
         <SettingRow
           label="Debug logs for cloud runs"
           description="Show debug-level console output in the conversation view for cloud-executed runs"
+          noBorder={!devModeClient}
         >
           <Switch
             checked={debugLogsCloudRuns}
@@ -132,17 +129,6 @@ export function AdvancedSettings() {
           />
         </SettingRow>
       )}
-      <SettingRow
-        label="Use new chat thread (experimental)"
-        description="Render conversations with the new ChatX (quill) primitives instead of the virtualized thread"
-        noBorder={!devModeClient}
-      >
-        <Switch
-          checked={useNewChatThread}
-          onCheckedChange={setUseNewChatThread}
-          size="1"
-        />
-      </SettingRow>
       {devModeClient && <DevModeRow client={devModeClient} />}
     </Flex>
   );

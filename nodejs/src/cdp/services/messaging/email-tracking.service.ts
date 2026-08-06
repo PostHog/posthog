@@ -218,6 +218,7 @@ export class EmailTrackingService {
         timestamp,
         instanceIdOverride,
         deferFlush = false,
+        workflowVersion,
     }: {
         functionId?: string
         invocationId?: string
@@ -232,6 +233,7 @@ export class EmailTrackingService {
         // Skips the per-call Kafka flush so a caller handling several metrics can queue them all
         // and pay a single broker round-trip. The caller owns flushing when it sets this.
         deferFlush?: boolean
+        workflowVersion?: number
     }): Promise<void> {
         if (!functionId || !invocationId) {
             logger.error('[EmailTrackingService] trackMetric: Invalid custom ID', {
@@ -272,6 +274,11 @@ export class EmailTrackingService {
                 metric_name: metricName,
                 metric_kind: 'email',
                 count: 1,
+                // The version comes off the tracking code minted at send time, never from `hogFlow`
+                // above — that's the currently published version, which for an engagement event
+                // arriving after a republish would blame the new version for the old one's sends.
+                app_source_version:
+                    hogFlow && workflowVersion !== undefined ? { id: hogFlow.id, version: workflowVersion } : undefined,
             },
             hogFlow ? 'hog_flow' : 'hog_function'
         )
@@ -286,6 +293,7 @@ export class EmailTrackingService {
                 properties: {
                     $workflow_id: appSourceId,
                     $workflow_action_id: actionId,
+                    ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
                     ...properties,
                 },
             })
@@ -404,6 +412,7 @@ export class EmailTrackingService {
                     timestamp: metric.timestamp,
                     instanceIdOverride: metric.instanceIdOverride,
                     deferFlush: true,
+                    workflowVersion: metric.workflowVersion,
                 })
             }
             if (metrics?.length) {
@@ -472,6 +481,7 @@ export class EmailTrackingService {
         actionId?: string
         parentRunId?: string
         distinctId?: string
+        workflowVersion?: number
     } {
         // Support both combined ph_id format and legacy separate params
         if (query.ph_id) {
@@ -485,6 +495,7 @@ export class EmailTrackingService {
                 actionId: parsed?.actionId,
                 parentRunId: parsed?.parentRunId,
                 distinctId: parsed?.distinctId,
+                workflowVersion: parsed?.workflowVersion,
             }
         }
         return {

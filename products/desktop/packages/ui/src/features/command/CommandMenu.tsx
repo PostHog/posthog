@@ -1,9 +1,11 @@
 import {
+  ArchiveIcon,
   CaretLeftIcon,
   CaretRightIcon,
   ChartLine,
   EnvelopeSimple,
   GitDiffIcon,
+  SquaresFourIcon,
 } from "@phosphor-icons/react";
 import { workspaceIdSet } from "@posthog/core/command-center/eligibility";
 import { resolveService } from "@posthog/di/container";
@@ -60,6 +62,7 @@ import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import {
   goBackInHistory,
   goForwardInHistory,
+  navigateToArchived,
   navigateToChannel,
   navigateToCommandCenter,
   navigateToInbox,
@@ -75,7 +78,6 @@ import {
   FileTextIcon,
   GearIcon,
   HomeIcon,
-  LightningBoltIcon,
   MagnifyingGlassIcon,
   MoonIcon,
   ReloadIcon,
@@ -275,10 +277,21 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         },
       },
       {
+        id: "archived",
+        label: "Archived",
+        keywords: "archive archived tasks",
+        icon: <ArchiveIcon size={12} className="text-gray-11" />,
+        action: "open-archived",
+        onRun: () => {
+          closeSettingsDialog();
+          navigateToArchived();
+        },
+      },
+      {
         id: "command-center",
         label: "Command center",
-        keywords: "lightning grid tasks parallel dashboard",
-        icon: <LightningBoltIcon className="h-3 w-3 text-gray-11" />,
+        keywords: "grid tasks parallel dashboard",
+        icon: <SquaresFourIcon className="h-3 w-3 text-gray-11" />,
         action: "open-command-center",
         onRun: () => {
           closeSettingsDialog();

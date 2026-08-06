@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common_database::PoolConfig;
+use tokio::sync::Semaphore;
 
 use crate::cache::TtlCache;
 use crate::config::Config;
@@ -21,6 +22,9 @@ pub struct AppState {
     pub discovery: Arc<TtlCache<Vec<ConsumerTarget>>>,
     /// Overview scan results; short TTL + single-flight bounds broker load.
     pub overview: Arc<TtlCache<LagOverview>>,
+    /// Caps concurrent synchronous message-browse scans; each holds a Kafka
+    /// consumer on the blocking pool for up to the browse deadline.
+    pub browse_permits: Arc<Semaphore>,
 }
 
 impl AppState {
@@ -63,6 +67,7 @@ impl AppState {
             overview: Arc::new(TtlCache::new(Duration::from_secs(
                 config.overview_cache_ttl_secs,
             ))),
+            browse_permits: Arc::new(Semaphore::new(config.browse_max_concurrent.max(1))),
             config: Arc::new(config),
         })
     }

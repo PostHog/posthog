@@ -413,12 +413,14 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "email" or item_type == "native_email":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be an email object."})
-            for key_ in ["from", "to", "subject"]:
-                if not value.get(key_):
-                    raise serializers.ValidationError({"input": f"Missing value for '{key_}'."})
-
+            # Report every missing key in one error: these objects are typically authored
+            # programmatically, and a one-at-a-time raise forces a round trip per missing key.
+            missing = [f"'{key_}'" for key_ in ("from", "to", "subject") if not value.get(key_)]
             if not value.get("text") and not value.get("html"):
-                raise serializers.ValidationError({"input": f"Either 'text' or 'html' is required."})
+                missing.append("either 'text' or 'html'")
+            if missing:
+                label = "value" if len(missing) == 1 else "values"
+                raise serializers.ValidationError({"input": f"Missing {label} for {', '.join(missing)}."})
         elif item_type == "non_failure_status_codes":
             if not isinstance(value, list):
                 raise serializers.ValidationError({"input": "Value must be a list of status codes."})
