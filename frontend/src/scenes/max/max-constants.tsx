@@ -792,7 +792,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     scan_replay_vision_sessions: {
         name: 'Scan recordings',
-        description: 'Have Replay Vision watch specific recordings and answer a question about them',
+        description: 'Scan recordings with Replay Vision to answer a question about them',
         icon: iconForType('session_replay'),
         modes: [AgentMode.SessionReplay],
         displayFormatter: (toolCall) => {
@@ -804,7 +804,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     retry_replay_vision_observation: {
         name: 'Retry a scan',
-        description: 'Scan a recording again after its observation failed',
+        description: 'Retry a scan on a recording whose observation failed',
         icon: iconForType('session_replay'),
         modes: [AgentMode.SessionReplay],
         displayFormatter: (toolCall) => {
@@ -816,7 +816,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     get_replay_vision_quota: {
         name: 'Check Replay Vision credits',
-        description: 'Read how much of the monthly Replay Vision credit budget is left',
+        description: 'Check Replay Vision credits left in the monthly budget',
         icon: iconForType('session_replay'),
         modes: [AgentMode.SessionReplay],
         displayFormatter: (toolCall) => {
@@ -828,7 +828,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     create_replay_vision_scanner: {
         name: 'Create a scanner',
-        description: 'Set up a Replay Vision scanner that watches new recordings as they arrive',
+        description: 'Create a scanner that watches new recordings as they arrive',
         icon: iconForType('session_replay'),
         modes: [AgentMode.SessionReplay],
         displayFormatter: (toolCall) => {
@@ -840,7 +840,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     create_replay_vision_action: {
         name: 'Summarize a scanner',
-        description: 'Set up a recurring summary of what a Replay Vision scanner is finding',
+        description: 'Summarize a scanner on a recurring schedule',
         icon: iconForType('session_replay'),
         modes: [AgentMode.SessionReplay],
         displayFormatter: (toolCall) => {
