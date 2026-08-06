@@ -1,7 +1,8 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
-import { getSpendTypeOptions, getUsageTypeOptions } from './billing-utils'
+import { buildSpendTrackingProperties, getSpendTypeOptions, getUsageTypeOptions } from './billing-utils'
+import { SPEND_TYPES } from './constants'
 
 describe('getUsageTypeOptions', () => {
     it.each<[string, FeatureFlagsSet, boolean]>([
@@ -32,5 +33,17 @@ describe('getUsageTypeOptions', () => {
             expect(usageOptions.some((option) => option.key === usageType)).toBe(true)
             expect(spendOptions.some((option) => option.key === usageType)).toBe(false)
         }
+    })
+
+    it('reports only selectable Spend types in Spend interaction analytics', () => {
+        const properties = buildSpendTrackingProperties('filters_changed', {
+            filters: {},
+            dateFrom: '2026-08-01',
+            dateTo: '2026-08-06',
+            excludeEmptySeries: false,
+            teamOptions: [],
+        })
+
+        expect(properties.usage_types_total).toBe(SPEND_TYPES.length)
     })
 })

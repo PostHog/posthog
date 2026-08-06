@@ -489,7 +489,8 @@ export function buildTrackingProperties(
         dateTo: string
         excludeEmptySeries: boolean
         teamOptions: { key: string; label: string }[]
-    }
+    },
+    usageTypesTotal: number = USAGE_TYPES.length
 ): BillingUsageInteractionProps {
     return {
         action,
@@ -498,13 +499,18 @@ export function buildTrackingProperties(
         date_to: values.dateTo,
         exclude_empty: values.excludeEmptySeries,
         usage_types_count: values.filters.usage_types?.length || 0,
-        usage_types_total: USAGE_TYPES.length,
+        usage_types_total: usageTypesTotal,
         teams_count: values.filters.team_ids?.length || 0,
         teams_total: values.teamOptions.length,
         has_team_breakdown: (values.filters.breakdowns || []).includes('team'),
         interval: values.filters.interval || 'day',
     }
 }
+
+export const buildSpendTrackingProperties = (
+    action: BillingUsageInteractionProps['action'],
+    values: Parameters<typeof buildTrackingProperties>[1]
+): BillingUsageInteractionProps => buildTrackingProperties(action, values, SPEND_TYPES.length)
 
 // The Replay vision entry stays hidden until the replay-vision flag rolls out with the pricing launch
 export const getUsageTypeOptions = (featureFlags: FeatureFlagsSet): { key: string; label: string }[] =>
