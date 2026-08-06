@@ -4,17 +4,12 @@ import { LemonBanner } from '@posthog/lemon-ui'
 
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { isTrendsQuery } from '~/queries/utils'
-import { InsightLogicProps } from '~/types'
+import { EditorFilterProps } from '~/types'
 
-export function HideWeekendsDeprecationNotice({
-    insightProps,
-}: {
-    insightProps: InsightLogicProps
-}): JSX.Element | null {
-    const { querySource } = useValues(insightVizDataLogic(insightProps))
+export function HideWeekendsDeprecationNotice({ insightProps }: EditorFilterProps): JSX.Element | null {
+    const { trendsFilter } = useValues(insightVizDataLogic(insightProps))
 
-    if (!isTrendsQuery(querySource) || !querySource.trendsFilter?.hideWeekends) {
+    if (!trendsFilter?.hideWeekends) {
         return null
     }
 
