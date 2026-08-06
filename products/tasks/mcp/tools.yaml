@@ -212,6 +212,9 @@ tools:
     loops-trigger-create:
         operation: loops_trigger_create
         enabled: false
+    sandbox-compute-rate-cards-list:
+        operation: sandbox_compute_rate_cards_list
+        enabled: false
     sandbox-create:
         operation: sandbox_create
         enabled: false
