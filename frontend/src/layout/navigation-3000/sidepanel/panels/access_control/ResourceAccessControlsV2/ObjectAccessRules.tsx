@@ -159,8 +159,16 @@ function AddObjectRuleModal({
     subjectId: string
 }): JSX.Element {
     const logic = addObjectOverrideModalLogic({ projectId, scopeType, subjectId })
-    const { isOpen, resource, objectId, level, displayObjectOptions, objectOptionsLoading, existingRule } =
-        useValues(logic)
+    const {
+        isOpen,
+        resource,
+        objectId,
+        level,
+        displayObjectOptions,
+        objectOptionsLoading,
+        existingRule,
+        objectInputKey,
+    } = useValues(logic)
     const { objectRuleResourceOptions } = useValues(accessControlsLogic({ projectId }))
     const { closeModal, setResource, setSearch, setObjectId, setLevel, submitRule } = useActions(logic)
 
@@ -205,7 +213,11 @@ function AddObjectRuleModal({
                 <div>
                     <LemonLabel>Object</LemonLabel>
                     <LemonInputSelect
+                        key={objectInputKey}
                         mode="single"
+                        // The backend already searched; filtering again locally would hide its
+                        // results whenever the typed text isn't part of the object's name
+                        disableFiltering
                         value={objectId ? [objectId] : []}
                         onChange={(values) => setObjectId(values[0] ?? null)}
                         onInputChange={setSearch}

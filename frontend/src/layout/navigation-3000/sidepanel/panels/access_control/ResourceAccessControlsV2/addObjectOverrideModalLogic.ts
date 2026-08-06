@@ -29,6 +29,7 @@ export interface addObjectOverrideModalLogicValues {
     isOpen: boolean
     level: AccessControlLevel
     objectId: string | null
+    objectInputKey: number
     objectOptions: ObjectOption[]
     objectOptionsLoading: boolean
     resource: APIScopeObject
@@ -284,6 +285,9 @@ export interface addObjectOverrideModalLogicActions {
     ) => {
         objectOptions: ObjectOption[]
         payload?: any
+    }
+    objectResolvedFromUrl: (option: ObjectOption) => {
+        option: ObjectOption
     }
     openModal: () => {
         value: true
@@ -683,6 +687,7 @@ export const addObjectOverrideModalLogic = kea<addObjectOverrideModalLogicType>(
         setObjectId: (objectId: string | null) => ({ objectId }),
         setSelectedObject: (option: ObjectOption | null) => ({ option }),
         resolveObjectUrl: (resource: APIScopeObject, lookupId: string) => ({ resource, lookupId }),
+        objectResolvedFromUrl: (option: ObjectOption) => ({ option }),
         setLevel: (level: AccessControlLevel) => ({ level }),
         submitRule: true,
     }),
@@ -697,15 +702,38 @@ export const addObjectOverrideModalLogic = kea<addObjectOverrideModalLogicType>(
                 closeModal: () => 'dashboard' as APIScopeObject,
             },
         ],
-        search: ['', { setSearch: (_, { search }) => search, setResource: () => '', closeModal: () => '' }],
+        search: [
+            '',
+            {
+                setSearch: (_, { search }) => search,
+                objectResolvedFromUrl: () => '',
+                setResource: () => '',
+                closeModal: () => '',
+            },
+        ],
+        /**
+         * Remounts the object input, the only way to clear the text it holds internally: after a
+         * pasted URL resolves, the leftover URL would otherwise hide the selected object's name.
+         */
+        objectInputKey: [0, { objectResolvedFromUrl: (key) => key + 1 }],
         objectId: [
             null as string | null,
-            { setObjectId: (_, { objectId }) => objectId, setResource: () => null, closeModal: () => null },
+            {
+                setObjectId: (_, { objectId }) => objectId,
+                objectResolvedFromUrl: (_, { option }) => option.id,
+                setResource: () => null,
+                closeModal: () => null,
+            },
         ],
         /** The picked option, kept so its label survives the option list reloading. */
         selectedObject: [
             null as ObjectOption | null,
-            { setSelectedObject: (_, { option }) => option, setResource: () => null, closeModal: () => null },
+            {
+                setSelectedObject: (_, { option }) => option,
+                objectResolvedFromUrl: (_, { option }) => option,
+                setResource: () => null,
+                closeModal: () => null,
+            },
         ],
         level: [
             AccessControlLevel.None as AccessControlLevel,
@@ -774,9 +802,7 @@ export const addObjectOverrideModalLogic = kea<addObjectOverrideModalLogicType>(
                     lemonToast.error("Couldn't find that object in this project")
                     return
                 }
-                actions.setObjectId(option.id)
-                actions.setSelectedObject(option)
-                actions.setSearch('')
+                actions.objectResolvedFromUrl(option)
             } catch {
                 lemonToast.error("Couldn't find that object in this project")
             }
