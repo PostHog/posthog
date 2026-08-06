@@ -42,22 +42,14 @@ export interface EventsTableProps {
     query: EventsQuery
     queryKey: string
     selectedEvent: ErrorEventType | null
-    loading?: boolean
     onEventSelect: (event: ErrorEventType | null) => void
 }
 
-export function EventsTable({
-    query,
-    queryKey,
-    onEventSelect,
-    selectedEvent,
-    loading = false,
-}: EventsTableProps): JSX.Element {
+export function EventsTable({ query, queryKey, onEventSelect, selectedEvent }: EventsTableProps): JSX.Element {
     const dataSource = eventsSourceLogic({ queryKey, query })
     const { items, itemsLoading, canLoadNextData } = useValues(dataSource)
     const { loadNextData } = useActions(dataSource)
     const { summary } = useValues(errorTrackingIssueSceneLogic)
-    const isLoading = loading || itemsLoading
 
     function isEventSelected(record: ErrorEventType): boolean {
         return selectedEvent ? selectedEvent.uuid === record.uuid : false
@@ -151,16 +143,14 @@ export function EventsTable({
                         ))}
                     </TableBody>
                 ) : (
-                    <TableEmpty className="py-6 text-muted-foreground">
-                        {isLoading ? 'Loading exceptions...' : 'No exceptions found.'}
-                    </TableEmpty>
+                    <EventsTableEmpty loading={itemsLoading} />
                 )}
                 {items.length > 0 && (
                     <TableFooter>
                         <TableRow>
                             <TableCell colSpan={2} className="bg-transparent! p-1">
                                 <div className="flex h-7 items-center justify-center gap-1 text-xs text-muted-foreground">
-                                    {isLoading ? (
+                                    {itemsLoading ? (
                                         <>
                                             <Spinner className="size-3" />
                                             Loading...
@@ -179,6 +169,24 @@ export function EventsTable({
                 )}
             </Table>
         </div>
+    )
+}
+
+export function EventsTableLoading(): JSX.Element {
+    return (
+        <div data-quill>
+            <Table fullWidth size="sm" tableClassName="table-fixed bg-transparent">
+                <EventsTableEmpty loading />
+            </Table>
+        </div>
+    )
+}
+
+function EventsTableEmpty({ loading }: { loading: boolean }): JSX.Element {
+    return (
+        <TableEmpty className="py-6 text-muted-foreground">
+            {loading ? 'Loading exceptions...' : 'No exceptions found.'}
+        </TableEmpty>
     )
 }
 

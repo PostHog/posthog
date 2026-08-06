@@ -40,7 +40,7 @@ import { BreakdownsSearchBar } from '../../components/Breakdowns/BreakdownsSearc
 import { MiniBreakdowns } from '../../components/Breakdowns/MiniBreakdowns'
 import { miniBreakdownsLogic } from '../../components/Breakdowns/miniBreakdownsLogic'
 import { eventsSourceLogic } from '../../components/EventsTable/eventsSourceLogic'
-import { EventsTable } from '../../components/EventsTable/EventsTable'
+import { EventsTable, EventsTableLoading } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { StackTraceActions } from '../../components/ExceptionCard/Tabs/StackTraceTab/StackTraceActions'
 import { StatusIndicator } from '../../components/Indicators'
@@ -416,14 +416,15 @@ const ExceptionsTab = (): JSX.Element => {
                         </div>
                     </ErrorFilters.Root>
                 </div>
-                {!issueFingerprintsLoading && issueFingerprints.length === 0 ? (
+                {issueFingerprintsLoading ? (
+                    <EventsTableLoading />
+                ) : issueFingerprints.length === 0 ? (
                     <div className="px-2 py-3 text-sm text-muted-foreground">No exceptions found for this issue.</div>
                 ) : (
                     <EventsTable
                         query={eventsQuery}
                         queryKey={eventsQueryKey}
                         selectedEvent={selectedEvent}
-                        loading={eventsLoading}
                         onEventSelect={(selectedEvent) => {
                             if (selectedEvent) {
                                 selectEvent(selectedEvent)
