@@ -213,6 +213,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPerson,
         inMenu: false,
     },
+    [NodeKind.PathsV2ActorsQuery]: {
+        name: 'Persons',
+        description: 'List of persons behind a journey grid element, derived from an insight.',
+        icon: IconPerson,
+        inMenu: false,
+    },
     [NodeKind.GroupsQuery]: {
         name: 'Groups',
         description: 'List and explore groups.',

@@ -36299,10 +36299,11 @@
                     "type": "boolean"
                 },
                 "chain": {
-                    "description": "The chain's path items in order from the anchor. Returns the actors whose anchored sequence begins with exactly these items, the set behind a hover preview's per-chain counts. Chain elements only, anchored mode only.",
+                    "description": "The chain's path items in order from the anchor. Returns the actors whose anchored sequence begins with exactly these items, the set behind a hover preview's per-chain counts. Chain elements only, anchored mode only. Bounded by the step maximum: a longer chain can never match a displayed card.",
                     "items": {
                         "$ref": "#/definitions/PathsV2Item"
                     },
+                    "maxItems": 20,
                     "type": "array"
                 },
                 "elementType": {

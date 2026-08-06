@@ -104,6 +104,33 @@ class PathsV2ActorsTestBase(ClickhouseTestMixin, APIBaseTest):
         names_by_uuid = {person.uuid: name for name, person in self.persons.items()}
         return {names_by_uuid[row[0]] for row in response.results}
 
+    def _displayed_elements(self, query: PathsV2Query) -> tuple[dict[Any, float], dict[Any, set[str]]]:
+        """Every element the grid displays, keyed the same way twice: the count shown on it, and the
+        actor set its modal returns. Comparing the two dicts is the by-construction contract, with no
+        expected numbers written down — it holds for any fixture, in either chart mode."""
+        results = PathsV2QueryRunner(query=query, team=self.team).calculate().results
+        displayed_counts: dict[Any, float] = {}
+        actor_sets: dict[Any, set[str]] = {}
+        key: tuple[Any, ...]
+        for step in results.steps:
+            for row in step.rows:
+                key = ("node", step.stepIndex, row.item.event)
+                displayed_counts[key] = row.count
+                actor_sets[key] = self._names_for(query, _node(step.stepIndex, row.item))
+            if step.otherCount:
+                key = ("other", step.stepIndex)
+                displayed_counts[key] = step.otherCount
+                actor_sets[key] = self._names_for(query, _other(step.stepIndex))
+            if step.dropOffCount:
+                key = ("dropOff", step.stepIndex)
+                displayed_counts[key] = step.dropOffCount
+                actor_sets[key] = self._names_for(query, _drop_off(step.stepIndex))
+        for edge in results.edges:
+            key = ("edge", edge.stepIndex, edge.source and edge.source.event, edge.target and edge.target.event)
+            displayed_counts[key] = edge.count
+            actor_sets[key] = self._names_for(query, _edge(edge.stepIndex, edge.source, edge.target))
+        return displayed_counts, actor_sets
+
 
 class TestPathsV2ActorsElements(PathsV2ActorsTestBase):
     maxDiff = None
@@ -129,27 +156,7 @@ class TestPathsV2ActorsElements(PathsV2ActorsTestBase):
             dateRange=DATE_RANGE,
             pathsV2Filter=PathsV2Filter(stepSources=_sources("a", "b", "c", "d", "e"), maxSteps=3, maxRowsPerStep=2),
         )
-        results = PathsV2QueryRunner(query=query, team=self.team).calculate().results
-
-        displayed_counts: dict[Any, float] = {}
-        actor_sets: dict[Any, set[str]] = {}
-        for step in results.steps:
-            for row in step.rows:
-                key = ("node", step.stepIndex, row.item.event)
-                displayed_counts[key] = row.count
-                actor_sets[key] = self._names_for(query, _node(step.stepIndex, row.item))
-            if step.otherCount:
-                key = ("other", step.stepIndex)
-                displayed_counts[key] = step.otherCount
-                actor_sets[key] = self._names_for(query, _other(step.stepIndex))
-            if step.dropOffCount:
-                key = ("dropOff", step.stepIndex)
-                displayed_counts[key] = step.dropOffCount
-                actor_sets[key] = self._names_for(query, _drop_off(step.stepIndex))
-        for edge in results.edges:
-            key = ("edge", edge.stepIndex, edge.source and edge.source.event, edge.target and edge.target.event)
-            displayed_counts[key] = edge.count
-            actor_sets[key] = self._names_for(query, _edge(edge.stepIndex, edge.source, edge.target))
+        displayed_counts, actor_sets = self._displayed_elements(query)
 
         self.assertEqual(
             actor_sets,
@@ -174,6 +181,47 @@ class TestPathsV2ActorsElements(PathsV2ActorsTestBase):
             },
         )
         # Every modal equals the number on its element, for every element the grid displays.
+        self.assertEqual(displayed_counts, {key: len(names) for key, names in actor_sets.items()})
+
+    def test_edges_between_two_other_rows_equal_their_actor_sets(self):
+        # With one named row per step, p3's journey runs other → other: the only positional-edge
+        # shape where neither endpoint names a path item.
+        self.persons = journeys_for(
+            team=self.team,
+            events_by_person={
+                **_timeline("p1", "a", "b"),
+                **_timeline("p2", "a", "b"),
+                **_timeline("p3", "c", "d"),
+            },
+        )
+        query = PathsV2Query(
+            dateRange=DATE_RANGE,
+            pathsV2Filter=PathsV2Filter(stepSources=_sources("a", "b", "c", "d"), maxRowsPerStep=1),
+        )
+
+        displayed_counts, actor_sets = self._displayed_elements(query)
+
+        self.assertEqual(actor_sets[("edge", 0, None, None)], {"p3"})
+        self.assertEqual(displayed_counts, {key: len(names) for key, names in actor_sets.items()})
+
+    def test_collapse_off_every_displayed_element_equals_its_actor_set(self):
+        # Collapse off swaps the collapsed journeys for the raw ones in every aggregation stage, so
+        # immediate repeats become their own steps. Count and actor set must move together.
+        self.persons = journeys_for(
+            team=self.team,
+            events_by_person={
+                **_timeline("p1", "a", "a", "b"),
+                **_timeline("p2", "a", "b", "b"),
+            },
+        )
+        query = PathsV2Query(
+            dateRange=DATE_RANGE,
+            pathsV2Filter=PathsV2Filter(stepSources=_sources("a", "b"), collapseRepeats=False),
+        )
+
+        displayed_counts, actor_sets = self._displayed_elements(query)
+
+        self.assertGreater(len(displayed_counts), 4)
         self.assertEqual(displayed_counts, {key: len(names) for key, names in actor_sets.items()})
 
     def test_any_step_count_is_set_exactly_on_open_mode_named_edges(self):
@@ -297,6 +345,46 @@ class TestPathsV2AnchoredChainActorSets(PathsV2ActorsTestBase):
         results = PathsV2QueryRunner(query=self._query(), team=self.team).calculate().results
         self.assertTrue(len(results.edges) > 0)
         self.assertEqual({edge.anyStepCount for edge in results.edges}, {None})
+
+    @parameterized.expand(
+        [("start_anchor", PathsV2AnchorType.START, "home"), ("end_anchor", PathsV2AnchorType.END, "checkout")]
+    )
+    def test_every_displayed_element_equals_its_actor_set(
+        self, _name: str, anchor_type: PathsV2AnchorType, anchor_event: str
+    ) -> None:
+        # The open-mode contract, repeated for both anchor directions. An end anchor reverses each
+        # actor's sequence, so step 0 is the anchor and the grid reads backward in time; the
+        # modal-equals-count promise has to survive that reversal too.
+        self._seed()
+        query = PathsV2Query(
+            dateRange=DATE_RANGE,
+            pathsV2Filter=PathsV2Filter(
+                stepSources=_sources("home", "cart", "checkout", "browse"),
+                anchor=PathsV2Anchor(type=anchor_type, item=_item(anchor_event)),
+            ),
+        )
+
+        displayed_counts, actor_sets = self._displayed_elements(query)
+
+        # Guards the equality below against silently passing on an empty grid
+        self.assertGreater(len(displayed_counts), 4)
+        self.assertEqual(displayed_counts, {key: len(names) for key, names in actor_sets.items()})
+
+    def test_every_carried_prefix_equals_its_chain_actor_set(self):
+        # Every carried prefix is a hover preview the user can land on, so each re-labelled card's
+        # number must equal the set its click opens.
+        self._seed()
+        query = self._query()
+        results = PathsV2QueryRunner(query=query, team=self.team).calculate().results
+
+        self.assertGreater(len(results.prefixes), 0)
+        self.assertEqual(
+            {tuple(item.event for item in prefix.items): prefix.count for prefix in results.prefixes},
+            {
+                tuple(item.event for item in prefix.items): len(self._names_for(query, _chain(list(prefix.items))))
+                for prefix in results.prefixes
+            },
+        )
 
 
 class TestPathsV2ActorsValidation(APIBaseTest):

@@ -382,7 +382,7 @@ export function InsightVizDisplay({
             case InsightType.PATHS:
                 return <Paths />
             case InsightType.JOURNEYS:
-                return <Journeys />
+                return <Journeys showPersonsModal={!inSharedMode} />
             case InsightType.WEB_ANALYTICS:
                 return <WebAnalyticsInsight context={context} editMode={editMode} />
             default:

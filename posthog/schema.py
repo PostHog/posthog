@@ -5796,7 +5796,10 @@ class PathsV2ElementSelector(BaseModel):
             "The chain's path items in order from the anchor. Returns the actors whose"
             " anchored sequence begins with exactly these items, the set behind a hover"
             " preview's per-chain counts. Chain elements only, anchored mode only."
+            " Bounded by the step maximum: a longer chain can never match a displayed"
+            " card."
         ),
+        max_length=20,
     )
     elementType: PathsV2ElementType
     item: PathsV2Item | None = Field(default=None, description="The node card's path item. Node elements only.")

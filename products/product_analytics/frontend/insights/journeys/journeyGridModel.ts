@@ -1,4 +1,4 @@
-import { PathsV2Item, PathsV2Results } from '~/queries/schema/schema-general'
+import { PathsV2Item, PathsV2Prefix, PathsV2Results } from '~/queries/schema/schema-general'
 
 export const OTHER_ROW_KEY = 'other'
 const DROP_OFF_ROW_KEY = 'dropOff'
@@ -46,6 +46,9 @@ export interface JourneyGridModel {
     columns: JourneyGridColumn[]
     ribbons: JourneyGridRibbon[]
     maxRibbonCount: number
+    /** Card keys of the named rows the grid actually renders, so a hover chain can be restricted to
+     * items the user can see. Items beyond the top rows per step live in the other row instead. */
+    displayedItemKeys: Set<string>
 }
 
 /** The active hover-preview chain resolved against the grid: per-card chain counts plus the
@@ -53,11 +56,45 @@ export interface JourneyGridModel {
 export interface JourneyChainHighlight {
     chain: PathsV2Item[]
     countByCardKey: Record<string, number>
+    /** The chain count as a share of the card's column total, so a re-labelled card's bar keeps
+     * describing the number printed on it rather than the merged union's. */
+    fractionByCardKey: Record<string, number>
     ribbonKeys: Set<string>
 }
 
 export function chainCardKey(stepIndex: number, item: PathsV2Item): string {
     return `${stepIndex}:${journeyItemKey(item)}`
+}
+
+export function journeyRibbonKey(sourceStep: number, sourceKey: string, targetKey: string): string {
+    return `${sourceStep}:${sourceKey}→${targetKey}`
+}
+
+/** Whether every item of a chain is a named card the grid renders at that item's position. */
+export function isChainDisplayed(items: PathsV2Item[], displayedItemKeys: Set<string>): boolean {
+    return items.every((item, position) => displayedItemKeys.has(chainCardKey(position, item)))
+}
+
+/**
+ * The most common chain of `stepIndex + 1` items ending at `itemKey`, or null if none is previewable.
+ *
+ * Prefixes arrive count-descending, so the first match is the dominant chain. Chains running through
+ * items the grid bucketed into the other row are skipped: their cards do not exist, so the highlight
+ * would show disconnected islands and the modal title would name an item the chart never displayed.
+ */
+export function dominantDisplayedChain(
+    prefixes: PathsV2Prefix[],
+    stepIndex: number,
+    itemKey: string,
+    displayedItemKeys: Set<string>
+): PathsV2Item[] | null {
+    const match = prefixes.find(
+        (prefix) =>
+            prefix.items.length === stepIndex + 1 &&
+            journeyItemKey(prefix.items[stepIndex]) === itemKey &&
+            isChainDisplayed(prefix.items, displayedItemKeys)
+    )
+    return match?.items ?? null
 }
 
 export function isCardOnChain(chain: PathsV2Item[] | null, stepIndex: number, rowKey: string): boolean {
@@ -83,7 +120,7 @@ export function journeyItemLabel(item: PathsV2Item): string {
 
 export function buildJourneyGridModel(results: PathsV2Results | null): JourneyGridModel {
     if (!results || results.steps.length === 0) {
-        return { columns: [], ribbons: [], maxRibbonCount: 0 }
+        return { columns: [], ribbons: [], maxRibbonCount: 0, displayedItemKeys: new Set() }
     }
 
     const steps = [...results.steps].sort((a, b) => a.stepIndex - b.stepIndex)
@@ -122,9 +159,13 @@ export function buildJourneyGridModel(results: PathsV2Results | null): JourneyGr
     })
 
     const rowByStepAndKey = new Map<string, JourneyGridRow>()
+    const displayedItemKeys = new Set<string>()
     for (const column of columns) {
         for (const row of column.rows) {
             rowByStepAndKey.set(`${column.stepIndex}:${row.key}`, row)
+            if (row.kind === 'item') {
+                displayedItemKeys.add(`${column.stepIndex}:${row.key}`)
+            }
         }
     }
 
@@ -143,7 +184,7 @@ export function buildJourneyGridModel(results: PathsV2Results | null): JourneyGr
             continue
         }
         ribbons.push({
-            key: `${edge.stepIndex}:${sourceKey}→${targetKey}`,
+            key: journeyRibbonKey(edge.stepIndex, sourceKey, targetKey),
             sourceStep: edge.stepIndex,
             sourceKey,
             targetKey,
@@ -159,7 +200,7 @@ export function buildJourneyGridModel(results: PathsV2Results | null): JourneyGr
 
     const maxRibbonCount = ribbons.reduce((max, ribbon) => Math.max(max, ribbon.count), 0)
 
-    return { columns, ribbons, maxRibbonCount }
+    return { columns, ribbons, maxRibbonCount, displayedItemKeys }
 }
 
 /** A closed band from the source card's right edge to the target card's left edge. */

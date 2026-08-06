@@ -741,8 +741,10 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
         """Position-free unique-actor counts for the displayed named edges, over whole journeys:
         the modal's "went source → target at any step" number, which the edge contract promises
         equals the converted two-step funnel's count."""
-        pair_exprs = [ast.Tuple(exprs=[self._item_expr(source), self._item_expr(target)]) for source, target in pairs]
-        return parse_select(
+        pair_exprs: list[ast.Expr] = [
+            ast.Tuple(exprs=[self._item_expr(source), self._item_expr(target)]) for source, target in pairs
+        ]
+        query = parse_select(
             """
             SELECT pair.1 AS source_item, pair.2 AS target_item, uniqExact(actor_id) AS actor_count
             FROM {elements_per_actor_query}
@@ -760,6 +762,11 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
                 "pairs": ast.Tuple(exprs=pair_exprs),
             },
         )
+        assert isinstance(query, ast.SelectQuery)
+        # One row per requested pair, so the generic default LIMIT 100 can never silently drop the
+        # count for some of the displayed edges (a big grid asks for more than 100 pairs).
+        query.limit = ast.Constant(value=len(pairs))
+        return query
 
     @staticmethod
     def _pair_key(source: PathsV2Item, target: PathsV2Item) -> tuple[tuple[str, str | None], tuple[str, str | None]]:
