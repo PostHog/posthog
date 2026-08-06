@@ -323,8 +323,16 @@ async fn pod_resumes_partition_when_cancelled_handoff_leaves_it_assigned() {
     // (which writes the assignment atomically) and clean up the record.
     put_handoff(&store, 0, None, "resume-pod-a", HandoffPhase::Warming).await;
     wait_for_event(&pod.events, HandoffEvent::Warmed(0)).await;
+    let warming = store
+        .get_handoff(0)
+        .await
+        .expect("get handoff")
+        .expect("handoff exists");
     assert!(
-        store.complete_handoff(0).await.expect("complete"),
+        store
+            .complete_handoff(0, &warming.handoff_id, HandoffPhase::Warming)
+            .await
+            .expect("complete"),
         "complete_handoff must succeed"
     );
     store.delete_handoff(0).await.expect("cleanup");
@@ -3178,7 +3186,15 @@ async fn pod_retries_resume_after_a_failed_attempt() {
 
     put_handoff(&store, 0, None, "resume-flaky-a", HandoffPhase::Warming).await;
     wait_for_event(&pod.events, HandoffEvent::Warmed(0)).await;
-    assert!(store.complete_handoff(0).await.expect("complete"));
+    let warmed = store
+        .get_handoff(0)
+        .await
+        .expect("get handoff")
+        .expect("handoff exists");
+    assert!(store
+        .complete_handoff(0, &warmed.handoff_id, HandoffPhase::Warming)
+        .await
+        .expect("complete"));
     store.delete_handoff(0).await.expect("cleanup");
 
     put_handoff(
@@ -3983,4 +3999,90 @@ async fn a_failed_release_is_retried_rather_than_forgotten() {
     .await;
 
     cancel.cancel();
+}
+
+/// Completion must apply to the handoff whose warm was verified, not to
+/// whatever record is at the key when the write lands.
+///
+/// The coordinator reads a handoff, checks its warmed acks, and then
+/// completes it. In between, cancellation can replace the record with a
+/// successor and delete the old acks in one transaction. Completing that
+/// successor would write the assignment to a pod that never froze,
+/// drained, or warmed — while the old owner is still admitting writes —
+/// and routers would cut over to it. A `mod_revision` guard cannot see
+/// this: it only proves nothing changed since the store's own re-read.
+#[tokio::test]
+async fn completion_refuses_a_handoff_that_was_replaced() {
+    let store = test_store("complete-replaced").await;
+
+    // The attempt the caller validated.
+    put_handoff(&store, 0, Some("pod-a"), "pod-b", HandoffPhase::Warming).await;
+    let validated = store
+        .get_handoff(0)
+        .await
+        .expect("get handoff")
+        .expect("handoff exists");
+
+    // Cancellation replaces it with a successor carrying a fresh id,
+    // exactly as `handle_pod_change_static` does.
+    store.delete_handoff(0).await.expect("delete");
+    put_handoff_with_id(&store, 0, "pod-c", HandoffPhase::Freezing, "successor").await;
+
+    let completed = store
+        .complete_handoff(0, &validated.handoff_id, HandoffPhase::Warming)
+        .await
+        .expect("complete_handoff");
+    assert!(
+        !completed,
+        "a replaced handoff must not be completed by its predecessor's verification"
+    );
+
+    // The successor must still be Freezing, and no assignment written.
+    let current = store
+        .get_handoff(0)
+        .await
+        .expect("get handoff")
+        .expect("handoff exists");
+    assert_eq!(current.phase, HandoffPhase::Freezing);
+    assert!(
+        store
+            .get_assignment(0)
+            .await
+            .expect("get assignment")
+            .is_none(),
+        "no assignment may be written for a handoff that never completed"
+    );
+}
+
+/// The same guard on the phase advances: a successor at the same phase
+/// must not inherit its predecessor's verification.
+#[tokio::test]
+async fn phase_advance_refuses_a_handoff_that_was_replaced() {
+    let store = test_store("advance-replaced").await;
+
+    put_handoff(&store, 0, Some("pod-a"), "pod-b", HandoffPhase::Freezing).await;
+    let validated = store
+        .get_handoff(0)
+        .await
+        .expect("get handoff")
+        .expect("handoff exists");
+
+    store.delete_handoff(0).await.expect("delete");
+    // Same phase, different attempt: the id is the only thing that can
+    // tell them apart, which is the point.
+    put_handoff_with_id(&store, 0, "pod-c", HandoffPhase::Freezing, "successor").await;
+
+    let advanced = store
+        .cas_handoff_phase(
+            0,
+            &validated.handoff_id,
+            HandoffPhase::Freezing,
+            HandoffPhase::Draining,
+        )
+        .await
+        .expect("cas_handoff_phase");
+    assert!(
+        !advanced,
+        "a replaced handoff must not be advanced by its predecessor's quorum"
+    );
 }
