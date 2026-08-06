@@ -43,6 +43,20 @@ DATA_WAREHOUSE_TARGET_PARTITION_BYTES = get_from_env(
     "DATA_WAREHOUSE_TARGET_PARTITION_BYTES", 500_000_000, type_cast=int
 )
 
+# How often each sync activity self-reports its workload (phase, buffer bytes, RSS) to the warehouse
+# Redis, for post-mortem enrichment of silent worker deaths. Zero or negative disables reporting
+# entirely (the fleet kill switch — hooks become no-ops and no thread starts).
+DATA_WAREHOUSE_WORKLOAD_REPORT_INTERVAL_SECONDS = get_from_env(
+    "DATA_WAREHOUSE_WORKLOAD_REPORT_INTERVAL_SECONDS", 30.0, type_cast=float
+)
+
+# A run whose peak self-reported buffer crosses this emits one `dwh_workload_high_watermark` event on
+# completion. Deaths are enriched separately; this captures the tail of *surviving* runs, which is
+# what calibrates OOM-classification thresholds. Zero disables the event.
+DATA_WAREHOUSE_WORKLOAD_HIGH_WATERMARK_BYTES = get_from_env(
+    "DATA_WAREHOUSE_WORKLOAD_HIGH_WATERMARK_BYTES", 500_000_000, type_cast=int
+)
+
 # A schema that records at least this many sync OOMs within the lookback window is force-repartitioned
 # even when its largest partition is within the size budget — its real merge working set is bigger than
 # the compressed at-rest size implies (e.g. wide nested-JSON columns). See ExternalDataSchemaOOMEvent.

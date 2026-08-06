@@ -89,6 +89,12 @@ pnpm --filter=@posthog/frontend... install
 # turbo is running (a foreground child would keep bash blocked in turbo's own
 # wait, delaying signal handling). `wait` returns when turbo exits or when a
 # trapped signal interrupts it, at which point shutdown() reaps the subtree.
+#
+# start-vite runs concurrently with --kill-others-on-fail so a Vite crash (e.g.
+# exit 127 when a dep relink races startup) tears down the toolbar watcher too,
+# letting this script exit non-zero instead of hanging while the watcher lives
+# on. That non-zero exit is what the process manager needs to see to autorestart
+# the frontend unit — without it a crashed Vite leaves the unit stuck pending.
 bin/turbo --filter=@posthog/frontend start-vite &
 turbo_pid=$!
 wait "$turbo_pid"

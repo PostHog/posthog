@@ -2468,6 +2468,8 @@ class ExternalDataSourceType(StrEnum):
     RAISELY = "Raisely"
     WINDSOR_AI = "WindsorAi"
     WIX = "Wix"
+    SEVALLA = "Sevalla"
+    MOTION = "Motion"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2808,6 +2810,7 @@ class InsightFilterProperty(StrEnum):
     FUNNELS_FILTER = "funnelsFilter"
     RETENTION_FILTER = "retentionFilter"
     PATHS_FILTER = "pathsFilter"
+    PATHS_V2_FILTER = "pathsV2Filter"
     STICKINESS_FILTER = "stickinessFilter"
     CALENDAR_HEATMAP_FILTER = "calendarHeatmapFilter"
     LIFECYCLE_FILTER = "lifecycleFilter"
@@ -2819,6 +2822,7 @@ class InsightNodeKind(StrEnum):
     FUNNELS_QUERY = "FunnelsQuery"
     RETENTION_QUERY = "RetentionQuery"
     PATHS_QUERY = "PathsQuery"
+    PATHS_V2_QUERY = "PathsV2Query"
     STICKINESS_QUERY = "StickinessQuery"
     LIFECYCLE_QUERY = "LifecycleQuery"
     WEB_STATS_TABLE_QUERY = "WebStatsTableQuery"
@@ -2937,6 +2941,11 @@ class LogsOrderBy(StrEnum):
 class LogsSparklineBreakdownBy(StrEnum):
     SEVERITY = "severity"
     SERVICE = "service"
+
+
+class LogsSparklineRankBy(StrEnum):
+    COUNT = "count"
+    BYTES = "bytes"
 
 
 class NeighborDirection(StrEnum):
@@ -3183,6 +3192,7 @@ class NodeKind(StrEnum):
     GROUPS_QUERY = "GroupsQuery"
     FUNNELS_ACTORS_QUERY = "FunnelsActorsQuery"
     FUNNEL_CORRELATION_ACTORS_QUERY = "FunnelCorrelationActorsQuery"
+    PATHS_V2_ACTORS_QUERY = "PathsV2ActorsQuery"
     SESSIONS_TIMELINE_QUERY = "SessionsTimelineQuery"
     RECORDINGS_QUERY = "RecordingsQuery"
     SESSION_ATTRIBUTION_EXPLORER_QUERY = "SessionAttributionExplorerQuery"
@@ -3209,6 +3219,7 @@ class NodeKind(StrEnum):
     FUNNELS_QUERY = "FunnelsQuery"
     RETENTION_QUERY = "RetentionQuery"
     PATHS_QUERY = "PathsQuery"
+    PATHS_V2_QUERY = "PathsV2Query"
     STICKINESS_QUERY = "StickinessQuery"
     STICKINESS_ACTORS_QUERY = "StickinessActorsQuery"
     LIFECYCLE_QUERY = "LifecycleQuery"
@@ -3282,6 +3293,19 @@ class PathType(StrEnum):
     FIELD_SCREEN = "$screen"
     CUSTOM_EVENT = "custom_event"
     HOGQL = "hogql"
+
+
+class PathsV2AnchorType(StrEnum):
+    START = "start"
+    END = "end"
+
+
+class PathsV2ElementType(StrEnum):
+    NODE = "node"
+    EDGE = "edge"
+    DROP_OFF = "dropOff"
+    OTHER = "other"
+    CHAIN = "chain"
 
 
 class SliceContent(StrEnum):
@@ -3709,31 +3733,28 @@ class SidebarDensity(StrEnum):
 
 class SlackIntegrationScope(StrEnum):
     APP_MENTIONS_READ = "app_mentions:read"
+    ASSISTANT_WRITE = "assistant:write"
+    CANVASES_WRITE = "canvases:write"
     CHANNELS_HISTORY = "channels:history"
+    CHANNELS_MANAGE = "channels:manage"
     CHANNELS_READ = "channels:read"
     CHAT_WRITE = "chat:write"
     CHAT_WRITE_CUSTOMIZE = "chat:write.customize"
+    COMMANDS = "commands"
+    FILES_READ = "files:read"
+    FILES_WRITE = "files:write"
     GROUPS_HISTORY = "groups:history"
     GROUPS_READ = "groups:read"
+    IM_HISTORY = "im:history"
     LINKS_READ = "links:read"
     LINKS_WRITE = "links:write"
+    MPIM_HISTORY = "mpim:history"
+    MPIM_READ = "mpim:read"
     REACTIONS_READ = "reactions:read"
     REACTIONS_WRITE = "reactions:write"
     TEAM_READ = "team:read"
     USERS_READ = "users:read"
     USERS_READ_EMAIL = "users:read.email"
-
-
-class SlackIntegrationScopeInReview(StrEnum):
-    ASSISTANT_WRITE = "assistant:write"
-    CANVASES_WRITE = "canvases:write"
-    CHANNELS_MANAGE = "channels:manage"
-    COMMANDS = "commands"
-    FILES_READ = "files:read"
-    FILES_WRITE = "files:write"
-    IM_HISTORY = "im:history"
-    MPIM_HISTORY = "mpim:history"
-    MPIM_READ = "mpim:read"
 
 
 class SlashCommandName(StrEnum):

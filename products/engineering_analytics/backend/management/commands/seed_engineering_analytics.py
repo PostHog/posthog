@@ -105,7 +105,7 @@ def _synthetic_repo_id(full_name: str) -> int:
 
 
 def _flatten_run(run: dict[str, Any]) -> dict[str, Any]:
-    json_keys = ("repository", "pull_requests", "head_commit")
+    json_keys = ("repository", "pull_requests", "head_commit", "actor")
     scalar_keys = [key for key in WORKFLOW_RUNS_COLUMNS if key not in json_keys]
     # A run is attributed to a PR only when the PR's base repo id equals the run's own — that's what
     # keeps the fork network's PRs out (see logic/views/workflow_runs). Snapshots captured before
@@ -123,6 +123,9 @@ def _flatten_run(run: dict[str, Any]) -> dict[str, Any]:
         "repository": json.dumps(repository),
         "pull_requests": json.dumps(associations),
         "head_commit": json.dumps(run.get("head_commit", {})),
+        # Snapshots captured before actor was kept land '{}', which reads as "not the merge queue" —
+        # the safe answer, since the branch parse it gates only ever adds attribution.
+        "actor": json.dumps(run.get("actor") or {}),
     }
 
 

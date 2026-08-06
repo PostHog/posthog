@@ -99,8 +99,10 @@ the row lists both.
 | baserow                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | baseten                          | HTTP                        | requests                                                        | ✅                          |
 | beamer                           | HTTP                        | requests                                                        | ✅                          |
+| beehiiv                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | better_stack                     | HTTP                        | requests                                                        | ✅                          |
 | bettermode                       | HTTP (GraphQL)              | requests                                                        | ✅                          |
+| bigcommerce                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | bigmailer                        | HTTP                        | requests                                                        | ✅                          |
 | bigquery                         | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bill_com                         | HTTP                        | requests                                                        | ✅                          |
@@ -398,7 +400,7 @@ the row lists both.
 | mem0                             | HTTP                        | requests                                                        | ✅                          |
 | mailerlite                       | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | mailersend                       | HTTP                        | requests                                                        | ✅                          |
-| mailgun                          | HTTP                        | requests                                                        | ✅                          |
+| mailgun                          | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (API) / ➖ (webhook)     |
 | mailjet                          | HTTP + Webhook              | `rest_source.RESTClient` + requests + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | mailosaur                        | HTTP                        | requests                                                        | ✅                          |
 | mailtrap                         | HTTP                        | requests                                                        | ✅                          |
@@ -432,6 +434,7 @@ the row lists both.
 | news_api                         | HTTP                        | requests                                                        | ✅                          |
 | newsdata                         | HTTP                        | requests                                                        | ✅                          |
 | npm_registry                     | HTTP                        | requests                                                        | ✅                          |
+| octolens                         | HTTP (POST body cursor)     | requests + `rest_source.RESTClient`                             | ✅                          |
 | okendo                           | HTTP (cursor pagination)    | requests + `rest_source.RESTClient`                             | ✅                          |
 | okta                             | HTTP                        | requests                                                        | ✅                          |
 | nocrm                            | HTTP                        | requests                                                        | ✅                          |
@@ -450,6 +453,7 @@ the row lists both.
 | open_meteo                       | HTTP (date windows)         | requests                                                        | ✅                          |
 | openai                           | HTTP                        | requests                                                        | ✅                          |
 | openai_ads                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| openalex                         | HTTP (cursor pagination)    | requests + `rest_source.RESTClient`                             | ✅                          |
 | opinion_stage                    | HTTP                        | requests                                                        | ✅                          |
 | opuswatch                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | orb                              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -606,6 +610,7 @@ the row lists both.
 | swarmia                          | HTTP                        | requests                                                        | ✅                          |
 | taboola                          | HTTP                        | requests                                                        | ✅                          |
 | tailscale                        | HTTP                        | requests                                                        | ✅                          |
+| tally                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | tavus                            | HTTP                        | requests                                                        | ✅                          |
 | tawk_to                          | HTTP                        | requests                                                        | ✅                          |
 | teachable                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -828,9 +833,7 @@ doesn't conflict with concurrent PRs.
 - backblaze
 - basecamp
 - bcms
-- beehiiv
 - bexio
-- bigcommerce
 - bigeye
 - billit
 - billomat
@@ -1147,6 +1150,7 @@ doesn't conflict with concurrent PRs.
 - mono
 - moodle
 - motherduck
+- motion
 - moxie
 - mycase
 - nager_date
@@ -1167,7 +1171,6 @@ doesn't conflict with concurrent PRs.
 - nuntly
 - nutshell
 - nylas
-- octolens
 - odoo
 - oecd
 - onedrive
@@ -1176,7 +1179,6 @@ doesn't conflict with concurrent PRs.
 - onesignal
 - open_data_dc
 - open_dental
-- openalex
 - opencorporates
 - openfec
 - opn_payments
@@ -1294,6 +1296,7 @@ doesn't conflict with concurrent PRs.
 - servicem8
 - servicetitan
 - servicetrade
+- sevalla
 - sevdesk
 - sevenshifts
 - sftp
@@ -1349,7 +1352,6 @@ doesn't conflict with concurrent PRs.
 - systeme
 - tackle_io
 - talkdesk
-- tally
 - teamup_fitness
 - tebra
 - telli
