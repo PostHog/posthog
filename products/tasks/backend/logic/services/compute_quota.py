@@ -9,11 +9,12 @@ logger = logging.getLogger(__name__)
 
 
 def is_task_billable_compute(task: Task) -> bool:
+    source_loop = task.loop if task.loop_id is not None else None
     return is_billable_compute(
         origin_product=task.origin_product,
         client_provenance=task.client_provenance,
         source_loop_id=task.loop_id,
-        source_loop_internal=task.loop.internal if task.loop_id is not None else None,
+        source_loop_internal=source_loop.internal if source_loop is not None else None,
     )
 
 
