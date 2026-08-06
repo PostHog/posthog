@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import cast
 
 from freezegun import freeze_time
-from posthog.test.base import _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 
 from django.forms.models import model_to_dict
 from django.test import override_settings
@@ -31,6 +31,8 @@ ACTIVATION_CRITERIA = {
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentActivationConfig(ExperimentQueryRunnerBaseTest):
+    snapshot_replace_all_numbers = True
+
     def _create_flag_exposure(self, distinct_id, feature_flag, variant, timestamp):
         _create_event(
             team=self.team,
@@ -65,6 +67,7 @@ class TestExperimentActivationConfig(ExperimentQueryRunnerBaseTest):
         return experiment
 
     @freeze_time("2020-01-10T12:00:00Z")
+    @snapshot_clickhouse_queries
     def test_mean_metric_anchors_exposure_on_activation_event(self):
         feature_flag = self.create_feature_flag()
         experiment = self._create_activation_experiment(feature_flag)
@@ -121,6 +124,7 @@ class TestExperimentActivationConfig(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 6)
 
     @freeze_time("2020-01-10T12:00:00Z")
+    @snapshot_clickhouse_queries
     def test_funnel_metric_counts_conversions_after_activation_only(self):
         feature_flag = self.create_feature_flag()
         experiment = self._create_activation_experiment(feature_flag)
@@ -161,6 +165,7 @@ class TestExperimentActivationConfig(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 1)  # success_count
 
     @freeze_time("2020-01-10T12:00:00Z")
+    @snapshot_clickhouse_queries
     def test_exposures_timeseries_counts_users_on_activation_day(self):
         feature_flag = self.create_feature_flag()
         experiment = self._create_activation_experiment(feature_flag)
