@@ -11,11 +11,7 @@ import { TeamManager } from '~/common/utils/team-manager'
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
 import type { CdpConfig } from './config'
-import {
-    PrecalculatedPersonPropertiesOutput,
-    PrefilteredEventsOutput,
-    WarehouseSourceWebhooksOutput,
-} from './outputs/outputs'
+import { WarehouseSourceWebhooksOutput } from './outputs/outputs'
 import { CdpProducerName } from './outputs/producers'
 import { createCdpOutputsRegistry } from './outputs/registry'
 import { CapturedEventsService } from './services/captured-events/captured-events.service'
@@ -50,13 +46,7 @@ import { MAX_FETCH_TIMEOUT_MS, cdpTrackedFetch } from './utils/cdp-fetch'
 import { EncryptedFields } from './utils/encryption-utils'
 
 /** Union of every output name resolved by `createCdpOutputsRegistry()`. */
-export type CdpOutput =
-    | AppMetricsOutput
-    | LogEntriesOutput
-    | HogInvocationResultsOutput
-    | PrefilteredEventsOutput
-    | PrecalculatedPersonPropertiesOutput
-    | WarehouseSourceWebhooksOutput
+export type CdpOutput = AppMetricsOutput | LogEntriesOutput | HogInvocationResultsOutput | WarehouseSourceWebhooksOutput
 
 export type CdpOutputs = IngestionOutputs<CdpOutput>
 
@@ -68,23 +58,20 @@ export interface CdpValkeyShadowPools {
 export interface CdpCoreServices {
     redis: RedisV2
     /**
-     * Shadow Valkey pools used for dual-write/read load testing. Null when
-     * CDP_VALKEY_DUAL_ENABLED is false or CDP_VALKEY_HOST is unset. Consumers
-     * that build their own redis-backed services (e.g. CdpEventsConsumer's
-     * HogRateLimiterService) read this to construct mirror instances bound
-     * to the shadow Valkey.
+     * Shadow Valkey pools used for dual-write/read. Consumers that build their own
+     * redis-backed services (e.g. CdpEventsConsumer's HogRateLimiterService) read this
+     * to construct mirror instances bound to the shadow Valkey.
      */
-    valkeyShadow: CdpValkeyShadowPools | null
+    valkeyShadow: CdpValkeyShadowPools
     hogFunctionManager: HogFunctionManagerService
     hogFlowManager: HogFlowManagerService
     hogWatcher: HogWatcherService
     /**
-     * Mirror HogWatcherService bound to the shadow Valkey pool. Null when
-     * shadow mode is disabled. Use at call sites alongside `hogWatcher` (via
-     * `mirrorCall`) to load-test the new infrastructure. Constructed with
-     * `sendEvents: false` so it never emits duplicate billable team events.
+     * Mirror HogWatcherService bound to the shadow Valkey pool. Use at call sites
+     * alongside `hogWatcher` (via `mirrorCall`) to load-test the new infrastructure.
+     * Constructed with `sendEvents: false` so it never emits duplicate billable team events.
      */
-    hogWatcherMirror: HogWatcherService | null
+    hogWatcherMirror: HogWatcherService
     /** Hog execution with async functions (fetch, email, push). Its `hogExecutor` is the synchronous core. */
     hogExecutorAsync: HogExecutorAsyncService
     /** Rebuilds the templated/resolved input bundle for a hog function — used by the rerun path to re-derive `inputs` after they're stripped from the persisted payload. */
@@ -128,7 +115,6 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_VALKEY_PASSWORD'
         | 'CDP_VALKEY_READER_HOST'
         | 'CDP_VALKEY_READER_PORT'
-        | 'CDP_VALKEY_DUAL_ENABLED'
         | 'CDP_VALKEY_TLS'
         | 'CDP_WATCHER_HOG_COST_TIMING_LOWER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
@@ -167,10 +153,6 @@ export type CdpCoreServicesConfig = Pick<
         | 'HOG_INVOCATION_RESULTS_ENABLED'
         | 'MESSAGE_ASSETS_TOPIC'
         | 'MESSAGE_ASSETS_PRODUCER'
-        | 'CDP_PREFILTERED_EVENTS_TOPIC'
-        | 'CDP_PREFILTERED_EVENTS_PRODUCER'
-        | 'CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC'
-        | 'CDP_PRECALCULATED_PERSON_PROPERTIES_PRODUCER'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER'
     >
@@ -248,8 +230,9 @@ export function createCdpReaderRedisPool(
 
 /**
  * Creates writer + reader pools for the shadow Valkey instance used in dual-write/read mode.
- * Returns null when CDP_VALKEY_DUAL_ENABLED is false or CDP_VALKEY_HOST is unset, in which
- * case the shadow path is disabled and behavior is identical to today.
+ * Throws when CDP_VALKEY_HOST is unset: a CDP process that cannot reach Valkey is
+ * misconfigured, and failing at startup surfaces that here rather than as mirror warn logs
+ * from every consumer.
  *
  * The reader falls back to the writer pool when CDP_VALKEY_READER_HOST is unset.
  */
@@ -261,15 +244,16 @@ export function createCdpValkeyShadowPools(
         | 'CDP_VALKEY_PASSWORD'
         | 'CDP_VALKEY_READER_HOST'
         | 'CDP_VALKEY_READER_PORT'
-        | 'CDP_VALKEY_DUAL_ENABLED'
         | 'CDP_VALKEY_TLS'
         | 'REDIS_POOL_MIN_SIZE'
         | 'REDIS_POOL_MAX_SIZE'
     >,
     name: string
-): CdpValkeyShadowPools | null {
-    if (!config.CDP_VALKEY_DUAL_ENABLED || !config.CDP_VALKEY_HOST) {
-        return null
+): CdpValkeyShadowPools {
+    if (!config.CDP_VALKEY_HOST) {
+        throw new Error(
+            `[${name}] CDP_VALKEY_HOST is required but unset. Every CDP process dual-writes to Valkey; set CDP_VALKEY_HOST (and CDP_VALKEY_PORT, CDP_VALKEY_TLS as needed) for this deployment.`
+        )
     }
 
     logger.info(
@@ -299,7 +283,9 @@ export function createCdpValkeyShadowPools(
         poolMaxSize: config.REDIS_POOL_MAX_SIZE,
     })
 
-    // Non-blocking startup health check — shadow misconfig must not block startup.
+    // The config is required, but reachability is not fatal: reads still come from the
+    // primary Redis, so an unreachable Valkey must not take CDP down. It stays a
+    // non-blocking check until reads move over.
     void writer
         .useClient({ name: 'startup-ping', timeout: 5000 }, (client) => client.ping())
         .catch((err) => {
@@ -388,14 +374,12 @@ export function createCdpCoreServices(
     // so it never emits duplicate billable team events on state transitions; the
     // Prom counter `cdp_hog_function_state_change` may double-emit when both pools
     // detect the same transition — rare, accepted during dual-write mode.
-    const hogWatcherMirror: HogWatcherService | null = valkeyShadow
-        ? new HogWatcherService(
-              deps.teamManager,
-              { ...hogWatcherConfig, sendEvents: false },
-              valkeyShadow.writer,
-              valkeyShadow.reader
-          )
-        : null
+    const hogWatcherMirror = new HogWatcherService(
+        deps.teamManager,
+        { ...hogWatcherConfig, sendEvents: false },
+        valkeyShadow.writer,
+        valkeyShadow.reader
+    )
 
     const trackingCodeSigner = new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
     const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres)
@@ -440,8 +424,8 @@ export function createCdpCoreServices(
             backoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
         },
         redis,
-        messageAssetsService,
-        valkeyShadow?.writer ?? null
+        valkeyShadow.writer,
+        messageAssetsService
     )
 
     const hogExecutorAsync = new HogExecutorAsyncService(
@@ -476,7 +460,7 @@ export function createCdpCoreServices(
     // and EmailValidationService degrades to the local cache + DNS.
     const emailValidationService = new EmailValidationService(deps.emailValidationValkey)
     // Observer mirrors writes to Valkey (load-only); only the primary path drives metrics.
-    const hogFlowDuplicateObserver = new HogFlowDuplicateObserverService(redis, valkeyShadow?.writer ?? null)
+    const hogFlowDuplicateObserver = new HogFlowDuplicateObserverService(redis, valkeyShadow.writer)
     const hogFlowExecutor = new HogFlowExecutorService(
         hogFlowFunctionsService,
         recipientPreferencesService,
