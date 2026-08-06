@@ -27,8 +27,6 @@ from posthog.kafka_client.client import _AsyncKafkaProducer, _KafkaProducer
 from posthog.kafka_client.profiles import KafkaClusterProfile
 from posthog.kafka_client.topics import (
     KAFKA_APP_METRICS2,
-    KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
-    KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
     KAFKA_CDP_INTERNAL_EVENTS,
     KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
@@ -98,8 +96,6 @@ _DEFAULT_TOPIC_ROUTING: dict[str, KafkaClusterProfile] = {
     KAFKA_CDP_INTERNAL_EVENTS: KafkaClusterProfile.CYCLOTRON,
     KAFKA_DWH_CDP_RAW_TABLE: KafkaClusterProfile.CYCLOTRON,
     # --- CALCULATED_EVENTS (Warpstream calculated-events) ---
-    KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES: KafkaClusterProfile.CALCULATED_EVENTS,
-    KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS: KafkaClusterProfile.CALCULATED_EVENTS,
     KAFKA_COHORT_MEMBERSHIP_CHANGED: KafkaClusterProfile.CALCULATED_EVENTS,
     # --- REPLAY (Session replay) ---
     KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS: KafkaClusterProfile.REPLAY,

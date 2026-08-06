@@ -1575,7 +1575,9 @@ export class AgentServer {
         return null;
       }),
     ]);
-    this.taskRepositories = preTask?.repository ? [preTask.repository] : [];
+    this.taskRepositories =
+      preTask?.repositories ??
+      (preTask?.repository ? [preTask.repository] : []);
 
     this.prewarmedRun =
       (preTaskRun?.state as Record<string, unknown> | undefined)?.prewarmed ===

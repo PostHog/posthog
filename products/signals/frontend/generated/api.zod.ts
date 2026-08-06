@@ -336,6 +336,10 @@ export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneChannel
 
 export const signalsScoutCreateBodyConfigOneRunCronScheduleMax = 100
 
+export const signalsScoutCreateBodyConfigOneModelMax = 200
+
+export const signalsScoutCreateBodyConfigOneTagsMax = 10
+
 export const SignalsScoutCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod
@@ -438,6 +442,20 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                     .describe(
                         "Optional five-field cron expression, e.g. '30 9 \* \* \*' (daily at 09:30), '0 9,17 \* \* \*' (twice daily), or '0 9 \* \* 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
                     ),
+                model: zod
+                    .string()
+                    .max(signalsScoutCreateBodyConfigOneModelMax)
+                    .nullish()
+                    .describe(
+                        "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it."
+                    ),
+                tags: zod
+                    .array(zod.string())
+                    .max(signalsScoutCreateBodyConfigOneTagsMax)
+                    .optional()
+                    .describe(
+                        'Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.'
+                    ),
                 structured_output_schema: zod
                     .record(zod.string(), zod.unknown())
                     .nullish()
@@ -463,6 +481,10 @@ export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
 export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneChannelMax = 255
 
 export const signalsScoutConfigCreateBodyRunCronScheduleMax = 100
+
+export const signalsScoutConfigCreateBodyModelMax = 200
+
+export const signalsScoutConfigCreateBodyTagsMax = 10
 
 export const signalsScoutConfigCreateBodySkillNameMax = 200
 
@@ -529,6 +551,20 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Optional five-field cron expression, e.g. '30 9 \* \* \*' (daily at 09:30), '0 9,17 \* \* \*' (twice daily), or '0 9 \* \* 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
             ),
+        model: zod
+            .string()
+            .max(signalsScoutConfigCreateBodyModelMax)
+            .nullish()
+            .describe(
+                "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it."
+            ),
+        tags: zod
+            .array(zod.string())
+            .max(signalsScoutConfigCreateBodyTagsMax)
+            .optional()
+            .describe(
+                'Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.'
+            ),
         structured_output_schema: zod
             .record(zod.string(), zod.unknown())
             .nullish()
@@ -556,6 +592,10 @@ export const signalsScoutConfigUpdateBodyRunIntervalMinutesMax = 43200
 export const signalsScoutConfigUpdateBodyRunCronScheduleMax = 100
 
 export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneChannelMax = 255
+
+export const signalsScoutConfigUpdateBodyModelMax = 200
+
+export const signalsScoutConfigUpdateBodyTagsMax = 10
 
 export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -627,11 +667,25 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "What the scout's sandbox can reach over the network while it runs. `trusted` (the default) restricts runs to the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers. Applies from the scout's next run.\n\n\* `trusted` - Trusted domains only\n\* `full` - Full"
             ),
+        model: zod
+            .string()
+            .max(signalsScoutConfigUpdateBodyModelMax)
+            .nullish()
+            .describe(
+                "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it."
+            ),
         auto_pause_exempt: zod
             .boolean()
             .optional()
             .describe(
                 'Exempt this scout from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet.'
+            ),
+        tags: zod
+            .array(zod.string())
+            .max(signalsScoutConfigUpdateBodyTagsMax)
+            .optional()
+            .describe(
+                'Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.'
             ),
     })
     .describe('Editable schedule, enablement, and emit posture for one scout config.')

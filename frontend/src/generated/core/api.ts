@@ -18,6 +18,7 @@ import type {
     DomainsListParams,
     EnterprisePropertyDefinitionApi,
     ExportedAssetApi,
+    ExportedAssetCreateApi,
     ExportsListParams,
     FileSystemApi,
     FileSystemListParams,
@@ -1371,14 +1372,14 @@ export const getExportsCreateUrl = (projectId: string) => {
 
 export const exportsCreate = async (
     projectId: string,
-    exportedAssetApi: NonReadonly<ExportedAssetApi>,
+    exportedAssetCreateApi: NonReadonly<ExportedAssetCreateApi>,
     options?: RequestInit
-): Promise<ExportedAssetApi> => {
-    return apiMutator<ExportedAssetApi>(getExportsCreateUrl(projectId), {
+): Promise<ExportedAssetCreateApi> => {
+    return apiMutator<ExportedAssetCreateApi>(getExportsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(exportedAssetApi),
+        body: JSON.stringify(exportedAssetCreateApi),
     })
 }
 

@@ -22,6 +22,7 @@ jobs:
               with:
                   app_id: ${{ secrets.GH_APP_ARRAY_RELEASER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
+                  scope: PostHog
 
             # Desktop release drafts live on PostHog/code (the legacy update feed), so
             # the cleanup targets that repo explicitly — never github.repository, which

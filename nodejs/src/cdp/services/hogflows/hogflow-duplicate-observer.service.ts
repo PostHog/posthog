@@ -17,14 +17,14 @@ const hogflowDuplicateInvocationDetectedTotal = new Counter({
 
 /**
  * Detects duplicate workflow invocations via a Redis SET-NX key per
- * (workflow, event, action). When `redisMirror` is set, every observation also
- * fires against the mirror in parallel — load is realised on the mirror; only
- * the primary drives the duplicate-detected metric.
+ * (workflow, event, action). Every observation also fires against the Valkey mirror
+ * in parallel — load is realised on the mirror; only the primary drives the
+ * duplicate-detected metric.
  */
 export class HogFlowDuplicateObserverService {
     constructor(
         private readonly redis: RedisV2 | null,
-        private readonly redisMirror: RedisV2 | null = null
+        private readonly redisMirror: RedisV2
     ) {}
 
     public async observe(
@@ -50,7 +50,7 @@ export class HogFlowDuplicateObserverService {
             const existingId = await mirrorCompare(
                 'hog-flow-duplicate-observer.observe',
                 () => this.redis!.useClient({ name: 'hogflow-observe', failOpen: true }, setNxGet),
-                () => this.redisMirror?.useClient({ name: 'hogflow-observe-mirror', failOpen: true }, setNxGet),
+                () => this.redisMirror.useClient({ name: 'hogflow-observe-mirror', failOpen: true }, setNxGet),
                 (primary, mirror) => Boolean(primary) === Boolean(mirror)
             )
             if (existingId && existingId !== invocation.id) {

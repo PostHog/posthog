@@ -35,6 +35,7 @@ export const AGENT_USE_CASE_SCOPES = [
     'dashboard:read',
     'dashboard:write',
     'dashboard_template:read',
+    'dataset:read',
     'dataset:write',
     'early_access_feature:read',
     'early_access_feature:write',
