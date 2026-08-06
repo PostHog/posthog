@@ -32,6 +32,7 @@ from posthog.schema import (
     LogPropertyFilter,
     MetricPropertyFilter,
     PathsQuery,
+    PathsV2ActorsQuery,
     PathsV2Query,
     PersonMetadataPropertyFilter,
     PersonPropertyFilter,
@@ -59,7 +60,12 @@ type InsightQueryNode = Union[
 ]
 
 type InsightActorsQueryNode = Union[
-    InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery, StickinessActorsQuery, ExperimentActorsQuery
+    InsightActorsQuery,
+    FunnelsActorsQuery,
+    FunnelCorrelationActorsQuery,
+    StickinessActorsQuery,
+    ExperimentActorsQuery,
+    PathsV2ActorsQuery,
 ]
 
 type AnyPropertyFilter = Union[
