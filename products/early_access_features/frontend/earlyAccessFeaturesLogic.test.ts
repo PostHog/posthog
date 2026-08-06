@@ -32,8 +32,9 @@ const mockFeature = (overrides: Partial<EarlyAccessFeatureType> = {}): EarlyAcce
 })
 
 // Guards the list scene's two mutations of server state: the chained waitlist-count fetch (wrong
-// survey_ids, a dropped chain, or a survey 403 breaking the whole list) and the inline assignee
-// PATCH (wrong body/route, or a failed PATCH leaving the optimistic update in place).
+// survey_ids, a dropped chain, or a survey failure flagged so the cell shows a dash not a fake 0)
+// and the inline assignee PATCH (wrong body/route, and that a failure reverts only the edited row
+// without a full-list reload that would clobber a concurrent edit).
 describe('earlyAccessFeaturesLogic', () => {
     let logic: ReturnType<typeof earlyAccessFeaturesLogic.build>
 
@@ -99,7 +100,7 @@ describe('earlyAccessFeaturesLogic', () => {
         expect(responsesCountCalled).toBe(false)
     })
 
-    it('keeps an empty counts map when the responses count request fails', async () => {
+    it('flags the failure and keeps an empty counts map when the responses count request fails', async () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/early_access_feature': {
@@ -113,23 +114,32 @@ describe('earlyAccessFeaturesLogic', () => {
         logic = earlyAccessFeaturesLogic()
         logic.mount()
 
-        // Fails soft: users without survey access must still get a working features list
+        // Fails soft: users without survey access still get a working features list, but the cell
+        // shows a dash rather than a fabricated 0
         await expectLogic(logic).toDispatchActions([
             'loadEarlyAccessFeaturesSuccess',
-            'loadWaitlistResponsesCountSuccess',
+            'loadWaitlistResponsesCountFailure',
         ])
 
         expect(logic.values.waitlistResponsesCount).toEqual({})
+        expect(logic.values.waitlistResponsesCountFailed).toBe(true)
     })
 
-    it('updates the assignee optimistically and PATCHes it to the right feature', async () => {
+    it('updates the assignee optimistically, PATCHes it, and does not reload the list', async () => {
+        let listRequests = 0
         let patchedId: string | null = null
         let patchBody: any = null
         useMocks({
             get: {
-                '/api/projects/:team_id/early_access_feature': {
-                    count: 1,
-                    results: [mockFeature({ id: 'feature-1', stage: EarlyAccessFeatureStage.Beta })],
+                '/api/projects/:team_id/early_access_feature': () => {
+                    listRequests++
+                    return [
+                        200,
+                        {
+                            count: 1,
+                            results: [mockFeature({ id: 'feature-1', stage: EarlyAccessFeatureStage.Beta })],
+                        },
+                    ]
                 },
             },
             patch: {
@@ -146,20 +156,31 @@ describe('earlyAccessFeaturesLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadEarlyAccessFeaturesSuccess'])
 
         logic.actions.updateFeatureAssignee('feature-1', { type: 'user', id: 7 })
-        // Reducer applies before the request resolves
+        // The optimistic write applies synchronously, before the request resolves
         expect(logic.values.earlyAccessFeatures[0].assignee).toEqual({ type: 'user', id: 7 })
 
         await expectLogic(logic).toFinishAllListeners()
         expect(patchedId).toEqual('feature-1')
         expect(patchBody).toEqual({ assignee: { type: 'user', id: 7 } })
+        // A successful edit must not refetch the list
+        expect(listRequests).toBe(1)
     })
 
-    it('reloads the list when the assignee update fails', async () => {
+    it('reverts only the edited row when the assignee update fails', async () => {
+        let listRequests = 0
         useMocks({
             get: {
-                '/api/projects/:team_id/early_access_feature': {
-                    count: 1,
-                    results: [mockFeature({ id: 'feature-1', stage: EarlyAccessFeatureStage.Beta, assignee: null })],
+                '/api/projects/:team_id/early_access_feature': () => {
+                    listRequests++
+                    return [
+                        200,
+                        {
+                            count: 1,
+                            results: [
+                                mockFeature({ id: 'feature-1', stage: EarlyAccessFeatureStage.Beta, assignee: null }),
+                            ],
+                        },
+                    ]
                 },
             },
             patch: {
@@ -171,11 +192,13 @@ describe('earlyAccessFeaturesLogic', () => {
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadEarlyAccessFeaturesSuccess'])
 
-        await expectLogic(logic, () => {
-            logic.actions.updateFeatureAssignee('feature-1', { type: 'user', id: 7 })
-        }).toDispatchActions(['updateFeatureAssignee', 'loadEarlyAccessFeatures', 'loadEarlyAccessFeaturesSuccess'])
+        logic.actions.updateFeatureAssignee('feature-1', { type: 'user', id: 7 })
+        // Optimistic write lands first
+        expect(logic.values.earlyAccessFeatures[0].assignee).toEqual({ type: 'user', id: 7 })
 
-        // The optimistic update is reverted to server truth
+        await expectLogic(logic).toFinishAllListeners()
+        // Then reverts to the previous value for just this row — no full-list reload
         expect(logic.values.earlyAccessFeatures[0].assignee).toBeNull()
+        expect(listRequests).toBe(1)
     })
 })

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonButton, LemonInput, LemonTable, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
@@ -22,10 +22,14 @@ import { AccessControlLevel, AccessControlResourceType, EarlyAccessFeatureType }
 import {
     AssigneeIconDisplay,
     AssigneeLabelDisplay,
+    AssigneeResolver,
 } from 'products/error_tracking/frontend/components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from 'products/error_tracking/frontend/components/Assignee/AssigneeSelect'
 
-import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
+import { earlyAccessFeaturesLogic, waitlistSurveyId } from './earlyAccessFeaturesLogic'
+
+// Features with no waitlist survey sort below a real count of 0.
+const NO_WAITLIST_SORT_VALUE = -1
 
 export const scene: SceneExport = {
     component: EarlyAccessFeatures,
@@ -49,6 +53,7 @@ export function EarlyAccessFeatures(): JSX.Element {
         searchTerm,
         waitlistResponsesCount,
         waitlistResponsesCountLoading,
+        waitlistResponsesCountFailed,
     } = useValues(earlyAccessFeaturesLogic)
     const { setSearchTerm, updateFeatureAssignee } = useActions(earlyAccessFeaturesLogic)
     const shouldShowEmptyState = filteredEarlyAccessFeatures.length == 0 && !earlyAccessFeaturesLoading && !searchTerm
@@ -155,23 +160,36 @@ export function EarlyAccessFeatures(): JSX.Element {
                                 key: 'waitlist',
                                 tooltip: 'People who signed up to the waitlist survey for this feature',
                                 render(_, feature) {
-                                    const surveyId = feature.payload?.survey_id
-                                    if (typeof surveyId !== 'string') {
+                                    const surveyId = waitlistSurveyId(feature)
+                                    if (surveyId === null) {
                                         return <span className="text-secondary">–</span>
                                     }
                                     if (waitlistResponsesCountLoading) {
                                         return <Spinner />
                                     }
+                                    if (waitlistResponsesCountFailed) {
+                                        return (
+                                            <Tooltip title="Couldn't load waitlist signups">
+                                                <span className="text-secondary">–</span>
+                                            </Tooltip>
+                                        )
+                                    }
+                                    const count = waitlistResponsesCount[surveyId] ?? 0
                                     return (
-                                        <Link to={urls.survey(surveyId)}>{waitlistResponsesCount[surveyId] ?? 0}</Link>
+                                        <Link
+                                            to={urls.survey(surveyId)}
+                                            aria-label={`${count} waitlist signups for ${feature.name}`}
+                                        >
+                                            {count}
+                                        </Link>
                                     )
                                 },
                                 sorter: (a, b) => {
                                     const getCount = (feature: EarlyAccessFeatureType): number => {
-                                        const surveyId = feature.payload?.survey_id
-                                        return typeof surveyId === 'string'
+                                        const surveyId = waitlistSurveyId(feature)
+                                        return surveyId !== null
                                             ? (waitlistResponsesCount[surveyId] ?? 0)
-                                            : -1
+                                            : NO_WAITLIST_SORT_VALUE
                                     }
                                     return getCount(a) - getCount(b)
                                 },
@@ -185,6 +203,28 @@ export function EarlyAccessFeatures(): JSX.Element {
                                         AccessControlLevel.Editor,
                                         feature.user_access_level
                                     )
+                                    // AssigneeSelect opens its dropdown from a wrapper the disabled button
+                                    // can't gate, so viewers get a read-only display instead of a live trigger.
+                                    if (assigneeEditDisabledReason) {
+                                        return (
+                                            <AssigneeResolver assignee={feature.assignee ?? null}>
+                                                {({ assignee: resolvedAssignee }) => (
+                                                    <Tooltip title={assigneeEditDisabledReason}>
+                                                        <span className="flex items-center gap-1">
+                                                            <AssigneeIconDisplay
+                                                                assignee={resolvedAssignee}
+                                                                size="small"
+                                                            />
+                                                            <AssigneeLabelDisplay
+                                                                assignee={resolvedAssignee}
+                                                                size="small"
+                                                            />
+                                                        </span>
+                                                    </Tooltip>
+                                                )}
+                                            </AssigneeResolver>
+                                        )
+                                    }
                                     return (
                                         <AssigneeSelect
                                             assignee={feature.assignee ?? null}
@@ -194,7 +234,6 @@ export function EarlyAccessFeatures(): JSX.Element {
                                                 <LemonButton
                                                     type="tertiary"
                                                     size="small"
-                                                    disabledReason={assigneeEditDisabledReason ?? undefined}
                                                     data-attr="early-access-feature-list-assignee"
                                                 >
                                                     <AssigneeIconDisplay assignee={displayAssignee} size="small" />
