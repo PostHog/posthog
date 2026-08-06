@@ -3431,12 +3431,6 @@ describe("AgentServer HTTP Mode", () => {
       expect(
         (s as unknown as TestableServer).buildCodexInstructions(sessionPrompt),
       ).toContain("Cloud Task Execution");
-      expect(
-        (s as unknown as TestableServer).buildCodexInstructions(sessionPrompt),
-      ).toContain("Never use them as Markdown link targets");
-      expect(
-        (s as unknown as TestableServer).buildCodexInstructions(sessionPrompt),
-      ).toContain("https://github.com/<owner>/<repo>/blob/<ref>/<path>#L42");
     });
   });
 

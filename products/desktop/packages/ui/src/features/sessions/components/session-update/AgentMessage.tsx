@@ -4,7 +4,10 @@ import { memo, useCallback, useState } from "react";
 import type { Components } from "react-markdown";
 import { HighlightedCode } from "../../../../primitives/HighlightedCode";
 import { Tooltip } from "../../../../primitives/Tooltip";
-import { MarkdownRenderer } from "../../../editor/components/MarkdownRenderer";
+import {
+  MarkdownLink,
+  MarkdownRenderer,
+} from "../../../editor/components/MarkdownRenderer";
 import { StreamingMarkdown } from "../../../editor/components/StreamingMarkdown";
 import { useSmoothedText } from "../../../editor/components/useSmoothedText";
 import {
@@ -12,9 +15,18 @@ import {
   hasDirectoryPath,
   InlineFileLink,
   looksLikeBareFilename,
+  parseMarkdownFileHref,
 } from "./fileLinkChips";
 
 const agentComponents: Partial<Components> = {
+  a: ({ children, href }) => {
+    const filePath = href ? parseMarkdownFileHref(href) : null;
+    return filePath ? (
+      <InlineFileLink text={filePath} label={children} />
+    ) : (
+      <MarkdownLink href={href}>{children}</MarkdownLink>
+    );
+  },
   code: ({ children, className }) => {
     const langMatch = className?.match(/language-(\w+)/);
     if (langMatch) {

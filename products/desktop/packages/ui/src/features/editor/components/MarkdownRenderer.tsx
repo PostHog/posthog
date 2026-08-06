@@ -38,6 +38,61 @@ const HeadingText = ({ children }: { children: React.ReactNode }) => (
   </Text>
 );
 
+export function MarkdownLink({
+  href,
+  children,
+}: {
+  href?: string;
+  children?: React.ReactNode;
+}) {
+  const githubRef = href ? parseGithubIssueUrl(href) : null;
+  if (githubRef) {
+    const isAutoLink = typeof children === "string" && children === href;
+    const label = isAutoLink
+      ? `${githubRef.owner}/${githubRef.repo}#${githubRef.number}`
+      : children;
+    return (
+      <GithubRefChip href={githubRef.normalizedUrl} kind={githubRef.kind}>
+        {label}
+      </GithubRefChip>
+    );
+  }
+  const isDeeplink = isPostHogCodeDeeplink(href);
+  return (
+    <a
+      href={href}
+      onClick={(event) => {
+        if (handleShareLinkClick(href, event)) return;
+        if (!isDeeplink || !href) return;
+        event.preventDefault();
+        openExternalUrl(href);
+      }}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="markdown-link inline-flex items-center gap-[2px]"
+    >
+      {children}
+      <svg
+        width="10"
+        height="10"
+        viewBox="0 0 12 12"
+        fill="none"
+        stroke="var(--accent-11)"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-label="external link icon"
+        role="img"
+        className="ml-1 shrink-0"
+      >
+        <path d="M4.5 1.5H2.25C1.836 1.5 1.5 1.836 1.5 2.25V9.75C1.5 10.164 1.836 10.5 2.25 10.5H9.75C10.164 10.5 10.5 10.164 10.5 9.75V7.5" />
+        <path d="M7.5 1.5H10.5V4.5" />
+        <path d="M5.25 6.75L10.5 1.5" />
+      </svg>
+    </a>
+  );
+}
+
 export const baseComponents: Components = {
   h1: ({ children }) => <HeadingText>{children}</HeadingText>,
   h2: ({ children }) => <HeadingText>{children}</HeadingText>,
@@ -74,54 +129,7 @@ export const baseComponents: Components = {
   del: ({ children }) => (
     <del className="text-(--gray-9) line-through">{children}</del>
   ),
-  a: ({ href, children }) => {
-    const githubRef = href ? parseGithubIssueUrl(href) : null;
-    if (githubRef) {
-      const isAutoLink = typeof children === "string" && children === href;
-      const label = isAutoLink
-        ? `${githubRef.owner}/${githubRef.repo}#${githubRef.number}`
-        : children;
-      return (
-        <GithubRefChip href={githubRef.normalizedUrl} kind={githubRef.kind}>
-          {label}
-        </GithubRefChip>
-      );
-    }
-    const isDeeplink = isPostHogCodeDeeplink(href);
-    return (
-      <a
-        href={href}
-        onClick={(event) => {
-          if (handleShareLinkClick(href, event)) return;
-          if (!isDeeplink || !href) return;
-          event.preventDefault();
-          openExternalUrl(href);
-        }}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="markdown-link inline-flex items-center gap-[2px]"
-      >
-        {children}
-        <svg
-          width="10"
-          height="10"
-          viewBox="0 0 12 12"
-          fill="none"
-          stroke="var(--accent-11)"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-label="external link icon"
-          role="img"
-          className="ml-1 shrink-0"
-        >
-          <path d="M4.5 1.5H2.25C1.836 1.5 1.5 1.836 1.5 2.25V9.75C1.5 10.164 1.836 10.5 2.25 10.5H9.75C10.164 10.5 10.5 10.164 10.5 9.75V7.5" />
-          <path d="M7.5 1.5H10.5V4.5" />
-          <path d="M5.25 6.75L10.5 1.5" />
-        </svg>
-      </a>
-    );
-  },
+  a: MarkdownLink,
   kbd: ({ children }) => <Kbd>{children}</Kbd>,
   ul: ({ children }) => (
     <List as="ul" size="1">

@@ -20,6 +20,26 @@ export function looksLikeBareFilename(text: string): boolean {
   return BARE_FILE_RE.test(text);
 }
 
+export function parseMarkdownFileHref(href: string): string | null {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(href);
+  } catch {
+    return null;
+  }
+
+  const lineFragment = decoded.match(/#L(\d+)(?:-L?(\d+))?$/);
+  const path = lineFragment ? decoded.slice(0, lineFragment.index) : decoded;
+  const lineSuffix = lineFragment
+    ? `:${lineFragment[1]}${lineFragment[2] ? `-${lineFragment[2]}` : ""}`
+    : "";
+  const filePath = `${path}${lineSuffix}`;
+
+  return hasDirectoryPath(filePath) || looksLikeBareFilename(filePath)
+    ? filePath
+    : null;
+}
+
 function parseFilePath(text: string): { filePath: string; lineSuffix: string } {
   const match = text.match(/^(.+?)(?::(\d+(?:-\d+)?))?$/);
   if (!match) return { filePath: text, lineSuffix: "" };
@@ -35,9 +55,11 @@ function resolveFilename(filename: string, files: FileItem[]): FileItem | null {
 export function InlineFileLink({
   text,
   resolvedPath,
+  label,
 }: {
   text: string;
   resolvedPath?: string;
+  label?: ReactNode;
 }) {
   const { filePath: rawPath, lineSuffix } = parseFilePath(text);
   const filePath = resolvedPath ?? rawPath;
@@ -73,8 +95,8 @@ export function InlineFileLink({
         disabled={!taskId}
         className={`m-0 inline border-0 bg-transparent p-0 font-[inherit] text-(--accent-11) text-[length:inherit] ${taskId ? "cursor-pointer underline decoration-(--accent-a8) underline-offset-2 hover:decoration-(--accent-11)" : ""}`}
       >
-        {filename}
-        {lineSuffix ? `:${lineSuffix}` : ""}
+        {label ?? filename}
+        {!label && lineSuffix ? `:${lineSuffix}` : ""}
       </button>
     </Tooltip>
   );
