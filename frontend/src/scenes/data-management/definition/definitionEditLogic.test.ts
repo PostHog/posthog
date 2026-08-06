@@ -71,4 +71,43 @@ describe('definitionEditLogic', () => {
         // navigated away from the edit page back to the definition detail page
         expect(router.values.location.pathname.endsWith(detailUrl)).toBe(true)
     })
+
+    it('surfaces a DRF field error on the form instead of letting it escape', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/event_definitions/:id': mockEventDefinitions[0],
+                '/api/projects/:team_id/event_definitions/': {
+                    results: mockEventDefinitions,
+                    count: mockEventDefinitions.length,
+                },
+            },
+            patch: {
+                '/api/projects/:team/event_definitions/:id': () => [
+                    400,
+                    {
+                        type: 'validation_error',
+                        code: 'blank',
+                        detail: 'This field may not be blank.',
+                        attr: 'primary_property',
+                    },
+                ],
+            },
+        })
+
+        router.actions.push(urls.eventDefinitionEdit('1'))
+        await expectLogic(definitionLogic({ id: '1' })).toFinishAllListeners()
+
+        const logic = definitionEditLogic({ id: '1' })
+        logic.mount()
+        // Let the definition finish loading so the reset-on-load subscription settles before saving
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.saveDefinition({})
+        }).toDispatchActions(['saveDefinitionFailure'])
+
+        expect(logic.values.editDefinitionManualErrors).toMatchObject({
+            primary_property: 'This field may not be blank.',
+        })
+    })
 })

@@ -332,7 +332,11 @@ export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
                                                 eventNames={[editDefinition.name]}
                                                 value={value ?? null}
                                                 onChange={(changedValue) =>
-                                                    onChange(typeof changedValue === 'string' ? changedValue : null)
+                                                    onChange(
+                                                        typeof changedValue === 'string' && changedValue
+                                                            ? changedValue
+                                                            : null
+                                                    )
                                                 }
                                                 placeholder="Select a primary property"
                                                 selectingKeyOnly

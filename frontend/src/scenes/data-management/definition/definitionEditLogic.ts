@@ -6,6 +6,7 @@ import { beforeUnload, router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { DefinitionLogicProps, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
@@ -257,39 +258,50 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
                 saveDefinition: async (_, breakpoint) => {
                     let definition = { ...values.editDefinition }
 
-                    if (values.isEvent) {
-                        // Event Definition
-                        const _event = definition as EventDefinition
-                        definition = await api.eventDefinitions.update({
-                            eventDefinitionId: _event.id,
-                            eventDefinitionData: {
-                                ..._event,
-                                owner: _event.owner?.id ?? null,
-                                verified: !!_event.verified,
-                            },
-                        })
-                    } else {
-                        // Event Property Definition
-                        const _eventProperty = definition as PropertyDefinition
-                        definition = await api.propertyDefinitions.update({
-                            propertyDefinitionId: _eventProperty.id,
-                            propertyDefinitionData: _eventProperty,
-                        })
-                        updatePropertyDefinitions({
-                            [`event/${definition.name}`]: definition as PropertyDefinition,
-                        })
-
-                        // Save field access control changes if any
-                        const currentTeamId = teamLogic.values.currentTeamId
-                        if (currentTeamId) {
-                            const facLogic = propertyAccessControlLogic.findMounted({
-                                propertyDefinitionId: definition.id,
-                                teamId: currentTeamId,
+                    try {
+                        if (values.isEvent) {
+                            // Event Definition
+                            const _event = definition as EventDefinition
+                            definition = await api.eventDefinitions.update({
+                                eventDefinitionId: _event.id,
+                                eventDefinitionData: {
+                                    ..._event,
+                                    owner: _event.owner?.id ?? null,
+                                    verified: !!_event.verified,
+                                },
                             })
-                            if (facLogic?.values.hasChanges) {
-                                facLogic.actions.saveAccessControls()
+                        } else {
+                            // Event Property Definition
+                            const _eventProperty = definition as PropertyDefinition
+                            definition = await api.propertyDefinitions.update({
+                                propertyDefinitionId: _eventProperty.id,
+                                propertyDefinitionData: _eventProperty,
+                            })
+                            updatePropertyDefinitions({
+                                [`event/${definition.name}`]: definition as PropertyDefinition,
+                            })
+
+                            // Save field access control changes if any
+                            const currentTeamId = teamLogic.values.currentTeamId
+                            if (currentTeamId) {
+                                const facLogic = propertyAccessControlLogic.findMounted({
+                                    propertyDefinitionId: definition.id,
+                                    teamId: currentTeamId,
+                                })
+                                if (facLogic?.values.hasChanges) {
+                                    facLogic.actions.saveAccessControls()
+                                }
                             }
                         }
+                    } catch (error) {
+                        // Surface DRF field errors inline instead of letting the ApiError escape
+                        // into error tracking with no feedback for the user.
+                        if (error instanceof ApiError && error.attr) {
+                            actions.setEditDefinitionManualErrors({ [error.attr]: error.detail ?? error.message })
+                        } else {
+                            lemonToast.error(error instanceof Error ? error.message : String(error))
+                        }
+                        throw error
                     }
                     breakpoint()
 

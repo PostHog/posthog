@@ -261,6 +261,9 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                         }
                     } catch (error: any) {
                         lemonToast.error(error.message)
+                        // Rethrow so the loader rejects: this keeps the success toast and the
+                        // optimistic list update from running, and lets handleSaveFailure fire.
+                        throw error
                     }
                     breakpoint()
                     // Disregard save attempts for any other types of taxonomy groups

@@ -225,6 +225,35 @@ describe('definitionPopoverLogic', () => {
                 })
             })
 
+            it('does not report success or update the list when the save fails', async () => {
+                // A failed PATCH used to fall through to the success toast and push the
+                // unsaved object into the list; the save must reject instead.
+                useMocks({
+                    patch: {
+                        [`/api/projects/${MOCK_TEAM_ID}/property_definitions/:id/`]: () => [
+                            400,
+                            { type: 'validation_error', code: 'invalid', detail: 'This field may not be null.' },
+                        ],
+                    },
+                })
+
+                const updateRemoteItem = jest.fn()
+                logic = definitionPopoverLogic({
+                    type: TaxonomicFilterGroupType.EventProperties,
+                    updateRemoteItem,
+                })
+                logic.mount()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDefinition(mockEventPropertyDefinition as PropertyDefinition)
+                    logic.actions.setPopoverState(DefinitionPopoverState.Edit)
+                    logic.actions.setLocalDefinition({ description: 'edited' })
+                    logic.actions.handleSave({})
+                }).toDispatchActions(['handleSaveFailure'])
+
+                expect(updateRemoteItem).not.toHaveBeenCalled()
+            })
+
             it('saves a name-only property against the id recovered from the model', async () => {
                 // A pinned/default property arrives as { name } with no id; Save used to PATCH
                 // /property_definitions/undefined. resolvedDefinition hydrates the recovered id.
