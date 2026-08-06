@@ -5,15 +5,43 @@ import {
 } from "@posthog/core/billing/spendAnalysisFormat";
 import {
   DefaultTooltip,
+  type Series,
   TimeSeriesComboChart,
   type TimeSeriesComboChartConfig,
   useChartTheme,
 } from "@posthog/quill-charts";
-import { spendSeriesForDays } from "./spendSeries";
 import { UsageCard } from "./UsageCard";
 
 interface SpendOverTimeCardProps {
   filledDays: SpendAnalysisFilledDay[];
+}
+
+export function spendSeriesForDays(
+  filledDays: SpendAnalysisFilledDay[],
+): Series[] {
+  let cumulativeSpend = 0;
+  const dailySpend = filledDays.map((day) => Math.max(0, day.cost_usd));
+
+  return [
+    {
+      key: "daily-spend",
+      label: "Daily spend",
+      data: dailySpend,
+      type: "bar",
+      yAxisId: "daily",
+    },
+    {
+      key: "cumulative-spend",
+      label: "Cumulative spend",
+      data: dailySpend.map((cost) => {
+        cumulativeSpend += cost;
+        return cumulativeSpend;
+      }),
+      type: "line",
+      yAxisId: "cumulative",
+      points: { radius: 3 },
+    },
+  ];
 }
 
 export function SpendOverTimeCard({ filledDays }: SpendOverTimeCardProps) {
