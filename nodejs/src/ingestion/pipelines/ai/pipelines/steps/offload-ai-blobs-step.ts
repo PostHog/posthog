@@ -203,7 +203,7 @@ export function mergeAiBlobPointersFanIn<T extends WithAiBlobOffloadPlan<Offload
 
     for (const { blob, outcome } of uploads) {
         aiBlobOffloadBlobsCounter.labels(blob.detector, mimeFamily(blob.mime), outcome).inc()
-        aiBlobOffloadBlobBytes.labels(mimeFamily(blob.mime)).observe(blob.bytes.length)
+        aiBlobOffloadBlobBytes.labels(mimeFamily(blob.mime), outcome).observe(blob.bytes.length)
     }
     aiBlobOffloadBlobsPerEvent.observe(uploads.length)
     aiBlobOffloadEventBytesSaved.observe(plan.savedChars)
