@@ -168,6 +168,7 @@ function buildBillingAlertNotice(
 export interface projectNoticeLogicValues {
     memberCount: number // membersLogic
     currentOrganizationId: string // organizationLogic
+    currentOrganization: import('~/types').OrganizationType | null // organizationLogic
     hasReverseProxy: boolean | null // reverseProxyCheckerLogic
     user: UserType | null // userLogic
     effectiveBillingAlert: BillingAlertConfig | null
@@ -284,7 +285,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
             membersLogic,
             ['memberCount'],
             organizationLogic,
-            ['currentOrganizationId'],
+            ['currentOrganizationId', 'currentOrganization'],
             userLogic,
             ['user'],
             // Connecting reverseProxyCheckerLogic mounts it and exposes hasReverseProxy reactively.
@@ -318,8 +319,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 } catch (error) {
                     // A missing or expired session makes this boot-time GET 401. A restricted org member
                     // whose access level to the org resource is below read gets a 403 from the RBAC layer.
-                    // Either way there's no banner to show, so swallow it rather than polluting error tracking.
-                    if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+                    // A 404 means the org isn't resolvable yet — a fresh user with no org, or a lost boot
+                    // race where currentOrganizationId is still the '@current' sentinel. Either way there's
+                    // no banner to show, so swallow it rather than polluting error tracking.
+                    if (error instanceof ApiError && [401, 403, 404].includes(error.status)) {
                         return null
                     }
                     throw error
@@ -671,7 +674,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
         },
     })),
     afterMount(({ actions, values }) => {
-        if (shouldFetchProxyRecords(values.user, values.currentOrganizationId)) {
+        // Gate on the real organization id, not currentOrganizationId — the latter falls back to
+        // the '@current' sentinel while the org is still loading (e.g. right after signup), which
+        // the backend 404s on with no banner to show.
+        if (shouldFetchProxyRecords(values.user, values.currentOrganization?.id ?? null)) {
             actions.loadRecords()
         }
     }),

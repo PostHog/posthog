@@ -1,4 +1,4 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { render } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -117,9 +117,58 @@ describe('projectNoticeLogic', () => {
         })
     })
 
+    describe('organization not resolved yet', () => {
+        let getItemSpy: jest.SpyInstance
+        let getDateSpy: jest.SpyInstance
+        let originalAppContext: AppContext | undefined
+        let orgRecordsRequested = false
+
+        beforeEach(() => {
+            originalAppContext = window.POSTHOG_APP_CONTEXT
+            // A freshly registered user is authenticated but has no organization yet, so the
+            // bootstrap GET to api/organizations/@current 404s and currentOrganization stays null.
+            window.POSTHOG_APP_CONTEXT = {
+                ...originalAppContext,
+                current_user: { ...MOCK_DEFAULT_USER, organization: null },
+            } as unknown as AppContext
+            orgRecordsRequested = false
+            useMocks({
+                get: {
+                    '/api/organizations/@current/': () => [404, {}],
+                    '/api/organizations/:organization_id/proxy_records': () => {
+                        orgRecordsRequested = true
+                        return [200, { results: [] }]
+                    },
+                },
+            })
+            initKeaTests()
+            getItemSpy = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => null)
+            // Inside the first-7-days nudge window, so only the organization guard can hold the fetch back.
+            getDateSpy = jest.spyOn(Date.prototype, 'getDate').mockReturnValue(3)
+        })
+
+        afterEach(() => {
+            getItemSpy.mockRestore()
+            getDateSpy.mockRestore()
+            window.POSTHOG_APP_CONTEXT = originalAppContext
+        })
+
+        it('does not fire loadRecords against the "@current" sentinel while the organization is null', async () => {
+            const logic = projectNoticeLogic()
+            logic.mount()
+
+            await expectLogic(logic).toNotHaveDispatchedActions(['loadRecords'])
+            expect(orgRecordsRequested).toBe(false)
+            expect(logic.values.proxyRecords).toBeNull()
+
+            logic.unmount()
+        })
+    })
+
     describe.each([
         { status: 401, reason: 'missing or expired session' },
         { status: 403, reason: 'restricted org member below read access' },
+        { status: 404, reason: 'organization not resolvable yet (fresh user or boot-time race)' },
     ])('proxy records $status handling', ({ status }) => {
         let getItemSpy: jest.SpyInstance
         let getDateSpy: jest.SpyInstance
