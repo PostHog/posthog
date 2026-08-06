@@ -613,8 +613,8 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
     # Dedicated `notebooks` CH user (server-side profile/quota backstop no application
     # bug can exceed); falls back to the default credentials where not provisioned.
     # sync_execute on the CH-writes path resolves the same creds via the same enum.
-    ch_user, ch_password = get_clickhouse_creds(ClickHouseUser.NOTEBOOKS)
-    resolved_default_user = ch_user == settings.CLICKHOUSE_USER
+    creds = get_clickhouse_creds(ClickHouseUser.NOTEBOOKS)
+    resolved_default_user = creds.user == settings.CLICKHOUSE_USER
     ch_writes = bool(settings.NOTEBOOKS_FRAME_STORE_CH_WRITES)
     if ch_writes and resolved_default_user and not settings.DEBUG and not settings.TEST:
         # Fail closed in a real deployment: the CH-writes statement is write-capable
@@ -690,8 +690,8 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
                         # not contend with interactive queries. Falls back to the online URL
                         # where no offline cluster exists (EU, self-hosted, dev/test).
                         url=settings.CLICKHOUSE_OFFLINE_HTTP_URL,
-                        user=ch_user,
-                        password=ch_password,
+                        user=creds.user,
+                        password=creds.password,
                         database=settings.CLICKHOUSE_DATABASE,
                         output_format_arrow_string_as_string="true",
                         cancel_http_readonly_queries_on_client_close=1,
