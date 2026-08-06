@@ -192,6 +192,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENT_EXPOSURE_EVENT: 'experiment-exposure-event', // owner: #team-experiments, switches new experiments to the dedicated exposure event
     GAME_CENTER: 'game-center', // owner: everybody, this is just internal for now
     HEDGEHOG_SKIN_SPIDERHOG: 'hedgehog-skin-spiderhog', // owner: #team-web-analytics, used to reward beta users for web analytics
+    HIDE_WEEKENDS_DEPRECATION_NOTICE: 'hide-weekends-deprecation-notice', // owner: #team-product-analytics, gates the deprecation notice on trends insights still using hide weekends
     HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: #team-batch-exports, allow batch exports to be run every 5min/15min
     METALYTICS: 'metalytics', // owner: #team-platform-features, used to allow companies to see (meta) analytics on access to a specific page
     PERSON_PROPERTY_INCIDENT_ANNOTATION_JAN_2026: 'person-property-incident-annotation-jan-2026', // owner: #team-platform-features, shows system annotation for Jan 6-7 2026 person property incident
