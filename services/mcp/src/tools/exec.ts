@@ -126,6 +126,83 @@ export function parseExecCallInnerToolName(command: string): string | undefined 
     return innerName || undefined
 }
 
+/** Verbs the dispatcher grammar accepts. A verb outside this set is what the
+ *  `unknown_command` rejection fires on, and is recorded as unrecognized. */
+const KNOWN_EXEC_VERBS = new Set(['learn', 'tools', 'search', 'info', 'schema', 'call'])
+
+/** Verbs whose first positional argument names a tool. */
+const TOOL_TARGETING_VERBS = new Set(['info', 'schema', 'call'])
+
+/**
+ * Recorded in place of a verb or tool name the server doesn't recognize. A token
+ * the grammar rejected is caller text, and bounding its charset does not make it
+ * value-free — an identifier-shaped secret survives sanitization intact. This file
+ * already withholds `ExecCommandError`'s message from analytics for exactly this
+ * reason (it echoes the caller's tool name); the rejection reason on the event says
+ * which of the two failed, so the sentinel loses only the misspelling itself.
+ */
+const UNRECOGNIZED_EXEC_TOKEN = 'unrecognized'
+
+export interface ExecCommandShape {
+    /** The dispatcher verb, or `unrecognized` when it isn't one we accept. */
+    verb?: string
+    /** The tool `info`/`schema`/`call` targeted, or `unrecognized` when the name
+     *  resolves to nothing in our catalog. */
+    targetTool?: string
+}
+
+/**
+ * Describes an exec command for analytics: which verb ran, and which tool it
+ * targeted. Both are value-free by construction — a verb from the closed grammar
+ * and a tool name from our own catalog, never the caller's token (see
+ * `describeValidationError` for the same constraint applied to schema rejections).
+ *
+ * Without this, every non-`call` verb lands in one undifferentiated `exec`
+ * bucket: schema discovery is indistinguishable from tool search, and an
+ * `unknown_command` rejection records no verb to diagnose. `targetTool` is what
+ * links an `info <tool>` to the `call <tool>` that follows it.
+ *
+ * `isKnownToolName` decides whether a target resolves against the catalog this
+ * connection can see; anything it rejects is recorded as
+ * `UNRECOGNIZED_EXEC_TOKEN`.
+ */
+export function describeExecCommand(command: string, isKnownToolName: (name: string) => boolean): ExecCommandShape {
+    const { verb: rawVerb, rest } = parseCommand(command)
+    if (!rawVerb) {
+        return {}
+    }
+    const verb = KNOWN_EXEC_VERBS.has(rawVerb) ? rawVerb : UNRECOGNIZED_EXEC_TOKEN
+    if (!TOOL_TARGETING_VERBS.has(rawVerb) || !rest) {
+        return { verb }
+    }
+    // The target must be parsed exactly as the dispatcher looks it up, or a
+    // rejected command gets attributed to a valid tool. `call` strips its flags
+    // then takes the first token; `schema` takes the first token. `info` is the
+    // exception: it hands the entire remaining argument to `findTool` as an exact
+    // name (after an optional `--json`), so `info execute-sql extra` looks up
+    // "execute-sql extra", resolves to nothing, and records `unrecognized` — not
+    // the `execute-sql` its first token would suggest.
+    let target: string
+    if (rawVerb === 'call') {
+        target = parseCommand(parseCallFlags(rest).rest).verb
+    } else if (rawVerb === 'info') {
+        target = rest.replace(/^--json(\s+|$)/, '').trim()
+    } else {
+        target = parseCommand(rest).verb
+    }
+    if (!target) {
+        return { verb }
+    }
+    return { verb, targetTool: isRecordableToolName(target, isKnownToolName) ? target : UNRECOGNIZED_EXEC_TOKEN }
+}
+
+/** Tool names we own, and can therefore record: the ones this connection can see,
+ *  plus the removed ones kept only to redirect a call. A name outside both is the
+ *  caller's own text. */
+function isRecordableToolName(name: string, isKnownToolName: (name: string) => boolean): boolean {
+    return isKnownToolName(name) || Object.prototype.hasOwnProperty.call(DEPRECATED_TOOL_REDIRECTS, name)
+}
+
 // Resolves the inner tool an `exec` call targets: given a request, return the
 // inner tool's { name, description } when the agent invoked it via
 // `call <tool> ...`, or undefined otherwise. Lives here (alongside
@@ -224,30 +301,169 @@ const MAX_VALIDATION_DESCRIPTORS = 20
 const MAX_KEY_LENGTH = 64
 
 /**
+ * Issue codes where the type of the rejected value is the diagnostic signal: a
+ * parameter that is absent and one that is present under the right name but the
+ * wrong shape are different bugs with different fixes, and both otherwise read as
+ * a bare `invalid_type`.
+ */
+const TYPE_REVEALING_CODES = new Set(['invalid_type', 'invalid_union'])
+
+/**
+ * Recorded in place of a path segment the schema never declared. An open record
+ * (`generate-app-url`'s `params: z.record(z.string(), z.string())`) puts the
+ * caller's own key in the issue path, so recording the path verbatim would carry
+ * caller text into analytics. Which field held the bad value is preserved; only
+ * the key inside it is masked.
+ */
+const UNDECLARED_PATH_SEGMENT = '*'
+
+/** Defensive bound on the JSON Schema walk behind `declaredPropertyNames`. */
+const MAX_SCHEMA_WALK_DEPTH = 20
+
+/**
+ * Joins an issue path into a descriptor, collapsing array indices to `N` and
+ * masking any segment `declaredNames` doesn't cover.
+ *
+ * `series.0.event` and `series.1.event` describe one defect. Without the collapse
+ * a malformed 50-element array yields 50 distinct descriptors that fill
+ * `MAX_VALIDATION_DESCRIPTORS` with restatements of itself — and because the cap
+ * truncates in schema-traversal order, it evicts genuinely different fields that
+ * failed later. The dedupe is what keeps the cap meaningful.
+ *
+ * `declaredNames` is omitted only where every segment is ours by construction
+ * (`describeApiValidationError`, whose `attr` is a serializer field name).
+ */
+function normalizeDescriptorPath(segments: readonly PropertyKey[], declaredNames?: ReadonlySet<string>): string {
+    if (!segments.length) {
+        return '(root)'
+    }
+    return segments
+        .map((segment) => {
+            if (typeof segment === 'number' || /^\d+$/.test(String(segment))) {
+                return 'N'
+            }
+            const name = String(segment)
+            if (declaredNames && !declaredNames.has(name)) {
+                return UNDECLARED_PATH_SEGMENT
+            }
+            return name
+        })
+        .join('.')
+        .slice(0, MAX_KEY_LENGTH)
+}
+
+const declaredPropertyNamesCache = new WeakMap<object, ReadonlySet<string>>()
+
+/**
+ * Every property name a tool's schema declares, at any depth. A path segment
+ * outside this set came from an open record or a catchall, which means the caller
+ * chose it.
+ *
+ * Read off the JSON Schema exec already generates for `info`, so this depends on
+ * no Zod internals. A schema that can't be converted yields an empty set: more
+ * masking than strictly needed, never less.
+ */
+function declaredPropertyNames(schema: z.ZodType): ReadonlySet<string> {
+    const cached = declaredPropertyNamesCache.get(schema)
+    if (cached) {
+        return cached
+    }
+    const names = new Set<string>()
+    try {
+        collectDeclaredPropertyNames(z.toJSONSchema(schema, { io: 'input' }), names)
+    } catch {
+        // Telemetry must never break a tool call; an empty set only costs detail.
+    }
+    declaredPropertyNamesCache.set(schema, names)
+    return names
+}
+
+function collectDeclaredPropertyNames(node: unknown, into: Set<string>, depth = 0): void {
+    if (depth > MAX_SCHEMA_WALK_DEPTH || typeof node !== 'object' || node === null) {
+        return
+    }
+    if (Array.isArray(node)) {
+        for (const child of node) {
+            collectDeclaredPropertyNames(child, into, depth + 1)
+        }
+        return
+    }
+    for (const [key, value] of Object.entries(node)) {
+        // Only a `properties` map is keyed by field names. `patternProperties`,
+        // `additionalProperties` and `$defs` are keyed by pattern or definition name,
+        // so descend into their values without recording the keys.
+        if (key === 'properties' && typeof value === 'object' && value !== null && !Array.isArray(value)) {
+            for (const [name, child] of Object.entries(value)) {
+                into.add(name)
+                collectDeclaredPropertyNames(child, into, depth + 1)
+            }
+            continue
+        }
+        collectDeclaredPropertyNames(value, into, depth + 1)
+    }
+}
+
+/** The JSON-shaped type of a rejected value — never the value, never its length. */
+function describeReceivedType(value: unknown): string {
+    if (value === null) {
+        return 'null'
+    }
+    if (Array.isArray(value)) {
+        return 'array'
+    }
+    return typeof value
+}
+
+/**
+ * Builds a descriptor in the same `path:code[:received]` shape
+ * `describeValidationError` emits, for a rejection that came from the PostHog API
+ * rather than the local schema — so both kinds of validation failure answer one
+ * query instead of requiring `$mcp_error_message` to be string-parsed.
+ *
+ * `attr` is one of our own serializer field names and `code` a DRF code; neither
+ * carries caller input, unlike the API's free-text `detail`.
+ */
+export function describeApiValidationError(attr: string | undefined, code: string | undefined): string[] {
+    const path = normalizeDescriptorPath((attr ?? '').split('.').filter(Boolean))
+    return [`${path}:${code ?? 'unknown'}`]
+}
+
+/**
  * Derives a value-free descriptor of a validation failure for telemetry, so a
  * contract regression (agents sending a field name the schema doesn't accept) is
  * diagnosable from the `$mcp_tool_call` event alone — without ever recording the
  * request payload.
  *
- * `fields` are the offending top-level field + issue code (e.g. `orgId:invalid_type`);
- * for a union rejection the path is empty and it reads `(root):invalid_union`, which
- * is why `inputKeys` — the top-level keys the caller actually sent — carries the real
- * signal there (it surfaces the unaccepted alias, e.g. `organizationId`).
+ * `fields` are the offending field path + issue code, plus the received type where
+ * that distinguishes the bug (e.g. `id:invalid_type:undefined` for an omitted
+ * parameter vs `query:invalid_union:string` for an envelope the agent flattened).
+ * `inputKeys` — the top-level keys the caller actually sent — is what surfaces an
+ * unaccepted alias (e.g. `organizationId` where the schema wants `orgId`).
  *
- * Records only structural information (field names, issue codes). It never touches
- * input VALUES: the ZodError embeds raw values in `issue.input` and `.message` (see
- * `formatInputValidationError`), so we read `issue.path[0]`/`issue.code` and the
- * input's own key names only.
+ * Records only structural information: field names, issue codes, and the TYPE of a
+ * rejected value. It never records input VALUES — the ZodError embeds those in
+ * `issue.input` and in `.message` (see `formatInputValidationError`), so this reads
+ * `typeof issue.input` and never the value behind it. `schema` is what keeps that
+ * true of the field paths as well: a key the schema never declared belongs to the
+ * caller, so it is masked rather than recorded (see `normalizeDescriptorPath`).
  */
 export function describeValidationError(
     error: z.ZodError,
-    input: Record<string, unknown>
+    input: Record<string, unknown>,
+    schema: z.ZodType
 ): { fields: string[]; inputKeys: string[] } {
+    const declaredNames = declaredPropertyNames(schema)
     const fields = [
         ...new Set(
             error.issues.map((issue) => {
-                const top = issue.path.length ? String(issue.path[0]) : '(root)'
-                return `${top.slice(0, MAX_KEY_LENGTH)}:${issue.code}`
+                const descriptor = `${normalizeDescriptorPath(issue.path, declaredNames)}:${issue.code}`
+                // `input` is only present under `safeParse(..., { reportInput: true })`;
+                // without it there is no type to report, and an absent value and an
+                // unreported one must not both read as `undefined`.
+                if (!TYPE_REVEALING_CODES.has(issue.code) || !('input' in issue)) {
+                    return descriptor
+                }
+                return `${descriptor}:${describeReceivedType(issue.input)}`
             })
         ),
     ].slice(0, MAX_VALIDATION_DESCRIPTORS)
@@ -606,7 +822,10 @@ export function createExecTool(
                         // classifies it as `validation`, not `internal`. The value-free
                         // descriptor rides along so the errored `$mcp_tool_call` records
                         // which field/alias was rejected — without the payload.
-                        throw new ToolInputValidationError(message, describeValidationError(validation.error, input))
+                        throw new ToolInputValidationError(
+                            message,
+                            describeValidationError(validation.error, input, tool.schema)
+                        )
                     }
                     input = validation.data as Record<string, unknown>
 
