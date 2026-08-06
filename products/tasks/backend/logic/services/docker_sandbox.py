@@ -1392,3 +1392,13 @@ def ensure_fresh_base_image(*, force: bool = False) -> None:
         labels={_AGENT_VERSION_LABEL: latest or "unknown"},
         force=True,
     )
+
+
+def ensure_template_image(template: SandboxTemplate) -> str:
+    """Build ``template``'s image if it is missing, and return its name.
+
+    Sandbox creation does this itself, but a cold build can take minutes — longer than
+    the budget of whatever is provisioning the sandbox. Callers that know a template is
+    coming can pay that cost up front instead. A present image returns immediately.
+    """
+    return DockerSandbox._ensure_image_exists(template)
