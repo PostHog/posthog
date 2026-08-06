@@ -98,7 +98,7 @@ from .skill_services import (
 
 logger = structlog.get_logger(__name__)
 
-# Generous ceiling for an uploaded skill zip — per-skill content (body, 50 files × 1 MB) is
+# Generous ceiling for an uploaded skill zip — per-skill content (body, 200 files × 1 MB) is
 # already bounded by create_skill, this just caps the upload before we read it into memory.
 MAX_IMPORT_ZIP_BYTES = 10_000_000
 

@@ -236,20 +236,22 @@ async def arun_signals_scout(
     run_id = uuid7()
     started_at = timezone.now()
 
-    # Resolve the scout's agent model from the `scouts-model-selection` gate. A `None` model keeps the
-    # agent-server default; an override routes this run on that model, paired with the runtime adapter
-    # that can serve it (the agent server can't route a model without one). The flag payload is a
-    # per-team, per-scout model distribution, bucketed per run on `run_id` — so a scout can A/B/n
+    # Resolve the scout's agent model. A `None` model keeps the agent-server default; an override
+    # routes this run on that model, paired with the runtime adapter that can serve it (the agent
+    # server can't route a model without one). Two flag-gated layers, resolved in one call: the
+    # scout's own `config.model` pin (honored while the `scouts-model-config` dogfood flag is on
+    # for the team, deterministic per scout), then the `scouts-model-selection` payload — a
+    # per-team, per-scout model distribution, bucketed per run on `run_id`, so a scout can A/B/n
     # across models against itself across runs. Resolved once here so the whole run is consistent.
-    # Off the event loop — the flag read does blocking network I/O.
+    # Off the event loop — the flag reads do blocking network I/O.
     scout_model = await database_sync_to_async(resolve_scout_model, thread_sensitive=False)(
-        team, skill.name, str(run_id)
+        team, skill.name, str(run_id), configured_model=config.model
     )
 
-    # The scout-model gate is the per-scout, per-run experiment layer; the `signals-pipeline-models`
-    # runtime pin is the default layer beneath it. When the gate resolves a model for this run it
-    # wins (its unallocated remainder resolves None and falls through to the pin), so a fleet-wide
-    # pin can't silently swallow a configured model trial. Either way the whole
+    # The scout-model resolution (config pin, then experiment gate) sits above the
+    # `signals-pipeline-models` runtime pin, the default layer beneath it. When it resolves a model
+    # for this run it wins (the gate's unallocated remainder resolves None and falls through to the
+    # pin), so a fleet-wide pin can't silently swallow a configured model. Either way the whole
     # runtime/model/effort triple is taken from one source — a Codex runtime never pairs with a
     # model it can't serve. Model-only pin entries are still ignored for scout: a pin supplies
     # model+runtime as a pair, and overriding one without the other would mis-route.
