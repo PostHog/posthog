@@ -47,7 +47,7 @@ def render_transcript(messages: Sequence[AssistantMessageUnion]) -> str:
 
 def _normalize(text: str) -> str:
     collapsed = re.sub(r"\s+", " ", text.translate(_SMART_QUOTES).replace("'", '"'))
-    return collapsed.strip(" .,;:!?").lower()
+    return collapsed.strip(" .,;:!?")
 
 
 def _quote_matches(span: str, normalized_turns: Sequence[str]) -> bool:

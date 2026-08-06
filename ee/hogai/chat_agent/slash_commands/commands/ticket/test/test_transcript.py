@@ -53,10 +53,11 @@ class TestStripUnverifiableQuotes(TestCase):
             ("changed wording is stripped", 'They said "the sync is broken" today', False),
             ("short span the customer wrote is kept", 'They said "sync" today', True),
             ("short span the customer never wrote is stripped", 'They said "queue" today', False),
+            ("recased identifier is stripped", 'They said "$PageView" today', False),
         ]
     )
     def test_cosmetic_drift_survives_but_wording_changes_do_not(self, _name, summary, should_keep):
-        turns = ['the sync is failing on the "Reports" page']
+        turns = ['the sync is failing on the "Reports" page, no $pageview events']
         result = strip_unverifiable_quotes(summary, turns)
         self.assertEqual('"' in result, should_keep)
 
