@@ -1,13 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconCopy, IconEllipsis, IconPencil, IconStack, IconTarget, IconTrash } from '@posthog/icons'
+import { IconCopy, IconEllipsis, IconPencil, IconSort, IconStack, IconTarget, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDropdown, LemonMenu, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { experimentMetricsLogic } from 'scenes/experiments/experimentMetricsLogic'
 import { isMetricThresholdCueVisible } from 'scenes/experiments/ExperimentMetricThreshold'
 import {
@@ -80,6 +81,7 @@ const AddBreakdownMenuItem = ({
 }
 
 export const MetricHeader = ({
+    dragHandle,
     displayOrder,
     metric,
     metricType,
@@ -91,6 +93,7 @@ export const MetricHeader = ({
     onDeleteMetricClick,
     readOnly,
 }: {
+    dragHandle?: JSX.Element | null
     displayOrder?: number
     metric: ExperimentMetric
     metricType: any
@@ -112,6 +115,7 @@ export const MetricHeader = ({
         openSecondarySharedMetricModal,
     } = useActions(modalsLogic)
 
+    const { moveMetricsBetweenSections } = useActions(experimentLogic)
     const { openExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { openSharedMetricDetailModal } = useActions(sharedMetricDetailsModalLogic)
 
@@ -216,17 +220,36 @@ export const MetricHeader = ({
 
     const canAddBreakdown = (metric.breakdownFilter?.breakdowns || []).length < MAX_BREAKDOWNS
 
+    const metricUuid = metric.uuid
+    const sectionUuids =
+        (isPrimaryMetric ? experiment.primary_metrics_ordered_uuids : experiment.secondary_metrics_ordered_uuids) ?? []
+    // An experiment still has to measure something, so the last primary metric can't leave.
+    const isLastPrimaryMetric = isPrimaryMetric && sectionUuids.length <= 1
+
+    const handleMoveSection = (): void => {
+        // The menu item only renders when the metric has a uuid.
+        if (!metricUuid) {
+            return
+        }
+        // Flips shared-metric links, prunes the ordering arrays and realigns existing
+        // results in one update.
+        moveMetricsBetweenSections(isPrimaryMetric === false, sectionUuids, [], [metricUuid])
+    }
+
     const recalculationEnabled = useFeatureFlag('EXPERIMENTS_METRICS_RECALCULATION')
     const { isMetricRecalculating, metricRetries } = useValues(experimentMetricsLogic({ experiment }))
     const showRecalculatingTag = recalculationEnabled && isMetricRecalculating(metric.uuid)
     const metricRetry = recalculationEnabled && metric.uuid ? metricRetries[metric.uuid] : undefined
 
     return (
-        <div className="text-xs font-semibold flex flex-col justify-between h-full">
-            <div className="deprecated-space-y-1">
+        // The handle and the order number are their own columns, so the title and the tags below it
+        // share one left edge instead of the tags starting back at the cell edge.
+        <div className="text-xs font-semibold flex items-start gap-1">
+            {dragHandle}
+            {displayOrder !== undefined && <span className="flex-shrink-0">{displayOrder + 1}.</span>}
+            <div className="flex flex-col flex-1 min-w-0 deprecated-space-y-1">
                 <div className="flex items-start justify-between gap-2 min-w-0">
                     <div className="text-xs font-semibold flex items-start min-w-0 flex-1">
-                        {displayOrder !== undefined && <span className="mr-1 flex-shrink-0">{displayOrder + 1}.</span>}
                         <div className="min-w-0 flex-1">
                             <MetricTitle metric={metric} metricType={metricType} />
                         </div>
@@ -268,6 +291,19 @@ export const MetricHeader = ({
                                                     onClick: () => {
                                                         closeMenu()
                                                         handleDuplicate()
+                                                    },
+                                                },
+                                                !!metricUuid && {
+                                                    label: isPrimaryMetric
+                                                        ? 'Make secondary metric'
+                                                        : 'Make primary metric',
+                                                    icon: <IconSort />,
+                                                    disabledReason: isLastPrimaryMetric
+                                                        ? 'An experiment needs at least one primary metric'
+                                                        : undefined,
+                                                    onClick: () => {
+                                                        closeMenu()
+                                                        handleMoveSection()
                                                     },
                                                 },
                                             ].filter(Boolean) as any,

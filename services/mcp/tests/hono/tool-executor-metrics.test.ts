@@ -98,6 +98,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         sessionContext: null,
         allTools: tools as any,
         scopeGatedTools: [],
+        gatewayToolsEnabled: false,
         distinctId: 'test-distinct-id',
         renderUiEnabled: false,
         metadata: undefined,
@@ -274,6 +275,35 @@ describe('ToolExecutor metrics', () => {
             expect(trackToolCallExtras('fail-tool')).toMatchObject({ $mcp_error_message: expected })
         })
 
+        // An API-layer rejection used to carry no structured field, so it was only
+        // reachable by string-parsing $mcp_error_message. It now populates the same
+        // property a local schema rejection does — the API's free-text `detail` still
+        // never reaches analytics.
+        it('stamps $mcp_validation_fields for an API validation error, without the detail body', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('fail-tool', async () => {
+                    throw new PostHogValidationError({
+                        detail: 'Unable to resolve field: SECRET=sk_live_abc123',
+                        attr: 'series.0.event',
+                        code: 'invalid_input',
+                        extra: undefined,
+                        url: 'https://us.posthog.com/api/environments/2/query/',
+                        method: 'POST',
+                    })
+                }) as any
+            )
+
+            await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
+
+            const extras = trackToolCallExtras('fail-tool')
+            expect(extras).toMatchObject({
+                $mcp_error_type: 'validation',
+                // Array indices collapse here too, matching the schema path.
+                $mcp_validation_fields: ['series.N.event:invalid_input'],
+            })
+            expect(JSON.stringify(extras)).not.toContain('sk_live_abc123')
+        })
+
         it('rebuilds PostHogApiError messages from status + path, never the response body or query string', async () => {
             vi.spyOn(catalog, 'getToolByName').mockReturnValue(
                 makeFakeTool('fail-tool', async () => {
@@ -381,6 +411,39 @@ describe('ToolExecutor metrics', () => {
             expect(mockToolDurationStartTimer).not.toHaveBeenCalled()
         })
 
+        // The direct path used to return before tracking, so a schema rejection in
+        // 'tools' mode produced no `$mcp_tool_call` at all — leaving every
+        // exec-vs-direct error comparison silently flattering direct mode. Pin both
+        // the event and the value-free diagnostics that make it actionable.
+        it('emits an errored analytics event with the rejected fields on a schema rejection', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                name: 'strict-tool',
+                base: { schema: z.object({ required_field: z.string() }), handler: vi.fn(), _meta: undefined },
+            } as any)
+
+            await executor.handleToolCall(
+                { name: 'strict-tool', arguments: { requiredField: 'sent under the wrong name' } },
+                makeState([{ name: 'strict-tool' }])
+            )
+
+            // Exactly one event: the rejection returns before the handler runs, so
+            // neither the success nor the catch tracker can also fire. A second emit
+            // here would double-count the call in every error-rate metric.
+            const calls = mockTrackToolCall.mock.calls.filter((c) => c[0] === 'strict-tool')
+            expect(calls).toHaveLength(1)
+            const call = calls[0]!
+            expect(call[2]).toBe(true)
+            // No handler ran, so the call carries no duration (mirrors the exec path).
+            expect(call[1]).toBe(0)
+            expect(trackToolCallExtras('strict-tool')).toMatchObject({
+                $mcp_error_type: 'validation',
+                // `:undefined` is the received type — the param was absent, not
+                // mistyped, which is what separates an alias slip from a coercion bug.
+                $mcp_validation_fields: ['required_field:invalid_type:undefined'],
+                $mcp_validation_input_keys: ['requiredField'],
+            })
+        })
+
         it('records error for unknown tool', async () => {
             await executor.handleToolCall({ name: 'nonexistent', arguments: {} }, makeState([]))
 
@@ -411,6 +474,26 @@ describe('ToolExecutor metrics', () => {
 
             expect(callsFor(mockToolCallsInc, 'exec')).toHaveLength(0)
             expect(callsFor(mockToolDurationStartTimer, 'exec')).toHaveLength(0)
+        })
+
+        // Without the verb, every non-`call` command lands in one undifferentiated
+        // `exec` bucket — schema discovery, tool search and a mistyped verb become
+        // indistinguishable, and `unknown_command` records nothing to diagnose.
+        // `$mcp_exec_target_tool` is what links an `info <tool>` to the `call <tool>`
+        // that follows it, and is the only trace of an attempted unknown tool.
+        it.each([
+            ['tools', { $mcp_exec_verb: 'tools' }],
+            ['info docs-search', { $mcp_exec_verb: 'info', $mcp_exec_target_tool: 'docs-search' }],
+            ['schema docs-search query', { $mcp_exec_verb: 'schema', $mcp_exec_target_tool: 'docs-search' }],
+            // A verb or tool name we don't recognize is caller text, so the event
+            // records that it was unrecognized rather than the token itself.
+            ['frobnicate whatever', { $mcp_exec_verb: 'unrecognized' }],
+            ['call not-a-real-tool {}', { $mcp_exec_verb: 'call', $mcp_exec_target_tool: 'unrecognized' }],
+        ])('stamps the exec verb and target for "%s"', async (command, expected) => {
+            await executor.handleToolCall({ name: 'exec', arguments: { command } }, execState())
+
+            const call = mockTrackToolCall.mock.calls.at(-1)
+            expect(call?.[4]).toMatchObject(expected)
         })
 
         it('emits inner tool name for counter and duration on inner tool call', async () => {

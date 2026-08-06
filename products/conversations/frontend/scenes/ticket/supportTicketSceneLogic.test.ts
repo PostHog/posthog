@@ -1,8 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { tagsModel } from '~/models/tagsModel'
 import { initKeaTests } from '~/test/init'
 import type { CommentType } from '~/types'
+import { ActivityScope } from '~/types'
 
 import type { TicketAssignee } from '../../components/Assignee'
 import type { Ticket, TicketStatus } from '../../types'
@@ -56,13 +60,13 @@ import { conversationsTicketsNotesPartialUpdate } from 'products/conversations/f
 
 const submitAiFeedbackMock = api.conversationsTickets.submitAiFeedback as jest.Mock
 
-function makeAiComment(id: string): CommentType {
+function makeAiComment(id: string, isPrivate: boolean = true): CommentType {
     return {
         id,
         content: 'AI reply body',
         scope: 'conversations_ticket',
         item_id: 'ticket-1',
-        item_context: { author_type: 'AI', is_private: true },
+        item_context: { author_type: 'AI', is_private: isPrivate },
         created_at: '2026-01-01T00:00:00Z',
         created_by: null,
     } as unknown as CommentType
@@ -96,6 +100,7 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
         submitAiFeedbackMock.mockClear()
         logic = supportTicketSceneLogic({ id: 'new' })
         logic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: true })
         logic.actions.setTicket(makeTicket())
         logic.actions.setMessages([makeAiComment('msg-ai-1')])
     })
@@ -173,7 +178,7 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
     })
 })
 
-function makeCustomerComment(id: string, itemContext: Record<string, any>): CommentType {
+function makeCustomerComment(id: string, itemContext: Record<string, any> = {}): CommentType {
     return {
         id,
         content: 'reply body',
@@ -204,6 +209,28 @@ describe('supportTicketSceneLogic chatMessages author attribution', () => {
     ])('%s', (_name, itemContext, expectedName) => {
         logic.actions.setMessages([makeCustomerComment('msg-1', itemContext)])
         expect(logic.values.chatMessages[0].authorName).toBe(expectedName)
+    })
+})
+
+describe('supportTicketSceneLogic AI note visibility', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = supportTicketSceneLogic({ id: 'new' })
+        logic.mount()
+        logic.actions.setTicket(makeTicket())
+    })
+
+    test.each<[string, boolean, boolean, string[]]>([
+        ['hides AI private notes without the flag', false, true, ['msg-customer']],
+        ['shows AI private notes with the flag', true, true, ['msg-customer', 'msg-ai']],
+        ['keeps sent AI replies visible without the flag', false, false, ['msg-customer', 'msg-ai']],
+    ])('%s', (_name, flagEnabled, isPrivate, expectedIds) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: flagEnabled })
+        logic.actions.setMessages([makeCustomerComment('msg-customer'), makeAiComment('msg-ai', isPrivate)])
+
+        expect(logic.values.chatMessages.map((m) => m.id)).toEqual(expectedIds)
     })
 })
 
@@ -682,5 +709,38 @@ describe('supportTicketSceneLogic private note editing', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.draftContent).toEqual(draft)
+    })
+})
+
+describe('supportTicketSceneLogic sidePanelContext', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = supportTicketSceneLogic({ id: 'new' })
+        logic.mount()
+        logic.actions.setTicket(makeTicket())
+    })
+
+    // Access control and discussions are separate consumers of the same selector key. Defining
+    // one selector per concern silently drops all but the last, so assert they coexist.
+    it('exposes access control and discussion context together', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC]: true })
+
+        expect(logic.values.sidePanelContext).toEqual({
+            access_control_resource: 'ticket',
+            access_control_resource_id: 'ticket-1',
+            activity_scope: ActivityScope.TICKET,
+            activity_item_id: 'ticket-1',
+        })
+    })
+
+    it('keeps access control context when the discussions flag is off', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC]: false })
+
+        expect(logic.values.sidePanelContext).toEqual({
+            access_control_resource: 'ticket',
+            access_control_resource_id: 'ticket-1',
+        })
     })
 })

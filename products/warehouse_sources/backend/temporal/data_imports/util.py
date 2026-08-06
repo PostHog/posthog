@@ -12,6 +12,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions import capture_exception
 from posthog.settings.utils import get_from_env
+from posthog.temporal.common.errors import NonReportableError
 from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
@@ -32,7 +33,13 @@ def _is_transient_s3_connection_error(error: BaseException) -> bool:
     return isinstance(error, _TRANSIENT_S3_CONNECTION_EXCEPTIONS)
 
 
-class NonRetryableException(Exception):
+class NonRetryableException(NonReportableError):
+    """Raised only for errors already classified as a permanent customer/upstream condition
+    (bad credentials, denied permissions, a deleted remote) via a source's
+    ``get_non_retryable_errors`` or an equivalent shared-code check, never for a fresh,
+    unclassified failure. Subclassing ``NonReportableError`` keeps that already-known condition
+    out of error tracking instead of reporting it as a new bug on every occurrence."""
+
     @property
     def cause(self) -> Optional[BaseException]:
         """Cause of the exception.

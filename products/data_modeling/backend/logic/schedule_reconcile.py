@@ -47,7 +47,9 @@ from posthog.temporal.common.schedule import (
 from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
 
 from products.data_modeling.backend.logic.cohort_scheduling import (
+    MINUTES_PER_WEEK,
     ScheduleReconcilePlan,
+    Tier,
     bucket_into_cadence_tiers,
     is_tier_schedule_id,
     plan_schedule_reconciliation,
@@ -70,6 +72,7 @@ from products.data_modeling.backend.logic.node_frequency import (
     persist_seed_targets,
     schedulable_nodes,
     seed_targets,
+    set_declared_anchor,
     set_declared_target,
 )
 from products.data_modeling.backend.models.dag import DAG
@@ -223,8 +226,12 @@ def apply_saved_query_frequency_target(
     """
     written = 0
     with transaction.atomic():
-        for node in Node.objects.filter(team=saved_query.team, saved_query=saved_query).select_related(
-            "dag", "dag__team"
+        # target and anchor share one JSON field and each setter rewrites the whole blob, so an
+        # unlocked read-modify-write racing the anchor path would silently drop the other's key
+        for node in (
+            Node.objects.select_for_update(of=("self",))
+            .filter(team=saved_query.team, saved_query=saved_query)
+            .select_related("dag", "dag__team")
         ):
             if target is None:
                 set_declared_target(node, None)
@@ -244,7 +251,34 @@ def apply_saved_query_frequency_target(
     return written
 
 
-def reconcile_dag_schedules(dag: DAG, *, require_tiered: bool = False, graph: FrequencyGraph | None = None) -> None:
+def apply_saved_query_frequency_anchor(
+    saved_query: "DataWarehouseSavedQuery", anchor_minutes: int | None, *, reconcile: bool = True
+) -> int:
+    """Write a schedule anchor through to the DAG node(s) carrying this saved query.
+
+    The anchor pins the fire phase of whatever cohort the node lands in (minutes past
+    Monday 00:00 UTC); `anchor_minutes=None` clears it back to hash-spread. Returns the
+    number of nodes written (0 = no DAG node, so a non-None anchor was stored nowhere).
+    """
+    if anchor_minutes is not None and not 0 <= anchor_minutes < MINUTES_PER_WEEK:
+        raise ValueError(f"anchor_minutes must be in [0, {MINUTES_PER_WEEK}), got {anchor_minutes}")
+    written = 0
+    # atomic + row locks for the same reasons as the target path: all-or-nothing across a
+    # multi-DAG duplicate's nodes, and no lost update against a concurrent target write
+    with transaction.atomic():
+        for node in (
+            Node.objects.select_for_update(of=("self",))
+            .filter(team=saved_query.team, saved_query=saved_query)
+            .select_related("dag", "dag__team")
+        ):
+            set_declared_anchor(node, anchor_minutes)
+            written += 1
+            if reconcile:
+                maybe_reconcile_dag(node.dag)
+    return written
+
+
+def reconcile_dag_schedules(dag: DAG, *, require_tiered: bool = False, graph: FrequencyGraph | None = None) -> bool:
     """Make Temporal's schedules for this DAG match its nodes' effective cadences.
 
     Converging a covered DAG to zero schedules is refused only while it still has just legacy
@@ -254,6 +288,8 @@ def reconcile_dag_schedules(dag: DAG, *, require_tiered: bool = False, graph: Fr
     deliberate wind-down (last target reverted/cleared) and those tiers are torn down. With
     `require_tiered`, a DAG that has no tiered schedule yet (legacy single schedule or nothing) is
     left untouched.
+
+    Returns whether a reconcile was applied; False means a guard skipped it.
     """
     team = dag.team
     if graph is None:
@@ -262,8 +298,8 @@ def reconcile_dag_schedules(dag: DAG, *, require_tiered: bool = False, graph: Fr
         nodes=graph.nodes, edges=graph.edges, declared_targets=graph.declared_targets
     )
     effective, _clamped = clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals)
-    desired_tiers = bucket_into_cadence_tiers(effective)
-    _apply_reconciliation(
+    desired_tiers = bucket_into_cadence_tiers(effective, graph.declared_anchors)
+    return _apply_reconciliation(
         dag_id=str(dag.id),
         team_id=team.pk,
         organization_id=str(team.organization_id),
@@ -351,7 +387,7 @@ class DagSchedulePreview:
     """What reconcile would do for a DAG, computed read-only (no schedule writes)."""
 
     effective: dict[str, timedelta | None]  # every schedulable node's resolved cadence (post-clamp)
-    desired_tiers: dict[timedelta, set[str]]
+    desired_tiers: dict[Tier, set[str]]
     plan: ScheduleReconcilePlan
     best_effort_source_ids: set[str]  # sources whose freshness is not actually guaranteed
     clamped: list[ClampedCadence]  # nodes coarsened to what their sources can deliver
@@ -372,7 +408,7 @@ def preview_dag_schedules(dag: DAG, *, seed: bool = False) -> DagSchedulePreview
     declared = {**seed_targets(dag), **graph.declared_targets} if seed else graph.declared_targets
     effective = compute_effective_cadences(nodes=graph.nodes, edges=graph.edges, declared_targets=declared)
     effective, clamped = clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals)
-    desired_tiers = bucket_into_cadence_tiers(effective)
+    desired_tiers = bucket_into_cadence_tiers(effective, graph.declared_anchors)
     existing_ids = list_existing_schedule_ids(str(dag.id))
     plan = plan_schedule_reconciliation(str(dag.id), desired_tiers, existing_ids)
     return DagSchedulePreview(
@@ -384,7 +420,7 @@ def preview_dag_schedules(dag: DAG, *, seed: bool = False) -> DagSchedulePreview
         invalid_targets=find_invalid_targets(
             edges=graph.edges, declared_targets=declared, source_intervals=graph.source_intervals
         ),
-        unsupported_tiers=sorted(interval for interval in desired_tiers if interval not in SCHEDULABLE_BUCKETS),
+        unsupported_tiers=sorted({tier.interval for tier in desired_tiers if tier.interval not in SCHEDULABLE_BUCKETS}),
         seeded=seed,
     )
 
@@ -402,11 +438,11 @@ async def _apply_reconciliation(
     team_id: int,
     organization_id: str,
     team_timezone: str,
-    desired_tiers: dict[timedelta, set[str]],
+    desired_tiers: dict[Tier, set[str]],
     require_tiered: bool = False,
     has_schedulable_nodes: bool = True,
-) -> None:
-    unsupported = sorted(interval for interval in desired_tiers if interval not in SCHEDULABLE_BUCKETS)
+) -> bool:
+    unsupported = sorted({tier.interval for tier in desired_tiers if tier.interval not in SCHEDULABLE_BUCKETS})
     if unsupported:
         tiers = ", ".join(format_cadence(interval) for interval in unsupported)
         raise UnsupportedFrequencyTargetError(
@@ -417,7 +453,7 @@ async def _apply_reconciliation(
     existing_ids = await _list_execute_dag_schedule_ids(temporal, dag_id)
     if require_tiered and not any(is_tier_schedule_id(schedule_id) for schedule_id in existing_ids):
         logger.debug("DAG not converted to cadence tiers yet, skipping reconcile", dag_id=dag_id)
-        return
+        return False
     # An empty tier set on a DAG that still has only legacy (non-tier) schedules means an unseeded
     # conversion — protect it, but only when there is anything to seed: a DAG with no schedulable
     # nodes gets its legacy schedule swept instead of firing no-op runs forever. Once tier
@@ -435,7 +471,7 @@ async def _apply_reconciliation(
             dag_id=dag_id,
             existing_schedule_ids=sorted(existing_ids),
         )
-        return
+        return False
     plan = plan_schedule_reconciliation(dag_id, desired_tiers, existing_ids)
 
     # Includes the schedule-type tag: get_v2_scheduled_dag_ids' unscoped sweep filters on
@@ -447,8 +483,8 @@ async def _apply_reconciliation(
     # stay — a re-run converges) without letting a failed delete mask the original error.
     created: list[str] = []
     try:
-        for schedule_id, (interval, node_ids) in plan.to_create.items():
-            schedule = _build_tier_schedule(dag_id, team_id, team_timezone, interval, node_ids)
+        for schedule_id, (tier, node_ids) in plan.to_create.items():
+            schedule = _build_tier_schedule(dag_id, team_id, team_timezone, tier, node_ids)
             try:
                 await a_create_schedule(
                     temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes
@@ -460,8 +496,8 @@ async def _apply_reconciliation(
                 await a_update_schedule(
                     temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes
                 )
-        for schedule_id, (interval, node_ids) in plan.to_update.items():
-            schedule = _build_tier_schedule(dag_id, team_id, team_timezone, interval, node_ids)
+        for schedule_id, (tier, node_ids) in plan.to_update.items():
+            schedule = _build_tier_schedule(dag_id, team_id, team_timezone, tier, node_ids)
             await a_update_schedule(temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes)
     except Exception:
         for schedule_id in created:
@@ -479,6 +515,7 @@ async def _apply_reconciliation(
         except Exception as error:
             logger.exception("Failed to delete stale schedule", schedule_id=schedule_id, dag_id=dag_id)
             capture_exception(error)
+    return True
 
 
 async def _list_execute_dag_schedule_ids(temporal: Client, dag_id: str) -> set[str]:
@@ -495,19 +532,27 @@ async def _list_execute_dag_schedule_ids(temporal: Client, dag_id: str) -> set[s
 
 
 def _build_tier_schedule(
-    dag_id: str, team_id: int, team_timezone: str, interval: timedelta, node_ids: Iterable[str]
+    dag_id: str, team_id: int, team_timezone: str, tier: Tier, node_ids: Iterable[str]
 ) -> Schedule:
     from posthog.temporal.data_modeling.workflows.execute_dag import (  # noqa: PLC0415 — the workflows package imports this product's models back; importing it lazily keeps this module importable from models code and temporal off django.setup()
         ExecuteDAGInputs,
     )
 
     inputs = ExecuteDAGInputs(team_id=team_id, dag_id=dag_id, node_ids=sorted(node_ids), duckgres_only=False)
-    spec = build_schedule_spec(entity_id=uuid.UUID(dag_id), interval=interval, team_timezone=team_timezone)
+    spec = build_schedule_spec(
+        entity_id=uuid.UUID(dag_id),
+        interval=tier.interval,
+        team_timezone=team_timezone,
+        anchor_minutes=tier.anchor_minutes,
+    )
+    note = f"data-modeling DAG {dag_id} cadence tier {tier.interval}"
+    if tier.anchor_minutes is not None:
+        note += f" anchored at {tier.anchor_minutes}min past Monday 00:00 UTC"
     return Schedule(
         action=ScheduleActionStartWorkflow(
             DATA_MODELING_EXECUTE_DAG_WORKFLOW,
             dataclasses.asdict(inputs),
-            id=f"execute-dag-{tier_schedule_id(dag_id, interval)}",
+            id=f"execute-dag-{tier_schedule_id(dag_id, tier.interval, tier.anchor_minutes)}",
             task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
             retry_policy=RetryPolicy(
                 initial_interval=timedelta(seconds=10),
@@ -517,6 +562,6 @@ def _build_tier_schedule(
             ),
         ),
         spec=spec,
-        state=ScheduleState(note=f"data-modeling DAG {dag_id} cadence tier {interval}"),
+        state=ScheduleState(note=note),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )

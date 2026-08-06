@@ -3,7 +3,7 @@ from posthog.test.base import BaseTest
 
 from django.core.exceptions import ValidationError
 
-from posthog.models import IdentityProviderConfig, Organization, OrganizationDomain
+from posthog.models import IdentityProviderConfig, LinkedIdentityProviderConfig, Organization, OrganizationDomain
 
 # Legacy `OrganizationDomain` columns that mirror fields on `IdentityProviderConfig`. Test-only:
 # used to build underscore-prefixed kwargs and to guard the two models' field shapes against drift.
@@ -35,6 +35,30 @@ class TestIdentityProviderConfig(BaseTest):
         domain.identity_provider_config = config
         domain.save()
         return config
+
+    def test_creating_domain_with_idp_config_creates_link(self):
+        config = IdentityProviderConfig.objects.create(organization=self.organization)
+        domain = self._create_domain(identity_provider_config=config)
+
+        assert LinkedIdentityProviderConfig.objects.filter(
+            organization_domain=domain, identity_provider_config=config
+        ).exists()
+        config.refresh_from_db()
+        assert config.saml_relay_state == str(domain.pk)
+        assert config.scim_slug == str(domain.pk)
+
+    def test_updating_domain_idp_config_creates_link(self):
+        domain = self._create_domain()
+        config = IdentityProviderConfig.objects.create(organization=self.organization)
+        domain.identity_provider_config = config
+        domain.save()
+
+        assert LinkedIdentityProviderConfig.objects.filter(
+            organization_domain=domain, identity_provider_config=config
+        ).exists()
+        config.refresh_from_db()
+        assert config.saml_relay_state == str(domain.pk)
+        assert config.scim_slug == str(domain.pk)
 
     def test_saving_legacy_idp_columns_does_not_create_or_link_config(self):
         # The domain<->config dual-write mirror has been removed: writing the legacy underscore

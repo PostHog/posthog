@@ -18,11 +18,14 @@ class DecagonEndpointConfig:
 
 
 # Decagon's syncable surface is a single stream: /conversation/export returns
-# conversations with their messages, CSAT ratings, tags, and metadata, paginated
-# with a `cursor` request param and a `next_page_cursor` response field (null once
-# exhausted, up to 100 conversations per page). There is no server-side timestamp
-# filter, so the stream is full refresh only — the export cursor is an opaque
-# stream position, not a durable watermark our incremental machinery can use.
+# conversations with their messages, CSAT ratings, tags, and metadata, up to 100
+# per page. Pagination is a `cursor` request param fed from a next-page response
+# field whose name varies across Decagon's own docs (see NEXT_CURSOR_KEYS in
+# decagon.py); it is null once the stream is exhausted. The export also accepts
+# optional min_timestamp/max_timestamp filters on a conversation's last-updated
+# time, but rows expose no last-updated column our incremental machinery could
+# store as a watermark (only created_at, and a conversation re-enters the stream
+# whenever it receives new messages), so the stream is full refresh only.
 DECAGON_ENDPOINTS: dict[str, DecagonEndpointConfig] = {
     "conversations": DecagonEndpointConfig(
         name="conversations",
