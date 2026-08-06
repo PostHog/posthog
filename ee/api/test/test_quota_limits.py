@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from decimal import Decimal
-
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
 
 from rest_framework import status
 
@@ -13,8 +9,6 @@ from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-
-from products.tasks.backend.logic.services.sandbox_pricing import ComputeRateCard
 
 from ee.billing.quota_limiting import (
     QuotaLimitingCaches,
@@ -99,61 +93,6 @@ class TestQuotaLimitsAPI(APIBaseTest):
         self.assertEqual(limited["signals_credits"], {"limited": False, "usage": None, "limit": 5000})
         # Never synced: unknown, not zero.
         self.assertEqual(limited["events"], {"limited": False, "usage": None, "limit": None})
-
-    def test_reports_posthog_code_components_and_published_rates(self) -> None:
-        self.organization.usage = {
-            "period": ["2026-07-01T00:00:00Z", "2026-08-01T00:00:00Z"],
-            "posthog_code_credits": {"usage": 1250, "todays_usage": 51, "limit": 2000},
-            "posthog_code_token_credits": {"usage": 1200, "todays_usage": 34},
-            "sandbox_compute_credits": {"usage": 55, "todays_usage": 12},
-            "sandbox_compute_cpu_millicore_seconds": {"usage": 9_876_543_210, "todays_usage": 1},
-        }
-        self.organization.save()
-        rate = ComputeRateCard(
-            version="2026-07-15",
-            effective_at=datetime(2026, 7, 15, tzinfo=UTC),
-            expires_at=None,
-            cpu_core_second_usd=Decimal("0.00001234"),
-            memory_gib_second_usd=Decimal("0.00000567"),
-        )
-
-        with patch("ee.api.quota_limits.COMPUTE_RATE_CARDS", (rate,)):
-            response = self.client.get(self._url()).json()
-
-        self.assertEqual(response["limited"]["posthog_code_credits"]["usage"], 1301)
-        self.assertEqual(response["limited"]["posthog_code_token_credits"]["usage"], 1234)
-        self.assertEqual(response["limited"]["sandbox_compute_credits"]["usage"], 67)
-        self.assertEqual(response["limited"]["sandbox_compute_cpu_millicore_seconds"]["usage"], 9_876_543_211)
-        self.assertEqual(
-            response["posthog_code_compute_rate_cards"],
-            [
-                {
-                    "version": "2026-07-15",
-                    "effective_at": "2026-07-15T00:00:00+00:00",
-                    "expires_at": None,
-                    "cpu_usd_per_core_second": "0.00001234",
-                    "memory_usd_per_gib_second": "0.00000567",
-                }
-            ],
-        )
-        self.assertIsNone(response["posthog_code_compute_rate_card_error"])
-
-    def test_invalid_rate_configuration_is_surfaced_without_rates(self) -> None:
-        self.organization.usage = {}
-        self.organization.save()
-        invalid = ComputeRateCard(
-            version="invalid",
-            effective_at=datetime(2026, 7, 15, tzinfo=UTC),
-            expires_at=None,
-            cpu_core_second_usd=Decimal("0"),
-            memory_gib_second_usd=Decimal("1"),
-        )
-
-        with patch("ee.api.quota_limits.COMPUTE_RATE_CARDS", (invalid,)):
-            data = self.client.get(self._url()).json()
-
-        self.assertIsNone(data["posthog_code_compute_rate_cards"])
-        self.assertEqual(data["posthog_code_compute_rate_card_error"], "invalid_configuration")
 
     def test_returns_limited_when_team_is_over_quota(self) -> None:
         self._set_ai_credits_limit(self.team.api_token, 9_999_999_999)

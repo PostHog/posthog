@@ -295,8 +295,6 @@ class TestQuotaResolver:
             "memory_mib_seconds": 7_654_321_098,
             "cpu_cost_microusd": 123_456_789,
             "memory_cost_microusd": 98_765_432,
-            "rate_cards": [{"version": "2026-07-15", "effective_at": "2026-07-15T00:00:00+00:00"}],
-            "rate_card_error": None,
         }
         redis = _FakeRedis()
         resolver = QuotaResolver(
@@ -330,8 +328,6 @@ class TestQuotaResolver:
                                 "limit": None,
                             },
                         },
-                        "posthog_code_compute_rate_cards": breakdown["rate_cards"],
-                        "posthog_code_compute_rate_card_error": None,
                     },
                 )
             ),
@@ -347,13 +343,7 @@ class TestQuotaResolver:
         assert first.limit_usd == 20.0
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "rate_cards,rate_card_error",
-        [([], None), (None, "invalid_configuration")],
-    )
-    async def test_explicit_zero_survives_missing_or_invalid_rates(
-        self, rate_cards: list[object] | None, rate_card_error: str | None
-    ) -> None:
+    async def test_explicit_zero_survives_component_transport(self) -> None:
         resolver = QuotaResolver(
             redis=None,
             http_client=_make_http_client(
@@ -365,8 +355,6 @@ class TestQuotaResolver:
                             "posthog_code_token_credits": {"limited": False, "usage": 0, "limit": None},
                             "sandbox_compute_credits": {"limited": False, "usage": 0, "limit": None},
                         },
-                        "posthog_code_compute_rate_cards": rate_cards,
-                        "posthog_code_compute_rate_card_error": rate_card_error,
                     },
                 )
             ),
@@ -379,8 +367,6 @@ class TestQuotaResolver:
         assert status.posthog_code_usage["token_used_usd"] == "0"
         assert status.posthog_code_usage["compute_credits"] == 0
         assert status.posthog_code_usage["compute_used_usd"] == "0"
-        assert status.posthog_code_usage["rate_cards"] == rate_cards
-        assert status.posthog_code_usage["rate_card_error"] == rate_card_error
 
     @pytest.mark.asyncio
     async def test_fetches_and_parses_unlimited_response(self) -> None:

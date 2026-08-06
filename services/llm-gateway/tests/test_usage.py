@@ -446,10 +446,24 @@ class TestUsageEndpoint:
             "breakdown": None,
         }
 
-    def test_posthog_code_includes_optional_component_breakdown(self, authenticated_usage_client: TestClient) -> None:
+    @pytest.mark.parametrize(
+        "rate_cards,rate_card_error",
+        [
+            ([{"version": "2026-07-15", "effective_at": "2026-07-15T00:00:00+00:00"}], None),
+            ([], None),
+            (None, "invalid_configuration"),
+        ],
+    )
+    def test_posthog_code_includes_optional_component_breakdown(
+        self,
+        authenticated_usage_client: TestClient,
+        rate_cards: list[dict[str, object]] | None,
+        rate_card_error: str | None,
+    ) -> None:
+        from llm_gateway.services.compute_rate_resolver import ComputeRateStatus
         from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
-        breakdown = {
+        component_breakdown = {
             "token_credits": 1234,
             "token_used_usd": "12.34",
             "compute_credits": 67,
@@ -458,16 +472,17 @@ class TestUsageEndpoint:
             "memory_mib_seconds": 7_654_321_098,
             "cpu_cost_microusd": 123_456_789,
             "memory_cost_microusd": 98_765_432,
-            "rate_cards": [{"version": "2026-07-15", "effective_at": "2026-07-15T00:00:00+00:00"}],
-            "rate_card_error": None,
         }
         authenticated_usage_client.app.state.quota_resolver.get_resource_status = AsyncMock(
             return_value=QuotaResourceStatus(
                 limited=False,
                 used_usd=13.01,
                 limit_usd=20.0,
-                posthog_code_usage=breakdown,
+                posthog_code_usage=component_breakdown,
             )
+        )
+        authenticated_usage_client.app.state.compute_rate_resolver.get_rates = AsyncMock(
+            return_value=ComputeRateStatus(rate_cards=rate_cards, error=rate_card_error)
         )
 
         data = authenticated_usage_client.get(
@@ -476,7 +491,11 @@ class TestUsageEndpoint:
 
         assert data["ai_credits"]["used_usd"] == 13.01
         assert data["ai_credits"]["limit_usd"] == 20.0
-        assert data["ai_credits"]["breakdown"] == breakdown
+        assert data["ai_credits"]["breakdown"] == {
+            **component_breakdown,
+            "rate_cards": rate_cards,
+            "rate_card_error": rate_card_error,
+        }
 
     @pytest.mark.parametrize("billing_active", [True, False])
     def test_code_usage_subscribed_reflects_billing_bit(

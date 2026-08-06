@@ -118,12 +118,6 @@ def _posthog_code_usage(data: dict[str, object]) -> dict[str, object] | None:
     compute_credits = _optional_integer(components["compute_credits"])
     components["token_used_usd"] = str(Decimal(token_credits) / 100) if token_credits is not None else None
     components["compute_used_usd"] = str(Decimal(compute_credits) / 100) if compute_credits is not None else None
-    components["rate_cards"] = (
-        data.get("posthog_code_compute_rate_cards")
-        if isinstance(data.get("posthog_code_compute_rate_cards"), list)
-        else None
-    )
-    components["rate_card_error"] = data.get("posthog_code_compute_rate_card_error")
     return components
 
 

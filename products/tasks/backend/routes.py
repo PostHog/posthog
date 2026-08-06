@@ -4,6 +4,7 @@ import products.tasks.backend.presentation.views.api as tasks
 import products.tasks.backend.presentation.views.loops as loops
 import products.tasks.backend.presentation.views.seat_api as seats
 import products.tasks.backend.presentation.views.channels_api as channels
+import products.tasks.backend.presentation.views.compute_rate_cards as compute_rate_cards
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -38,6 +39,12 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.projects.register(
         r"sandbox_custom_images", tasks.SandboxCustomImageViewSet, "project_sandbox_custom_images", ["team_id"]
+    )
+    routers.projects.register(
+        r"sandbox_compute_rate_cards",
+        compute_rate_cards.ComputeRateCardsViewSet,
+        "project_sandbox_compute_rate_cards",
+        ["team_id"],
     )
     routers.root.register(r"code/invites", tasks.CodeInviteViewSet, "code_invites")
     routers.root.register(r"seats", seats.SeatViewSet, "seats")
