@@ -45,11 +45,6 @@ _EVENTS_PER_PAGE = 2000
 # millions of rows. Cap the total we hold in memory, gzip into Redis, and index for the events tool.
 _MAX_TOTAL_EVENT_ROWS = 50_000
 
-# Kept empty on purpose: `$feature_flag_called` marks experiment exposure, so the post-experiment scanner
-# template needs it to separate pre- from post-exposure behavior. Events aren't inlined into the prompt anymore
-# (the model pulls them on demand via `get_events_around`) and identical rows dedup, so leaving it in adds no noise.
-_EVENTS_TO_IGNORE: list[str] = []
-
 # `properties.*` is the HogQL prefix for JSON properties; `uuid` is surfaced to the LLM as the `event_uuid` citation handle.
 _EXTRA_FIELDS = [
     "uuid",
@@ -146,11 +141,11 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
     all_rows: list[list[Any]] = []
     events_truncated = False
     for page_number in itertools.count():
+        # No events_to_ignore: `$feature_flag_called` marks experiment exposure, which the post-experiment template needs.
         page = events_obj.get_events(
             session_id=session_id,
             team=team,
             metadata=metadata,
-            events_to_ignore=_EVENTS_TO_IGNORE,
             extra_fields=_EXTRA_FIELDS,
             limit=_EVENTS_PER_PAGE,
             page=page_number,
