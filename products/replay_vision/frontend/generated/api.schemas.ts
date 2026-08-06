@@ -759,24 +759,6 @@ export const ScannerModelEnumApi = {
     Gemini36Flash: 'gemini-3.6-flash',
 } as const
 
-/**
- * The experiment a scanner's targeting watches. Metadata only; scanning never reads it.
- */
-export interface ScannerExperimentTargetingApi {
-    /**
-     * The experiment the scanner watches.
-     * @minimum 1
-     */
-    experiment_id: number
-    /**
-     * Targeted experiment variants. Empty means every variant.
-     * @items.maxLength 400
-     */
-    variant_keys: string[]
-    /** True when the exposure event is captured server-side and the query filters on the `$feature/<flag_key>` property instead. */
-    use_exposure_fallback: boolean
-}
-
 export interface FeedbackThemeSessionApi {
     /** Observation whose feedback comment backs this theme. */
     observation_id: string
@@ -857,7 +839,7 @@ export interface ReplayScannerApi {
     /** When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals. */
     emits_signals?: boolean
     /** The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed. */
-    experiment_targeting?: ScannerExperimentTargetingApi | null
+    experiment_targeting?: unknown
     /** Increments on every config-changing save. Observations snapshot this value. */
     readonly scanner_version: number
     /**
@@ -953,7 +935,7 @@ export interface PatchedReplayScannerApi {
     /** When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals. */
     emits_signals?: boolean
     /** The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed. */
-    experiment_targeting?: ScannerExperimentTargetingApi | null
+    experiment_targeting?: unknown
     /** Increments on every config-changing save. Observations snapshot this value. */
     readonly scanner_version?: number
     /**
