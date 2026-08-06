@@ -25,22 +25,18 @@
         16px 16px;
 }
 
-// Glass variant — posthog.com's garden look: layered greens with a soft light well behind the
-// card, plus the same dot grid in a darker green. The base color overrides the parchment
-// `bg-[#eef0e7]` utility (unlayered rules beat Tailwind's cascade layer).
+// Glass variant uses posthog.com's layered garden greens with a soft light well behind the card.
+// The base color overrides the parchment `bg-[#eef0e7]` utility because unlayered rules beat
+// Tailwind's cascade layer.
 .PaperDesk--glass {
     --color-text-warning: var(--color-text-primary);
 
     background-color: #b5cd8f;
     background-image:
         radial-gradient(80% 70% at 50% 30%, rgb(255 253 240 / 45%), transparent 70%),
-        linear-gradient(180deg, #cfe0ae 0%, #b5cd8f 55%, #9dbb78 100%),
-        radial-gradient(rgb(45 74 22 / 9%) 1.4px, transparent 1.4px);
-    background-repeat: no-repeat, no-repeat, repeat;
-    background-size:
-        auto,
-        auto,
-        16px 16px;
+        linear-gradient(180deg, #cfe0ae 0%, #b5cd8f 55%, #9dbb78 100%);
+    background-repeat: no-repeat;
+    background-size: auto;
 
     // The cream OS-window card the new website (and the self-driving onboarding) uses.
     .PaperDesk__card {
