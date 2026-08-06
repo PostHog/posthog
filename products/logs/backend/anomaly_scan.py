@@ -490,9 +490,10 @@ def _replay(
         # inside the reopen window that never cleared the bar are not part of it,
         # so they must not push last_anomalous_at past resolved_at. A reopen
         # clears resolved_at, so an active issue keeps its full evidence.
+        resolved_at = accumulator.resolved_at
         anomalous_times = accumulator.anomalous_times
-        if accumulator.resolved_at is not None:
-            anomalous_times = [t for t in anomalous_times if t <= accumulator.resolved_at]
+        if resolved_at is not None:
+            anomalous_times = [t for t in anomalous_times if t <= resolved_at]
         issues.append(
             ScanIssue(
                 direction=accumulator.fingerprint.direction,
@@ -502,7 +503,7 @@ def _replay(
                 state=snapshot.state if snapshot is not None else IssueState.RESOLVED,
                 opened_at=accumulator.opened_at,
                 last_anomalous_at=anomalous_times[-1],
-                resolved_at=accumulator.resolved_at,
+                resolved_at=resolved_at,
                 anomalous_bucket_times=anomalous_times,
             )
         )
