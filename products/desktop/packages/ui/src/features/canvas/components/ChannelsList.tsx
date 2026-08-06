@@ -402,7 +402,7 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
       onClick={() => openTask(spaceId, item.id)}
       // A step in from its space's name, so the depth reads off that column
       // without a guide line to draw it.
-      className="pl-10"
+      className="pl-6"
     >
       {/* The dot belongs to the title, not to the row: its own tighter gap
           keeps them one mark rather than two columns. */}
@@ -480,7 +480,7 @@ function ViewAllRow({
       asOption={asOption}
       optionValue={viewAllValue(spaceId)}
       onClick={onOpenSpace}
-      className={cn("pl-12 text-[13px]", ROW_LABEL_TONE)}
+      className={cn("pl-6.5 text-[13px]", ROW_LABEL_TONE)}
     >
       {/* An empty slot the width of a session's status dot, so the label starts
           in the same column as the titles above it. */}
