@@ -273,25 +273,29 @@ def _replay_window_start(attempted_at: datetime) -> datetime:
 def reserve(fingerprint: ReplyFingerprint) -> Reservation:
     """Claim the right to create this message, or report who got there first.
 
-    Fails open (ACQUIRED without a token) on any Redis problem. The caller's recent-row lookup is
-    what keeps that safe: losing the reservation degrades to database-backed replay detection
-    rather than to duplicate messages.
+    Fails open (ACQUIRED without a token) once Redis has failed twice. That degrades to the caller's
+    recent-row lookup, which catches a retry of a message that already committed. It does not
+    serialize two concurrent first attempts: while Redis is unreachable, both can pass that lookup
+    before either inserts, and the customer receives the message twice. Closing that last race needs
+    a durable idempotency key or a uniqueness constraint, which this design deliberately avoids, so
+    the retry here is what keeps a single dropped connection from widening the window.
     """
     key = fingerprint.key
     token = f"{_IN_FLIGHT_VALUE_PREFIX}{uuid.uuid4()}"
-    try:
-        client = get_client()
-        for _ in range(2):
+    for attempt in range(2):
+        try:
+            client = get_client()
             if client.set(key, token, nx=True, ex=IN_FLIGHT_TTL_SECONDS):
                 return Reservation(state=ReservationState.ACQUIRED, key=key, owner_token=token)
             held = client.get(key)
-            if held is None:
-                # The holder's entry expired or was evicted between the SET and the GET, so retry
-                # instead of reporting a conflict that no longer exists.
+            if held is not None:
+                return _classify_held_value(key, held, token)
+            # The holder's entry expired or was evicted between the SET and the GET, so try again
+            # instead of reporting a conflict that no longer exists.
+        except Exception:
+            if attempt == 0:
                 continue
-            return _classify_held_value(key, held)
-    except Exception:
-        logger.warning("conversations_reply_dedupe_reserve_error", key=key, exc_info=True)
+            logger.warning("conversations_reply_dedupe_reserve_error", key=key, exc_info=True)
     return Reservation(state=ReservationState.ACQUIRED, key=key)
 
 
@@ -324,8 +328,11 @@ def release(reservation: Reservation) -> None:
         logger.warning("conversations_reply_dedupe_release_error", key=reservation.key, exc_info=True)
 
 
-def _classify_held_value(key: str, held: Any) -> Reservation:
+def _classify_held_value(key: str, held: Any, token: str) -> Reservation:
     value = held.decode() if isinstance(held, bytes) else str(held)
+    if value == token:
+        # Our own SET landed even though its reply never reached us, so we still own the reservation.
+        return Reservation(state=ReservationState.ACQUIRED, key=key, owner_token=token)
     if value.startswith(_COMMENT_VALUE_PREFIX):
         return Reservation(
             state=ReservationState.REPLAY,

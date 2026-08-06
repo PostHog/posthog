@@ -20,6 +20,21 @@ from products.conversations.backend.reply_dedupe import (
 )
 
 
+class _DroppedBeforeTheWrite:
+    def set(self, *args, **kwargs):
+        raise ConnectionError("connection reset before the write")
+
+
+class _DroppedAfterTheWrite:
+    # The reservation lands and its reply is lost, so a retry finds its own token in the key.
+    def __init__(self, client):
+        self._client = client
+
+    def set(self, *args, **kwargs):
+        self._client.set(*args, **kwargs)
+        raise TimeoutError("the reply never arrived")
+
+
 class TestReplyDedupe(BaseTest):
     def setUp(self):
         super().setUp()
@@ -191,6 +206,23 @@ class TestReplyDedupe(BaseTest):
         get_client().set(fingerprint.key, stored)
 
         assert reserve(fingerprint).state is expected
+
+    @parameterized.expand(
+        [
+            ("the_write_never_ran", lambda client: _DroppedBeforeTheWrite()),
+            ("the_write_landed_and_its_reply_was_lost", lambda client: _DroppedAfterTheWrite(client)),
+        ]
+    )
+    def test_one_dropped_connection_does_not_give_up_the_reservation(self, _name: str, flaky_client):
+        # Failing open on the first error hands back an ownerless reservation, and two concurrent
+        # attempts then both create the message. A single reset connection must not cost that.
+        client = get_client()
+
+        with patch.object(reply_dedupe, "get_client", side_effect=[flaky_client(client), client]):
+            reservation = reserve(self._fingerprint())
+
+        assert reservation.state is ReservationState.ACQUIRED
+        assert reservation.owner_token is not None
 
     def test_redis_failure_falls_back_to_the_database(self):
         # Losing Redis must degrade to database-backed replay detection, not to duplicate messages.
