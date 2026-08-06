@@ -92,6 +92,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         observationSubjectFilter,
         observationDateFrom,
         observationDateTo,
+        observationBackfillFilter,
         hasActiveObservationFilters,
         observationDetailLinkParams,
         availableTags,
@@ -112,6 +113,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         setObservationTagFilter,
         setObservationSubjectFilter,
         setObservationDateRange,
+        setObservationBackfillFilter,
         clearObservationFilters,
         copyAllObservations,
     } = useActions(logic)
@@ -288,6 +290,16 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                         onChange={setObservationTagFilter}
                                         searchable
                                     />
+                                )}
+                                {observationBackfillFilter && (
+                                    <LemonTag
+                                        type="caution"
+                                        closable
+                                        onClose={() => setObservationBackfillFilter(null)}
+                                        data-attr="vision-observations-backfill-filter"
+                                    >
+                                        From backfill
+                                    </LemonTag>
                                 )}
                                 <LemonButton
                                     type="tertiary"

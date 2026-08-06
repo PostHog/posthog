@@ -22,6 +22,7 @@ import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { formatCreditsRange } from '../utils/credits'
 import { quotaBannerState } from '../utils/quotaProjection'
+import { ScannerBackfillsTab } from './components/ScannerBackfillsTab'
 import { ScannerCalibrationTab } from './components/ScannerCalibrationTab'
 import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
 import { ScannerDigestCard } from './components/ScannerDigestCard'
@@ -130,6 +131,11 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         key: ReplayScannerTab.OnDemand,
                         label: 'On-demand',
                         content: <ScannerRunTab scannerId={scannerId} />,
+                    },
+                    {
+                        key: ReplayScannerTab.Backfills,
+                        label: 'Backfills',
+                        content: <ScannerBackfillsTab scannerId={scannerId} />,
                     },
                     {
                         key: ReplayScannerTab.Configuration,

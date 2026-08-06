@@ -30,6 +30,7 @@ export const OBSERVATION_TRIGGER_TAG: Record<
     schedule: { label: 'Schedule', type: 'default' },
     on_demand: { label: 'On demand', type: 'highlight' },
     retry: { label: 'Retry', type: 'completion' },
+    backfill: { label: 'Backfill', type: 'caution' },
 }
 
 // Typed against the generated retrieve params so a renamed or dropped backend filter fails the build.
