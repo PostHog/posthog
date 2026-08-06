@@ -109,7 +109,9 @@ tools:
             definition when the calculation needs judgment or multiple steps. Only propose a definition that was
             explicitly asked for or that you have seen reused at least twice - do not speculatively catalog one-off
             queries. If you derived a number and no metric exists for it, offer to save the derivation as a proposed
-            metric. There is no list tool: discover existing metrics with execute-sql over
+            metric. Keep 'description' to 1-3 sentences saying what the metric means and what it serves - never a
+            walkthrough of the query or calculation steps (the definition carries those); put rationale for the chosen
+            definition in 'reasoning'. There is no list tool: discover existing metrics with execute-sql over
             system.information_schema.metrics.
         exclude_params:
             - created_source
@@ -148,7 +150,8 @@ tools:
         title: Update a catalog metric
         description: >
             Update a metric's fields. Editing an approved metric's definition, description, or unit resets it to
-            'proposed' (it must be re-approved by a human).
+            'proposed' (it must be re-approved by a human). When editing 'description', keep it to 1-3 sentences of
+            business meaning, not a narration of the query; rationale for the definition belongs in 'reasoning'.
         exclude_params:
             - created_source
         inject_body:

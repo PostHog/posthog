@@ -32,6 +32,12 @@ services:
         volumes:
             - redis7-data:/data
 
+    valkey:
+        extends:
+            file: docker-compose.base.yml
+            service: valkey
+        logging: *default-logging
+
     clickhouse:
         extends:
             file: docker-compose.base.yml
@@ -199,6 +205,9 @@ services:
             OBJECT_STORAGE_ENABLED: true
             CDP_REDIS_HOST: redis7
             CDP_REDIS_PORT: 6379
+            # Every CDP process dual-writes to Valkey and refuses to start without a host.
+            CDP_VALKEY_HOST: valkey
+            CDP_VALKEY_PORT: 6379
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             CYCLOTRON_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
@@ -209,6 +218,7 @@ services:
         depends_on:
             - db
             - redis7
+            - valkey
             - clickhouse
             - kafka
             - objectstorage
