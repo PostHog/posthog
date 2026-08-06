@@ -78,8 +78,8 @@ def _expected_heads(session: Mock) -> list[str]:
 
 
 def test_publishes_every_file_in_one_commit_with_urls_in_input_order(png: Path, tmp_path: Path, token: None) -> None:
-    # A commit per file is what used to make concurrent uploads collide on expectedHeadOid,
-    # so batching is the contract, not an optimization.
+    # Batching is the contract, not an optimization: one commit per invocation is what keeps
+    # concurrent uploads from colliding on expectedHeadOid.
     second = tmp_path / "after.png"
     second.write_bytes(b"\x89PNG second")
 
@@ -108,6 +108,19 @@ def test_operation_failure_is_surfaced_even_though_http_is_200(png: Path, token:
     # as a success and print markdown pointing at a commit that was never created.
     with _session(_head(), _failed(type="FORBIDDEN", message="nope")):
         with pytest.raises(click.ClickException, match="upload failed"):
+            pr_assets.publish([png], message="add screenshot")
+
+
+@pytest.mark.parametrize(
+    "before_failure",
+    [[], [_head(), _stale()]],
+    ids=["first_read", "retry_read"],
+)
+def test_failed_head_read_stays_a_plain_error(png: Path, token: None, before_failure: list[SimpleNamespace]) -> None:
+    # A rate limit or a revoked token answers the head read with an errors array. Letting
+    # that escape prints a traceback instead of a message telling the caller what to do.
+    with _session(*before_failure, _failed(type="RATE_LIMITED", message="API rate limit exceeded")):
+        with pytest.raises(click.ClickException, match="could not read PostHog/pr-assets"):
             pr_assets.publish([png], message="add screenshot")
 
 
