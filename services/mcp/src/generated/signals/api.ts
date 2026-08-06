@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 39 enabled ops
+ * PostHog API - MCP 40 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -426,6 +426,8 @@ export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneChannel
 
 export const signalsScoutCreateBodyConfigOneRunCronScheduleMax = 100
 
+export const signalsScoutCreateBodyConfigOneTagsMax = 10
+
 export const SignalsScoutCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod
@@ -528,6 +530,19 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                     .describe(
                         "Optional five-field cron expression, e.g. '30 9 \* \* \*' (daily at 09:30), '0 9,17 \* \* \*' (twice daily), or '0 9 \* \* 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
                     ),
+                tags: zod
+                    .array(zod.string())
+                    .max(signalsScoutCreateBodyConfigOneTagsMax)
+                    .optional()
+                    .describe(
+                        'Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.'
+                    ),
+                structured_output_schema: zod
+                    .record(zod.string(), zod.unknown())
+                    .nullish()
+                    .describe(
+                        'Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout\'s call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.'
+                    ),
             })
             .describe('Schedule, enablement, and delivery options accepted while creating a scout.')
             .optional()
@@ -538,7 +553,7 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
     .describe('Create a runnable custom scout and its config in one atomic request.')
 
 /**
- * List the per-(team, skill) scout configs for this project. Each row includes its schedule (rolling `run_interval_minutes`, or a project-local `run_cron_schedule` when set), `enabled`, and `emit` posture. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick.
+ * List the per-(team, skill) scout configs for this project. Each row includes its schedule (rolling `run_interval_minutes`, or a project-local `run_cron_schedule` when set), `enabled`, `emit` posture, and `tags`. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick. Pass `tags` to narrow the fleet to the scouts carrying at least one of the given labels.
  * @summary List scout configs
  */
 export const SignalsScoutConfigListParams = /* @__PURE__ */ zod.object({
@@ -546,6 +561,16 @@ export const SignalsScoutConfigListParams = /* @__PURE__ */ zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const SignalsScoutConfigListQueryParams = /* @__PURE__ */ zod.object({
+    tags: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Comma-separated tags, e.g. `revenue,on-call`. Returns the scouts carrying at least one of them. Values are normalized the same way stored tags are, so `On Call` matches `on-call`. Omit for the whole fleet.'
         ),
 })
 
@@ -567,6 +592,8 @@ export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
 export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneChannelMax = 255
 
 export const signalsScoutConfigCreateBodyRunCronScheduleMax = 100
+
+export const signalsScoutConfigCreateBodyTagsMax = 10
 
 export const signalsScoutConfigCreateBodySkillNameMax = 200
 
@@ -633,6 +660,19 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Optional five-field cron expression, e.g. '30 9 \* \* \*' (daily at 09:30), '0 9,17 \* \* \*' (twice daily), or '0 9 \* \* 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
             ),
+        tags: zod
+            .array(zod.string())
+            .max(signalsScoutConfigCreateBodyTagsMax)
+            .optional()
+            .describe(
+                'Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.'
+            ),
+        structured_output_schema: zod
+            .record(zod.string(), zod.unknown())
+            .nullish()
+            .describe(
+                'Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout\'s call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.'
+            ),
         skill_name: zod
             .string()
             .max(signalsScoutConfigCreateBodySkillNameMax)
@@ -663,6 +703,8 @@ export const signalsScoutConfigUpdateBodyRunIntervalMinutesMax = 43200
 export const signalsScoutConfigUpdateBodyRunCronScheduleMax = 100
 
 export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneChannelMax = 255
+
+export const signalsScoutConfigUpdateBodyTagsMax = 10
 
 export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -721,6 +763,12 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery.'
             ),
+        structured_output_schema: zod
+            .record(zod.string(), zod.unknown())
+            .nullish()
+            .describe(
+                'Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout\'s call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.'
+            ),
         network_access: zod
             .enum(['trusted', 'full'])
             .describe('\* `trusted` - Trusted domains only\n\* `full` - Full')
@@ -733,6 +781,13 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Exempt this scout from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet.'
+            ),
+        tags: zod
+            .array(zod.string())
+            .max(signalsScoutConfigUpdateBodyTagsMax)
+            .optional()
+            .describe(
+                'Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.'
             ),
     })
     .describe('Editable schedule, enablement, and emit posture for one scout config.')
@@ -1464,6 +1519,52 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Request body for `emit-finding`. Run attribution is taken from the URL path.')
+
+/**
+ * The structured-output channel: record schema-validated records this run produced. Opt-in via the scout config's `structured_output_schema` (a JSON Schema describing one record) — without it the call fails closed, as it does for a dry-run scout (emit off). All-or-nothing: any invalid record fails the whole call with nothing written, so fix and resubmit the batch. Each accepted record lands in the project's event stream as a `$scout_structured_output` event — query them like any event (insights, SQL over `events`). Recording is idempotent: event ids are deterministic, so resubmitting an identical batch (e.g. retrying after a 503) cannot double-count.
+ * @summary Record structured output for a run
+ */
+export const SignalsScoutRecordOutputParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    run_id: zod.string().describe('UUID of the `SignalScoutRun` bridge row.'),
+})
+
+export const signalsScoutRecordOutputBodyRecordsItemSubjectMax = 200
+
+export const signalsScoutRecordOutputBodyRecordsMax = 100
+
+export const SignalsScoutRecordOutputBody = /* @__PURE__ */ zod
+    .object({
+        records: zod
+            .array(
+                zod
+                    .object({
+                        payload: zod
+                            .record(zod.string(), zod.unknown())
+                            .describe(
+                                "The record itself, as a JSON object. Must validate against the scout config's `structured_output_schema` (shown in the run prompt); any invalid record fails the whole call with nothing written."
+                            ),
+                        subject: zod
+                            .string()
+                            .max(signalsScoutRecordOutputBodyRecordsItemSubjectMax)
+                            .nullish()
+                            .describe(
+                                "Optional key naming what this record is about — a report id, URL, account key — so per-entity lookups don't need to parse `payload`. Omit for a run-level record."
+                            ),
+                    })
+                    .describe('One record submitted through `scout-record-output`.')
+            )
+            .min(1)
+            .max(signalsScoutRecordOutputBodyRecordsMax)
+            .describe(
+                "Records to record, each validated against the scout config's `structured_output_schema`. All-or-nothing: if any record fails validation, nothing is written and the error names the failing records. Capped at 100 per call; batch per-entity judgments rather than calling once per record."
+            ),
+    })
+    .describe('Request body for `scout-record-output`: a batch of schema-validated records.')
 
 /**
  * Return the team's recently emitted scout findings across *every* run, newest first — the cross-run counterpart to the per-run `emissions` action. Each row carries its `run_id`, so you can regroup by run without first listing runs and fanning out one `emissions` call each. Pass `skill_name` to scope to a single scout, and `date_from` / `date_to` (a half-open window on `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to walk back past the limit. Pure Postgres, no ClickHouse round-trip. Capped at 200 rows (default 50).

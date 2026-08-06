@@ -201,6 +201,60 @@ describe('PostgresPersonRepository', () => {
         })
     })
 
+    describe('tombstoned rows', () => {
+        async function tombstonePerson(person: InternalPerson): Promise<void> {
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'UPDATE posthog_person SET is_deleted = true, version = version + 1 WHERE team_id = $1 AND id = $2',
+                [person.team_id, person.id],
+                'tombstonePerson'
+            )
+        }
+
+        async function tombstoneDistinctId(teamId: number, distinctId: string): Promise<void> {
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'UPDATE posthog_persondistinctid SET is_deleted = true, version = COALESCE(version, 0) + 1 WHERE team_id = $1 AND distinct_id = $2',
+                [teamId, distinctId],
+                'tombstoneDistinctId'
+            )
+        }
+
+        it('excludes tombstoned persons from person reads', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const person = await createTestPerson(team.id, 'tombstoned-person-did')
+            await tombstonePerson(person)
+
+            await expect(repository.fetchPerson(team.id, 'tombstoned-person-did')).resolves.toBeUndefined()
+            await expect(
+                repository.fetchPersonsByDistinctIds([{ teamId: team.id, distinctId: 'tombstoned-person-did' }])
+            ).resolves.toEqual([])
+            await expect(
+                repository.fetchPersonsForUpdateByDistinctIds(team.id, ['tombstoned-person-did'])
+            ).resolves.toEqual([])
+            await expect(
+                repository.fetchPersonsByPersonIds([{ teamId: team.id, personId: person.uuid }])
+            ).resolves.toEqual([])
+        })
+
+        it('excludes tombstoned distinct id mappings from reads while live mappings still resolve', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const person = await createTestPerson(team.id, 'live-did')
+            await repository.addDistinctId(person, 'dead-did', 0)
+            await tombstoneDistinctId(team.id, 'dead-did')
+
+            await expect(repository.fetchPerson(team.id, 'dead-did')).resolves.toBeUndefined()
+            await expect(repository.fetchPerson(team.id, 'live-did')).resolves.toMatchObject({ uuid: person.uuid })
+            await expect(repository.fetchPersonDistinctIds(person)).resolves.toEqual(['live-did'])
+            await expect(repository.fetchDistinctIdsForPersons(team.id, [person.id])).resolves.toEqual({
+                [person.id]: ['live-did'],
+            })
+            await expect(repository.countDistinctIdsForPersons(team.id, [person.id])).resolves.toEqual(
+                new Map([[person.id, 1]])
+            )
+        })
+    })
+
     describe('createPerson()', () => {
         it('creates a person with basic properties', async () => {
             const team = await getFirstTeam(hub.postgres)
