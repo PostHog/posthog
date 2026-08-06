@@ -757,12 +757,19 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
 
         assert response.results == [(2,)]
 
-    def test_is_bounce_resolves_as_nullable(self):
-        # $is_bounce is deliberately `if(<no pageviews>, NULL, ...)` so a session with nothing to
-        # bounce on stays out of the average. Declaring the field non-nullable makes the NULL guards
-        # around bounce rate (`coalesce(bounce.bounce_rate, 0)` in the web stats table) look
-        # redundant to type-aware rewrites; dropping them reports NULL instead of 0%.
-        modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2)
+    @parameterized.expand(
+        [
+            ("v1", SessionTableVersion.V1),
+            ("v2", SessionTableVersion.V2),
+            ("v3", SessionTableVersion.V3),
+        ]
+    )
+    def test_is_bounce_resolves_as_nullable(self, _name: str, session_table_version: SessionTableVersion):
+        # Every sessions table builds $is_bounce as `if(<no pageviews>, NULL, ...)` so a session with
+        # nothing to bounce on stays out of the average. Declaring the field non-nullable makes the
+        # NULL guards around bounce rate (`coalesce(bounce.bounce_rate, 0)` in the web stats table)
+        # look redundant to type-aware rewrites; dropping them reports NULL instead of 0%.
+        modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
