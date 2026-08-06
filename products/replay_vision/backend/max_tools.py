@@ -10,6 +10,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.embedding_worker import async_generate_embedding
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
@@ -22,8 +23,12 @@ from products.replay_vision.backend.embeddings import (
 )
 from products.replay_vision.backend.feature_flag import is_replay_vision_enabled
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
+from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.observation_formatting import EVENT_ID_CITATION_RE, format_line, read_output
+from products.replay_vision.backend.scanner_access import (
+    scanner_for_reading_observations,
+    scanners_for_reading_observations,
+)
 from products.replay_vision.backend.tags import clickhouse_slugify_sql, slugify_tag
 
 from ee.hogai.tool import MaxTool
@@ -203,7 +208,7 @@ class SummarizeReplayVisionSummariesTool(MaxTool):
         if not is_replay_vision_enabled(self._user, self._team):
             return "Replay Vision is not enabled for this project.", {"error": "not_enabled"}
 
-        scanner = ReplayScanner.objects.filter(team_id=self._team.id, id=scanner_id).first()
+        scanner = scanner_for_reading_observations(self._team.id, scanner_id)
         if scanner is None:
             return f"Scanner {scanner_id} not found.", {"error": "not_found"}
         # Summaries inherit the scanner's RBAC — a team member without viewer access to this scanner
@@ -512,7 +517,7 @@ class SearchReplayVisionObservationsTool(MaxTool):
             except (ValueError, TypeError):
                 # A model-supplied non-UUID would raise ValidationError deeper in the ORM (alert noise); treat as not-found.
                 return None
-            scanner = ReplayScanner.objects.filter(team_id=self._team.id, id=scanner_uuid).first()
+            scanner = scanner_for_reading_observations(self._team.id, scanner_uuid)
             # Observations inherit the scanner's RBAC — treat missing access as not-found.
             if scanner is None or not self.user_access_control.check_access_level_for_object(scanner, "viewer"):
                 return None
@@ -520,7 +525,7 @@ class SearchReplayVisionObservationsTool(MaxTool):
             # tool output entirely (stored-injection guard); the searcher already knows which scanner they're on.
             return [str(scanner.id)], "the selected Replay Vision scanner", False
         readable = self.user_access_control.filter_queryset_by_access_level(
-            ReplayScanner.objects.filter(team_id=self._team.id)
+            scanners_for_reading_observations(self._team.id)
         ).values_list("id", flat=True)
         return [str(sid) for sid in readable], "your Replay Vision scanners", True
 
@@ -569,5 +574,11 @@ class SearchReplayVisionObservationsTool(MaxTool):
             LIMIT {{limit}}
         """
         tag_queries(product=Product.REPLAY_VISION, feature=Feature.SEMANTIC_SEARCH)
-        result = execute_hogql_query(query=hogql_query, team=self._team, user=self._user, placeholders=placeholders)
+        result = execute_hogql_query(
+            query=hogql_query,
+            team=self._team,
+            user=self._user,
+            placeholders=placeholders,
+            ch_user=ClickHouseUser.REPLAY_VISION,
+        )
         return [row[0] for row in (result.results or [])]

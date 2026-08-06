@@ -7,7 +7,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use chrono::DateTime;
-use common_ingestion_warnings::{WarningEmitter, CAPTURE_LEGACY_RATE_LIMIT};
+use common_ingestion_warnings::{
+    WarningEmitter, CAPTURE_LEGACY_ANALYTICS, CAPTURE_LEGACY_RATE_LIMIT,
+};
 use common_types::{CapturedEvent, RawEvent};
 use limiters::token_dropper::TokenDropper;
 use metrics::counter;
@@ -25,10 +27,8 @@ use crate::{
     events::overflow_stamping::stamp_overflow_reason,
     global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter},
     ingestion_warnings::{
-        emit_rate_limit_warning,
-        legacy::{
-            emit_distinct_id_truncated_warning, emit_processing_abort_warning, request_context,
-        },
+        emit_distinct_id_truncated_warning, emit_rate_limit_warning,
+        legacy::{emit_processing_abort_warning, request_context},
     },
     prometheus::{report_clock_skew, report_dropped_events},
     router, sinks,
@@ -342,6 +342,10 @@ async fn process_events_inner(
     let raw_events = events;
     let mut events: Vec<ProcessedEvent> = Vec::with_capacity(raw_events.len());
     for mut raw in raw_events {
+        if raw.event.starts_with("$ai_") {
+            raw.properties
+                .retain(|key, _| !key.starts_with(crate::gateway_provenance::GATEWAY_PREFIX));
+        }
         if raw.event == "$$heatmap" || !has_heatmap_data(&raw) {
             events.push(process_single_event(
                 &raw,
@@ -593,6 +597,7 @@ async fn process_events_inner(
         emit_distinct_id_truncated_warning(
             ingestion_warning_emitter.as_deref(),
             &request_context(context),
+            CAPTURE_LEGACY_ANALYTICS,
             truncated_sample.filter(|_| truncated_count == 1),
             truncated_count,
         );
@@ -2767,8 +2772,16 @@ mod tests {
         );
     }
 
+    /// A person-on burst keeps its key on either locality setting: the
+    /// overflow consumer updates persons keyed on distinct id, so spreading
+    /// one distinct id across partitions would contend those updates.
+    #[rstest]
+    #[case::preserving_locality(true)]
+    #[case::spreading(false)]
     #[tokio::test]
-    async fn e2e_rate_limited_preserve_locality_pipeline_to_sink_keeps_key() {
+    async fn e2e_rate_limited_pipeline_to_sink_keeps_key_while_person_on(
+        #[case] preserve_locality: bool,
+    ) {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -2785,8 +2798,8 @@ mod tests {
         ));
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
-        // burst=1, preserve_locality=true => event[1] stamped RateLimited{preserve_locality: true}.
-        let limiter = build_limiter(1, 1, None, true);
+        // burst=1 => event[1] stamped RateLimited { preserve_locality }.
+        let limiter = build_limiter(1, 1, None, preserve_locality);
 
         process_events(
             sink,
@@ -2816,57 +2829,11 @@ mod tests {
         );
         assert!(
             records[1].key.is_some(),
-            "RateLimited{{preserve_locality:true}} must preserve partition key"
+            "a person-on burst must keep its partition key"
         );
         assert!(
             records[1].headers.force_disable_person_processing.is_none(),
             "RateLimited (non-Force) must NOT set force_disable_person_processing"
-        );
-    }
-
-    #[tokio::test]
-    async fn e2e_rate_limited_no_preserve_locality_pipeline_to_sink_drops_key() {
-        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
-        let context = create_test_context(now, None);
-        let events = vec![
-            create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None),
-            create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None),
-        ];
-
-        let producer = MockKafkaProducer::new();
-        let sink = Arc::new(KafkaSinkBase::with_producer(
-            producer.clone(),
-            test_topics(),
-        ));
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
-        // burst=1, preserve_locality=false => event[1] stamped RateLimited{preserve_locality: false}.
-        let limiter = build_limiter(1, 1, None, false);
-
-        process_events(
-            sink,
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            Some(limiter),
-            None,
-            None,
-            &AiRouting::Primary,
-            events,
-            &context,
-        )
-        .await
-        .unwrap();
-
-        let records = producer.get_records();
-        assert_eq!(records.len(), 2);
-        assert_eq!(records[1].topic, "events_plugin_ingestion_overflow");
-        assert_eq!(
-            records[1].key, None,
-            "RateLimited{{preserve_locality:false}} must drop partition key"
         );
     }
 

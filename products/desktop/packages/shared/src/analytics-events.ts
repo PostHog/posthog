@@ -56,6 +56,7 @@ export type CommandMenuAction =
   | "open-channel"
   | "open-command-center"
   | "open-inbox"
+  | "open-archived"
   | "open-loops"
   | "open-usage"
   | "search-files"
@@ -850,9 +851,10 @@ export interface ScoutDetailViewedProperties {
 export interface ScoutConfigChangedProperties {
   skill_name: string;
   scout_origin: "canonical" | "custom";
-  setting: "enabled" | "emit" | "run_interval_minutes";
+  setting: "enabled" | "emit" | "run_interval_minutes" | "auto_pause_exempt";
   new_value: boolean | number;
-  old_value: boolean | number;
+  /** Null when the backend predates the setting and never sent a value. */
+  old_value: boolean | number | null;
   /** False when the server rejected the update and the change rolled back. */
   success: boolean;
 }
@@ -1097,11 +1099,6 @@ export interface UpgradePromptClickedProperties {
 export interface CloudTaskUsageBlockedProperties {
   bucket: "burst" | "sustained" | null;
   is_pro: boolean;
-}
-
-export interface UsageBillingAnnouncementAcknowledgedProperties {
-  /** Stamps the acknowledgment on the person for support auditability. */
-  $set: { code_usage_billing_acknowledged_at: string };
 }
 
 // Claude Code session import events
@@ -1429,8 +1426,6 @@ export const ANALYTICS_EVENTS = {
   UPGRADE_PROMPT_SHOWN: "Upgrade prompt shown",
   UPGRADE_PROMPT_CLICKED: "Upgrade prompt clicked",
   CLOUD_TASK_USAGE_BLOCKED: "Cloud task usage blocked",
-  USAGE_BILLING_ANNOUNCEMENT_ACKNOWLEDGED:
-    "Usage billing announcement acknowledged",
 
   // Project Bluebird (Channels) events
   CHANNELS_SPACE_VIEWED: "Channels space viewed",
@@ -1442,11 +1437,6 @@ export const ANALYTICS_EVENTS = {
   // Autoresearch events
   AUTORESEARCH_ARMED: "Autoresearch armed",
   AUTORESEARCH_RUN_STARTED: "Autoresearch run started",
-
-  // Loops promo events
-  LOOPS_PROMO_OPENED: "Loops promo opened",
-  LOOPS_PROMO_DISMISSED: "Loops promo dismissed",
-  LOOPS_PROMO_LEARN_MORE_CLICKED: "Loops promo learn more clicked",
 
   // Loops events
   LOOP_LIST_VIEWED: "Loop list viewed",
@@ -1608,7 +1598,6 @@ export type EventPropertyMap = {
   // Subscription events
   [ANALYTICS_EVENTS.UPGRADE_PROMPT_SHOWN]: UpgradePromptShownProperties;
   [ANALYTICS_EVENTS.UPGRADE_PROMPT_CLICKED]: UpgradePromptClickedProperties;
-  [ANALYTICS_EVENTS.USAGE_BILLING_ANNOUNCEMENT_ACKNOWLEDGED]: UsageBillingAnnouncementAcknowledgedProperties;
   [ANALYTICS_EVENTS.CLOUD_TASK_USAGE_BLOCKED]: CloudTaskUsageBlockedProperties;
 
   // Project Bluebird (Channels) events
@@ -1621,11 +1610,6 @@ export type EventPropertyMap = {
   // Autoresearch events
   [ANALYTICS_EVENTS.AUTORESEARCH_ARMED]: AutoresearchArmedProperties;
   [ANALYTICS_EVENTS.AUTORESEARCH_RUN_STARTED]: AutoresearchRunStartedProperties;
-
-  // Loops promo events
-  [ANALYTICS_EVENTS.LOOPS_PROMO_OPENED]: never;
-  [ANALYTICS_EVENTS.LOOPS_PROMO_DISMISSED]: never;
-  [ANALYTICS_EVENTS.LOOPS_PROMO_LEARN_MORE_CLICKED]: never;
 
   // Loops events
   [ANALYTICS_EVENTS.LOOP_LIST_VIEWED]: LoopListViewedProperties;

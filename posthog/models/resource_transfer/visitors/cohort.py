@@ -23,6 +23,7 @@ class CohortVisitor(
         "last_error_at",
         "last_backfill_events_at",
         "last_backfill_person_properties_at",
+        "last_realtime_cohort_calculation_at",
         "filters_shape_hash",
         "behavioral_filters_shape_hash",
         "person_filters_shape_hash",
