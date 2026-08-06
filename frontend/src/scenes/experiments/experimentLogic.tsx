@@ -3288,6 +3288,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 const response: Experiment = await api.update(
                     `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
                     {
+                        ...toConcurrencyPayload(values.unmodifiedExperiment),
                         [orderingField]: orderedUuids,
                         update_feature_flag_params: false,
                     }

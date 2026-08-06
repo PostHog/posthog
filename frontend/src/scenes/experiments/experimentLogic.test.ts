@@ -929,10 +929,13 @@ describe('experimentLogic', () => {
 
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(api.update).toHaveBeenCalledWith(expect.stringContaining('/experiments/'), {
-                primary_metrics_ordered_uuids: ['second-uuid', 'first-uuid'],
-                update_feature_flag_params: false,
-            })
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({
+                    primary_metrics_ordered_uuids: ['second-uuid', 'first-uuid'],
+                    update_feature_flag_params: false,
+                })
+            )
         })
 
         it('rolls the order back when the update fails', async () => {
