@@ -162,6 +162,26 @@ CAMPAIGNS: tuple[DemoCampaign, ...] = (
         purchase_rate=0.015,
         scenario="same campaign name as a Meta campaign; only google-tagged events",
     ),
+    DemoCampaign(
+        platform="GoogleAds",
+        campaign_id="10006",
+        name="autumn_clearance",
+        daily_cost=120.0,
+        daily_impressions=3200,
+        daily_clicks=95,
+        daily_sessions=30,
+        utm_source="google",
+        utm_campaign="autumn_clearance",
+        referring_domain="google.com",
+        signup_rate=0.03,
+        purchase_rate=0.008,
+        # Every session carries the typo, so the campaign has spend and zero matched events — the
+        # shape the mapping suggester proposes for. `spring_sale_2026` above is the already-mapped
+        # counterpart, and `generic_search`'s traffic is clean, so neither produces a suggestion.
+        # Scores 93.3: proposed, but under the bar to be batch-applied.
+        utm_campaign_variants={"autum_clearnce": 1.0},
+        scenario="spend with no matched events: typo'd utm_campaign the suggester should map",
+    ),
     # --- Meta Ads (source stale: last sync > 24h ago) ---
     DemoCampaign(
         platform="MetaAds",
