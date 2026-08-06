@@ -2260,6 +2260,34 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
         ]
         assert rows == []
 
+    def test_object_search_and_rules_hide_objects_the_member_cannot_see(self):
+        # Someone else's dashboard: creators keep access to their own objects
+        owner = User.objects.create_and_join(self.organization, "owner@posthog.com", None)
+        hidden = Dashboard.objects.create(team=self.team, name="Confidential board", created_by=owner)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id=str(hidden.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        res = self.client.get(
+            "/api/projects/@current/access_control_object_search?resource=dashboard&search=Confidential"
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.json()["results"] == []
+
+        res = self.client.get(f"/api/projects/@current/access_control_object_search?resource=dashboard&id={hidden.id}")
+        assert res.json()["results"] == []
+
+        res = self.client.put(
+            "/api/projects/@current/access_control_object_rules",
+            {"resource": "dashboard", "resource_id": str(hidden.id), "access_level": "editor"},
+        )
+        assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
+
     def test_object_rules_write_keeps_permission_and_level_validation(self):
         creator = User.objects.create_and_join(self.organization, "creator@posthog.com", None)
         dashboard = Dashboard.objects.create(team=self.team, name="Locked", created_by=creator)

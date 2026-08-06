@@ -1172,6 +1172,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
         carry those.
         """
         team = cast(Team, self.team)  # type: ignore
+        user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
         resource = request.query_params.get("resource") or ""
         config = _object_search_config(resource)
         if config is None:
@@ -1180,6 +1181,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
         search = request.query_params.get("search") or ""
         lookup = request.query_params.get("id") or ""
         qs = config.model._default_manager.filter(team_id=team.id)
+        # Objects the requester cannot see are not theirs to find or configure. Org admins see
+        # everything, matching how they can already configure access anywhere
+        qs = user_access_control.filter_queryset_by_access_level(qs, include_all_if_admin=True)
         # Objects mid-deletion or never saved are not sensible rule targets
         if _model_has_field(config.model, "deleted"):
             qs = qs.filter(deleted=False)
@@ -1226,7 +1230,12 @@ class AccessControlViewSetMixin(_GenericViewSet):
             raise exceptions.ValidationError("resource does not support object access rules")
         if not resource_id:
             raise exceptions.ValidationError("resource_id is required")
-        target = get_object_or_404(config.model._default_manager.filter(team_id=team.id), pk=resource_id)
+        visible = user_access_control.filter_queryset_by_access_level(
+            config.model._default_manager.filter(team_id=team.id), include_all_if_admin=True
+        )
+        # An object the requester cannot see is not theirs to configure; 404 rather than 403 so the
+        # endpoint doesn't confirm it exists
+        target = get_object_or_404(visible, pk=resource_id)
 
         data = {**request.data, "resource": resource, "resource_id": resource_id}
         context = {
