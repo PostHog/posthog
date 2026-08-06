@@ -126,7 +126,7 @@ export class CdpApi {
 
     private hogFlowExecutor: HogFlowExecutorService
     private hogWatcher: HogWatcherService
-    private hogWatcherMirror: HogWatcherService | null
+    private hogWatcherMirror: HogWatcherService
     private hogTransformer: HogTransformerService
     private invocationResultsService: InvocationResultsService
     private rerunJobManager: RerunJobManager | null = null
@@ -312,7 +312,7 @@ export class CdpApi {
             const summary = await mirrorCompare(
                 'hog-watcher.getPersistedState',
                 () => this.hogWatcher.getPersistedState(id),
-                () => this.hogWatcherMirror?.getPersistedState(id)
+                () => this.hogWatcherMirror.getPersistedState(id)
             )
 
             res.json(summary)
@@ -333,7 +333,7 @@ export class CdpApi {
             const summary = await mirrorCompare(
                 'hog-watcher.getPersistedState',
                 () => this.hogWatcher.getPersistedState(id),
-                () => this.hogWatcherMirror?.getPersistedState(id)
+                () => this.hogWatcherMirror.getPersistedState(id)
             )
             const hogFunction = await this.hogFunctionManager.fetchHogFunction(id)
 
@@ -348,7 +348,7 @@ export class CdpApi {
                 await Promise.all([
                     this.hogWatcher.forceStateChange(hogFunction, state),
                     mirrorCall('hog-watcher.forceStateChange', () =>
-                        this.hogWatcherMirror?.forceStateChange(hogFunction, state)
+                        this.hogWatcherMirror.forceStateChange(hogFunction, state)
                     ),
                 ])
             }
@@ -360,7 +360,7 @@ export class CdpApi {
                 await mirrorCompare(
                     'hog-watcher.getPersistedState',
                     () => this.hogWatcher.getPersistedState(id),
-                    () => this.hogWatcherMirror?.getPersistedState(id)
+                    () => this.hogWatcherMirror.getPersistedState(id)
                 )
             )
         }
@@ -372,7 +372,7 @@ export class CdpApi {
                 const allStates = await mirrorCompare(
                     'hog-watcher.getAllFunctionStates',
                     () => this.hogWatcher.getAllFunctionStates(),
-                    () => this.hogWatcherMirror?.getAllFunctionStates()
+                    () => this.hogWatcherMirror.getAllFunctionStates()
                 )
 
                 // Transform the data for better consumption by Grafana and sort by tokens ascending
