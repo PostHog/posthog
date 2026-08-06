@@ -4,6 +4,15 @@ on:
     push:
         tags:
             - 'desktop-v*'
+    workflow_dispatch:
+        inputs:
+            release_tag:
+                description: 'Existing desktop-v* tag to release'
+                required: true
+                type: string
+
+env:
+    RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
 
 concurrency:
     group: desktop-release
@@ -26,8 +35,15 @@ jobs:
 
             - name: Extract version from tag
               id: version
+              env:
+                  GH_TOKEN: ${{ github.token }}
               run: |
-                  TAG_VERSION="${GITHUB_REF#refs/tags/desktop-v}"
+                  if [[ ! "$RELEASE_TAG" =~ ^desktop-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                    echo "Release tag must match desktop-v<major>.<minor>.<patch>: $RELEASE_TAG"
+                    exit 1
+                  fi
+                  gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" >/dev/null
+                  TAG_VERSION="${RELEASE_TAG#desktop-v}"
                   echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
 
             - name: Create draft release if absent
@@ -91,6 +107,7 @@ jobs:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  ref: ${{ inputs.release_tag || github.ref }}
                   fetch-depth: 0
                   filter: blob:none
                   token: ${{ steps.app-token.outputs.token }}
@@ -110,7 +127,7 @@ jobs:
             - name: Extract version from tag
               id: version
               run: |
-                  TAG_VERSION="${GITHUB_REF#refs/tags/desktop-v}"
+                  TAG_VERSION="${RELEASE_TAG#desktop-v}"
                   echo "Version: $TAG_VERSION"
                   echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
 
@@ -318,6 +335,7 @@ jobs:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  ref: ${{ inputs.release_tag || github.ref }}
                   fetch-depth: 0
                   filter: blob:none
                   token: ${{ steps.app-token.outputs.token }}
@@ -337,10 +355,8 @@ jobs:
             - name: Extract version from tag
               id: version
               shell: pwsh
-              env:
-                  GITHUB_REF: ${{ github.ref }}
               run: |
-                  $tagVersion = "$env:GITHUB_REF" -replace "refs/tags/desktop-v", ""
+                  $tagVersion = "$env:RELEASE_TAG" -replace "^desktop-v", ""
                   echo "Version: $tagVersion"
                   echo "version=$tagVersion" >> $env:GITHUB_OUTPUT
 
@@ -502,6 +518,7 @@ jobs:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
+                  ref: ${{ inputs.release_tag || github.ref }}
                   fetch-depth: 0
                   filter: blob:none
                   token: ${{ steps.app-token.outputs.token }}
@@ -529,7 +546,7 @@ jobs:
             - name: Extract version from tag
               id: version
               run: |
-                  TAG_VERSION="${GITHUB_REF#refs/tags/desktop-v}"
+                  TAG_VERSION="${RELEASE_TAG#desktop-v}"
                   echo "Version: $TAG_VERSION"
                   echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
 
@@ -665,12 +682,13 @@ jobs:
             - name: Extract version from tag
               id: version
               run: |
-                  TAG_VERSION="${GITHUB_REF#refs/tags/desktop-v}"
+                  TAG_VERSION="${RELEASE_TAG#desktop-v}"
                   echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
 
             - name: Checkout release scripts
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  ref: ${{ inputs.release_tag || github.ref }}
                   fetch-depth: 0
                   filter: blob:none
                   sparse-checkout: |
