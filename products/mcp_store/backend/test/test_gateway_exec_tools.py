@@ -292,8 +292,8 @@ class TestGatewayExecTools(APIBaseTest):
         slugs = {s["installation_id"]: s["slug"] for s in self._available().json()["servers"]}
 
         assert slugs == {
-            str(self.installation.id): f"linear-{self.installation.id.hex[:6]}",
-            str(second.id): f"linear-{second.id.hex[:6]}",
+            str(self.installation.id): f"linear--{self.installation.id.hex[-6:]}",
+            str(second.id): f"linear--{second.id.hex[-6:]}",
         }
 
         # The surviving connection keeps the slug it already had once its twin drops out.
@@ -301,4 +301,36 @@ class TestGatewayExecTools(APIBaseTest):
         second.save()
 
         remaining = self._available().json()["servers"]
-        assert [s["slug"] for s in remaining] == [f"linear-{self.installation.id.hex[:6]}"]
+        assert [s["slug"] for s in remaining] == [f"linear--{self.installation.id.hex[-6:]}"]
+
+    def test_available_tools_crafted_name_cannot_collide_with_a_generated_slug(self):
+        # A second `linear` install forces both onto `linear--<hex>` slugs. A third
+        # connection named to match one of those generated slugs (its single-dash form,
+        # the only shape a display name can normalize to) must not reuse it — a colliding
+        # slug would let exec (first match wins) route a call to the wrong server. The
+        # `--` separator keeps a display name from ever producing a generated slug.
+        self._tool()
+        second = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            gateway_server=self.server,
+            display_name="Linear",
+            url="https://mcp.linear-second.example.com/mcp",
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "sk-second"},
+        )
+        self._tool(installation=second)
+        crafted = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            gateway_server=self.server,
+            display_name=f"linear-{self.installation.id.hex[-6:]}",
+            url="https://mcp.linear-crafted.example.com/mcp",
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "sk-crafted"},
+        )
+        self._tool(installation=crafted)
+
+        slugs = [s["slug"] for s in self._available().json()["servers"]]
+
+        assert len(slugs) == len(set(slugs)), f"slugs must be unique, got {slugs}"

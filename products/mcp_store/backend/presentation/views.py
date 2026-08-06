@@ -571,8 +571,19 @@ def _disambiguated_server_slug(base: str, installation_id: uuid.UUID) -> str:
     reshuffle whenever one becomes unavailable, so a tool name an agent read from
     `search` could resolve to a *different* connection on a later command. Keying the
     suffix to the installation makes a namespaced name mean one connection for good.
+
+    The `--` separator keeps a disambiguated slug from ever colliding with a bare base:
+    `_server_slug_base` collapses every run of non-alphanumerics to a single `-`, so no
+    base can contain `--`. Without that, a connection named to match a generated slug
+    (say `linear--abcdef`) would produce that exact bare slug and route another user's
+    gateway call — resolved by first match — to the wrong server.
+
+    The fragment comes from the tail of the id, not the head: ids are UUIDv7, whose
+    leading hex is a millisecond timestamp shared by every install created in the same
+    ~4.6h window. Two same-named connections would collide on `hex[:6]`; the trailing
+    hex is the random component that actually tells them apart.
     """
-    return f"{base}-{installation_id.hex[:6]}"
+    return f"{base}--{installation_id.hex[-6:]}"
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
