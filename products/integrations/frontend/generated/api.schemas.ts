@@ -406,13 +406,18 @@ export interface GitHubAvailableInstallationApi {
      * @nullable
      */
     account_type: string | null
-    /** A project in the organization that already has this installation linked. */
-    source_team_id: number
+    /**
+     * A project in the organization that already has this installation linked. Null when the installation isn't linked to any project yet — it was found via the user's personal GitHub link and can be adopted by linking it here.
+     * @nullable
+     */
+    source_team_id: number | null
 }
 
 export interface GitHubAvailableInstallationsResponseApi {
-    /** Distinct GitHub installations in the organization available to link to this project. */
+    /** GitHub installations available to link to this project: the organization's existing installations plus any the user's personal GitHub link can see but that aren't linked to any project yet. */
     installations: GitHubAvailableInstallationApi[]
+    /** Whether the requesting user has a personal GitHub account linked (via Linked Accounts). Used to prompt for that link when it would surface more installations to adopt. */
+    personal_github_connected: boolean
 }
 
 export interface GitHubLinkExistingRequestApi {

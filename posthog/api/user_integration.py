@@ -15,7 +15,6 @@ import os
 from typing import Any, cast
 from urllib.parse import urlencode
 
-import requests
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -26,6 +25,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.github_callback import state as github_callback_state
+from posthog.api.github_callback.personal_state import list_user_github_app_installations
 from posthog.api.github_callback.types import (
     APP_CONNECT_FROM_VALUES,
     PERSONAL_INTEGRATIONS_SETTINGS_PATH,
@@ -44,7 +44,7 @@ from posthog.api.integration import (
     validate_github_repository_name,
 )
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
-from posthog.egress.github.transport import GitHubRateLimitError, github_request
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS, Integration
 from posthog.models.user import User
@@ -701,45 +701,15 @@ def _resolve_team_for_github_start(user: User, request: Request):
 def _has_unlinked_github_installations(user: User) -> bool | None:
     """Check whether the user has GitHub App installations they haven't linked yet.
 
-    Uses the user's existing OAuth token to call ``GET /user/installations``
-    and compares against their ``UserIntegration`` rows.
-
     Returns ``True`` if unlinked installations exist, ``False`` if all are
     linked, or ``None`` if the check couldn't be performed (no existing
     integration, token refresh failed, network error).
     """
-    any_integration = UserIntegration.objects.filter(user=user, kind="github").exclude(sensitive_config={}).first()
-    if any_integration is None:
+    installations = list_user_github_app_installations(user)
+    if installations is None:
         return None
 
-    github = UserGitHubIntegration(any_integration)
-    try:
-        token = github.get_usable_user_access_token()
-    except Exception:
-        return None
-
-    try:
-        # Identity-blind: user OAuth token, metered against the user's budget, not an installation's.
-        response = github_request(
-            "GET",
-            "https://api.github.com/user/installations",
-            source="integration",
-            headers={"Authorization": f"Bearer {token}"},
-            params={"per_page": 100},
-            timeout=10,
-        )
-    except requests.RequestException:
-        return None
-
-    if response.status_code != 200:
-        return None
-
-    try:
-        installations = response.json().get("installations", [])
-    except Exception:
-        return None
-
-    github_installation_ids = {str(inst["id"]) for inst in installations if isinstance(inst, dict) and "id" in inst}
+    github_installation_ids = {str(installation["id"]) for installation in installations}
     linked_ids = set(UserIntegration.objects.filter(user=user, kind="github").values_list("integration_id", flat=True))
     return bool(github_installation_ids - linked_ids)
 

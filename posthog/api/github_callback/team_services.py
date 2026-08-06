@@ -17,6 +17,11 @@ from posthog.api.github_callback import (
     redirects,
     state as github_callback_state,
 )
+from posthog.api.github_callback.personal_state import (
+    list_user_github_app_installations,
+    personal_github_login,
+    usable_personal_github_token,
+)
 from posthog.api.github_callback.types import (
     FinishResult,
     FlowKind,
@@ -201,6 +206,39 @@ def authorize_link_existing_installation(
             PERSONAL_GITHUB_REQUIRED_MESSAGE,
             code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
         )
+
+
+def adopt_orphan_installation(*, user: User, team_id: int, installation_id: str) -> Integration:
+    """Create the team's first ``Integration`` row for a GitHub App installation that exists on
+    GitHub but was never linked to any PostHog team — e.g. a non-admin clicked "Connect
+    organization", GitHub created an install *request*, and a GitHub org admin approved it
+    directly on github.com without completing PostHog's callback.
+
+    Unlike ``authorize_link_existing_installation``, this always requires proof of personal GitHub
+    access: there's no sibling PostHog integration here to imply the org already has legitimate
+    access, so the team-admin bypass must not apply.
+    """
+    token = usable_personal_github_token(user)
+    if token is None:
+        raise ValidationError(
+            PERSONAL_GITHUB_REQUIRED_MESSAGE,
+            code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
+        )
+    try:
+        has_access = GitHubIntegration.verify_user_installation_access(installation_id, token)
+    except requests.RequestException:
+        raise ValidationError("Failed to verify installation access")
+    if not has_access:
+        raise ValidationError("You do not have access to this GitHub installation", code="installation_access_denied")
+
+    instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, user)
+
+    login = personal_github_login(user)
+    if login:
+        instance.config["connecting_user_github_login"] = login
+        instance.save(update_fields=["config"])
+
+    return instance
 
 
 def finish_team_github_setup_update(
@@ -410,6 +448,25 @@ def _accessible_org_team_ids(user: User, organization: Organization) -> set[int]
     return set(user.teams.filter(organization_id=organization.id).values_list("id", flat=True))
 
 
+def _org_linked_github_installation_ids(organization: Organization) -> set[str]:
+    """Every GitHub installation id linked to *any* team in ``organization``, including projects the
+    current user can't access.
+
+    Used to tell a genuinely orphan installation (no PostHog row anywhere in the org) apart from
+    one that's merely linked to a project the caller can't see — the latter must keep raising the
+    access error rather than being offered up for adoption, or the access boundary in
+    ``_accessible_org_team_ids`` would leak through the adoption path.
+    """
+    org_github = defer_repository_cache_fields(
+        Integration.objects.filter(team__organization_id=organization.id, kind="github")
+    )
+    return {
+        str(installation_id)
+        for integration in org_github
+        if (installation_id := (integration.config or {}).get("installation_id"))
+    }
+
+
 def link_existing_team_github_integration(
     *,
     user: User,
@@ -443,21 +500,33 @@ def link_existing_team_github_integration(
         if source is None:
             raise ValidationError("Source team does not have a GitHub integration")
     elif installation_id_param:
+        installation_id_str = str(installation_id_param)
         existing = (
             Integration.objects.filter(
                 team__organization_id=organization.id,
                 team_id__in=accessible_team_ids,
                 kind="github",
             )
-            .for_github_installation_id(str(installation_id_param))
+            .for_github_installation_id(installation_id_str)
             .order_by("id")
             .first()
         )
         if existing is None:
-            raise ValidationError(
-                "No team in your organization has this GitHub installation linked",
-                code=GITHUB_LINK_EXISTING_ERROR_ORPHAN_INSTALLATION,
-            )
+            if installation_id_str in _org_linked_github_installation_ids(organization):
+                # Linked to a team elsewhere in the org that this user can't access — not an orphan,
+                # just invisible to them. Falling through to adoption here would let personal GitHub
+                # access override the project access boundary `_accessible_org_team_ids` enforces.
+                raise ValidationError(
+                    "No team in your organization has this GitHub installation linked",
+                    code=GITHUB_LINK_EXISTING_ERROR_ORPHAN_INSTALLATION,
+                )
+            # No PostHog team anywhere in the org has this installation linked. It may still be
+            # installed on GitHub — e.g. approved by a GitHub org admin without completing PostHog's
+            # callback. Adoption re-proves personal access rather than raising outright.
+            target_team = organization.teams.filter(id=team_id).first()
+            if target_team is None:
+                raise ValidationError("Target team not found in your organization")
+            return adopt_orphan_installation(user=user, team_id=team_id, installation_id=installation_id_str)
         source = existing
     else:
         # No source specified: auto-resolve the org's existing GitHub installation. This backs the
@@ -516,7 +585,7 @@ def list_org_github_installations(
     organization: Organization,
     exclude_team_id: int | None = None,
 ) -> list[dict[str, Any]]:
-    """List the distinct GitHub App installations ``user`` may reuse within ``organization``.
+    """List the distinct GitHub App installations ``user`` can link to a project in ``organization``.
 
     A GitHub App installs once per org, so when an org has more than one installation the caller
     can't rely on the single-install auto-resolve path in ``link_existing_team_github_integration``.
@@ -524,9 +593,15 @@ def list_org_github_installations(
     ``installation_id``. The first integration seen for each installation id (deterministic
     ``order_by("id")``) provides the representative account metadata and source team.
 
-    Only installations linked to source projects the user can access are returned — mirroring the
-    access boundary enforced in ``link_existing_team_github_integration`` so the picker never
-    surfaces an installation the user couldn't actually link.
+    Only installations linked to source projects the user can access are returned as sibling
+    entries (``source_team_id`` set) — mirroring the access boundary enforced in
+    ``link_existing_team_github_integration`` so the picker never surfaces an installation the user
+    couldn't actually link that way.
+
+    Installations visible to the user's own personal GitHub token but not yet linked to any team in
+    the org are also included, with ``source_team_id: None`` — these are adoptable orphans (see
+    ``adopt_orphan_installation``). Entries already present as a sibling installation are not
+    duplicated.
     """
     org_github = defer_repository_cache_fields(
         Integration.objects.filter(
@@ -555,6 +630,24 @@ def list_org_github_installations(
             "account_type": account.get("type"),
             "source_team_id": integration.team_id,
         }
+
+    personal_installations = list_user_github_app_installations(user)
+    org_linked_installation_ids = _org_linked_github_installation_ids(organization) if personal_installations else set()
+    for raw_installation in personal_installations or []:
+        installation_id = str(raw_installation.get("id"))
+        # Skip anything already linked in the org, even to a project this user can't access — those
+        # aren't orphans, and offering them here would advertise an adoption that link_existing then
+        # has to refuse.
+        if installation_id in installations or installation_id in org_linked_installation_ids:
+            continue
+        account = raw_installation.get("account") or {}
+        installations[installation_id] = {
+            "installation_id": installation_id,
+            "account_name": account.get("login"),
+            "account_type": account.get("type"),
+            "source_team_id": None,
+        }
+
     return list(installations.values())
 
 

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconChevronDown } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -16,7 +16,8 @@ import { Integration, useIntegrations } from './Integration'
 
 export function GithubIntegration({ next }: { next?: string }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { linkedGithubInstallationLoading, githubAvailableInstallations } = useValues(integrationsLogic)
+    const { linkedGithubInstallationLoading, githubAvailableInstallations, githubPersonalConnected } =
+        useValues(integrationsLogic)
     const { linkExistingGithubInstallation, loadGithubAvailableInstallations } = useActions(integrationsLogic)
     const githubIntegrations = useIntegrations('github')
 
@@ -67,6 +68,13 @@ export function GithubIntegration({ next }: { next?: string }): JSX.Element {
                         {multipleInstallations
                             ? 'Choose an existing GitHub installation to connect to this project.'
                             : 'A GitHub App installs once per organization. Link the installation you already have instead of reinstalling.'}
+                    </p>
+                )}
+                {!isConnected && installations.length === 0 && githubPersonalConnected === false && (
+                    <p className="text-secondary text-xs mb-0">
+                        Already installed the PostHog GitHub App but don't see it here? Connect your GitHub account
+                        under <Link to={urls.settings('user-personal-integrations')}>Personal integrations</Link> so
+                        PostHog can find it.
                     </p>
                 )}
             </div>
