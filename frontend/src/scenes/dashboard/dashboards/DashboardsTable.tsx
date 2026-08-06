@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
 
 import { IconFolder, IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
-import { canEditDashboard } from '@posthog/products-dashboards/frontend/utils'
+import { canEditDashboard } from '@posthog/products-dashboards/frontend/permissions'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -16,7 +15,6 @@ import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTa
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
@@ -28,13 +26,7 @@ import { urls } from 'scenes/urls'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    DashboardBasicType,
-    DashboardMode,
-    DashboardType,
-} from '~/types'
+import { DashboardBasicType, DashboardMode, DashboardType } from '~/types'
 
 import { UNFILED_DASHBOARDS_FOLDER } from '../dashboardConstants'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from '../DashboardHeader'
@@ -94,7 +86,9 @@ export function DashboardsTable({
             // Fixed-layout table: icon-only columns need an explicit width, otherwise they'd be squeezed to a sliver.
             width: 40,
             dataIndex: 'pinned',
-            render: function Render(pinned, { id }) {
+            render: function Render(pinned, dashboard) {
+                const { id } = dashboard
+                const userCanEditDashboard = canEditDashboard(dashboard)
                 return (
                     <LemonButton
                         size="small"
@@ -103,6 +97,7 @@ export function DashboardsTable({
                                 ? () => unpinDashboard(id, DashboardEventSource.DashboardsList)
                                 : () => pinDashboard(id, DashboardEventSource.DashboardsList)
                         }
+                        disabledReason={!userCanEditDashboard ? DASHBOARD_CANNOT_EDIT_MESSAGE : undefined}
                         tooltip={pinned ? 'Unpin dashboard' : 'Pin dashboard'}
                         icon={pinned ? <IconPinFilled /> : <IconPin />}
                     />
@@ -207,7 +202,8 @@ export function DashboardsTable({
                   // Fixed-layout table: give the actions menu a fixed width so it isn't squeezed to a sliver.
                   width: 48,
                   render: function RenderActions(_, dashboard: DashboardType) {
-                      const { id, name, user_access_level } = dashboard
+                      const { id, name } = dashboard
+                      const userCanEditDashboard = canEditDashboard(dashboard)
                       const moveEntry = fsEntryFor(id)
                       return (
                           <More
@@ -227,25 +223,22 @@ export function DashboardsTable({
                                           View
                                       </LemonButton>
 
-                                      <AccessControlAction
-                                          resourceType={AccessControlResourceType.Dashboard}
-                                          minAccessLevel={AccessControlLevel.Editor}
-                                          userAccessLevel={user_access_level}
+                                      <LemonButton
+                                          to={urls.dashboard(id)}
+                                          onClick={() => {
+                                              dashboardLogic({ id }).mount()
+                                              dashboardLogic({ id }).actions.setDashboardMode(
+                                                  DashboardMode.Edit,
+                                                  DashboardEventSource.DashboardsList
+                                              )
+                                          }}
+                                          disabledReason={
+                                              !userCanEditDashboard ? DASHBOARD_CANNOT_EDIT_MESSAGE : undefined
+                                          }
+                                          fullWidth
                                       >
-                                          <LemonButton
-                                              to={urls.dashboard(id)}
-                                              onClick={() => {
-                                                  dashboardLogic({ id }).mount()
-                                                  dashboardLogic({ id }).actions.setDashboardMode(
-                                                      DashboardMode.Edit,
-                                                      DashboardEventSource.DashboardsList
-                                                  )
-                                              }}
-                                              fullWidth
-                                          >
-                                              Edit
-                                          </LemonButton>
-                                      </AccessControlAction>
+                                          Edit
+                                      </LemonButton>
 
                                       <LemonButton
                                           onClick={() => {
@@ -257,22 +250,19 @@ export function DashboardsTable({
                                       </LemonButton>
 
                                       {moveEntry && (
-                                          <AccessControlAction
-                                              resourceType={AccessControlResourceType.Dashboard}
-                                              minAccessLevel={AccessControlLevel.Editor}
-                                              userAccessLevel={user_access_level}
+                                          <LemonButton
+                                              onClick={() => {
+                                                  reportDashboardMoveInitiated('single', 1)
+                                                  openMoveToModal([moveEntry as any])
+                                              }}
+                                              disabledReason={
+                                                  !userCanEditDashboard ? DASHBOARD_CANNOT_EDIT_MESSAGE : undefined
+                                              }
+                                              fullWidth
+                                              data-attr="dashboard-move-to-folder"
                                           >
-                                              <LemonButton
-                                                  onClick={() => {
-                                                      reportDashboardMoveInitiated('single', 1)
-                                                      openMoveToModal([moveEntry as any])
-                                                  }}
-                                                  fullWidth
-                                                  data-attr="dashboard-move-to-folder"
-                                              >
-                                                  Move to another folder
-                                              </LemonButton>
-                                          </AccessControlAction>
+                                              Move to another folder
+                                          </LemonButton>
                                       )}
 
                                       <LemonDivider />
@@ -291,19 +281,16 @@ export function DashboardsTable({
 
                                       <LemonDivider />
 
-                                      <AccessControlAction
-                                          resourceType={AccessControlResourceType.Dashboard}
-                                          minAccessLevel={AccessControlLevel.Editor}
-                                          userAccessLevel={user_access_level}
+                                      <LemonButton
+                                          onClick={() => showDeleteDashboardModal(id)}
+                                          disabledReason={
+                                              !userCanEditDashboard ? DASHBOARD_CANNOT_EDIT_MESSAGE : undefined
+                                          }
+                                          fullWidth
+                                          status="danger"
                                       >
-                                          <LemonButton
-                                              onClick={() => showDeleteDashboardModal(id)}
-                                              fullWidth
-                                              status="danger"
-                                          >
-                                              Delete dashboard
-                                          </LemonButton>
-                                      </AccessControlAction>
+                                          Delete dashboard
+                                      </LemonButton>
                                   </>
                               }
                           />
@@ -332,13 +319,7 @@ export function DashboardsTable({
                     barClassName: 'mb-2',
                     getKey: (dashboard: DashboardType): number => dashboard.id,
                     isRowSelectable: (dashboard: DashboardType) =>
-                        accessLevelSatisfied(
-                            AccessControlResourceType.Dashboard,
-                            dashboard.user_access_level,
-                            AccessControlLevel.Editor
-                        )
-                            ? true
-                            : { disabledReason: DASHBOARD_CANNOT_EDIT_MESSAGE },
+                        canEditDashboard(dashboard) ? true : { disabledReason: DASHBOARD_CANNOT_EDIT_MESSAGE },
                     rowAriaLabel: (dashboard: DashboardType) => `Select dashboard ${dashboard.name}`,
                     headerAriaLabel: 'Select all dashboards on this page',
                     renderActions: (ctx) => {

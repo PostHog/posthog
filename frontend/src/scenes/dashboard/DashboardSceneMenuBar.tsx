@@ -268,16 +268,14 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
             )}
             {showEditMenu && (
                 <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
-                    {canEditDashboard && (
-                        <SceneMenuBarItem
-                            opensFloatingUi
-                            onClick={() => showDuplicateDashboardModal(dashboard.id, dashboard.name)}
-                            data-attr={`${RESOURCE_TYPE}-menubar-duplicate`}
-                        >
-                            <IconCopy />
-                            Duplicate
-                        </SceneMenuBarItem>
-                    )}
+                    <SceneMenuBarItem
+                        opensFloatingUi
+                        onClick={() => showDuplicateDashboardModal(dashboard.id, dashboard.name)}
+                        data-attr={`${RESOURCE_TYPE}-menubar-duplicate`}
+                    >
+                        <IconCopy />
+                        Duplicate
+                    </SceneMenuBarItem>
                     {canEditDashboard && hasDashboardColors && (
                         <SceneMenuBarItem
                             opensFloatingUi
@@ -306,13 +304,15 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                     )}
                     {/* Toggle group — separated from regular Edit actions */}
                     <SceneMenuBarSeparator />
-                    <SceneMenuBarCheckboxItem
-                        checked={isPinned}
-                        onCheckedChange={() => togglePinned()}
-                        data-attr={`${RESOURCE_TYPE}-menubar-pin`}
-                    >
-                        Pinned
-                    </SceneMenuBarCheckboxItem>
+                    {canEditDashboard && (
+                        <SceneMenuBarCheckboxItem
+                            checked={isPinned}
+                            onCheckedChange={() => togglePinned()}
+                            data-attr={`${RESOURCE_TYPE}-menubar-pin`}
+                        >
+                            Pinned
+                        </SceneMenuBarCheckboxItem>
+                    )}
                     <SceneMenuBarCheckboxItem
                         checked={dashboardMode === DashboardMode.Fullscreen}
                         onCheckedChange={(checked) => {

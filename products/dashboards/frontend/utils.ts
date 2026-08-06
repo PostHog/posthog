@@ -1,36 +1,10 @@
-import { DashboardPrivilegeLevel } from 'lib/constants'
-import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
-
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    type DashboardBasicType,
-    type DashboardTile,
-    type QueryBasedInsightModel,
-} from '~/types'
+import { type DashboardTile, type QueryBasedInsightModel } from '~/types'
 
 import { dashboardsPartialUpdate } from './generated/api'
 import type { PatchedPatchedDashboardOpenApiApi } from './generated/api.schemas'
 import { parseDashboardWidgetConfigApiError } from './widgets/registry'
 
 export type WidgetFieldErrors = Record<string, string | undefined>
-
-export function canEditDashboard(
-    dashboard: Pick<DashboardBasicType, 'user_access_level' | 'effective_privilege_level'>
-): boolean {
-    const rbacAllowsEditing = dashboard.user_access_level
-        ? accessLevelSatisfied(
-              AccessControlResourceType.Dashboard,
-              dashboard.user_access_level,
-              AccessControlLevel.Editor
-          )
-        : false
-
-    const legacyAllowsEditing =
-        (dashboard.effective_privilege_level ?? DashboardPrivilegeLevel.CanEdit) >= DashboardPrivilegeLevel.CanEdit
-
-    return rbacAllowsEditing && legacyAllowsEditing
-}
 
 export class WidgetConfigValidationError extends Error {
     fieldErrors: WidgetFieldErrors

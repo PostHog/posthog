@@ -3,6 +3,10 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 
+import { DashboardPrivilegeLevel } from 'lib/constants'
+
+import { AccessControlLevel } from '~/types'
+
 import { DashboardsTable } from './DashboardsTable'
 
 jest.mock('kea', () => ({ ...jest.requireActual('kea'), useValues: jest.fn(), useActions: jest.fn() }))
@@ -14,8 +18,12 @@ jest.mock('./DashboardsFiltersBar', () => ({ DashboardsFiltersBar: () => null })
 // Stub LemonTable to render only the bulk-action bar, driven by a controllable selection context. The
 // per-row column renders never run (no rows), so the test stays focused on the bulk Move affordance.
 let mockCtx: { selectedKeys: number[]; clearSelection: jest.Mock }
+let mockBulkSelection: any
 jest.mock('lib/lemon-ui/LemonTable', () => ({
-    LemonTable: ({ bulkSelection }: any) => (bulkSelection ? <div>{bulkSelection.renderActions(mockCtx)}</div> : null),
+    LemonTable: ({ bulkSelection }: any) => {
+        mockBulkSelection = bulkSelection
+        return bulkSelection ? <div>{bulkSelection.renderActions(mockCtx)}</div> : null
+    },
 }))
 
 describe('DashboardsTable bulk move', () => {
@@ -89,5 +97,16 @@ describe('DashboardsTable bulk move', () => {
         mockCtx = { selectedKeys: [1, 2], clearSelection }
         render(<DashboardsTable dashboards={[] as any} dashboardsLoading={false} />)
         expect(screen.queryByText('Move to folder')).not.toBeInTheDocument()
+    })
+
+    it('does not select a dashboard blocked by its dashboard-level restriction', () => {
+        renderTable([], {})
+
+        expect(
+            mockBulkSelection.isRowSelectable({
+                user_access_level: AccessControlLevel.Editor,
+                effective_privilege_level: DashboardPrivilegeLevel.CanView,
+            })
+        ).toEqual({ disabledReason: expect.any(String) })
     })
 })

@@ -2,9 +2,9 @@ import { DashboardPrivilegeLevel } from 'lib/constants'
 
 import { AccessControlLevel } from '~/types'
 
-import { canEditDashboard } from './utils'
+import { canEditDashboard } from './permissions'
 
-describe('dashboards utils', () => {
+describe('dashboard permissions', () => {
     describe('canEditDashboard', () => {
         it.each([
             [AccessControlLevel.Editor, DashboardPrivilegeLevel.CanEdit, true],

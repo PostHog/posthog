@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconInfo, IconPulse, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
-import { canEditDashboard as canEditDashboardAccess } from '@posthog/products-dashboards/frontend/utils'
+import { canEditDashboard as canEditDashboardAccess } from '@posthog/products-dashboards/frontend/permissions'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButton'

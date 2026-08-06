@@ -24,11 +24,8 @@ import type { Layout } from 'react-grid-layout'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import type { DashboardWidgetRunResultApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
-import {
-    canEditDashboard,
-    isWidgetConfigValidationError,
-    updateDashboardWidgetTile,
-} from '@posthog/products-dashboards/frontend/utils'
+import { canEditDashboard } from '@posthog/products-dashboards/frontend/permissions'
+import { isWidgetConfigValidationError, updateDashboardWidgetTile } from '@posthog/products-dashboards/frontend/utils'
 import {
     DASHBOARD_WIDGET_CATALOG,
     getDashboardWidgetCatalogEntry,
@@ -2916,7 +2913,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         togglePinned: () => {
-            if (values.dashboard) {
+            if (values.dashboard && values.canEditDashboard) {
                 // Reducers have already run, so values.isPinned reflects the desired new state.
                 if (values.isPinned) {
                     dashboardsModel.actions.pinDashboard(values.dashboard.id, DashboardEventSource.SceneCommonButtons)
