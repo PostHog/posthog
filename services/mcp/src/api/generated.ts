@@ -10127,6 +10127,49 @@ export namespace Schemas {
       AzureBlob: 'AzureBlob',
     } as const;
 
+    export interface BackfillEstimateResponse {
+      /** Exact number of eligible sessions the backfill would dispatch, after sampling and quality filters. */
+      total_sessions: number;
+      /** Exact cost ceiling in credits (1 credit = $0.01): total_sessions x credits_per_observation. Actual spend can only come in under it (already-scanned, expired, or failed sessions are not billed). */
+      total_credits: number;
+      /** Per-observation credit price at the scanner's current model. */
+      credits_per_observation: number;
+      /**
+         * Credits left in the org's monthly quota; null when the org is uncapped.
+         * @nullable
+         */
+      credits_remaining: number | null;
+      /** Projected monthly credit spend from enabled scanners plus active backfills' remaining commitments. */
+      projected_monthly_credits: number;
+      /** The window lower bound the estimate covered. */
+      window_start: string;
+      /** The window upper bound after clamping to the scanner's sweep watermark. */
+      window_end: string;
+    }
+
+    /**
+     * * `running` - Running
+     * * `paused_quota` - Paused (quota)
+     * * `completed` - Completed
+     * * `cancelled` - Cancelled
+     */
+    export type BackfillStatusEnum = typeof BackfillStatusEnum[keyof typeof BackfillStatusEnum];
+
+
+    export const BackfillStatusEnum = {
+      Running: 'running',
+      PausedQuota: 'paused_quota',
+      Completed: 'completed',
+      Cancelled: 'cancelled',
+    } as const;
+
+    export interface BackfillWindow {
+      /** Inclusive lower bound of the historical window to scan. */
+      window_start: string;
+      /** Exclusive upper bound of the window; clamped server-side to the scanner's sweep watermark. */
+      window_end: string;
+    }
+
     /**
      * * `AED` - AED
      * * `AFN` - AFN
@@ -44349,6 +44392,7 @@ export namespace Schemas {
      * * `schedule` - Schedule
      * * `on_demand` - On demand
      * * `retry` - Retry
+     * * `backfill` - Backfill
      */
     export type ObservationTriggerEnum = typeof ObservationTriggerEnum[keyof typeof ObservationTriggerEnum];
 
@@ -44357,6 +44401,7 @@ export namespace Schemas {
       Schedule: 'schedule',
       OnDemand: 'on_demand',
       Retry: 'retry',
+      Backfill: 'backfill',
     } as const;
 
     /**
@@ -47025,14 +47070,20 @@ export namespace Schemas {
       readonly scanner_snapshot: ScannerSnapshot | null;
       /** Result data persisted on success; null until the observation succeeds. */
       readonly scanner_result: ScannerResult | null;
-      /** Whether this observation came from the schedule, an on-demand request, or a retry of a failed or ineligible observation.
+      /** Whether this observation came from the schedule, an on-demand request, a retry of a failed or ineligible observation, or a historical backfill.
        *
        * * `schedule` - Schedule
        * * `on_demand` - On demand
-       * * `retry` - Retry */
+       * * `retry` - Retry
+       * * `backfill` - Backfill */
       readonly triggered_by: ObservationTriggerEnum;
       /** User who triggered an on-demand observation; null for scheduled observations. */
       readonly triggered_by_user: UserBasic | null;
+      /**
+         * Backfill that dispatched this observation; null for live, on-demand, and retry triggers.
+         * @nullable
+         */
+      readonly backfill_id: string | null;
       /**
          * Distinct id of the person in the recorded session (the subject being watched); null if unknown.
          * @nullable
@@ -47069,6 +47120,44 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ReplayObservation[];
+    }
+
+    export interface ReplayScannerBackfill {
+      readonly id: string;
+      readonly status: BackfillStatusEnum;
+      /** Inclusive lower bound of the historical window to scan. */
+      readonly window_start: string;
+      /** Exclusive upper bound of the window; clamped to the scanner's sweep watermark at creation. */
+      readonly window_end: string;
+      /** Exact candidate enumeration at creation; the cost ceiling is total_count x credits_per_observation. */
+      readonly total_count: number;
+      readonly dispatched_count: number;
+      /** Per-observation credit price frozen at creation from the snapshot model. */
+      readonly credits_per_observation: number;
+      /** Observations from this backfill that succeeded. */
+      readonly succeeded_count: number;
+      /** Observations from this backfill that failed. */
+      readonly failed_count: number;
+      /** Sessions that turned out ineligible (too short, expired recording, ...). */
+      readonly ineligible_count: number;
+      /** Observations from this backfill still pending or running. */
+      readonly in_flight_count: number;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /**
+         * When the backfill reached a terminal status (completed or cancelled).
+         * @nullable
+         */
+      readonly finished_at: string | null;
+    }
+
+    export interface PaginatedReplayScannerBackfillList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ReplayScannerBackfill[];
     }
 
     /**
@@ -86834,6 +86923,10 @@ export namespace Schemas {
 
     export type VisionObservationsRetrieveParams = {
     /**
+     * Only observations dispatched by this backfill.
+     */
+    backfill_id?: string;
+    /**
      * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
     date_from?: string;
@@ -86866,7 +86959,7 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string;
     /**
@@ -86935,7 +87028,22 @@ export namespace Schemas {
     window_days?: number;
     };
 
+    export type VisionScannersBackfillsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type VisionScannersObservationsListParams = {
+    /**
+     * Only observations dispatched by this backfill.
+     */
+    backfill_id?: string;
     /**
      * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
@@ -86977,7 +87085,7 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string;
     /**
@@ -86987,6 +87095,10 @@ export namespace Schemas {
     };
 
     export type VisionScannersObservationsRetrieveParams = {
+    /**
+     * Only observations dispatched by this backfill.
+     */
+    backfill_id?: string;
     /**
      * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
@@ -87020,7 +87132,7 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string;
     /**
@@ -87030,6 +87142,10 @@ export namespace Schemas {
     };
 
     export type VisionScannersObservationsStatsRetrieveParams = {
+    /**
+     * Only observations dispatched by this backfill.
+     */
+    backfill_id?: string;
     /**
      * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
@@ -87063,7 +87179,7 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string;
     /**

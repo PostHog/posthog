@@ -628,6 +628,40 @@ export const VisionScannersObserveCreateBody = /* @__PURE__ */ zod
     .describe('Body of POST \/vision\/scanners\/{id}\/observe\/.')
 
 /**
+ * Create a backfill: freeze the scanner config, enumerate the exact candidate set, start the tick schedule.
+ */
+export const VisionScannersBackfillsCreateBody = /* @__PURE__ */ zod.object({
+    window_start: zod.iso
+        .datetime({ offset: true })
+        .describe('Inclusive lower bound of the historical window to scan.'),
+    window_end: zod.iso
+        .datetime({ offset: true })
+        .describe("Exclusive upper bound of the window; clamped server-side to the scanner's sweep watermark."),
+})
+
+/**
+ * Stop an active backfill; already-dispatched observations finish, nothing new dispatches.
+ */
+export const VisionScannersBackfillsCancelCreateBody = /* @__PURE__ */ zod.looseObject({})
+
+/**
+ * Restart a backfill that paused when the monthly quota ran out.
+ */
+export const VisionScannersBackfillsResumeCreateBody = /* @__PURE__ */ zod.looseObject({})
+
+/**
+ * Exactly enumerate what a backfill over the given window would dispatch and cost.
+ */
+export const VisionScannersBackfillsEstimateCreateBody = /* @__PURE__ */ zod.object({
+    window_start: zod.iso
+        .datetime({ offset: true })
+        .describe('Inclusive lower bound of the historical window to scan.'),
+    window_end: zod.iso
+        .datetime({ offset: true })
+        .describe("Exclusive upper bound of the window; clamped server-side to the scanner's sweep watermark."),
+})
+
+/**
  * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires editor access to the scanner.
  */
 export const visionScannersObservationsLabelCreateBodyFeedbackDefault = ``

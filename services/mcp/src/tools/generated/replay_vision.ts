@@ -338,6 +338,7 @@ const visionObservationsRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/observations/${encodeURIComponent(String(params.id))}/`,
             query: {
+                backfill_id: params.backfill_id,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 labeled: params.labeled,
@@ -624,6 +625,7 @@ const visionScannersObservationsGet = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/observations/${encodeURIComponent(String(params.id))}/`,
             query: {
+                backfill_id: params.backfill_id,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 labeled: params.labeled,
@@ -659,6 +661,7 @@ const visionScannersObservationsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/observations/`,
             query: {
+                backfill_id: params.backfill_id,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 labeled: params.labeled,
@@ -707,6 +710,7 @@ const visionScannersObservationsStats = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/observations/stats/`,
             query: {
+                backfill_id: params.backfill_id,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 labeled: params.labeled,

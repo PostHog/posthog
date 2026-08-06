@@ -22,7 +22,7 @@ from posthog.session_recordings.queries.session_recording_list_from_query import
 )
 
 from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, SamplingMode
-from products.replay_vision.backend.temporal.constants import (
+from products.replay_vision.backend.session_limits import (
     MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
     MAX_SESSION_ID_LENGTH,
     MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
