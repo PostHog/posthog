@@ -2,9 +2,10 @@ import clsx from 'clsx'
 import { useMemo } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
-import type { Series } from '@posthog/quill-charts'
-import { BarChart, useChartTheme } from '@posthog/quill-charts'
+import type { BarChartConfig, Series } from '@posthog/quill-charts'
+import { BarChart } from '@posthog/quill-charts'
 
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { AttributionMode, MarketingAnalyticsAttributionRow } from '~/queries/schema/schema-general'
@@ -59,6 +60,18 @@ export function AttributionChart({
     // Rows arrive server-ordered by influenced conversions, so the slice is the top slice.
     const chartRows = useMemo(() => rows.slice(0, MAX_CHART_ROWS), [rows])
 
+    const config: BarChartConfig = useChartConfig(
+        () => ({
+            barLayout: 'grouped',
+            legend: { show: true, position: 'top' },
+            tooltip: {
+                valueFormatter: (value: number) => humanFriendlyNumber(value, 1),
+                sortedByValue: true,
+            },
+        }),
+        []
+    )
+
     const series: Series[] = useMemo(
         () =>
             models.map((model, index) => ({
@@ -99,14 +112,7 @@ export function AttributionChart({
                             series={series}
                             labels={chartRows.map((row) => row.breakdownValue || '(none)')}
                             theme={theme}
-                            config={{
-                                barLayout: 'grouped',
-                                legend: { show: true, position: 'top' },
-                                tooltip: {
-                                    valueFormatter: (value: number) => humanFriendlyNumber(value, 1),
-                                    sortedByValue: true,
-                                },
-                            }}
+                            config={config}
                         />
                     </div>
                 ) : (

@@ -10,9 +10,14 @@ from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_TYPE_KEY
 
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
 from products.data_modeling.backend.logic.freshness import UnsupportedFrequencyTargetError
-from products.data_modeling.backend.logic.node_frequency import set_declared_target
+from products.data_modeling.backend.logic.node_frequency import (
+    get_declared_anchor,
+    set_declared_anchor,
+    set_declared_target,
+)
 from products.data_modeling.backend.logic.saved_query_dag_sync import promote_dag_view_nodes_to_matview
 from products.data_modeling.backend.logic.schedule_reconcile import (
+    apply_saved_query_frequency_anchor,
     convert_dag_to_tiers,
     maybe_reconcile_dag,
     reconcile_dag_schedules,
@@ -121,6 +126,66 @@ class TestReconcileDagSchedules(BaseTest):
         self.assertEqual(update.call_args.kwargs["id"], existing_id)
         create.assert_not_called()
         delete.assert_not_called()
+
+    def test_anchored_node_gets_its_own_pinned_schedule(self):
+        # an anchor that never reaches Temporal is a silent fleet-wide no-op: the node keeps
+        # firing on its hash slot while the operator believes it is pinned
+        dag = DAG.get_or_create_default(self.team)
+        source = _table_node(self.team, dag, "events", {"origin": "posthog"})
+        spread = _saved_query_node(self.team, dag, "spread", NodeType.MAT_VIEW)
+        pinned = _saved_query_node(self.team, dag, "pinned", NodeType.MAT_VIEW)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=spread)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=pinned)
+        set_declared_target(spread, M15)
+        set_declared_target(pinned, M15)
+        set_declared_anchor(pinned, 120)
+
+        async def fake_list_schedules(*_args, **_kwargs):
+            async def gen():
+                return
+                yield
+
+            return gen()
+
+        temporal = mock.Mock()
+        temporal.list_schedules = fake_list_schedules
+
+        with (
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+            mock.patch(f"{RECONCILE}.a_update_schedule", new=mock.AsyncMock()),
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()),
+        ):
+            reconcile_dag_schedules(dag)
+
+        dag_id = str(dag.id)
+        created = {call.kwargs["id"]: call.kwargs["schedule"] for call in create.call_args_list}
+        # the raw anchor (02:00) reduces to phase 0 within a 15min cadence, and the schedule id
+        # carries the canonical phase so equivalent anchors share one schedule
+        self.assertEqual(set(created), {tier_schedule_id(dag_id, M15), tier_schedule_id(dag_id, M15, 0)})
+
+        anchored = created[tier_schedule_id(dag_id, M15, 0)]
+        self.assertEqual(anchored.action.args[0]["node_ids"], [str(pinned.id)])
+        self.assertEqual(anchored.spec.time_zone_name, "UTC")
+        self.assertEqual(anchored.spec.jitter, timedelta(minutes=1))
+        minutes = {r.start for r in anchored.spec.calendars[0].minute}
+        self.assertEqual(minutes, {0, 15, 30, 45})
+
+    def test_apply_saved_query_frequency_anchor_writes_nodes_and_queues_reconcile(self):
+        dag = DAG.get_or_create_default(self.team)
+        matview = _saved_query_node(self.team, dag, "mv", NodeType.MAT_VIEW)
+        assert matview.saved_query is not None
+        with mock.patch(f"{RECONCILE}.maybe_reconcile_dag") as reconcile:
+            written = apply_saved_query_frequency_anchor(matview.saved_query, 120)
+        self.assertEqual(written, 1)
+        matview.refresh_from_db()
+        self.assertEqual(get_declared_anchor(matview), 120)
+        reconcile.assert_called_once()
+
+        with mock.patch(f"{RECONCILE}.maybe_reconcile_dag"):
+            apply_saved_query_frequency_anchor(matview.saved_query, None)
+        matview.refresh_from_db()
+        self.assertIsNone(get_declared_anchor(matview))
 
     def test_rolls_back_created_tiers_and_keeps_legacy_schedule_on_failure(self):
         dag = DAG.get_or_create_default(self.team)
