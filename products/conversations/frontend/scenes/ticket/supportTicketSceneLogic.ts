@@ -1074,7 +1074,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
 
                 impersonationNoticeLogic.findMounted()?.actions.setTicketContext({
                     ticketId: ticket.id,
-                    email: ticket.anonymous_traits?.email || '',
+                    // email_from is the customer's address on email tickets, and it's the only
+                    // place it lives on tickets whose traits were never populated.
+                    email: ticket.anonymous_traits?.email || ticket.email_from || '',
                     region: regionFromUrl(ticket.session_context?.current_url),
                 })
 

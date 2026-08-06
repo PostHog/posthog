@@ -43,7 +43,7 @@ export function SignupForm(): JSX.Element | null {
                 data-attr="login-error-contact-support"
                 onClick={(e) => {
                     e.preventDefault()
-                    openSupportForm({ kind: 'support', target_area: 'login', email: signupPanelEmail.email })
+                    openSupportForm({ kind: 'support', email: signupPanelEmail.email })
                 }}
             >
                 Contact us
