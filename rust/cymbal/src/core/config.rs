@@ -74,6 +74,15 @@ pub struct ResolverConfig {
     #[envconfig(default = "300")]
     pub symbol_set_negative_cache_ttl_seconds: u64,
 
+    // TTL for the (team, symbol-set refs) -> latest-release-id cache in the resolution
+    // service. Kept short because a release (re)bound to already-cached refs only becomes
+    // visible after expiry; new releases usually ship new refs, which miss naturally.
+    #[envconfig(default = "60")]
+    pub release_id_cache_ttl_seconds: u64,
+
+    #[envconfig(default = "100000")]
+    pub release_id_cache_size: u64,
+
     // Maximum number of lines of pre and post context to get per frame
     #[envconfig(default = "15")]
     pub context_line_count: usize,

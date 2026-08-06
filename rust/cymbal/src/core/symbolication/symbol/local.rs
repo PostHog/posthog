@@ -20,7 +20,7 @@ use crate::{
     langs::native::DebugImage,
     metric_consts::{
         FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS, FRAME_DB_MISSES,
-        SUSPICIOUS_FRAMES_DETECTED,
+        RELEASE_ID_CACHE_HITS, RELEASE_ID_CACHE_MISSES, SUSPICIOUS_FRAMES_DETECTED,
     },
     symbolication::resolve::Resolve,
     symbolication::symbol::records::{ErrorTrackingStackFrame, FrameResultTtlPolicy},
@@ -42,6 +42,10 @@ const FRAME_EXPIRY_FALLBACK_SECONDS: u64 = 300;
 pub struct LocalSymbolResolver {
     catalog: Arc<Catalog>,
     cache: Cache<RawFrameId, Vec<ErrorTrackingStackFrame>>,
+    // (team_id, sorted refs) -> latest release id, including None results. Without this,
+    // every exception with symbol-set refs costs one Postgres query per resolve, even when
+    // frame resolution itself is fully served from the frame cache above.
+    release_id_cache: Cache<(TeamId, Vec<String>), Option<Uuid>>,
     pool: PgPool,
     ttl_policy: FrameResultTtlPolicy,
     // Lines of pre/post source context to attach per resolved frame.
@@ -93,10 +97,15 @@ impl LocalSymbolResolver {
             .expire_after(ttl_policy)
             .build();
 
+        let release_id_cache = CacheBuilder::new(config.release_id_cache_size)
+            .time_to_live(Duration::from_secs(config.release_id_cache_ttl_seconds))
+            .build();
+
         Self {
             catalog,
             pool,
             cache,
+            release_id_cache,
             ttl_policy,
             context_lines: config.context_line_count,
         }
@@ -243,10 +252,28 @@ impl SymbolResolver for LocalSymbolResolver {
         if symbol_set_refs.is_empty() {
             return Ok(None);
         }
-        Ok(
-            ReleaseRecord::latest_id_for_symbol_set_refs(&self.pool, symbol_set_refs, team_id)
-                .await?,
-        )
+
+        // Sorted so frame-order variations of the same stack share a cache entry.
+        let mut refs = symbol_set_refs.to_vec();
+        refs.sort_unstable();
+
+        let mut cache_miss = false;
+        let release_id = self
+            .release_id_cache
+            .try_get_with((team_id, refs.clone()), async {
+                cache_miss = true;
+                ReleaseRecord::latest_id_for_symbol_set_refs(&self.pool, &refs, team_id).await
+            })
+            .await
+            .map_err(|e| UnhandledError::Other(e.to_string()))?;
+
+        if cache_miss {
+            metrics::counter!(RELEASE_ID_CACHE_MISSES).increment(1);
+        } else {
+            metrics::counter!(RELEASE_ID_CACHE_HITS).increment(1);
+        }
+
+        Ok(release_id)
     }
 }
 
@@ -261,6 +288,7 @@ mod test {
     use mockall::predicate;
     use sqlx::PgPool;
     use symbolic::sourcemapcache::SourceMapCacheWriter;
+    use uuid::Uuid;
 
     use crate::{
         core::config::ResolverConfig,
@@ -495,5 +523,62 @@ mod test {
 
         assert_eq!(resolved_1, resolved_2);
         assert_eq!(resolved_2, resolved_3);
+    }
+
+    async fn insert_release(pool: &PgPool, team_id: i32, days_ago: i32) -> Uuid {
+        let id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO posthog_errortrackingrelease (id, team_id, hash_id, created_at, version, project)
+             VALUES ($1, $2, $3, NOW() - make_interval(days => $4), '1.0', 'test-project')",
+        )
+        .bind(id)
+        .bind(team_id)
+        .bind(id.to_string())
+        .bind(days_ago)
+        .execute(pool)
+        .await
+        .unwrap();
+        id
+    }
+
+    async fn bind_symbol_set(pool: &PgPool, team_id: i32, set_ref: &str, release_id: Uuid) {
+        sqlx::query(
+            "INSERT INTO posthog_errortrackingsymbolset (id, ref, team_id, release_id)
+             VALUES ($1, $2, $3, $4)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(set_ref)
+        .bind(team_id)
+        .bind(release_id)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    pub async fn latest_release_id_is_cached_and_ref_order_insensitive(pool: PgPool) {
+        let (config, catalog, _server) = setup_test_context(pool.clone(), |_, client| client).await;
+        let resolver = LocalSymbolResolver::new(&config, Arc::new(catalog), pool.clone());
+
+        let team_id = 0;
+        let old_release = insert_release(&pool, team_id, 1).await;
+        bind_symbol_set(&pool, team_id, "ref_a", old_release).await;
+
+        let first = resolver
+            .latest_release_id(team_id, &["ref_b".to_string(), "ref_a".to_string()])
+            .await
+            .unwrap();
+        assert_eq!(first, Some(old_release));
+
+        // A fresh query would now return the newer release, so getting the old id back for the
+        // reordered refs proves the lookup was served from the cache under a normalized key.
+        let new_release = insert_release(&pool, team_id, 0).await;
+        bind_symbol_set(&pool, team_id, "ref_b", new_release).await;
+
+        let second = resolver
+            .latest_release_id(team_id, &["ref_a".to_string(), "ref_b".to_string()])
+            .await
+            .unwrap();
+        assert_eq!(second, Some(old_release));
     }
 }
