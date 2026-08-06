@@ -1,4 +1,4 @@
-import { ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
+import { ExperimentEventExposureConfig, ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
 
 import {
     exposureEventLabel,
@@ -123,11 +123,11 @@ describe('exposureContract', () => {
 
     // Mirrors the backend `has_activation_config` gate: activation only composes with the
     // default exposure, so a custom exposure_config must disable it.
-    const activationConfig = {
+    const activationConfig: ExperimentEventExposureConfig = {
         kind: NodeKind.ExperimentEventExposureConfig,
         event: 'activated',
         properties: [],
-    } as const
+    }
     it.each<[string, ExperimentExposureCriteria | undefined, boolean]>([
         ['no criteria', undefined, false],
         ['activation alone', { activation_config: activationConfig }, true],
