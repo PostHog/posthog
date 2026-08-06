@@ -214,70 +214,70 @@ https://mcp.posthog.com/mcp?features=flags,workspace,dashboards
 
 Available features:
 
-| Feature | Description |
-| --- | --- |
-| `actions` | [Actions](https://posthog.com/docs/data/actions) |
-| `alerts` | [Alerts](https://posthog.com/docs/alerts) |
-| `annotations` | [Annotations](https://posthog.com/docs/product-analytics/annotations) |
-| `batch_exports` | Data pipelines |
-| `business_knowledge` | Business knowledge |
-| `canvas` | Canvas |
-| `cohorts` | [Cohorts](https://posthog.com/docs/data/cohorts) |
-| `conversations` | Conversations |
-| `core` | Core utilities (project switching, docs search) |
-| `customer_analytics` | [Customer analytics](https://posthog.com/docs/customer-analytics) |
-| `dashboards` | [Dashboards](https://posthog.com/docs/product-analytics/dashboards) |
-| `data_catalog` | Data catalog |
-| `data_schema` | Data schema exploration |
-| `data_warehouse` | [Data warehouse](https://posthog.com/docs/data-warehouse) |
-| `debug` | Debug and diagnostic tools |
-| `docs` | PostHog documentation search |
-| `early_access_features` | [Early access features](https://posthog.com/docs/feature-flags/early-access-feature-management) |
-| `endpoints` | [Endpoints](https://posthog.com/docs/endpoints) |
-| `engineering_analytics` | Engineering analytics |
-| `error_tracking` | [Error tracking alerts](https://posthog.com/docs/error-tracking) |
-| `events` | Event and property definitions |
-| `experiments` | [Experiments](https://posthog.com/docs/experiments) |
-| `feedback` | Send feedback to the PostHog team |
-| `field_notes` | Field notes |
-| `flags` | [Feature flags](https://posthog.com/docs/feature-flags) |
-| `health_issues` | Health |
-| `hog_function_templates` | CDP function template browsing |
-| `hog_functions` | [Functions](https://posthog.com/docs/cdp) |
-| `insights` | [Insights & analytics](https://posthog.com/docs/product-analytics/insights) |
-| `integrations` | Integrations |
-| `links` | PostHog app URL generation |
-| `llm_analytics` | [AI observability](https://posthog.com/docs/ai-observability) |
-| `logs` | [Logs](https://posthog.com/docs/logs) |
-| `managed_migrations` | Managed migrations |
-| `marketing_analytics` | Marketing analytics |
-| `mcp_analytics` | MCP analytics |
-| `mcp_store` | MCP Store |
-| `metrics` | Metrics |
-| `notebooks` | [Notebooks](https://posthog.com/docs/notebooks) |
-| `persons` | [Persons](https://posthog.com/docs/data/persons) |
-| `platform_features` | Platform Features |
-| `product_analytics` | Product analytics |
-| `reminders` | Reminders |
-| `replay` | [Session replays](https://posthog.com/docs/session-replay) |
-| `replay_vision` | Replay vision |
-| `reverse_proxy` | Reverse proxy record management |
-| `review_hog` | ReviewHog |
-| `signals` | [Signals](https://posthog.com/docs/self-driving) |
-| `skills` | Skills |
-| `sql` | SQL query execution |
-| `stamphog` | Stamphog |
-| `streamlit_apps` | Streamlit apps |
-| `subscriptions` | Subscriptions |
-| `surveys` | [Surveys](https://posthog.com/docs/surveys) |
-| `tasks` | [Tasks](https://posthog.com/docs/posthog-desktop/tasks) |
-| `tracing` | Tracing |
-| `user_interviews` | User interview topics |
-| `visual_review` | Visual review |
-| `warehouse_sources` | Warehouse sources |
-| `web_analytics` | [Web analytics](https://posthog.com/docs/web-analytics) |
-| `workflows` | [Workflows](https://posthog.com/docs/workflows) |
-| `workspace` | Organization and project management |
+| Feature                  | Description                                                                                     |
+| ------------------------ | ----------------------------------------------------------------------------------------------- |
+| `actions`                | [Actions](https://posthog.com/docs/data/actions)                                                |
+| `alerts`                 | [Alerts](https://posthog.com/docs/alerts)                                                       |
+| `annotations`            | [Annotations](https://posthog.com/docs/product-analytics/annotations)                           |
+| `batch_exports`          | Data pipelines                                                                                  |
+| `business_knowledge`     | Business knowledge                                                                              |
+| `canvas`                 | Canvas                                                                                          |
+| `cohorts`                | [Cohorts](https://posthog.com/docs/data/cohorts)                                                |
+| `conversations`          | Conversations                                                                                   |
+| `core`                   | Core utilities (project switching, docs search)                                                 |
+| `customer_analytics`     | [Customer analytics](https://posthog.com/docs/customer-analytics)                               |
+| `dashboards`             | [Dashboards](https://posthog.com/docs/product-analytics/dashboards)                             |
+| `data_catalog`           | Data catalog                                                                                    |
+| `data_schema`            | Data schema exploration                                                                         |
+| `data_warehouse`         | [Data warehouse](https://posthog.com/docs/data-warehouse)                                       |
+| `debug`                  | Debug and diagnostic tools                                                                      |
+| `docs`                   | PostHog documentation search                                                                    |
+| `early_access_features`  | [Early access features](https://posthog.com/docs/feature-flags/early-access-feature-management) |
+| `endpoints`              | [Endpoints](https://posthog.com/docs/endpoints)                                                 |
+| `engineering_analytics`  | Engineering analytics                                                                           |
+| `error_tracking`         | [Error tracking alerts](https://posthog.com/docs/error-tracking)                                |
+| `events`                 | Event and property definitions                                                                  |
+| `experiments`            | [Experiments](https://posthog.com/docs/experiments)                                             |
+| `feedback`               | Send feedback to the PostHog team                                                               |
+| `field_notes`            | Field notes                                                                                     |
+| `flags`                  | [Feature flags](https://posthog.com/docs/feature-flags)                                         |
+| `health_issues`          | Health                                                                                          |
+| `hog_function_templates` | CDP function template browsing                                                                  |
+| `hog_functions`          | [Functions](https://posthog.com/docs/cdp)                                                       |
+| `insights`               | [Insights & analytics](https://posthog.com/docs/product-analytics/insights)                     |
+| `integrations`           | Integrations                                                                                    |
+| `links`                  | PostHog app URL generation                                                                      |
+| `llm_analytics`          | [AI observability](https://posthog.com/docs/ai-observability)                                   |
+| `logs`                   | [Logs](https://posthog.com/docs/logs)                                                           |
+| `managed_migrations`     | Managed migrations                                                                              |
+| `marketing_analytics`    | Marketing analytics                                                                             |
+| `mcp_analytics`          | MCP analytics                                                                                   |
+| `mcp_store`              | MCP Store                                                                                       |
+| `metrics`                | Metrics                                                                                         |
+| `notebooks`              | [Notebooks](https://posthog.com/docs/notebooks)                                                 |
+| `persons`                | [Persons](https://posthog.com/docs/data/persons)                                                |
+| `platform_features`      | Platform Features                                                                               |
+| `product_analytics`      | Product analytics                                                                               |
+| `reminders`              | Reminders                                                                                       |
+| `replay`                 | [Session replays](https://posthog.com/docs/session-replay)                                      |
+| `replay_vision`          | Replay vision                                                                                   |
+| `reverse_proxy`          | Reverse proxy record management                                                                 |
+| `review_hog`             | ReviewHog                                                                                       |
+| `signals`                | [Signals](https://posthog.com/docs/self-driving)                                                |
+| `skills`                 | Skills                                                                                          |
+| `sql`                    | SQL query execution                                                                             |
+| `stamphog`               | Stamphog                                                                                        |
+| `streamlit_apps`         | Streamlit apps                                                                                  |
+| `subscriptions`          | Subscriptions                                                                                   |
+| `surveys`                | [Surveys](https://posthog.com/docs/surveys)                                                     |
+| `tasks`                  | [Tasks](https://posthog.com/docs/posthog-desktop/tasks)                                         |
+| `tracing`                | Tracing                                                                                         |
+| `user_interviews`        | User interview topics                                                                           |
+| `visual_review`          | Visual review                                                                                   |
+| `warehouse_sources`      | Warehouse sources                                                                               |
+| `web_analytics`          | [Web analytics](https://posthog.com/docs/web-analytics)                                         |
+| `workflows`              | [Workflows](https://posthog.com/docs/workflows)                                                 |
+| `workspace`              | Organization and project management                                                             |
 
 > **Note:** Hyphens and underscores are treated as equivalent in feature names (e.g., `error-tracking` and `error_tracking` both work).
 
