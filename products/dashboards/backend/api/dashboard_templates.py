@@ -34,6 +34,10 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import str_to_bool
 
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+from products.dashboards.backend.warehouse_template_transfer import (
+    collect_warehouse_table_names,
+    copy_referenced_warehouse_views,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -82,22 +86,6 @@ def _dashboard_template_list_order_by(ordering: str | None) -> list[Any]:
     return ["-is_featured", Lower("template_name")]
 
 
-def _collect_warehouse_table_names(node: Any) -> set[str]:
-    """Recursively collect `DataWarehouseNode.table_name` values from a query JSON tree."""
-    names: set[str] = set()
-    if isinstance(node, dict):
-        if node.get("kind") == "DataWarehouseNode":
-            table_name = node.get("table_name")
-            if isinstance(table_name, str) and table_name:
-                names.add(table_name)
-        for value in node.values():
-            names |= _collect_warehouse_table_names(value)
-    elif isinstance(node, list):
-        for item in node:
-            names |= _collect_warehouse_table_names(item)
-    return names
-
-
 def detect_non_portable_references(tiles: list[Any]) -> dict[str, Any]:
     """Project-scoped references in template tiles that may not resolve when used in another project.
 
@@ -119,7 +107,7 @@ def detect_non_portable_references(tiles: list[Any]) -> dict[str, Any]:
             # Detection is best-effort; a malformed tile must never break serialization.
             logger.warning("dashboard_template_non_portable_reference_detection_failed", exc_info=exc)
             capture_exception(exc)
-        warehouse_tables |= _collect_warehouse_table_names(query)
+        warehouse_tables |= collect_warehouse_table_names(query)
     return {
         "actions": len(action_ids),
         "cohorts": len(cohort_ids),
@@ -571,16 +559,32 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
         base_name = (source.template_name or "").strip() or "Untitled template"
         unique_name = _pick_unique_template_name_for_copy(team_id=target_team_id, base_name=base_name)
 
+        tiles = source.tiles or []
+        if user.is_authenticated:
+            try:
+                # Copy the data warehouse views the tiles read from into the target project so the
+                # copied template's insights resolve there. Best-effort: a failure here must not block
+                # the template copy — the tiles then keep the source names and behave as before.
+                tiles = copy_referenced_warehouse_views(
+                    tiles=tiles,
+                    source_team=source_team,
+                    target_team=target_team,
+                    created_by=user,
+                )
+            except Exception as exc:
+                logger.warning("dashboard_template_copy_warehouse_view_transfer_failed", exc_info=exc)
+                capture_exception(exc)
+
         new_instance = DashboardTemplate.objects.create(
             team_id=target_team_id,
             template_name=unique_name,
             dashboard_description=source.dashboard_description,
-            # TODO(analytics-platform): dashboard_filters and variables are copied verbatim; both can embed
-            # project-scoped references (e.g. cohort IDs in filter properties; variable defaults for events,
-            # actions, or properties) that do not exist or differ on the target project. Tile queries have the
-            # same class of issue. Consider validation and/or ID rewriting (cf. resource_transfer visitors).
+            # TODO(analytics-platform): dashboard_filters and variables are still copied verbatim; both can
+            # embed project-scoped references (e.g. cohort IDs in filter properties; variable defaults for
+            # events, actions, or properties) that do not exist or differ on the target project. Warehouse
+            # views referenced by tile queries are now copied above; cohorts/actions/filters are not yet.
             dashboard_filters=source.dashboard_filters,
-            tiles=source.tiles or [],
+            tiles=tiles,
             variables=source.variables,
             tags=source.tags or [],
             scope=DashboardTemplate.Scope.ONLY_TEAM,
