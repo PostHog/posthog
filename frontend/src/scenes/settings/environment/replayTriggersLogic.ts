@@ -122,6 +122,8 @@ export interface replayTriggersLogicValues {
     isProposedUrlBlocklistValid: boolean
     isProposedUrlTriggerSubmitting: boolean
     isProposedUrlTriggerValid: boolean
+    isSavingUrlBlocklist: boolean
+    isSavingUrlTrigger: boolean
     outdatedWebTraffic: {
         outdatedCount: number
         share: number
@@ -215,6 +217,12 @@ export interface replayTriggersLogicActions {
     }
     setEventTriggerConfig: (eventTriggerConfig: string[]) => {
         eventTriggerConfig: string[]
+    }
+    setIsSavingUrlBlocklist: (saving: boolean) => {
+        saving: boolean
+    }
+    setIsSavingUrlTrigger: (saving: boolean) => {
+        saving: boolean
     }
     setProposedUrlBlocklistManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
@@ -416,6 +424,8 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
         setCheckUrlTrigger: (url: string) => ({ url }),
         setCheckUrlBlocklist: (url: string) => ({ url }),
         validateUrlInput: (url: string, type: 'trigger' | 'blocklist') => ({ url, type }),
+        setIsSavingUrlTrigger: (saving: boolean) => ({ saving }),
+        setIsSavingUrlBlocklist: (saving: boolean) => ({ saving }),
     }),
     connect(() => ({
         values: [teamLogic, ['currentTeam'], sdkHealthLogic, ['augmentedData']],
@@ -445,8 +455,6 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
                           ? null
                           : editUrlTriggerIndex,
                 newUrlTrigger: () => -1,
-                updateUrlTrigger: () => null,
-                addUrlTrigger: () => null,
                 cancelProposingUrlTrigger: () => null,
             },
         ],
@@ -473,8 +481,7 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
                           ? null
                           : editUrlBlocklistIndex,
                 newUrlBlocklist: () => -1,
-                updateUrlBlocklist: () => null,
-                addUrlBlocklist: () => null,
+                cancelProposingUrlBlocklist: () => null,
             },
         ],
         eventTriggerConfig: [
@@ -505,6 +512,18 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
             '' as string,
             {
                 setCheckUrlBlocklist: (_, { url }) => url,
+            },
+        ],
+        isSavingUrlTrigger: [
+            false,
+            {
+                setIsSavingUrlTrigger: (_, { saving }) => saving,
+            },
+        ],
+        isSavingUrlBlocklist: [
+            false,
+            {
+                setIsSavingUrlBlocklist: (_, { saving }) => saving,
             },
         ],
         urlTriggerInputValidationWarning: [
@@ -700,16 +719,32 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
             },
         },
     })),
-    sharedListeners(({ values }) => ({
+    sharedListeners(({ actions, values }) => ({
+        // Keep the edit/add form open with its Save button in a loading state until the team PATCH
+        // settles, so the write isn't silent and the button can't be double-submitted.
         saveUrlTriggers: async () => {
-            await teamLogic.asyncActions.updateCurrentTeam({
-                session_recording_url_trigger_config: values.urlTriggerConfig ?? [],
-            })
+            actions.setIsSavingUrlTrigger(true)
+            try {
+                await teamLogic.asyncActions.updateCurrentTeam({
+                    session_recording_url_trigger_config: values.urlTriggerConfig ?? [],
+                })
+            } finally {
+                actions.setIsSavingUrlTrigger(false)
+                actions.setEditUrlTriggerIndex(null)
+                actions.resetProposedUrlTrigger()
+            }
         },
         saveUrlBlocklists: async () => {
-            await teamLogic.asyncActions.updateCurrentTeam({
-                session_recording_url_blocklist_config: values.urlBlocklistConfig ?? [],
-            })
+            actions.setIsSavingUrlBlocklist(true)
+            try {
+                await teamLogic.asyncActions.updateCurrentTeam({
+                    session_recording_url_blocklist_config: values.urlBlocklistConfig ?? [],
+                })
+            } finally {
+                actions.setIsSavingUrlBlocklist(false)
+                actions.setEditUrlBlocklistIndex(null)
+                actions.resetProposedUrlBlocklist()
+            }
         },
     })),
     listeners(({ sharedListeners, actions, values }) => ({
@@ -720,10 +755,6 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
         addUrlTrigger: sharedListeners.saveUrlTriggers,
         removeUrlTrigger: sharedListeners.saveUrlTriggers,
         updateUrlTrigger: sharedListeners.saveUrlTriggers,
-        submitProposedUrlTriggerSuccess: () => {
-            actions.setEditUrlTriggerIndex(null)
-            actions.resetProposedUrlTrigger()
-        },
         setProposedUrlTriggerValue: ({ name, value }) => {
             const fieldName = Array.isArray(name) ? name[0] : name
             if (fieldName === 'url') {
@@ -738,10 +769,6 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
         addUrlBlocklist: sharedListeners.saveUrlBlocklists,
         removeUrlBlocklist: sharedListeners.saveUrlBlocklists,
         updateUrlBlocklist: sharedListeners.saveUrlBlocklists,
-        submitProposedUrlBlocklistSuccess: () => {
-            actions.setEditUrlBlocklistIndex(null)
-            actions.resetProposedUrlBlocklist()
-        },
         setProposedUrlBlocklistValue: ({ name, value }) => {
             const fieldName = Array.isArray(name) ? name[0] : name
             if (fieldName === 'url') {

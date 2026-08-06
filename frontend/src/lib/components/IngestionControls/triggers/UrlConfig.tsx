@@ -120,6 +120,7 @@ export function UrlConfig({
                     onEdit={props.onEdit}
                     onRemove={props.onRemove}
                     checkUrlResult={checkUrlResults[index]}
+                    isSubmitting={props.isSubmitting}
                 />
             ))}
         </div>
@@ -138,6 +139,7 @@ function UrlConfigRow({
     formKey,
     addUrl,
     validationWarning,
+    isSubmitting,
 }: {
     trigger: UrlTriggerConfig
     index: number
@@ -150,6 +152,7 @@ function UrlConfigRow({
     formKey: string
     addUrl: (urlTriggerConfig: UrlTriggerConfig) => void
     validationWarning: string | null
+    isSubmitting: boolean
 }): JSX.Element {
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -166,7 +169,7 @@ function UrlConfigRow({
                     addUrl={addUrl}
                     validationWarning={validationWarning}
                     onCancel={() => onEdit(-1)}
-                    isSubmitting={false}
+                    isSubmitting={isSubmitting}
                 />
             </div>
         )
@@ -302,7 +305,8 @@ function UrlConfigForm({
                     <LemonButton
                         htmlType="submit"
                         type="primary"
-                        disabledReason={isSubmitting ? `Saving url in progress` : undefined}
+                        loading={isSubmitting}
+                        disabledReason={isSubmitting ? `Saving URL in progress` : undefined}
                         data-attr="url-save"
                     >
                         Save

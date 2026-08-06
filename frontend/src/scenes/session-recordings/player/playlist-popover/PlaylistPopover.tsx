@@ -36,6 +36,7 @@ export function PlaylistPopoverButton({
         currentPlaylistsLoading,
         modifyingPlaylist,
         pinnedCount,
+        isNewPlaylistSubmitting,
     } = useValues(logic)
     const { setSearchQuery, setNewFormShowing, setShowPlaylistPopover, addToPlaylist, removeFromPlaylist } =
         useActions(logic)
@@ -67,7 +68,12 @@ export function PlaylistPopoverButton({
                                         >
                                             Cancel
                                         </LemonButton>
-                                        <LemonButton type="primary" htmlType="submit" icon={<IconPlus />}>
+                                        <LemonButton
+                                            type="primary"
+                                            htmlType="submit"
+                                            icon={<IconPlus />}
+                                            loading={isNewPlaylistSubmitting}
+                                        >
                                             Create and add to list
                                         </LemonButton>
                                     </div>

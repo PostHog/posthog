@@ -133,7 +133,7 @@ function UrlTriggerOptions(): JSX.Element | null {
         isAddUrlTriggerConfigFormVisible,
         urlTriggerConfig,
         editUrlTriggerIndex,
-        isProposedUrlTriggerSubmitting,
+        isSavingUrlTrigger,
         checkUrlTrigger,
         checkUrlTriggerResults,
         urlTriggerInputValidationWarning,
@@ -162,7 +162,7 @@ function UrlTriggerOptions(): JSX.Element | null {
             isAddFormVisible={isAddUrlTriggerConfigFormVisible}
             config={urlTriggerConfig}
             editIndex={editUrlTriggerIndex}
-            isSubmitting={isProposedUrlTriggerSubmitting}
+            isSubmitting={isSavingUrlTrigger}
             onAdd={newUrlTrigger}
             onCancel={cancelProposingUrlTrigger}
             onEdit={setEditUrlTriggerIndex}
@@ -176,7 +176,7 @@ function UrlBlocklistOptions(): JSX.Element | null {
         isAddUrlBlocklistConfigFormVisible,
         urlBlocklistConfig,
         editUrlBlocklistIndex,
-        isProposedUrlBlocklistSubmitting,
+        isSavingUrlBlocklist,
         checkUrlBlocklist,
         checkUrlBlocklistResults,
         urlBlocklistInputValidationWarning,
@@ -205,7 +205,7 @@ function UrlBlocklistOptions(): JSX.Element | null {
             isAddFormVisible={isAddUrlBlocklistConfigFormVisible}
             config={urlBlocklistConfig}
             editIndex={editUrlBlocklistIndex}
-            isSubmitting={isProposedUrlBlocklistSubmitting}
+            isSubmitting={isSavingUrlBlocklist}
             onAdd={newUrlBlocklist}
             onCancel={cancelProposingUrlBlocklist}
             onEdit={setEditUrlBlocklistIndex}

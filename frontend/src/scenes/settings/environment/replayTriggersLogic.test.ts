@@ -1,8 +1,18 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
+import { expectLogic } from 'kea-test-utils'
+
+import { teamLogic } from 'scenes/teamLogic'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
 import {
     hasOutdatedWebSdk,
     legacyConditionsAreInactive,
     legacyUiShouldBeMinimized,
     outdatedWebTrafficShare,
+    replayTriggersLogic,
     TRIGGER_GROUPS_MIN_SDK_VERSION,
     WebRelease,
 } from './replayTriggersLogic'
@@ -151,6 +161,52 @@ describe('replayTriggersLogic', () => {
             ]
             expect(hasOutdatedWebSdk(atThreshold)).toBe(true)
             expect(legacyConditionsAreInactive(atThreshold)).toBe(false)
+        })
+    })
+
+    describe('saving URL triggers', () => {
+        let logic: ReturnType<typeof replayTriggersLogic.build>
+
+        beforeEach(() => {
+            useMocks({
+                patch: {
+                    '/api/environments/:id': async ({ request }) => [
+                        200,
+                        { ...MOCK_DEFAULT_TEAM, ...((await request.json()) as Record<string, any>) },
+                    ],
+                },
+            })
+            initKeaTests()
+            logic = replayTriggersLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+        })
+
+        // Guards the regression this fixes: the write must not be fire-and-forget. If the save reverts
+        // to closing the form before the PATCH settles (or drops the in-flight flag), the ordering below
+        // breaks, since it asserts the flag brackets the team update and the form closes only afterwards.
+        it('holds the in-flight flag until the team update resolves, then closes the form', async () => {
+            logic.actions.newUrlTrigger()
+            expect(logic.values.editUrlTriggerIndex).toBe(-1)
+
+            await expectLogic(logic, () => {
+                logic.actions.addUrlTrigger({ url: '^https://example.com/checkout$', matching: 'regex' })
+            }).toDispatchActions([
+                (action) => action.type === logic.actionTypes.setIsSavingUrlTrigger && action.payload.saving === true,
+                teamLogic.actionTypes.updateCurrentTeamSuccess,
+                (action) => action.type === logic.actionTypes.setIsSavingUrlTrigger && action.payload.saving === false,
+                (action) =>
+                    action.type === logic.actionTypes.setEditUrlTriggerIndex && action.payload.originalIndex === null,
+            ])
+
+            expect(logic.values.isSavingUrlTrigger).toBe(false)
+            expect(logic.values.editUrlTriggerIndex).toBeNull()
+            expect(logic.values.urlTriggerConfig).toEqual([
+                { url: '^https://example.com/checkout$', matching: 'regex' },
+            ])
         })
     })
 })
