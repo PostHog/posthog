@@ -4,8 +4,12 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lightspeedretail import (
     LightspeedRetailSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.constants import (
+    LIGHTSPEED_RETAIL_API_VERSION_2_0,
+    LIGHTSPEED_RETAIL_API_VERSION_2026_01,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.lightspeed_retail import (
     LightspeedRetailResumeConfig,
@@ -110,7 +114,26 @@ class TestLightspeedRetailSource:
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with(self.config.domain_prefix, self.config.api_token)
+        mock_validate.assert_called_once_with(
+            self.config.domain_prefix, self.config.api_token, LIGHTSPEED_RETAIL_API_VERSION_2026_01
+        )
+
+    @pytest.mark.parametrize(
+        "pinned, expected",
+        [
+            (None, LIGHTSPEED_RETAIL_API_VERSION_2026_01),
+            (LIGHTSPEED_RETAIL_API_VERSION_2_0, LIGHTSPEED_RETAIL_API_VERSION_2_0),
+        ],
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.source.validate_lightspeed_credentials"
+    )
+    def test_validate_credentials_probes_the_pinned_version(self, mock_validate, pinned, expected):
+        mock_validate.return_value = True
+
+        self.source.validate_credentials(self.config, self.team_id, api_version=pinned)
+
+        assert mock_validate.call_args.args[2] == expected
 
     def test_get_resumable_source_manager_binds_resume_config(self):
         inputs = mock.MagicMock()
@@ -127,6 +150,7 @@ class TestLightspeedRetailSource:
         inputs.schema_name = "sales"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = 999
+        inputs.api_version = LIGHTSPEED_RETAIL_API_VERSION_2026_01
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -136,9 +160,32 @@ class TestLightspeedRetailSource:
         assert kwargs["domain_prefix"] == "mystore"
         assert kwargs["api_token"] == "api-token"
         assert kwargs["endpoint"] == "sales"
+        assert kwargs["team_id"] is inputs.team_id
+        assert kwargs["job_id"] is inputs.job_id
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == 999
+        assert kwargs["api_version"] == LIGHTSPEED_RETAIL_API_VERSION_2026_01
+
+    @pytest.mark.parametrize(
+        "pinned, expected",
+        [
+            (None, LIGHTSPEED_RETAIL_API_VERSION_2026_01),
+            (LIGHTSPEED_RETAIL_API_VERSION_2_0, LIGHTSPEED_RETAIL_API_VERSION_2_0),
+        ],
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.source.lightspeed_retail_source"
+    )
+    def test_source_for_pipeline_syncs_on_the_pinned_version(self, mock_lightspeed_source, pinned, expected):
+        inputs = mock.MagicMock()
+        inputs.schema_name = "sales"
+        inputs.should_use_incremental_field = False
+        inputs.api_version = pinned
+
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        assert mock_lightspeed_source.call_args.kwargs["api_version"] == expected
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.source.lightspeed_retail_source"

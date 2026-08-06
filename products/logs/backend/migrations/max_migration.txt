@@ -1,1 +1,1 @@
-0016_logsview_columns
+0020_logsretentionrule

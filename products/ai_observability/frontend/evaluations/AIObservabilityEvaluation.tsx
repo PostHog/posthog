@@ -21,7 +21,9 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
@@ -40,8 +42,9 @@ import { EvaluationReportConfig } from './components/EvaluationReportConfig'
 import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
-import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
+import { EVALUATION_PASSED_HOGQL, EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import {
+    evaluationOffersSessionTarget,
     evaluationSupportsReports,
     evaluationSupportsRunSummary,
     evaluationTypeHasEditableCriteria,
@@ -49,13 +52,23 @@ import {
     isBooleanEvaluationOutput,
 } from './evaluationCapabilities'
 import { evaluationReportLogic } from './evaluationReportLogic'
-import { DEFAULT_TRACE_WINDOW_SECONDS, LLMEvaluationLogicProps, llmEvaluationLogic } from './llmEvaluationLogic'
+import {
+    DEFAULT_SESSION_MAX_AGE_SECONDS,
+    DEFAULT_SESSION_QUIET_PERIOD_SECONDS,
+    DEFAULT_SESSION_WINDOW_SECONDS,
+    DEFAULT_TRACE_MAX_AGE_SECONDS,
+    DEFAULT_TRACE_QUIET_PERIOD_SECONDS,
+    DEFAULT_TRACE_WINDOW_SECONDS,
+    LLMEvaluationLogicProps,
+    llmEvaluationLogic,
+} from './llmEvaluationLogic'
 import { statusReasonLabel, statusReasonRecoveryLabel } from './statusDisplay'
-import { EvaluationTarget, EvaluationType } from './types'
+import { EvaluationSettleStrategy, EvaluationTarget, EvaluationType } from './types'
 
 export function AIObservabilityEvaluation(): JSX.Element {
     const {
         evaluation,
+        evaluationBackTarget,
         evaluationLoading,
         evaluationFormSubmitting,
         hasUnsavedChanges,
@@ -69,6 +82,8 @@ export function AIObservabilityEvaluation(): JSX.Element {
         modelSelectionRequired,
     } = useValues(llmEvaluationLogic)
     const { searchParams } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const settlingStrategyEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_SETTLING_STRATEGY]
     const {
         setEvaluationName,
         setEvaluationDescription,
@@ -78,7 +93,8 @@ export function AIObservabilityEvaluation(): JSX.Element {
         resetEvaluation,
         setEvaluationType,
         setEvaluationTarget,
-        setTraceWindowSeconds,
+        setSettleStrategy,
+        patchTargetConfig,
         setActiveTab,
     } = useActions(llmEvaluationLogic)
     const { push } = useActions(router)
@@ -103,6 +119,14 @@ export function AIObservabilityEvaluation(): JSX.Element {
 
     const isHog = evaluation.evaluation_type === 'hog'
     const isSentiment = evaluation.evaluation_type === 'sentiment'
+    const isAggregateTarget = evaluation.target === 'trace' || evaluation.target === 'session'
+    const isSessionTarget = evaluation.target === 'session'
+    const offersSessionTarget = evaluationOffersSessionTarget(evaluation, settlingStrategyEnabled)
+    // Read the stored strategy whether or not the flag is on. The flag gates the *picker*, not what
+    // the row contains: an API- or MCP-created session eval is inactivity, and forcing fixed_window
+    // here rendered a "wait 30 minutes" field holding a default the config never had.
+    const effectiveStrategy: EvaluationSettleStrategy =
+        evaluation.target_config.strategy ?? (isSessionTarget ? 'inactivity' : 'fixed_window')
     const isReportableEvaluation = evaluationSupportsReports(evaluation)
     const supportsRunSummary = evaluationSupportsRunSummary(evaluation)
     const isBooleanOutput = isBooleanEvaluationOutput(evaluation.output_type)
@@ -121,7 +145,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                   event: '$ai_evaluation',
                                   custom_name: `${evaluation.name} — Pass rate`,
                                   math: HogQLMathType.HogQL,
-                                  math_hogql: `if(countIf(properties.$ai_evaluation_result IS NOT NULL) > 0, countIf(properties.$ai_evaluation_result = 1) / countIf(properties.$ai_evaluation_result IS NOT NULL) * 100, 0)`,
+                                  math_hogql: `if(countIf(properties.$ai_evaluation_result IS NOT NULL) > 0, countIf(${EVALUATION_PASSED_HOGQL}) / countIf(properties.$ai_evaluation_result IS NOT NULL) * 100, 0)`,
                                   properties: [
                                       {
                                           key: '$ai_evaluation_id',
@@ -225,7 +249,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         if (hasUnsavedChanges) {
             resetEvaluation()
         }
-        push(combineUrl(urls.aiObservabilityEvaluations(), searchParams).url)
+        push(evaluationBackTarget.path)
     }
 
     const hogEvaluationMethodOptions: { value: EvaluationType; label: string }[] = [
@@ -458,10 +482,22 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                         <Link to="https://posthog.com/docs/hog" target="_blank">
                                                             Hog code
                                                         </Link>{' '}
-                                                        against each generation. No LLM cost, instant results.
+                                                        against{' '}
+                                                        {isSessionTarget
+                                                            ? 'the whole session'
+                                                            : evaluation.target === 'trace'
+                                                              ? 'the whole trace'
+                                                              : 'each generation'}
+                                                        . No LLM cost.
                                                     </>
                                                 ) : (
-                                                    'Use an LLM to evaluate each generation against a natural-language prompt.'
+                                                    `Use an LLM to evaluate ${
+                                                        isSessionTarget
+                                                            ? 'the whole session'
+                                                            : evaluation.target === 'trace'
+                                                              ? 'the whole trace'
+                                                              : 'each generation'
+                                                    } against a natural-language prompt.`
                                                 )}
                                             </p>
 
@@ -480,33 +516,135 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                     value: 'trace',
                                                                     label: 'Whole trace',
                                                                 },
+                                                                ...(offersSessionTarget
+                                                                    ? [
+                                                                          {
+                                                                              value: 'session' as const,
+                                                                              label: 'Whole session',
+                                                                          },
+                                                                      ]
+                                                                    : []),
                                                             ]}
                                                             fullWidth
                                                         />
                                                     </Field>
                                                     <p className="text-muted text-sm -mt-2">
-                                                        {evaluation.target === 'trace'
-                                                            ? 'Runs once per trace on all of its events together, after a delay that lets the trace complete.'
-                                                            : 'Runs on each matching generation event individually, right after it is ingested.'}
+                                                        {isSessionTarget
+                                                            ? 'Runs once per session on every trace it contains, after the session settles. Only fires for events that carry an AI session id.'
+                                                            : evaluation.target === 'trace'
+                                                              ? 'Runs once per trace on all of its events together, after it settles.'
+                                                              : 'Runs on each matching generation event individually, right after it is ingested.'}
                                                     </p>
-                                                    {evaluation.target === 'trace' && (
-                                                        <Field name="trace_window" label="Wait before evaluating">
-                                                            <div className="space-y-1">
-                                                                <DurationPicker
-                                                                    value={
-                                                                        evaluation.target_config.window_seconds ??
-                                                                        DEFAULT_TRACE_WINDOW_SECONDS
-                                                                    }
-                                                                    onChange={setTraceWindowSeconds}
-                                                                />
-                                                                <p className="text-muted text-xs">
-                                                                    How long to wait after the first matching generation
-                                                                    before pulling the whole trace (10s–2h). Captured
-                                                                    when the run is scheduled — changing it won't affect
-                                                                    trace runs already in flight.
-                                                                </p>
-                                                            </div>
-                                                        </Field>
+                                                    {isAggregateTarget && (
+                                                        <>
+                                                            {settlingStrategyEnabled && (
+                                                                <Field name="settle_strategy" label="Evaluate when">
+                                                                    <LemonSelect<EvaluationSettleStrategy>
+                                                                        value={effectiveStrategy}
+                                                                        onChange={setSettleStrategy}
+                                                                        options={[
+                                                                            {
+                                                                                value: 'fixed_window',
+                                                                                label: 'A fixed delay has passed',
+                                                                            },
+                                                                            {
+                                                                                value: 'inactivity',
+                                                                                label: isSessionTarget
+                                                                                    ? 'The session goes quiet'
+                                                                                    : 'The trace goes quiet',
+                                                                            },
+                                                                        ]}
+                                                                        fullWidth
+                                                                    />
+                                                                </Field>
+                                                            )}
+                                                            {effectiveStrategy === 'fixed_window' ? (
+                                                                <Field
+                                                                    name="settle_window"
+                                                                    label="Wait before evaluating"
+                                                                >
+                                                                    <div className="space-y-1">
+                                                                        <DurationPicker
+                                                                            value={
+                                                                                evaluation.target_config
+                                                                                    .window_seconds ??
+                                                                                (isSessionTarget
+                                                                                    ? DEFAULT_SESSION_WINDOW_SECONDS
+                                                                                    : DEFAULT_TRACE_WINDOW_SECONDS)
+                                                                            }
+                                                                            onChange={(value) => {
+                                                                                if (
+                                                                                    evaluation.target_config
+                                                                                        .strategy === 'inactivity'
+                                                                                ) {
+                                                                                    setSettleStrategy('fixed_window')
+                                                                                }
+                                                                                patchTargetConfig({
+                                                                                    window_seconds: value,
+                                                                                })
+                                                                            }}
+                                                                        />
+                                                                        <p className="text-muted text-xs">
+                                                                            {isSessionTarget
+                                                                                ? "How long to wait after the first matching generation before pulling the whole session (10s to 7 days). Captured when the run is scheduled, so changing it won't affect runs already in flight."
+                                                                                : "How long to wait after the first matching generation before pulling the whole trace (10s–2h). Captured when the run is scheduled — changing it won't affect trace runs already in flight."}
+                                                                        </p>
+                                                                    </div>
+                                                                </Field>
+                                                            ) : (
+                                                                <>
+                                                                    <Field
+                                                                        name="settle_quiet_period"
+                                                                        label="Quiet period"
+                                                                    >
+                                                                        <div className="space-y-1">
+                                                                            <DurationPicker
+                                                                                value={
+                                                                                    evaluation.target_config
+                                                                                        .quiet_period_seconds ??
+                                                                                    (isSessionTarget
+                                                                                        ? DEFAULT_SESSION_QUIET_PERIOD_SECONDS
+                                                                                        : DEFAULT_TRACE_QUIET_PERIOD_SECONDS)
+                                                                                }
+                                                                                onChange={(value) =>
+                                                                                    patchTargetConfig({
+                                                                                        quiet_period_seconds: value,
+                                                                                    })
+                                                                                }
+                                                                            />
+                                                                            <p className="text-muted text-xs">
+                                                                                {isSessionTarget
+                                                                                    ? 'Evaluate once the session has had no new activity for this long (10s to 24 hours). Sessions often pause for a while mid-conversation, so a longer quiet period means fewer verdicts on a session that was not finished.'
+                                                                                    : 'Evaluate once the trace has had no new activity for this long (10s–30m).'}
+                                                                            </p>
+                                                                        </div>
+                                                                    </Field>
+                                                                    <Field name="settle_max_age" label="Evaluate by">
+                                                                        <div className="space-y-1">
+                                                                            <DurationPicker
+                                                                                value={
+                                                                                    evaluation.target_config
+                                                                                        .max_age_seconds ??
+                                                                                    (isSessionTarget
+                                                                                        ? DEFAULT_SESSION_MAX_AGE_SECONDS
+                                                                                        : DEFAULT_TRACE_MAX_AGE_SECONDS)
+                                                                                }
+                                                                                onChange={(value) =>
+                                                                                    patchTargetConfig({
+                                                                                        max_age_seconds: value,
+                                                                                    })
+                                                                                }
+                                                                            />
+                                                                            <p className="text-muted text-xs">
+                                                                                {isSessionTarget
+                                                                                    ? 'Always evaluate once the session is this old, even if it is still active (1m to 7 days).'
+                                                                                    : "Always evaluate once the trace is this old, even if it's still active (1m–2h)."}
+                                                                            </p>
+                                                                        </div>
+                                                                    </Field>
+                                                                </>
+                                                            )}
+                                                        </>
                                                     )}
                                                 </>
                                             )}
@@ -628,25 +766,15 @@ export function AIObservabilityEvaluation(): JSX.Element {
 }
 
 function EvaluationModelPicker(): JSX.Element {
-    const {
-        hasByokKeys,
-        byokModels,
-        trialModels,
-        providerModelGroups,
-        trialProviderModelGroups,
-        byokModelsLoading,
-        trialModelsLoading,
-        providerKeysLoading,
-    } = useValues(modelPickerLogic)
-    const { selectedModel, selectedPickerProviderKeyId, requiresProviderKey, modelSelectionRequired } =
-        useValues(llmEvaluationLogic)
+    const { hasByokKeys, byokModels, providerModelGroups, byokModelsLoading, providerKeysLoading } =
+        useValues(modelPickerLogic)
+    const { selectedModel, selectedPickerProviderKeyId, modelSelectionRequired } = useValues(llmEvaluationLogic)
     const { selectModelFromPicker } = useActions(llmEvaluationLogic)
 
-    const showTrialModels = !hasByokKeys && !requiresProviderKey
-    const allModels = showTrialModels ? trialModels : byokModels
-    const selectedModelName = allModels.find((m) => m.id === selectedModel)?.name
-    const groups = showTrialModels ? trialProviderModelGroups : providerModelGroups
-    const loading = showTrialModels ? trialModelsLoading : byokModelsLoading || providerKeysLoading
+    // Evals always run on the team's own provider key, so only BYOK models are offered.
+    const selectedModelName = byokModels.find((m) => m.id === selectedModel)?.name
+    const groups = providerModelGroups
+    const loading = byokModelsLoading || providerKeysLoading
 
     const footerLink = getModelPickerFooterLink(hasByokKeys)
 

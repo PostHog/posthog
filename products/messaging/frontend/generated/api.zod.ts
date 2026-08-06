@@ -163,6 +163,61 @@ export const MessagingPreferencesAddOptOutCreateBody = /* @__PURE__ */ zod.objec
         .describe('Optional message category key. If omitted, the recipient is opted out of all marketing messages.'),
 })
 
+/**
+ * Opt every recipient in the list out of the category named on their entry, or a default category.
+ * @summary Add multiple recipients to the opt-out list
+ */
+export const messagingPreferencesBulkAddOptOutsCreateBodyOptOutsItemIdentifierMax = 512
+
+export const MessagingPreferencesBulkAddOptOutsCreateBody = /* @__PURE__ */ zod.object({
+    opt_outs: zod
+        .array(
+            zod.object({
+                identifier: zod
+                    .string()
+                    .max(messagingPreferencesBulkAddOptOutsCreateBodyOptOutsItemIdentifierMax)
+                    .describe('The recipient identifier to opt out (e.g. email address).'),
+                category_key: zod
+                    .string()
+                    .optional()
+                    .describe('Message category key for this recipient. Overrides the request-level category_key.'),
+            })
+        )
+        .describe('Recipients to opt out, at most 1000 per request.'),
+    category_key: zod
+        .string()
+        .optional()
+        .describe(
+            'Message category key applied to entries without their own. If omitted, recipients are opted out of all marketing messages.'
+        ),
+})
+
+/**
+ * Manually suppress an email address so no workflow sends to it.
+ * @summary Manually add an email address to the suppression list
+ */
+export const messagingSuppressionsAddSuppressionCreateBodyIdentifierMax = 512
+
+export const MessagingSuppressionsAddSuppressionCreateBody = /* @__PURE__ */ zod.object({
+    identifier: zod
+        .string()
+        .max(messagingSuppressionsAddSuppressionCreateBodyIdentifierMax)
+        .describe('The email address to suppress. Will not receive any messages until removed.'),
+})
+
+/**
+ * Remove an address from the suppression list so it can receive messages again.
+ * @summary Remove an email address from the suppression list
+ */
+export const messagingSuppressionsRemoveSuppressionCreateBodyIdentifierMax = 512
+
+export const MessagingSuppressionsRemoveSuppressionCreateBody = /* @__PURE__ */ zod.object({
+    identifier: zod
+        .string()
+        .max(messagingSuppressionsRemoveSuppressionCreateBodyIdentifierMax)
+        .describe('The email address to suppress. Will not receive any messages until removed.'),
+})
+
 export const messagingTemplatesCreateBodyNameMax = 400
 
 export const messagingTemplatesCreateBodyContentOneTemplatingDefault = `liquid`

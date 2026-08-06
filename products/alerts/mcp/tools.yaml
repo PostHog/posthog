@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Alerts
 feature: alerts
-url_prefix: /insights?tab=alerts
+url_prefix: /alerts
 ui_apps: {}
 tools:
     alert-create:
@@ -18,6 +18,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
+        enrich_url: ?alert_type=insights&alert_id={id}
         title: Create alert
         description: >
             Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For
@@ -74,6 +75,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: ?alert_type=insights&alert_id={id}
         title: Get alert
         description: >
             Get a specific alert by ID. Returns the full alert configuration including check results, threshold
@@ -108,6 +110,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
+        enrich_url: ?alert_type=insights&alert_id={id}
         title: Update alert
         description: >
             Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed
@@ -137,6 +140,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: ?alert_type=insights&alert_id={id}
         list: true
         title: List alerts
         description: >
@@ -147,6 +151,9 @@ tools:
             detector_config (zscore, mad, iqr, isolation_forest, knn, etc.).
     alerts-simulate-create:
         operation: alerts_simulate_create
+        enabled: false
+    alerts-test-delivery-create:
+        operation: alerts_test_delivery_create
         enabled: false
     alerts-update:
         operation: alerts_update

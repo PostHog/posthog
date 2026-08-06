@@ -863,6 +863,16 @@ class TestEmailInboundContent(BaseTest):
                 {"body-plain": "Full body text"},
                 "Full body text",
             ),
+            # A forwarded email's original content is inside the "quoted" block that
+            # Mailgun strips — on a new ticket the full body must be kept.
+            (
+                "new_ticket_keeps_forwarded_context",
+                {
+                    "stripped-text": "FYI, see below",
+                    "body-plain": "FYI, see below\n\n---------- Forwarded message ---------\nOriginal content",
+                },
+                "FYI, see below\n\n---------- Forwarded message ---------\nOriginal content",
+            ),
         ]
     )
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
@@ -883,6 +893,32 @@ class TestEmailInboundContent(BaseTest):
 
         comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
         assert comment.content == expected_content
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_reply_strips_quoted_thread(self, _mock_sig: MagicMock):
+        base = {
+            "recipient": "team-cc00dd11ee2233ff@mg.posthog.com",
+            "from": "customer@test.com",
+            "subject": "Help",
+        }
+        self.client.post(
+            "/api/conversations/v1/email/inbound",
+            {**base, "Message-Id": "<thread-init@test.com>", "stripped-text": "Initial question"},
+        )
+        response = self.client.post(
+            "/api/conversations/v1/email/inbound",
+            {
+                **base,
+                "Message-Id": "<thread-reply@test.com>",
+                "In-Reply-To": "<thread-init@test.com>",
+                "stripped-text": "Thanks, that worked",
+                "body-plain": "Thanks, that worked\n\nOn Mon, Support wrote:\n> Initial question",
+            },
+        )
+        assert response.status_code == 200
+
+        reply = Comment.objects.filter(team=self.team, scope="conversations_ticket").order_by("created_at")[1]
+        assert reply.content == "Thanks, that worked"
 
 
 class TestSendEmailReplyMultiConfig(BaseTest):

@@ -14,7 +14,7 @@ from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import StripeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import StripeSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -95,7 +95,7 @@ def external_data_schema_incremental(external_data_source, team):
 
 # mock the chunk size to 1 so we can test how iterating over chunks of data works, particularly with updating the
 # incremental field last value
-@mock.patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.DEFAULT_CHUNK_SIZE", 1)
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_stripe_source_full_refresh(
@@ -130,7 +130,7 @@ async def test_stripe_source_full_refresh(
 
 # mock the chunk size to 1 so we can test how iterating over chunks of data works, particularly with updating the
 # incremental field last value
-@mock.patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.DEFAULT_CHUNK_SIZE", 1)
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_stripe_source_resuming_full_refresh(
@@ -175,7 +175,7 @@ async def test_stripe_source_resuming_full_refresh(
 
 # mock the chunk size to 1 so we can test how iterating over chunks of data works, particularly with updating the
 # incremental field last value
-@mock.patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.DEFAULT_CHUNK_SIZE", 1)
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_stripe_source_incremental(team, mock_stripe_api, external_data_source, external_data_schema_incremental):

@@ -485,7 +485,12 @@ class TestUserSavedSignalHandler(TestCase):
 
         loaded_user.is_active = False
         loaded_user.save()
-        mock_on_commit.assert_called_once()
+        # A real save fires every User receiver, and others (loop pausing on deactivation) also
+        # schedule on_commit work; count only this handler's contribution.
+        user_saved_commits = [
+            call for call in mock_on_commit.call_args_list if "user_saved" in call.args[0].__qualname__
+        ]
+        self.assertEqual(len(user_saved_commits), 1)
 
 
 class TestOrganizationMembershipSavedSignalHandler(TestCase):

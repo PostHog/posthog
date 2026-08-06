@@ -1,19 +1,20 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
-import { IconCompass, IconPlus, IconSparkles } from '@posthog/icons'
+import { IconCompass, IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
+import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
+
+import { captureScoutAction, captureScoutFleetViewed } from '../../../inboxAnalytics'
 import { inboxSceneLogic } from '../../../inboxSceneLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
-import { SignalScoutConfig } from '../../../types'
 import {
     FleetSummary,
-    SCOUT_AUTHOR_PROMPT,
     SCOUT_FLEET_OVERVIEW_PROMPT,
     SCOUT_RECENT_SIGNALS_PROMPT,
     SCOUT_RUNS_WINDOW_SPAN,
@@ -22,8 +23,11 @@ import {
 import { agentSetupModalLogic } from '../../shell/agentSetupModalLogic'
 import { FleetFindingsCallout } from './FleetFindingsCallout'
 import { FleetMemoryCallout } from './FleetMemoryCallout'
+import { ScoutCreateButton } from './ScoutCreateButton'
 import { ScoutHelperSkillLinks } from './ScoutHelperSkillLinks'
 import { ScoutRowCard } from './ScoutRowCard'
+import { ScoutSuggestButton } from './ScoutSuggestButton'
+import { ScoutTagsFilter } from './ScoutTagsFilter'
 
 /**
  * Scout troop manager, hosted in the Scout troop setup modal (and the Agents settings tab). Both
@@ -32,7 +36,7 @@ import { ScoutRowCard } from './ScoutRowCard'
  * Cloud port of desktop's `ScoutsFleetSection`.
  */
 export function ScoutsFleetSection(): JSX.Element {
-    const { scoutConfigs, scoutConfigsLoading } = useValues(scoutFleetLogic)
+    const { scoutConfigs, scoutConfigsLoading, enabledCount, customScoutCount } = useValues(scoutFleetLogic)
     const { loadScoutConfigs, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
     const { setScratchpadOpen, setFindingsOpen } = useActions(inboxSceneLogic)
     const { closeSetupModal } = useActions(agentSetupModalLogic)
@@ -43,6 +47,22 @@ export function ScoutsFleetSection(): JSX.Element {
         startRunsPolling()
         return () => stopRunsPolling()
     }, [startRunsPolling, stopRunsPolling])
+
+    // Roster shape once per opening, the first time the fleet resolves. A failed load stays `null`
+    // and reports nothing — an unreachable scout API isn't an empty troop.
+    const fleetViewedFiredRef = useRef(false)
+    useEffect(() => {
+        if (scoutConfigs === null || fleetViewedFiredRef.current) {
+            return
+        }
+        fleetViewedFiredRef.current = true
+        captureScoutFleetViewed({
+            scoutCount: scoutConfigs.length,
+            enabledCount,
+            customCount: customScoutCount,
+            dryRunCount: scoutConfigs.filter((config) => !config.emit).length,
+        })
+    }, [scoutConfigs, enabledCount, customScoutCount])
 
     if (scoutConfigsLoading && scoutConfigs === null) {
         return <LemonSkeleton className="h-12 w-full rounded" />
@@ -79,6 +99,7 @@ export function ScoutsFleetSection(): JSX.Element {
             <FleetStatsHeader />
             <FleetFindingsCallout
                 onOpen={() => {
+                    captureScoutAction({ actionType: 'open_findings', surface: 'fleet_list' })
                     // This section can render inside the scout-troop setup modal; dismiss it so the
                     // findings view isn't left hidden behind the portal'd modal. No-op outside a modal.
                     closeSetupModal()
@@ -87,6 +108,7 @@ export function ScoutsFleetSection(): JSX.Element {
             />
             <FleetMemoryCallout
                 onOpen={() => {
+                    captureScoutAction({ actionType: 'open_memory', surface: 'fleet_list' })
                     // This section can render inside the scout-troop setup modal; dismiss it so the
                     // memory view isn't left hidden behind the portal'd modal. No-op outside a modal.
                     closeSetupModal()
@@ -129,7 +151,7 @@ function summarize(summary: FleetSummary | null): string {
     // definition of output (`emitRate`), so the count and the percentage always agree.
     const outputParts: string[] = []
     if (summary.emittedCount > 0) {
-        outputParts.push(pluralize(summary.emittedCount, 'finding'))
+        outputParts.push(pluralize(summary.emittedCount, 'signal'))
     }
     if (summary.touchedReportCount > 0) {
         outputParts.push(`${pluralize(summary.touchedReportCount, 'report')} touched`)
@@ -172,17 +194,55 @@ function FleetStatsHeader(): JSX.Element {
 }
 
 function ScoutsFleetList(): JSX.Element {
-    const { visibleConfigs, rollups, hideDisabled, deletingScoutIds } = useValues(scoutFleetLogic)
-    const { setHideDisabled, updateScoutConfig, deleteScout } = useActions(scoutFleetLogic)
+    const {
+        visibleConfigs,
+        rollups,
+        hideDisabled,
+        deletingScoutIds,
+        updatingScoutIds,
+        activeScoutTags,
+        scoutTagOptions,
+    } = useValues(scoutFleetLogic)
+    const { setHideDisabled, setScoutTagFilter, updateScoutConfig, deleteScout, loadScoutConfigs } =
+        useActions(scoutFleetLogic)
 
     return (
         <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2 flex-wrap">
+                <ScoutCreateButton type="secondary" size="xsmall" onCreated={() => loadScoutConfigs()} />
+                <ScoutSuggestButton type="secondary" size="xsmall" />
                 <ScoutChatCta label="How is my scout troop performing?" prompt={SCOUT_FLEET_OVERVIEW_PROMPT} />
                 <ScoutChatCta label="What signals were emitted recently?" prompt={SCOUT_RECENT_SIGNALS_PROMPT} />
-                <ScoutChatCta label="Make a scout" prompt={SCOUT_AUTHOR_PROMPT} icon={<IconPlus />} />
                 <span className="flex-1" />
-                <LemonButton size="xsmall" type="tertiary" onClick={() => setHideDisabled(!hideDisabled)}>
+                {scoutTagOptions.length > 0 ? (
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted">Tagged</span>
+                        <ScoutTagsFilter
+                            options={scoutTagOptions}
+                            selected={activeScoutTags}
+                            onToggle={(tag) =>
+                                setScoutTagFilter(
+                                    activeScoutTags.includes(tag)
+                                        ? activeScoutTags.filter((candidate) => candidate !== tag)
+                                        : [...activeScoutTags, tag]
+                                )
+                            }
+                            onClear={() => setScoutTagFilter([])}
+                        />
+                    </div>
+                ) : null}
+                <LemonButton
+                    size="xsmall"
+                    type="tertiary"
+                    onClick={() => {
+                        captureScoutAction({
+                            actionType: 'toggle_hide_disabled',
+                            surface: 'fleet_list',
+                            extra: { hide_disabled: !hideDisabled },
+                        })
+                        setHideDisabled(!hideDisabled)
+                    }}
+                >
                     {hideDisabled ? 'Show disabled' : 'Hide disabled'}
                 </LemonButton>
             </div>
@@ -190,16 +250,21 @@ function ScoutsFleetList(): JSX.Element {
             {/* The enclosing modal owns the scroll, so the list stays flat here — a nested
                 overflow container would create a scroll-area-within-a-scroll-area. */}
             <div className="flex flex-col gap-2">
-                {visibleConfigs.map((config: SignalScoutConfig) => (
-                    <ScoutRowCard
-                        key={config.id}
-                        config={config}
-                        rollup={rollups.get(config.skill_name)}
-                        onUpdate={updateScoutConfig}
-                        onDelete={deleteScout}
-                        deleting={deletingScoutIds.includes(config.id)}
-                    />
-                ))}
+                {visibleConfigs.length === 0 ? (
+                    <span className="px-1 py-2 text-xs text-muted">No scouts match the current filters.</span>
+                ) : (
+                    visibleConfigs.map((config: SignalScoutConfig) => (
+                        <ScoutRowCard
+                            key={config.id}
+                            config={config}
+                            rollup={rollups.get(config.skill_name)}
+                            onUpdate={updateScoutConfig}
+                            onDelete={deleteScout}
+                            deleting={deletingScoutIds.includes(config.id)}
+                            updating={updatingScoutIds.includes(config.id)}
+                        />
+                    ))
+                )}
             </div>
 
             <div className="flex flex-col gap-1">
@@ -221,16 +286,16 @@ function ScoutsFleetList(): JSX.Element {
  */
 function ScoutChatCta({ label, prompt, icon }: { label: string; prompt: string; icon?: JSX.Element }): JSX.Element {
     const { startScoutChatTask } = useActions(scoutFleetLogic)
-    const { runningChatPrompt } = useValues(scoutFleetLogic)
+    const { runningChatPrompt, aiConsentDisabledReason } = useValues(scoutFleetLogic)
     const isRunning = runningChatPrompt === prompt
     const anyRunning = runningChatPrompt !== null
     return (
         <LemonButton
             type="secondary"
-            size="small"
+            size="xsmall"
             icon={icon ?? <IconSparkles />}
             loading={isRunning}
-            disabledReason={anyRunning ? 'Starting a task…' : undefined}
+            disabledReason={anyRunning ? 'Starting a task…' : (aiConsentDisabledReason ?? undefined)}
             onClick={() => startScoutChatTask(prompt, label, label)}
         >
             {label}
@@ -239,6 +304,8 @@ function ScoutChatCta({ label, prompt, icon }: { label: string; prompt: string; 
 }
 
 function ScoutsEmptyState(): JSX.Element {
+    const { loadScoutConfigs } = useActions(scoutFleetLogic)
+
     return (
         <div className="flex flex-col items-start gap-2 rounded border border-primary bg-bg-light px-5 py-5">
             <div className="flex items-center gap-2">
@@ -246,10 +313,12 @@ function ScoutsEmptyState(): JSX.Element {
                 <span className="font-medium text-sm text-default">No scouts on this project yet</span>
             </div>
             <p className="max-w-2xl text-xs text-secondary leading-snug mb-0">
-                Scouts are rolling out gradually. Once your project is enrolled, the canonical troop appears here
-                automatically and you can add custom scouts by creating{' '}
-                <span className="font-mono text-[11px]">signals-scout-*</span> skills in PostHog.
+                Create a scout to investigate a recurring signal or behavior on a schedule.
             </p>
+            <div className="flex items-center gap-2 flex-wrap">
+                <ScoutCreateButton onCreated={() => loadScoutConfigs()} />
+                <ScoutSuggestButton />
+            </div>
             <ScoutHelperSkillLinks />
         </div>
     )

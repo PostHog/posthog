@@ -21,6 +21,10 @@ MAX_METRIC_ATTEMPTS = 8
 # exponential schedule.
 CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS = 60
 
+RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS = 5
+RECALCULATION_RETRY_BACKOFF_COEFFICIENT = 2.0
+RECALCULATION_RETRY_MAX_INTERVAL_SECONDS = 60
+
 # classify_experiment_query_error classes that are deterministic for a fixed query and data window: retrying
 # burns a full ClickHouse query per attempt without changing the outcome, so the activity fails non-retryable
 # and persists immediately. timeout is deliberately absent — the class conflates TIMEOUT_EXCEEDED with
@@ -39,6 +43,8 @@ METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS = 300
 # A query needing more than this was already doomed to lose its attempt at the 5-minute kill; failing fast
 # also stops the orphaned query from burning ClickHouse for the full default 600s.
 METRIC_CALC_MAX_EXECUTION_TIME_SECONDS = 270
+
+RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS = 90
 
 
 @dataclasses.dataclass
@@ -92,7 +98,10 @@ class ExperimentPrecomputeCanaryInputs:
     experiment_id: int | None = None
     metric_uuids: list[str] | None = None
     funnel_quota: int = 12
-    mean_quota: int = 6
+    # Bake-in level for the new mean metric-events precompute path: ~40% of sampled means are
+    # CUPED/breakdown/DW-ineligible and exercise nothing new, so 20 nominal ≈ 12 effective.
+    # Drop back toward ~10 once the mean table has a few clean weeks of canary history.
+    mean_quota: int = 20
     ratio_quota: int = 4
     per_experiment_cap: int = 3
     time_budget_seconds: int = 5400

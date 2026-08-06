@@ -15,10 +15,6 @@ from posthog.schema import (
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, OauthIntegration
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
@@ -35,7 +31,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RedditAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redditads import (
+    RedditAdsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.reddit_ads import (
     RedditAdsApiError,
     RedditAdsResumeConfig,
@@ -170,6 +169,14 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
                     "Reddit rejected the credentials for this integration. Please reconnect your Reddit Ads "
                     "integration and make sure the connected account can access your ad accounts."
                 ) from e
+            if e.api_status_code == 404:
+                # /me/businesses and /businesses/{id}/ad_accounts are both real, static paths, so a 404
+                # here means Reddit found no business or ad account for these credentials, not a bad
+                # request on our end — the user needs a Reddit Ads business account to reconnect with.
+                raise IntegrationAccountListingError(
+                    "Reddit couldn't find any businesses or ad accounts for this integration. Please make "
+                    "sure the connected Reddit account has access to Reddit Ads, then reconnect."
+                ) from e
             if e.api_status_code == 429 or e.api_status_code >= 500:
                 # The session already retried these; Reddit rate-limits ~1 req/s per advertiser and this
                 # listing fires one call per business, so exhausting the retries is expected under load.
@@ -180,7 +187,11 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
             raise
 
     def validate_credentials(
-        self, config: RedditAdsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: RedditAdsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not config.account_id or not config.reddit_integration_id:
             return False, "Account ID and Reddit Ads integration are required"
@@ -204,6 +215,7 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -211,6 +223,7 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
                 supports_incremental=endpoint_config.incremental_fields is not None,
                 supports_append=False,
                 incremental_fields=endpoint_config.incremental_fields or [],
+                should_sync_default=endpoint_config.should_sync_default,
             )
             for endpoint_config in REDDIT_ADS_CONFIG.values()
         ]

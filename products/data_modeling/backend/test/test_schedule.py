@@ -6,6 +6,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from parameterized import parameterized
 from temporalio.client import ScheduleCalendarSpec, ScheduleListActionStartWorkflow
 
 from products.data_modeling.backend.models import Node
@@ -221,6 +222,49 @@ class TestMonthlySpec:
         assert len(days) == 28
 
 
+class TestTierPhaseAlignment:
+    """Cadence tiers of one DAG must not be phase-aligned.
+
+    All tiers of a DAG derive their bucket from the same entity_id, so unless the
+    interval participates in the salt, a coarser tier's fire times are a subset of
+    every finer tier's — every tier of a DAG piles onto the same minute/hour.
+    """
+
+    N = 500
+
+    @staticmethod
+    def _minute_set(spec) -> set[int]:
+        return {r.start for r in spec.calendars[0].minute}
+
+    @staticmethod
+    def _hour_set(spec) -> set[int]:
+        return {r.start for r in spec.calendars[0].hour}
+
+    @parameterized.expand(
+        [
+            ("15min_vs_30min", timedelta(minutes=15), timedelta(minutes=30), "_minute_set"),
+            ("15min_vs_1hr", timedelta(minutes=15), timedelta(hours=1), "_minute_set"),
+            ("30min_vs_1hr", timedelta(minutes=30), timedelta(hours=1), "_minute_set"),
+            ("6hr_vs_12hr", timedelta(hours=6), timedelta(hours=12), "_hour_set"),
+            ("6hr_vs_24hr", timedelta(hours=6), timedelta(hours=24), "_hour_set"),
+            ("12hr_vs_24hr", timedelta(hours=12), timedelta(hours=24), "_hour_set"),
+            ("24hr_vs_weekly", timedelta(hours=24), timedelta(days=7), "_hour_set"),
+        ]
+    )
+    def test_coarser_tier_not_contained_in_finer(self, _name, finer, coarser, extractor):
+        buckets = getattr(self, extractor)
+        aligned = 0
+        for i in range(self.N):
+            entity_id = uuid.UUID(int=i)
+            finer_set = buckets(build_schedule_spec(entity_id, finer))
+            coarser_set = buckets(build_schedule_spec(entity_id, coarser))
+            if coarser_set <= finer_set:
+                aligned += 1
+        # Incidental overlap is fine (expected ~1/interval-ratio of ids); systematic
+        # alignment is the defect.
+        assert aligned < self.N // 2, f"{aligned}/{self.N} ids have the coarser tier phase-aligned into the finer"
+
+
 class TestBuildScheduleSpecEdgeCases:
     def test_timezone_passed_to_all_tiers(self):
         for interval in [timedelta(minutes=15), timedelta(hours=6), timedelta(days=7), timedelta(days=30)]:
@@ -308,6 +352,43 @@ class TestV2ScheduleGuard(BaseTest):
         eligible, on_v2 = partition_saved_queries_by_v2_schedule([])
         assert eligible == []
         assert on_v2 == []
+
+    def _saved_query(self, name: str) -> DataWarehouseSavedQuery:
+        return DataWarehouseSavedQuery.objects.create(
+            name=name,
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+
+    def test_saved_query_without_a_node_is_not_reported_as_v1_eligible(self):
+        nodeless = self._saved_query("sync_failed")
+        with mock.patch(
+            "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
+            return_value={str(self.v2_dag.id)},
+        ):
+            result = get_v2_saved_query_ids([nodeless.id], team_id=self.team.pk)
+        assert result == {nodeless.id}
+
+    def test_saved_query_without_a_node_stays_v1_eligible_when_no_dag_is_v2_scheduled(self):
+        nodeless = self._saved_query("sync_failed_on_v1_team")
+        with mock.patch(
+            "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
+            return_value=set(),
+        ):
+            result = get_v2_saved_query_ids([nodeless.id], team_id=self.team.pk)
+        assert result == set()
+
+    @parameterized.expand([("v2_node_created_first", True), ("v1_node_created_first", False)])
+    def test_saved_query_in_two_dags_is_on_v2_when_either_dag_is(self, _name: str, v2_first: bool):
+        shared = self._saved_query("in_two_dags")
+        for dag in [self.v2_dag, self.v1_dag] if v2_first else [self.v1_dag, self.v2_dag]:
+            Node.objects.create(team=self.team, dag=dag, saved_query=shared, type=NodeType.VIEW)
+        with mock.patch(
+            "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
+            return_value={str(self.v2_dag.id)},
+        ):
+            result = get_v2_saved_query_ids([shared.id], team_id=self.team.pk)
+        assert result == {shared.id}
 
 
 class TestGetV2ScheduledDagIds:

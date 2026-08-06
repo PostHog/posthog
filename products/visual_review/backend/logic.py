@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 import html
 from collections import Counter
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -41,6 +41,7 @@ from posthog.helpers.trigram_search import (
     normalize_search_term,
 )
 from posthog.models.github_integration_base import GitHubIntegrationError
+from posthog.ph_client import ph_scoped_capture
 
 from .classifier import SnapshotClassifier
 from .db import READER_DB, WRITER_DB
@@ -59,6 +60,19 @@ from .signing import sign_snapshot_hash, verify_signed_hash
 from .storage import ArtifactStorage
 
 logger = structlog.get_logger(__name__)
+
+ARTIFACT_HASH_BATCH_SIZE = 500
+
+
+def _iter_batches(values: Iterable[str], batch_size: int) -> Iterator[list[str]]:
+    batch: list[str] = []
+    for value in values:
+        batch.append(value)
+        if len(batch) == batch_size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
 
 
 class RepoNotFoundError(Exception):
@@ -194,9 +208,11 @@ def get_or_create_artifact(
 
 def find_missing_hashes(repo_id: UUID, hashes: list[str]) -> list[str]:
     """Return hashes that don't exist as artifacts in the repo."""
-    existing = set(
-        Artifact.objects.filter(repo_id=repo_id, content_hash__in=hashes).values_list("content_hash", flat=True)
-    )
+    existing: set[str] = set()
+    for hash_batch in _iter_batches(hashes, ARTIFACT_HASH_BATCH_SIZE):
+        existing.update(
+            Artifact.objects.filter(repo_id=repo_id, content_hash__in=hash_batch).values_list("content_hash", flat=True)
+        )
     return [h for h in hashes if h not in existing]
 
 
@@ -562,7 +578,8 @@ def _resolve_baselines_with_merge_base(
     if not merge_base_baseline:
         return branch_baseline, 0
 
-    tombstoned = _tombstoned_identifiers(repo, run_type, branch)
+    source_pr_number = _verified_merge_queue_source_pr(github, repo.repo_full_name, branch)
+    tombstoned = _tombstoned_identifiers(repo, run_type, branch, source_pr_number=source_pr_number)
     healable_merge_base = {k: v for k, v in merge_base_baseline.items() if k not in tombstoned}
 
     healed = set(healable_merge_base) - set(branch_baseline)
@@ -583,7 +600,64 @@ def _resolve_baselines_with_merge_base(
     return merged, len(healed)
 
 
-def _tombstoned_identifiers(repo: Repo, run_type: str, branch: str) -> set[str]:
+_MERGE_QUEUE_BRANCH_RE = re.compile(r"^trunk-merge/pr-(?P<pr_number>\d+)/")
+
+
+def _verified_merge_queue_source_pr(github: GitHubIntegration, repo_full_name: str, branch: str) -> int | None:
+    """Source PR number for a merge-queue branch, verified against GitHub.
+
+    Merge-queue branches (``trunk-merge/pr-<n>/<uuid>``) are freshly
+    minted per attempt, so tombstones recorded on the source PR would
+    never apply — every queue attempt would re-heal the removed entries
+    and fail the gate. Queue branches therefore also honor the source
+    PR's tombstones.
+
+    The branch name is client-supplied, though, so parsing it alone must
+    not grant cross-PR tombstone inheritance: a caller with a write token
+    could name a branch after an unrelated PR to inherit its approved
+    removals. Require the claimed PR's head commit to be an ancestor of
+    the queue branch — inheriting a PR's approvals then means actually
+    testing that PR's code, which is exactly what Trunk's queue branches
+    do (they merge the PR into the base branch). Fails closed to
+    branch-only scoping.
+    """
+    match = _MERGE_QUEUE_BRANCH_RE.match(branch)
+    if not match:
+        return None
+    pr_number = int(match.group("pr_number"))
+
+    try:
+        response = github.api_request("GET", f"/repos/{repo_full_name}/pulls/{pr_number}")
+    except GitHubIntegrationError:
+        logger.warning("visual_review.merge_queue_source_pr_fetch_failed", repo=repo_full_name, branch=branch)
+        return None
+    if response.status_code != 200:
+        logger.warning(
+            "visual_review.merge_queue_source_pr_fetch_failed",
+            repo=repo_full_name,
+            branch=branch,
+            status=response.status_code,
+        )
+        return None
+
+    pr_head_sha = (response.json().get("head") or {}).get("sha")
+    if not pr_head_sha:
+        return None
+
+    if _get_merge_base_sha(github, repo_full_name, pr_head_sha, branch) != pr_head_sha:
+        logger.warning(
+            "visual_review.merge_queue_source_pr_unverified",
+            repo=repo_full_name,
+            branch=branch,
+            pr_number=pr_number,
+            pr_head_sha=pr_head_sha,
+        )
+        return None
+
+    return pr_number
+
+
+def _tombstoned_identifiers(repo: Repo, run_type: str, branch: str, source_pr_number: int | None = None) -> set[str]:
     """Identifiers whose latest approved outcome on this branch was REMOVED.
 
     Healing pulls entries from merge-base back into the baseline when
@@ -594,15 +668,23 @@ def _tombstoned_identifiers(repo: Repo, run_type: str, branch: str) -> set[str]:
 
     Uses the most recent approved decision per identifier so that a
     later re-addition (approved as NEW/CHANGED) clears the tombstone.
+
+    ``source_pr_number`` widens the scope to that PR's runs — pass only a
+    server-verified value (see ``_verified_merge_queue_source_pr``), never
+    one parsed from client-supplied input alone.
     """
     from django.db.models import OuterRef, Subquery
+
+    branch_scope = Q(run__branch=branch)
+    if source_pr_number is not None:
+        branch_scope |= Q(run__pr_number=source_pr_number)
 
     latest_approved_run = (
         RunSnapshot.objects.using(WRITER_DB)
         .filter(
+            branch_scope,
             run__repo=repo,
             run__run_type=run_type,
-            run__branch=branch,
             run__approved=True,
             review_state=ReviewState.APPROVED,
             identifier=OuterRef("identifier"),
@@ -614,9 +696,9 @@ def _tombstoned_identifiers(repo: Repo, run_type: str, branch: str) -> set[str]:
     return set(
         RunSnapshot.objects.using(WRITER_DB)
         .filter(
+            branch_scope,
             run__repo=repo,
             run__run_type=run_type,
-            run__branch=branch,
             run__approved=True,
             review_state=ReviewState.APPROVED,
             result=SnapshotResult.REMOVED,
@@ -934,13 +1016,17 @@ def complete_run(run_id: UUID) -> Run:
     # recorded — leaving every future run requesting the same upload while
     # CI posts green.
     if run.changed_count == 0 and run.new_count == 0:
+        from .tasks.tasks import emit_run_processing_metrics  # noqa: PLC0415 — avoids the logic/tasks circular import
+
         try:
             verify_uploads_and_create_artifacts(run_id)
         except HashIntegrityError as e:
             logger.warning("visual_review.hash_integrity_failed", run_id=str(run_id), error=str(e))
             finish_processing(run_id, error_message=str(e))
+            emit_run_processing_metrics.delay(run.team_id, str(run_id), "hash_integrity_failed", 0)
             return get_run(run_id)
         finish_processing(run_id)
+        emit_run_processing_metrics.delay(run.team_id, str(run_id), "completed", 0)
         return get_run(run_id)
 
     mark_run_processing(run_id)
@@ -971,32 +1057,39 @@ def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
     """
     from .hashing import ImageTooLargeError, hash_image
 
-    run = get_run_with_snapshots(run_id)
+    run = get_run(run_id)
     repo_id = run.repo_id
     storage = ArtifactStorage(str(repo_id))
 
     # Collect all unique hashes we expect, keyed by the CLI-claimed value.
     # The claim is treated as a lookup key only — verification below produces
     # the server-computed hash that becomes authoritative.
-    expected_hashes: dict[str, dict] = {}
-    for snapshot in run.snapshots.all():
-        if snapshot.current_hash and snapshot.current_hash not in expected_hashes:
-            expected_hashes[snapshot.current_hash] = {
-                "width": snapshot.current_width,
-                "height": snapshot.current_height,
+    expected_hashes: dict[str, dict[str, int | None]] = {}
+    snapshots = run.snapshots.values_list("current_hash", "current_width", "current_height", "baseline_hash")
+    for current_hash, current_width, current_height, baseline_hash in snapshots.iterator(chunk_size=1000):
+        if current_hash and current_hash not in expected_hashes:
+            expected_hashes[current_hash] = {
+                "width": current_width,
+                "height": current_height,
             }
-        if snapshot.baseline_hash and snapshot.baseline_hash not in expected_hashes:
-            expected_hashes[snapshot.baseline_hash] = {
+        if baseline_hash and baseline_hash not in expected_hashes:
+            expected_hashes[baseline_hash] = {
                 "width": None,
                 "height": None,
             }
 
+    existing_hashes: set[str] = set()
+    for hash_batch in _iter_batches(expected_hashes, ARTIFACT_HASH_BATCH_SIZE):
+        existing_hashes.update(
+            Artifact.objects.filter(repo_id=repo_id, content_hash__in=hash_batch).values_list("content_hash", flat=True)
+        )
+
     # Pass 1: read + hash all new uploads. Skip existing artifacts. Fail loudly
     # on any hash mismatch, decode error, or missing upload before any Artifact
     # row is written.
-    verified: list[tuple[str, bytes, dict]] = []
+    verified: list[tuple[str, int, dict[str, int | None]]] = []
     for claimed_hash, metadata in expected_hashes.items():
-        if get_artifact(repo_id, claimed_hash):
+        if claimed_hash in existing_hashes:
             continue
 
         png_bytes = storage.read(claimed_hash)
@@ -1051,28 +1144,26 @@ def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
                 f"Upload integrity check failed: claimed {claimed_hash[:16]}… but image hashes to {actual_hash[:16]}…"
             )
 
-        verified.append((actual_hash, png_bytes, metadata))
+        verified.append((actual_hash, len(png_bytes), metadata))
 
     # Pass 2: create Artifact rows from verified server-computed hashes only.
     # The claimed hash isn't used past this point.
-    created_count = 0
-    for actual_hash, png_bytes, metadata in verified:
-        storage_path = storage._key(actual_hash)
-        artifact, created = get_or_create_artifact(
+    artifacts = [
+        Artifact(
             repo_id=repo_id,
             content_hash=actual_hash,
-            storage_path=storage_path,
+            storage_path=storage._key(actual_hash),
             width=metadata.get("width"),
             height=metadata.get("height"),
-            size_bytes=len(png_bytes),
+            size_bytes=size_bytes,
             team_id=run.team_id,
         )
+        for actual_hash, size_bytes, metadata in verified
+    ]
+    Artifact.objects.bulk_create(artifacts, batch_size=ARTIFACT_HASH_BATCH_SIZE, ignore_conflicts=True)
+    link_artifacts_to_snapshots(repo_id, set(expected_hashes), run_id=run_id)
 
-        if created:
-            created_count += 1
-            link_artifact_to_snapshots(repo_id, actual_hash)
-
-    return created_count
+    return len(artifacts)
 
 
 def _stamp_quarantine(run: Run) -> None:
@@ -1212,6 +1303,56 @@ def finish_processing(run_id: UUID, error_message: str = "") -> Run:
     _update_counts_and_post_status(run)
 
     return run
+
+
+def capture_run_processing_metrics(run_id: UUID, *, outcome: str, diffed_count: int) -> None:
+    """Emit a product-analytics event for a finished diff-processing run.
+
+    Records run volume and how many snapshots actually needed a pixel
+    comparison (changed / new / removed vs. unchanged / tolerated). That's the
+    signal to tell a snapshot-determinism regression — where the changed rate
+    climbs because images stop being byte-stable, so the content-hash dedup and
+    tolerance cache stop absorbing work — apart from plain run-volume growth.
+    Where the time goes is captured separately as OTel spans in the task.
+
+    Best-effort: instrumentation must never fail or slow the task, so every
+    error is swallowed — including so it can't mask a real exception when
+    called from the task's ``finally``.
+    """
+    try:
+        try:
+            run = Run.objects.using(WRITER_DB).select_related("repo").get(id=run_id)
+        except Run.DoesNotExist:
+            return
+
+        properties = {
+            "run_id": str(run.id),
+            "run_type": run.run_type,
+            "outcome": outcome,
+            "status": run.status,
+            "repo": run.repo.repo_full_name,
+            "branch": run.branch,
+            "pr_number": run.pr_number,
+            "team_id": run.team_id,
+            "is_partial": run.is_partial,
+            "total_snapshots": run.total_snapshots,
+            "changed_count": run.changed_count,
+            "new_count": run.new_count,
+            "removed_count": run.removed_count,
+            "tolerated_match_count": run.tolerated_match_count,
+            "diffed_count": diffed_count,
+            "reviewable_count": run.changed_count + run.new_count + run.removed_count,
+        }
+
+        with ph_scoped_capture() as capture_ph_event:
+            capture_ph_event(
+                distinct_id=run.repo.repo_full_name or str(run.repo_id),
+                event="vr_run_processed",
+                properties=properties,
+                uuid=run.id,
+            )
+    except Exception:
+        logger.warning("visual_review.metrics_capture_failed", run_id=str(run_id), exc_info=True)
 
 
 @transaction.atomic(using=WRITER_DB)
@@ -2924,28 +3065,45 @@ def update_snapshot_diff(
     return snapshot
 
 
-def link_artifact_to_snapshots(repo_id: UUID, content_hash: str) -> int:
+def link_artifacts_to_snapshots(repo_id: UUID, content_hashes: set[str], *, run_id: UUID | None = None) -> int:
     """
-    After an artifact is uploaded, link it to any pending snapshots.
+    After artifacts are uploaded, link them to any pending snapshots.
 
     Returns number of snapshots updated.
     """
-    artifact = get_artifact(repo_id, content_hash)
-    if not artifact:
+    if not content_hashes:
         return 0
 
-    # Link as current artifact where hash matches but artifact not linked
-    current_updated = RunSnapshot.objects.filter(
-        run__repo_id=repo_id,
-        current_hash=content_hash,
-        current_artifact__isnull=True,
-    ).update(current_artifact=artifact)
+    updated = 0
+    for hash_batch in _iter_batches(content_hashes, ARTIFACT_HASH_BATCH_SIZE):
+        artifact_id = Artifact.objects.filter(
+            repo_id=repo_id,
+            content_hash=db_models.OuterRef("current_hash"),
+        ).values("id")[:1]
+        current_snapshots = RunSnapshot.objects.filter(
+            run__repo_id=repo_id,
+            current_hash__in=hash_batch,
+            current_artifact__isnull=True,
+        )
+        if run_id is not None:
+            current_snapshots = current_snapshots.filter(run_id=run_id)
+        updated += current_snapshots.update(current_artifact_id=db_models.Subquery(artifact_id))
 
-    # Link as baseline artifact where hash matches but artifact not linked
-    baseline_updated = RunSnapshot.objects.filter(
-        run__repo_id=repo_id,
-        baseline_hash=content_hash,
-        baseline_artifact__isnull=True,
-    ).update(baseline_artifact=artifact)
+        artifact_id = Artifact.objects.filter(
+            repo_id=repo_id,
+            content_hash=db_models.OuterRef("baseline_hash"),
+        ).values("id")[:1]
+        baseline_snapshots = RunSnapshot.objects.filter(
+            run__repo_id=repo_id,
+            baseline_hash__in=hash_batch,
+            baseline_artifact__isnull=True,
+        )
+        if run_id is not None:
+            baseline_snapshots = baseline_snapshots.filter(run_id=run_id)
+        updated += baseline_snapshots.update(baseline_artifact_id=db_models.Subquery(artifact_id))
 
-    return current_updated + baseline_updated
+    return updated
+
+
+def link_artifact_to_snapshots(repo_id: UUID, content_hash: str) -> int:
+    return link_artifacts_to_snapshots(repo_id, {content_hash})

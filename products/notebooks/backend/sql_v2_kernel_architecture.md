@@ -117,10 +117,21 @@ Python node execution uses `get_ipython().run_cell(code)` inside a capture conte
 
 A DuckDB node is then just: register any not-yet-registered file-backed inputs, `_ph.duck.sql(code)`, bind the result relation to `output_name` (as a registered DuckDB view + lazily-materializable frame), envelope with a capped preview. The result stays lazy in DuckDB until a downstream Python node calls for pandas.
 
-The routing rule the server applies per run (from the walkthrough, now concrete):
+The routing rule (from the walkthrough, now concrete) — applied by the **backend at dispatch**, not by the server:
 
-- `node.type == hogql` and **all** inputs are `hogql` → push to CH: data-plane page fetch only, kernel untouched.
-- anything else (Python node, DuckDB node, or a HogQL node would go here if we ever allow HogQL over local frames — we don't; that's what DuckDB syntax is for) → materialize `hogql` inputs to frame files, run in the kernel.
+- `node.type == hogql` and **all** inputs are `hogql` → the **direct lane** (`sql_v2_direct.py`): the backend enqueues the inlined query on the async query manager and the run never reaches the sandbox at all — no kernel required, results land on the run row via the result poll. This amends walkthrough decision 4 ("the sandbox drives execution"): the backend routes, and the sandbox drives only kernel-lane runs. The server's own hogql handling (capped fetch, result cache, `/page` re-query) remains only for runs dispatched before the direct lane and is slated for removal.
+- anything else (Python node, DuckDB node, or a HogQL node would go here if we ever allow HogQL over local frames — we don't; that's what DuckDB syntax is for) → materialize `hogql` inputs to frame files, run in the kernel. Dispatch provisions the kernel itself when none is running (the run is the user's ask for compute; the panel is presentation, not a prerequisite).
+
+### External connections
+
+A SQL cell can target a direct-query data source (the SQL editor's connection selector, rendered in the notebook's database tree) instead of PostHog's ClickHouse.
+The cell persists `connectionId` / `sendRawQuery`, the run request carries them, and `NotebookNodeRun` stores them — they reach the query runner as the `HogQLQuery` fields of the same name, so the engine choice is entirely the runner's concern.
+
+Consequences the lanes have to respect:
+
+- A connection run always takes the **direct lane**. The sandbox only reaches PostHog data, so a connection cell that reads a Python frame is rejected at dispatch rather than rerouted to DuckDB.
+- `code` only means something on the engine that ran it, so a ref is inlined as a CTE only when the upstream cell's latest run used the _same_ connection and the same raw mode. Anything else is refused at dispatch with a cross-engine message instead of being silently shipped to the wrong engine.
+- **Raw mode carries no references at all.** The HogQL parser can't read the engine's dialect, so there is nothing to inline and nothing to bound in place: `apply_raw_page_bounds` wraps the query in an aliased derived table (Postgres and MySQL reject an unaliased one) and the engine sees the rest verbatim.
 
 ## Result store and paging
 

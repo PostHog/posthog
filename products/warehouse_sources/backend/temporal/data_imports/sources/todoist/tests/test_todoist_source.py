@@ -7,7 +7,9 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TodoistSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.todoist import (
+    TodoistSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.todoist import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.todoist.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.todoist.source import TodoistSource
@@ -18,6 +20,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 def _make_inputs(**overrides: Any) -> mock.MagicMock:
     inputs = mock.MagicMock()
     inputs.schema_name = overrides.get("schema_name", "tasks")
+    inputs.team_id = overrides.get("team_id", 123)
+    inputs.job_id = overrides.get("job_id", "job-1")
     return inputs
 
 
@@ -111,12 +115,13 @@ class TestTodoistSource:
 
     def test_source_for_pipeline_plumbs_token_and_endpoint(self) -> None:
         manager = mock.MagicMock()
-        inputs = _make_inputs(schema_name="projects")
+        inputs = _make_inputs(schema_name="projects", team_id=99, job_id="job-xyz")
         with mock.patch.object(source_module, "todoist_source") as todoist_source_fn:
             self.source.source_for_pipeline(self.config, manager, inputs)
         todoist_source_fn.assert_called_once_with(
             api_token="tok-test",
             endpoint="projects",
-            logger=inputs.logger,
+            team_id=99,
+            job_id="job-xyz",
             resumable_source_manager=manager,
         )

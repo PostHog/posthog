@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use axum_test_helper::TestClient;
 use capture::ai_s3::MockBlobStorage;
 use capture::api::CaptureError;
-use capture::config::CaptureMode;
+use capture::config::{AiRouting, CaptureMode};
 use capture::event_restrictions::{
     EventRestrictionService, Pipeline, Restriction, RestrictionFilters, RestrictionManager,
     RestrictionScope, RestrictionType,
@@ -16,7 +16,10 @@ use capture::sinks::Event;
 use capture::time::TimeSource;
 use capture::v0_request::{DataType, OverflowReason, ProcessedEvent};
 use chrono::{DateTime, Utc};
+use common_ingestion_warnings::test_support::CollectingEmitter;
+use common_ingestion_warnings::{WarningEmitter, WarningType, CAPTURE_AI_OTEL};
 use common_redis::MockRedisClient;
+use hmac::{Hmac, Mac};
 use integration_utils::{test_lifecycle_handlers, DEFAULT_TEST_TIME};
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
@@ -27,12 +30,16 @@ use opentelemetry_proto::tonic::resource::v1::Resource;
 use opentelemetry_proto::tonic::trace::v1::{ResourceSpans, ScopeSpans, Span};
 use prost::Message;
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::collections::HashSet;
+use std::io::Write;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
 
 use integration_utils::DEFAULT_CONFIG;
+
+const GATEWAY_REQUEST_ID: &str = "otel-request-1";
 
 struct FixedTime {
     pub time: DateTime<Utc>,
@@ -124,10 +131,15 @@ struct TestClientOptions {
     redis: Option<Arc<MockRedisClient>>,
     event_restriction_service: Option<EventRestrictionService>,
     quota_limiter: Option<CaptureQuotaLimiter>,
+    ai_gateway_signing_secret: Option<String>,
     // Opt-in OverflowLimiter wiring. `None` (default) matches production
     // configs without `OVERFLOW_ENABLED=true` and exercises the no-op branch
     // of `stamp_overflow_reason`.
     overflow_limiter: Option<Arc<OverflowLimiter>>,
+    // Opt-in warnings emitter. `None` (default) matches deploys without
+    // `CAPTURE_INGESTION_WARNINGS_ENABLED` and exercises the no-op branch of
+    // every emit site.
+    ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
 }
 
 fn make_test_client(sink: &CapturingSink) -> TestClient {
@@ -164,9 +176,8 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         quota_limiter,
         TokenDropper::default(),
         options.event_restriction_service,
-        false, // metrics
+        None, // recorder_handle
         CaptureMode::Events,
-        String::from("capture-otel-test"),
         None,             // concurrency_limit
         25 * 1024 * 1024, // event_payload_size_limit
         false,            // enable_historical_rerouting
@@ -183,14 +194,32 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         options.overflow_limiter, // overflow_limiter
+        None,             // ai_events_overflow_limiter
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
-        None,             // ai_gateway_signing_secret
-        None,             // ingestion_warning_emitter
+        options.ai_gateway_signing_secret,
+        AiRouting::Primary,                // ai_routing
+        false,                             // ai_events_overflow_enabled
+        options.ingestion_warning_emitter, // ingestion_warning_emitter
     );
 
     TestClient::new(app)
+}
+
+/// A client whose emit sites are live, plus the emitter to assert against.
+fn make_test_client_collecting_warnings(
+    sink: &CapturingSink,
+) -> (TestClient, Arc<CollectingEmitter>) {
+    let emitter = Arc::new(CollectingEmitter::default());
+    let client = make_test_client_with_options(
+        sink,
+        TestClientOptions {
+            ingestion_warning_emitter: Some(emitter.clone()),
+            ..Default::default()
+        },
+    );
+    (client, emitter)
 }
 
 const ENDPOINT: &str = "/i/v0/ai/otel";
@@ -222,6 +251,71 @@ async fn send_request_with_client(client: &TestClient, request: &ExportTraceServ
         .await;
 
     resp.status().as_u16()
+}
+
+async fn send_signed_request_with_client(
+    client: &TestClient,
+    request: &ExportTraceServiceRequest,
+    secret: &str,
+) -> u16 {
+    let body = request.encode_to_vec();
+    let signature = sign_gateway_body(
+        secret,
+        "application/x-protobuf",
+        "",
+        &body,
+        DEFAULT_TEST_TIME,
+    );
+
+    send_signed_body_with_client(client, body, "application/x-protobuf", signature).await
+}
+
+async fn send_signed_body_with_client(
+    client: &TestClient,
+    body: Vec<u8>,
+    content_type: &str,
+    signature: String,
+) -> u16 {
+    let resp = client
+        .post(ENDPOINT)
+        .header("Content-Type", content_type)
+        .header("Authorization", format!("Bearer {}", TOKEN))
+        .header("PostHog-Ai-Gateway-Signature", signature)
+        .header("PostHog-Ai-Gateway-Signed-At", DEFAULT_TEST_TIME)
+        .header("PostHog-Ai-Gateway-Request-Id", GATEWAY_REQUEST_ID)
+        .body(body)
+        .send()
+        .await;
+
+    resp.status().as_u16()
+}
+
+fn sign_gateway_body(
+    secret: &str,
+    content_type: &str,
+    content_encoding: &str,
+    body: &[u8],
+    signed_at: &str,
+) -> String {
+    let body_digest = hex::encode(Sha256::digest(body));
+    let fields = [
+        TOKEN,
+        "otel-v1",
+        content_type,
+        content_encoding,
+        body_digest.as_str(),
+        GATEWAY_REQUEST_ID,
+        signed_at,
+    ];
+    let mut message = Vec::new();
+    for field in fields {
+        message.extend_from_slice(&(field.len() as u32).to_be_bytes());
+        message.extend_from_slice(field.as_bytes());
+    }
+
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
+    mac.update(&message);
+    hex::encode(mac.finalize().into_bytes())
 }
 
 fn parse_event_data(event: &ProcessedEvent) -> serde_json::Value {
@@ -334,6 +428,154 @@ async fn test_single_span_produces_one_event() {
     );
     assert_eq!(data["properties"]["$ai_span_id"], "0102030405060708");
     assert_eq!(data["properties"]["$ai_ingestion_source"], "otel");
+}
+
+#[tokio::test]
+async fn test_verified_gateway_batch_stamps_trusted_provenance() {
+    const SECRET: &str = "test-signing-secret";
+
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            ai_gateway_signing_secret: Some(SECRET.to_string()),
+            ..Default::default()
+        },
+    );
+
+    let status =
+        send_signed_request_with_client(&client, &make_single_span_request(), SECRET).await;
+    assert_eq!(status, 200);
+
+    let events = sink.get_events().await;
+    let data = parse_event_data(&events[0]);
+    assert_eq!(data["properties"]["$ai_gateway_verified"], true);
+    assert_eq!(data["properties"]["$ai_gateway_relay"], true);
+}
+
+#[tokio::test]
+async fn test_verified_gzip_gateway_batch_stamps_trusted_provenance() {
+    const SECRET: &str = "test-signing-secret";
+
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            ai_gateway_signing_secret: Some(SECRET.to_string()),
+            ..Default::default()
+        },
+    );
+    let body = make_single_span_request().encode_to_vec();
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder.write_all(&body).unwrap();
+    let body = encoder.finish().unwrap();
+    let signature = sign_gateway_body(
+        SECRET,
+        "application/x-protobuf",
+        "gzip",
+        &body,
+        DEFAULT_TEST_TIME,
+    );
+    let response = client
+        .post(ENDPOINT)
+        .header("Content-Type", "application/x-protobuf")
+        .header("Content-Encoding", "gzip")
+        .header("Authorization", format!("Bearer {}", TOKEN))
+        .header("PostHog-Ai-Gateway-Signature", signature)
+        .header("PostHog-Ai-Gateway-Signed-At", DEFAULT_TEST_TIME)
+        .header("PostHog-Ai-Gateway-Request-Id", GATEWAY_REQUEST_ID)
+        .body(body)
+        .send()
+        .await;
+
+    assert_eq!(response.status().as_u16(), 200);
+    let events = sink.get_events().await;
+    let data = parse_event_data(&events[0]);
+    assert_eq!(data["properties"]["$ai_gateway_verified"], true);
+    assert_eq!(data["properties"]["$ai_gateway_relay"], true);
+}
+
+#[tokio::test]
+async fn test_signed_json_batch_stamps_trusted_provenance() {
+    const SECRET: &str = "test-signing-secret";
+
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            ai_gateway_signing_secret: Some(SECRET.to_string()),
+            ..Default::default()
+        },
+    );
+    let body = serde_json::to_vec(&make_single_span_request()).unwrap();
+    let signature = sign_gateway_body(SECRET, "application/json", "", &body, DEFAULT_TEST_TIME);
+
+    let status = send_signed_body_with_client(&client, body, "application/json", signature).await;
+    assert_eq!(status, 200);
+
+    let events = sink.get_events().await;
+    let data = parse_event_data(&events[0]);
+    assert_eq!(data["properties"]["$ai_gateway_verified"], true);
+    assert_eq!(data["properties"]["$ai_gateway_relay"], true);
+}
+
+#[tokio::test]
+async fn test_signed_json_body_mismatch_rejects_trusted_provenance() {
+    const SECRET: &str = "test-signing-secret";
+
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            ai_gateway_signing_secret: Some(SECRET.to_string()),
+            ..Default::default()
+        },
+    );
+    let signed_body = serde_json::to_vec(&make_single_span_request()).unwrap();
+    let signature = sign_gateway_body(
+        SECRET,
+        "application/json",
+        "",
+        &signed_body,
+        DEFAULT_TEST_TIME,
+    );
+    let mut request = make_single_span_request();
+    request.resource_spans[0].schema_url = "tampered".to_string();
+    let body = serde_json::to_vec(&request).unwrap();
+
+    let status = send_signed_body_with_client(&client, body, "application/json", signature).await;
+    assert_eq!(status, 200);
+
+    let events = sink.get_events().await;
+    let data = parse_event_data(&events[0]);
+    let properties = data["properties"].as_object().unwrap();
+    assert!(!properties.contains_key("$ai_gateway_verified"));
+    assert!(!properties.contains_key("$ai_gateway_relay"));
+}
+
+#[tokio::test]
+async fn test_unsigned_batch_cannot_forge_gateway_provenance() {
+    let sink = CapturingSink::new();
+    let mut request = make_single_span_request();
+    let attributes = &mut request.resource_spans[0].scope_spans[0].spans[0].attributes;
+    attributes.extend([
+        make_kv("$ai_gateway_verified", any_value::Value::BoolValue(true)),
+        make_kv("$ai_gateway_relay", any_value::Value::BoolValue(true)),
+        make_kv(
+            "$ai_gateway_request_id",
+            any_value::Value::StringValue("forged".to_string()),
+        ),
+    ]);
+
+    let status = send_request(&sink, &request).await;
+    assert_eq!(status, 200);
+
+    let events = sink.get_events().await;
+    let data = parse_event_data(&events[0]);
+    let properties = data["properties"].as_object().unwrap();
+    assert!(!properties.contains_key("$ai_gateway_verified"));
+    assert!(!properties.contains_key("$ai_gateway_relay"));
+    assert!(!properties.contains_key("$ai_gateway_request_id"));
 }
 
 #[tokio::test]
@@ -610,6 +852,182 @@ async fn test_mixed_requests_only_emit_relevant_ai_spans() {
     assert_eq!(events[0].event.event, "$ai_generation");
 }
 
+// The warning is the only feedback channel for this outcome: the OTLP contract
+// has no way to say "accepted, ingested nothing", so the exporter sees a 200.
+// Also proves the emit site is wired and that SDK attribution survives the trip
+// from resource attributes into the warning, neither of which a unit test on the
+// helper can catch.
+#[tokio::test]
+async fn all_spans_filtered_warns_and_still_returns_200() {
+    let sink = CapturingSink::new();
+    let (client, emitter) = make_test_client_collecting_warnings(&sink);
+    let request = ExportTraceServiceRequest {
+        resource_spans: vec![ResourceSpans {
+            resource: Some(Resource {
+                attributes: vec![
+                    make_kv(
+                        "telemetry.sdk.name",
+                        any_value::Value::StringValue("opentelemetry-js".to_string()),
+                    ),
+                    make_kv(
+                        "telemetry.sdk.version",
+                        any_value::Value::StringValue("2.0.0".to_string()),
+                    ),
+                ],
+                dropped_attributes_count: 0,
+            }),
+            scope_spans: vec![ScopeSpans {
+                scope: None,
+                spans: vec![
+                    make_irrelevant_http_span(vec![9; 16], vec![8; 8]),
+                    make_irrelevant_http_span(vec![9; 16], vec![7; 8]),
+                ],
+                schema_url: String::new(),
+            }],
+            schema_url: String::new(),
+        }],
+    };
+
+    let status = send_request_with_client(&client, &request).await;
+    assert_eq!(status, 200);
+    assert!(sink.get_events().await.is_empty());
+
+    let emitted = emitter.emitted();
+    assert_eq!(emitted.len(), 1);
+    assert_eq!(emitted[0].warning, WarningType::NoAiSpansIngested);
+    assert_eq!(emitted[0].source, CAPTURE_AI_OTEL);
+    assert_eq!(emitted[0].token, TOKEN);
+    assert_eq!(emitted[0].count, 2);
+    assert_eq!(
+        emitted[0].extra_details.get("rawSpanCount"),
+        Some(&json!(2))
+    );
+    assert_eq!(
+        emitted[0].extra_details.get("lib"),
+        Some(&json!("opentelemetry-js"))
+    );
+    assert_eq!(
+        emitted[0].extra_details.get("libVersion"),
+        Some(&json!("2.0.0"))
+    );
+    assert_eq!(
+        emitted[0].extra_details.get("path"),
+        Some(&json!("/i/v0/ai/otel"))
+    );
+}
+
+// Mixed batches are documented-expected (a framework exporting HTTP and AI spans
+// together), so warning on them would fire on correct usage. Pins that choice
+// against a future refactor that starts warning whenever anything is filtered.
+#[tokio::test]
+async fn mixed_batch_ingests_ai_spans_without_warning() {
+    let sink = CapturingSink::new();
+    let (client, emitter) = make_test_client_collecting_warnings(&sink);
+    let request = ExportTraceServiceRequest {
+        resource_spans: vec![ResourceSpans {
+            resource: None,
+            scope_spans: vec![ScopeSpans {
+                scope: None,
+                spans: vec![
+                    make_irrelevant_http_span(vec![3; 16], vec![1; 8]),
+                    make_span(
+                        vec![3; 16],
+                        vec![2; 8],
+                        vec![],
+                        1_704_067_200_000_000_000,
+                        vec![make_kv(
+                            "gen_ai.operation.name",
+                            any_value::Value::StringValue("chat".to_string()),
+                        )],
+                    ),
+                ],
+                schema_url: String::new(),
+            }],
+            schema_url: String::new(),
+        }],
+    };
+
+    let status = send_request_with_client(&client, &request).await;
+    assert_eq!(status, 200);
+    assert_eq!(sink.get_events().await.len(), 1);
+    assert!(emitter.emitted().is_empty());
+}
+
+#[tokio::test]
+async fn too_many_ai_spans_warns_with_the_ai_stage() {
+    let sink = CapturingSink::new();
+    let (client, emitter) = make_test_client_collecting_warnings(&sink);
+    let over_cap = 101;
+    let spans = (0..over_cap)
+        .map(|i| {
+            make_span(
+                vec![4; 16],
+                vec![i as u8; 8],
+                vec![],
+                1_704_067_200_000_000_000,
+                vec![make_kv(
+                    "gen_ai.operation.name",
+                    any_value::Value::StringValue("chat".to_string()),
+                )],
+            )
+        })
+        .collect();
+    let request = ExportTraceServiceRequest {
+        resource_spans: vec![ResourceSpans {
+            resource: None,
+            scope_spans: vec![ScopeSpans {
+                scope: None,
+                spans,
+                schema_url: String::new(),
+            }],
+            schema_url: String::new(),
+        }],
+    };
+
+    let status = send_request_with_client(&client, &request).await;
+    assert_eq!(status, 400);
+    assert!(sink.get_events().await.is_empty());
+
+    let emitted = emitter.emitted();
+    assert_eq!(emitted.len(), 1);
+    assert_eq!(emitted[0].warning, WarningType::InvalidAiPayload);
+    assert_eq!(emitted[0].count, over_cap as u64);
+    assert_eq!(emitted[0].extra_details.get("stage"), Some(&json!("ai")));
+    assert_eq!(
+        emitted[0].extra_details.get("spanCount"),
+        Some(&json!(over_cap))
+    );
+    assert_eq!(emitted[0].extra_details.get("limit"), Some(&json!(100)));
+}
+
+// Attribution has to fall back to unknown here: the SDK identity lives inside
+// the body that failed to parse.
+#[tokio::test]
+async fn unparseable_body_warns_with_unknown_attribution() {
+    let sink = CapturingSink::new();
+    let (client, emitter) = make_test_client_collecting_warnings(&sink);
+
+    let resp = client
+        .post(ENDPOINT)
+        .header("Content-Type", "application/x-protobuf")
+        .header("Authorization", format!("Bearer {}", TOKEN))
+        .body(vec![0xff, 0xff, 0xff, 0xff])
+        .send()
+        .await;
+
+    assert_eq!(resp.status().as_u16(), 400);
+
+    let emitted = emitter.emitted();
+    assert_eq!(emitted.len(), 1);
+    assert_eq!(emitted[0].warning, WarningType::InvalidAiPayload);
+    assert_eq!(emitted[0].count, 1);
+    assert_eq!(
+        emitted[0].extra_details.get("format"),
+        Some(&json!("protobuf"))
+    );
+    assert_eq!(emitted[0].extra_details.get("lib"), Some(&json!("unknown")));
+}
+
 #[tokio::test]
 async fn test_empty_body_returns_400() {
     let sink = CapturingSink::new();
@@ -839,6 +1257,103 @@ async fn test_quota_limit_exceeded_returns_400_with_no_events() {
 
     let events = sink.get_events().await;
     assert!(events.is_empty());
+}
+
+#[tokio::test]
+async fn test_verified_gateway_batch_bypasses_scoped_llm_quota() {
+    const SECRET: &str = "test-signing-secret";
+
+    let llm_key = format!(
+        "{}{}",
+        QUOTA_LIMITER_CACHE_KEY,
+        QuotaResource::LLMEvents.as_str()
+    );
+    let redis =
+        Arc::new(MockRedisClient::new().zrangebyscore_ret(&llm_key, vec![TOKEN.to_string()]));
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            redis: Some(redis),
+            ai_gateway_signing_secret: Some(SECRET.to_string()),
+            ..Default::default()
+        },
+    );
+
+    let status =
+        send_signed_request_with_client(&client, &make_single_span_request(), SECRET).await;
+    assert_eq!(status, 200);
+    assert_eq!(sink.get_events().await.len(), 1);
+}
+
+#[tokio::test]
+async fn test_invalid_gateway_signature_does_not_bypass_scoped_llm_quota() {
+    const SECRET: &str = "test-signing-secret";
+
+    let llm_key = format!(
+        "{}{}",
+        QUOTA_LIMITER_CACHE_KEY,
+        QuotaResource::LLMEvents.as_str()
+    );
+    let redis =
+        Arc::new(MockRedisClient::new().zrangebyscore_ret(&llm_key, vec![TOKEN.to_string()]));
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            redis: Some(redis),
+            ai_gateway_signing_secret: Some(SECRET.to_string()),
+            ..Default::default()
+        },
+    );
+    let body = make_single_span_request().encode_to_vec();
+    let response = client
+        .post(ENDPOINT)
+        .header("Content-Type", "application/x-protobuf")
+        .header("Authorization", format!("Bearer {}", TOKEN))
+        .header("PostHog-Ai-Gateway-Signature", "00")
+        .header("PostHog-Ai-Gateway-Signed-At", DEFAULT_TEST_TIME)
+        .body(body)
+        .send()
+        .await;
+
+    assert_eq!(response.status().as_u16(), 400);
+    assert!(sink.get_events().await.is_empty());
+}
+
+#[tokio::test]
+async fn test_verified_gateway_batch_matches_direct_ai_global_quota_behavior() {
+    const SECRET: &str = "test-signing-secret";
+
+    let llm_key = format!(
+        "{}{}",
+        QUOTA_LIMITER_CACHE_KEY,
+        QuotaResource::LLMEvents.as_str()
+    );
+    let global_key = format!(
+        "{}{}",
+        QUOTA_LIMITER_CACHE_KEY,
+        QuotaResource::Events.as_str()
+    );
+    let redis = Arc::new(
+        MockRedisClient::new()
+            .zrangebyscore_ret(&llm_key, vec![TOKEN.to_string()])
+            .zrangebyscore_ret(&global_key, vec![TOKEN.to_string()]),
+    );
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            redis: Some(redis),
+            ai_gateway_signing_secret: Some(SECRET.to_string()),
+            ..Default::default()
+        },
+    );
+
+    let status =
+        send_signed_request_with_client(&client, &make_single_span_request(), SECRET).await;
+    assert_eq!(status, 400);
+    assert!(sink.get_events().await.is_empty());
 }
 
 #[tokio::test]

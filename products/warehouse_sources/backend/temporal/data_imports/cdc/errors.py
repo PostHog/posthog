@@ -27,6 +27,7 @@ class CDCErrorCategory(enum.StrEnum):
     SSL_REQUIRED = "ssl_required"
     CONNECTION_FAILED = "connection_failed"
     HOST_UNREACHABLE = "host_unreachable"
+    SSH_TUNNEL_FAILED = "ssh_tunnel_failed"
     SLOT_MISSING = "slot_missing"
     SLOT_NOT_CONFIGURED = "slot_not_configured"
     PUBLICATION_MISSING = "publication_missing"
@@ -97,6 +98,13 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         "that the host and port are correct and reachable from the public internet (PostHog's IP "
         "addresses allowed through, and the host not resolving to a private or unreachable "
         "address), then re-enable change data capture.",
+        False,
+    ),
+    CDCErrorCategory.SSH_TUNNEL_FAILED: (
+        "Could not connect to your SSH tunnel — PostHog couldn't open a session to the SSH gateway. "
+        "Check that the SSH host and port point to a reachable SSH server (not the database port), "
+        "that the bastion is running, and that PostHog's IP addresses are allowed through its "
+        "firewall, then re-enable change data capture.",
         False,
     ),
     CDCErrorCategory.SLOT_MISSING: (

@@ -2,15 +2,21 @@ import uuid
 from datetime import timedelta
 from typing import Any, cast
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import AsyncMock, patch
+
+from django.db import connection
+from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
 from posthog.models import ActivityLog
 from posthog.models.activity_logging.activity_log import Detail
 
+from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, mark_node_suspended, suspension_state
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import (
     DAG,
@@ -22,6 +28,7 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
+from products.data_warehouse.backend.presentation.views.saved_query import SavedQueryMaterializeSerializer
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
@@ -238,6 +245,85 @@ class TestSavedQuery(APIBaseTest):
             mock_unpause.assert_not_called()
             # But should still update the schedule
             mock_sync.assert_called_once()
+
+    def test_materialize_leaves_nothing_persisted_when_the_frequency_is_rejected(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        assert response.status_code == 201
+        saved_query_id = response.data["id"]
+
+        with patch.object(
+            DataWarehouseSavedQuery,
+            "schedule_materialization",
+            side_effect=UnsatisfiableFrequencyError(
+                "Requested freshness (1day) is less frequent than a downstream consumer requires "
+                "(tightest downstream target: 15min)"
+            ),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/materialize",
+            )
+
+        assert response.status_code == 400
+
+        saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
+        assert saved_query.is_materialized is False
+        assert saved_query.sync_frequency_interval is None
+
+    def test_materialize_honors_a_requested_sync_frequency(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        assert response.status_code == 201
+        saved_query_id = response.data["id"]
+
+        with (
+            patch("products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"),
+            patch(
+                "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
+                return_value=False,
+            ),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/materialize",
+                {"sync_frequency": "1hour"},
+            )
+
+        assert response.status_code == 200
+        saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
+        assert saved_query.sync_frequency_interval == timedelta(hours=1)
+
+    def test_materialize_rejects_an_unusable_sync_frequency(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="event_view",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/materialize",
+            {"sync_frequency": "every other tuesday"},
+        )
+
+        assert response.status_code == 400
+        saved_query.refresh_from_db()
+        assert saved_query.is_materialized is False
 
     def test_materialize_action_with_managed_viewset_fails(self):
         """Test that materializing a managed viewset query fails"""
@@ -677,6 +763,275 @@ class TestSavedQuery(APIBaseTest):
             saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
             mock_workflow_exists.assert_called_once_with(saved_query)
             mock_pause_saved_query_schedule.assert_called_once_with(saved_query)
+
+    def _create_saved_query_for_frequency_tests(self, name: str = "event_view") -> dict:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": name,
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        return response.json()
+
+    def _v2_flag_only(self, key, *args, **kwargs):
+        return key == "data-modeling-backend-v2"
+
+    @parameterized.expand(
+        [
+            ("24hour", timedelta(hours=24)),
+            ("never", None),
+        ]
+    )
+    def test_update_sync_frequency_on_tiered_v2_writes_target_through(
+        self, sync_frequency: str, expected_target: timedelta | None
+    ):
+        from products.data_modeling.backend.logic.node_frequency import get_declared_target, set_declared_target
+        from products.data_modeling.backend.models import Node
+
+        saved_query = self._create_saved_query_for_frequency_tests()
+        node = Node.objects.get(saved_query_id=saved_query["id"])
+        set_declared_target(node, timedelta(hours=12))
+        reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
+
+        with (
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
+                side_effect=self._v2_flag_only,
+            ),
+            patch(f"{reconcile_module}.tiered_schedules_enabled", return_value=True),
+            patch(f"{reconcile_module}.maybe_reconcile_dag") as reconcile,
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.saved_query_workflow_exists"
+            ) as v1_exists,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {"sync_frequency": sync_frequency},
+            )
+
+        self.assertEqual(response.status_code, 200, response.json())
+        # the write response must echo the cadence it just stored: an agent that reads back null
+        # concludes the update failed and retries it
+        self.assertEqual(response.json()["sync_frequency"], None if expected_target is None else sync_frequency)
+        # the node target is the only store of frequency intent; the interval stays NULL
+        updated = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
+        self.assertIsNone(updated.sync_frequency_interval)
+        node.refresh_from_db()
+        self.assertEqual(get_declared_target(node), expected_target)
+        reconcile.assert_called_once()
+        # a stale v1 schedule from a half-finished migration must not be revived by the PATCH
+        v1_exists.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("24hour", "12:00:00", "1 day, 0:00:00"),
+            ("never", "12:00:00", None),
+        ]
+    )
+    def test_sync_frequency_change_on_tiered_v2_is_recorded_in_the_activity_log(
+        self, sync_frequency: str, expected_before: str, expected_after: str | None
+    ):
+        # a tiered team stores the cadence on the DAG node and keeps the interval column NULL, so a
+        # frequency edit changes no model field — changes_between() returns nothing and log_activity
+        # drops an "updated" entry with no changes, leaving the edit with no audit trail at all
+        from products.data_modeling.backend.logic.node_frequency import set_declared_target
+        from products.data_modeling.backend.models import Node
+
+        saved_query = self._create_saved_query_for_frequency_tests()
+        node = Node.objects.get(saved_query_id=saved_query["id"])
+        set_declared_target(node, timedelta(hours=12))
+        reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
+
+        with (
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
+                side_effect=self._v2_flag_only,
+            ),
+            patch(f"{reconcile_module}.tiered_schedules_enabled", return_value=True),
+            patch(f"{reconcile_module}.maybe_reconcile_dag"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {"sync_frequency": sync_frequency},
+            )
+
+        self.assertEqual(response.status_code, 200, response.json())
+        log = ActivityLog.objects.get(scope="DataWarehouseSavedQuery", item_id=saved_query["id"], activity="updated")
+        detail = cast(dict[str, Any], log.detail)
+        frequency_changes = [change for change in detail["changes"] if change["field"] == "sync_frequency_interval"]
+        self.assertEqual(len(frequency_changes), 1, detail["changes"])
+        self.assertEqual(frequency_changes[0]["before"], expected_before)
+        self.assertEqual(frequency_changes[0]["after"], expected_after)
+
+    def test_update_sync_frequency_on_tiered_v2_without_node_is_rejected(self):
+        from products.data_modeling.backend.models import Node
+
+        saved_query = self._create_saved_query_for_frequency_tests()
+        Node.objects.filter(saved_query_id=saved_query["id"]).delete()
+        reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
+
+        with (
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
+                side_effect=self._v2_flag_only,
+            ),
+            patch(f"{reconcile_module}.tiered_schedules_enabled", return_value=True),
+            patch(f"{reconcile_module}.maybe_reconcile_dag"),
+            patch("products.data_warehouse.backend.presentation.views.saved_query.saved_query_workflow_exists"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {"sync_frequency": "24hour"},
+            )
+
+        self.assertEqual(response.status_code, 400, response.json())
+        self.assertIn("not wired into the data modeling DAG", str(response.json()))
+        updated = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
+        self.assertIsNone(updated.sync_frequency_interval)
+
+    def test_update_sync_frequency_on_tiered_v2_rolls_back_invalid_target(self):
+        from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError
+
+        saved_query = self._create_saved_query_for_frequency_tests()
+        reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
+
+        with (
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
+                side_effect=self._v2_flag_only,
+            ),
+            patch(f"{reconcile_module}.tiered_schedules_enabled", return_value=True),
+            patch(
+                f"{reconcile_module}.apply_saved_query_frequency_target",
+                side_effect=UnsatisfiableFrequencyError("target is fresher than its sources deliver"),
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {"sync_frequency": "15min"},
+            )
+
+        self.assertEqual(response.status_code, 400)
+        # validation happens inside the transaction: the interval write rolls back with it
+        updated = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
+        self.assertIsNone(updated.sync_frequency_interval)
+
+    def test_update_sync_frequency_on_untiered_v2_stays_blocked(self):
+        saved_query = self._create_saved_query_for_frequency_tests()
+
+        with (
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
+                side_effect=self._v2_flag_only,
+            ),
+            patch(
+                "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
+                return_value=False,
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {"sync_frequency": "24hour"},
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("managed by the DAG", response.json()["detail"])
+
+    def _read_sync_frequency(self, saved_query_id: str, action: str) -> str | None:
+        if action == "retrieve":
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}",
+            )
+            self.assertEqual(response.status_code, 200, response.json())
+            return response.json()["sync_frequency"]
+
+        response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/")
+        self.assertEqual(response.status_code, 200, response.json())
+        row = next(result for result in response.json()["results"] if result["id"] == saved_query_id)
+        return row["sync_frequency"]
+
+    @parameterized.expand(
+        [
+            ("retrieve_tiered", "retrieve", timedelta(hours=6), None, "6hour"),
+            ("list_tiered", "list", timedelta(hours=6), None, "6hour"),
+            ("retrieve_legacy", "retrieve", None, timedelta(hours=24), "24hour"),
+            ("list_legacy", "list", None, timedelta(hours=24), "24hour"),
+            ("retrieve_unscheduled", "retrieve", None, None, None),
+            ("list_unscheduled", "list", None, None, None),
+        ]
+    )
+    def test_sync_frequency_read_prefers_the_node_target(
+        self,
+        _name: str,
+        action: str,
+        node_target: timedelta | None,
+        interval: timedelta | None,
+        expected: str | None,
+    ):
+        # Reconcile NULLs sync_frequency_interval on tiered teams and stores the cadence on the
+        # node, so deriving the read from the column alone reports "never" for every tiered view.
+        # The list and retrieve actions use different serializer classes: cover both.
+        from products.data_modeling.backend.logic.node_frequency import set_declared_target
+
+        saved_query = self._create_saved_query_for_frequency_tests()
+        if node_target is not None:
+            set_declared_target(Node.objects.get(saved_query_id=saved_query["id"]), node_target)
+        DataWarehouseSavedQuery.objects.filter(id=saved_query["id"]).update(sync_frequency_interval=interval)
+
+        self.assertEqual(self._read_sync_frequency(saved_query["id"], action), expected)
+
+    def test_sync_frequency_read_hits_the_node_table_once_per_page(self):
+        # N+1 guard: view-list serializes a whole page, so a per-view target lookup would issue
+        # one node query per view.
+        from products.data_modeling.backend.logic.node_frequency import set_declared_target
+
+        for name in ("view_a", "view_b", "view_c"):
+            saved_query = self._create_saved_query_for_frequency_tests(name=name)
+            set_declared_target(Node.objects.get(saved_query_id=saved_query["id"]), timedelta(hours=6))
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/")
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual([row["sync_frequency"] for row in response.json()["results"]], ["6hour"] * 3)
+        node_queries = [q for q in queries.captured_queries if Node._meta.db_table in q["sql"]]
+        self.assertEqual(len(node_queries), 1, node_queries)
+
+    @parameterized.expand(
+        [
+            ("v1", False, False, False),
+            ("v2_single_schedule", True, False, True),
+            ("v2_tiered", True, True, False),
+        ]
+    )
+    def test_sync_frequency_managed_by_dag_tracks_the_write_path(
+        self, _name: str, v2_enabled: bool, tiered: bool, expected: bool
+    ):
+        # The frontend hides the cadence control on this flag. It must mean exactly what the
+        # write path rejects, or the control disappears from teams that can in fact edit.
+        saved_query = self._create_saved_query_for_frequency_tests()
+
+        with (
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: v2_enabled and key == "data-modeling-backend-v2",
+            ),
+            patch(
+                "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
+                return_value=tiered,
+            ),
+        ):
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+            )
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.json()["sync_frequency_managed_by_dag"], expected)
 
     def test_sync_frequency_is_a_writable_field(self):
         # Regression: sync_frequency used to be a read-only SerializerMethodField, so it was
@@ -1704,6 +2059,73 @@ class TestSavedQuery(APIBaseTest):
         self.assertIn("Running", returned_statuses)
         self.assertIn("Cancelled", returned_statuses)
 
+    def test_retrieve_exposes_earliest_suspension_across_nodes(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="suspended_view_read",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            created_by=self.user,
+        )
+        nodes = [
+            Node.objects.create(
+                team=self.team,
+                dag=DAG.objects.create(team=self.team, name=f"read_dag_{i}"),
+                saved_query=saved_query,
+                type=NodeType.MAT_VIEW,
+            )
+            for i in range(2)
+        ]
+        with freeze_time("2026-07-01T00:00:00Z"):
+            mark_node_suspended(nodes[0], engine="clickhouse", reason="first failure", job_id="job-1")
+        with freeze_time("2026-07-02T00:00:00Z"):
+            mark_node_suspended(nodes[1], engine="clickhouse", reason="later failure", job_id="job-2")
+        for node in nodes:
+            node.save()
+
+        response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/")
+
+        self.assertEqual(response.status_code, 200)
+        suspended = response.json()["suspended"]
+        self.assertEqual(list(suspended), ["clickhouse"])
+        self.assertEqual(suspended["clickhouse"]["reason"], "first failure")
+        self.assertEqual(suspended["clickhouse"]["job_id"], "job-1")
+
+    def test_resume_clears_suspension_for_every_node_of_the_query(self):
+        # Key access is the point of this surface: the node-level resume is on an INTERNAL viewset,
+        # which no API key can reach.
+        api_key = self.create_personal_api_key_with_scopes(["warehouse_view:write"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="suspended_view",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            created_by=self.user,
+        )
+        # One saved query can back several nodes when it landed in duplicate DAGs.
+        nodes = [
+            Node.objects.create(
+                team=self.team,
+                dag=DAG.objects.create(team=self.team, name=f"dag_{i}"),
+                saved_query=saved_query,
+                type=NodeType.MAT_VIEW,
+            )
+            for i in range(2)
+        ]
+        for node in nodes:
+            mark_node_suspended(node, engine="clickhouse", reason="boom", job_id=str(uuid.uuid4()))
+            node.save()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/resume/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"resumed": True})
+        for node in nodes:
+            node.refresh_from_db()
+            self.assertEqual(suspension_state(node), {})
+
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_materialize_and_revert_are_rate_limited(self, _rate_limit_enabled_mock):
         api_key = self.create_personal_api_key_with_scopes(["warehouse_view:write"])
@@ -1741,6 +2163,30 @@ class TestSavedQuery(APIBaseTest):
                 from django.core.cache import cache
 
                 cache.clear()
+
+
+class TestMaterializeRequestBody(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # an omitted frequency keeps the pre-request-body behavior
+            ("omitted_defaults_to_daily", {}, "24hour"),
+            ("explicit_frequency_passes_through", {"sync_frequency": "1hour"}, "1hour"),
+            # the deprecated sub-15min cadences the writable field clamps for legacy callers
+            ("deprecated_fast_cadence_clamps_up", {"sync_frequency": "1min"}, "15min"),
+        ]
+    )
+    def test_accepted_frequency(self, _name, payload, expected):
+        serializer = SavedQueryMaterializeSerializer(data=payload)
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["sync_frequency"] == expected
+
+    def test_never_is_rejected(self):
+        # Materializing is what starts the refreshes, so "no resync" is only reachable afterwards.
+        serializer = SavedQueryMaterializeSerializer(data={"sync_frequency": "never"})
+
+        assert not serializer.is_valid()
+        assert "sync_frequency" in serializer.errors
 
 
 class TestSavedQueryRunV2Aware(APIBaseTest):
@@ -1806,6 +2252,25 @@ class TestSavedQueryRunV2Aware(APIBaseTest):
         self.assertEqual(response.status_code, 200, response.content)
         mock_trigger.assert_not_called()
         mock_client.start_workflow.assert_not_called()
+
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    @patch("products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids")
+    def test_materialize_on_v2_schedule_starts_initial_run(self, mock_v2_dags, mock_sync_connect):
+        saved_query, dag, _node = self._make_saved_query_with_node("v2_matview")
+        mock_v2_dags.return_value = {str(dag.id)}
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/materialize",
+            )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        mock_client.start_workflow.assert_called_once()
+        self.assertEqual(mock_client.start_workflow.call_args[0][0], "data-modeling-materialize-view")
+        saved_query.refresh_from_db()
+        self.assertTrue(saved_query.is_materialized)
 
     @patch("products.data_warehouse.backend.presentation.views.saved_query.trigger_saved_query_schedule")
     @patch("products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids")

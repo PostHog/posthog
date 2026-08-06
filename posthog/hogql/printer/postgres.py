@@ -51,7 +51,10 @@ class PostgresPrinter(BasePrinter):
         return f"in {self.DIALECT_LABEL} mode"
 
     def _assert_set_operator_supported(self, set_operator: str) -> None:
-        return
+        # DuckDB permits everything the base gate rejects (INTERSECT/EXCEPT ALL, recursive CTEs) and
+        # supports UNION BY NAME natively — except INTERSECT/EXCEPT BY NAME, which it also rejects.
+        if set_operator.endswith(" BY NAME") and not set_operator.startswith("UNION "):
+            raise QueryError(f"{set_operator} is not supported in the '{self.DIALECT_NAME}' dialect")
 
     def _assert_recursive_cte_supported(self) -> None:
         return

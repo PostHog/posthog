@@ -201,6 +201,60 @@ describe('PostgresPersonRepository', () => {
         })
     })
 
+    describe('tombstoned rows', () => {
+        async function tombstonePerson(person: InternalPerson): Promise<void> {
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'UPDATE posthog_person SET is_deleted = true, version = version + 1 WHERE team_id = $1 AND id = $2',
+                [person.team_id, person.id],
+                'tombstonePerson'
+            )
+        }
+
+        async function tombstoneDistinctId(teamId: number, distinctId: string): Promise<void> {
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'UPDATE posthog_persondistinctid SET is_deleted = true, version = COALESCE(version, 0) + 1 WHERE team_id = $1 AND distinct_id = $2',
+                [teamId, distinctId],
+                'tombstoneDistinctId'
+            )
+        }
+
+        it('excludes tombstoned persons from person reads', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const person = await createTestPerson(team.id, 'tombstoned-person-did')
+            await tombstonePerson(person)
+
+            await expect(repository.fetchPerson(team.id, 'tombstoned-person-did')).resolves.toBeUndefined()
+            await expect(
+                repository.fetchPersonsByDistinctIds([{ teamId: team.id, distinctId: 'tombstoned-person-did' }])
+            ).resolves.toEqual([])
+            await expect(
+                repository.fetchPersonsForUpdateByDistinctIds(team.id, ['tombstoned-person-did'])
+            ).resolves.toEqual([])
+            await expect(
+                repository.fetchPersonsByPersonIds([{ teamId: team.id, personId: person.uuid }])
+            ).resolves.toEqual([])
+        })
+
+        it('excludes tombstoned distinct id mappings from reads while live mappings still resolve', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const person = await createTestPerson(team.id, 'live-did')
+            await repository.addDistinctId(person, 'dead-did', 0)
+            await tombstoneDistinctId(team.id, 'dead-did')
+
+            await expect(repository.fetchPerson(team.id, 'dead-did')).resolves.toBeUndefined()
+            await expect(repository.fetchPerson(team.id, 'live-did')).resolves.toMatchObject({ uuid: person.uuid })
+            await expect(repository.fetchPersonDistinctIds(person)).resolves.toEqual(['live-did'])
+            await expect(repository.fetchDistinctIdsForPersons(team.id, [person.id])).resolves.toEqual({
+                [person.id]: ['live-did'],
+            })
+            await expect(repository.countDistinctIdsForPersons(team.id, [person.id])).resolves.toEqual(
+                new Map([[person.id, 1]])
+            )
+        })
+    })
+
     describe('createPerson()', () => {
         it('creates a person with basic properties', async () => {
             const team = await getFirstTeam(hub.postgres)
@@ -2847,6 +2901,170 @@ describe('PostgresPersonRepository', () => {
             // Since we always pass all fields for consistent query plans, all 3 JSONB fields are tracked
             // even though the values haven't changed from the person object
             expect(observeCalls).toHaveLength(3)
+        })
+    })
+
+    describe('fetchPersonsForUpdateByDistinctIds()', () => {
+        it('returns empty array for empty input', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            expect(await repository.fetchPersonsForUpdateByDistinctIds(team.id, [])).toEqual([])
+        })
+
+        it('resolves and locks multiple distinct ids in one query', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const person1 = await createTestPerson(team.id, 'fold-anon-1', { name: 'One' })
+            const person2 = await createTestPerson(team.id, 'fold-anon-2', { name: 'Two' })
+            await repository.addDistinctId(person1, 'fold-anon-1b', 0)
+
+            const rows = await repository.fetchPersonsForUpdateByDistinctIds(team.id, [
+                'fold-anon-1',
+                'fold-anon-1b',
+                'fold-anon-2',
+                'fold-missing',
+            ])
+
+            expect(rows).toHaveLength(3)
+            const byDistinctId = Object.fromEntries(rows.map((row) => [row.distinct_id, row.uuid]))
+            expect(byDistinctId).toEqual({
+                'fold-anon-1': person1.uuid,
+                'fold-anon-1b': person1.uuid,
+                'fold-anon-2': person2.uuid,
+            })
+        })
+    })
+
+    describe('moveDistinctIdsFromPersons()', () => {
+        it('moves all distinct ids from multiple sources to the target', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const source1 = await createTestPerson(team.id, 'fold-source-1', {})
+            const source2 = await createTestPerson(team.id, 'fold-source-2', {})
+            const target = await createTestPerson(team.id, 'fold-target', {})
+            await repository.addDistinctId(source1, 'fold-source-1b', 0)
+
+            const result = await repository.moveDistinctIdsFromPersons([source1, source2], target)
+
+            expect(result.success).toBe(true)
+            if (result.success) {
+                expect(result.distinctIdsMoved.sort()).toEqual(['fold-source-1', 'fold-source-1b', 'fold-source-2'])
+                for (const message of result.messages) {
+                    const messageValue = parseJSON(message.value!.toString())
+                    expect(messageValue).toMatchObject({ person_id: target.uuid, team_id: team.id, is_deleted: 0 })
+                }
+            }
+
+            const targetDistinctIds = await fetchDistinctIdValues(hub.postgres, target)
+            expect(targetDistinctIds.sort()).toEqual([
+                'fold-source-1',
+                'fold-source-1b',
+                'fold-source-2',
+                'fold-target',
+            ])
+        })
+
+        it('treats sources without distinct ids as satisfied rather than failing', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const source = await createTestPerson(team.id, 'fold-source-gone', {})
+            const target = await createTestPerson(team.id, 'fold-target-2', {})
+
+            // Simulate a concurrently completed merge: source's ids were already moved
+            await repository.moveDistinctIds(source, target, undefined)
+            const result = await repository.moveDistinctIdsFromPersons([source], target)
+
+            expect(result.success).toBe(true)
+            if (result.success) {
+                expect(result.distinctIdsMoved).toEqual([])
+                expect(result.messages).toEqual([])
+            }
+        })
+
+        it('returns success with no work for empty sources', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const target = await createTestPerson(team.id, 'fold-target-3', {})
+
+            const result = await repository.moveDistinctIdsFromPersons([], target)
+
+            expect(result).toEqual({ success: true, messages: [], distinctIdsMoved: [] })
+        })
+    })
+
+    describe('deletePersons()', () => {
+        it('deletes multiple persons and returns one deletion message each', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const person1 = await createTestPerson(team.id, 'fold-delete-1', {})
+            const person2 = await createTestPerson(team.id, 'fold-delete-2', {})
+            // Distinct ids reference persons via FK; clear them before deletion
+            const target = await createTestPerson(team.id, 'fold-delete-target', {})
+            await repository.moveDistinctIdsFromPersons([person1, person2], target)
+
+            const messages = await repository.deletePersons([person1, person2])
+
+            expect(messages).toHaveLength(2)
+            const deletedUuids = messages.map((message) => parseJSON(message.value!.toString()).id).sort()
+            expect(deletedUuids).toEqual([person1.uuid, person2.uuid].sort())
+            expect(await fetchPersonByPersonId(hub, team.id, person1.id)).toBeUndefined()
+            expect(await fetchPersonByPersonId(hub, team.id, person2.id)).toBeUndefined()
+        })
+
+        it('returns no messages for already-deleted persons and empty input', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const person = await createTestPerson(team.id, 'fold-delete-3', {})
+            const target = await createTestPerson(team.id, 'fold-delete-target-2', {})
+            await repository.moveDistinctIdsFromPersons([person], target)
+            await repository.deletePerson(person)
+
+            expect(await repository.deletePersons([person])).toEqual([])
+            expect(await repository.deletePersons([])).toEqual([])
+        })
+    })
+
+    describe('updateCohortsAndFeatureFlagsForMergeBatch()', () => {
+        it('moves overrides from multiple sources, keeping target values on conflict', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const source1 = await createTestPerson(team.id, 'fold-ff-source-1', {})
+            const source2 = await createTestPerson(team.id, 'fold-ff-source-2', {})
+            const target = await createTestPerson(team.id, 'fold-ff-target', {})
+
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: source1.id,
+                feature_flag_key: 'aloha',
+                hash_key: 'source1_aloha',
+            })
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: source2.id,
+                feature_flag_key: 'beta-feature',
+                hash_key: 'source2_beta',
+            })
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: target.id,
+                feature_flag_key: 'beta-feature',
+                hash_key: 'target_beta',
+            })
+
+            await repository.updateCohortsAndFeatureFlagsForMergeBatch(team.id, [source1.id, source2.id], target.id)
+
+            const result = await hub.postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT feature_flag_key, hash_key, person_id FROM posthog_featureflaghashkeyoverride',
+                [],
+                ''
+            )
+            expect(result.rows).toEqual(
+                expect.arrayContaining([
+                    { feature_flag_key: 'aloha', hash_key: 'source1_aloha', person_id: target.id },
+                    { feature_flag_key: 'beta-feature', hash_key: 'target_beta', person_id: target.id },
+                ])
+            )
+            expect(result.rows).toHaveLength(2)
+        })
+
+        it('is a no-op for empty sources', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const target = await createTestPerson(team.id, 'fold-ff-target-2', {})
+
+            await repository.updateCohortsAndFeatureFlagsForMergeBatch(team.id, [], target.id)
         })
     })
 })

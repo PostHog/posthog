@@ -11,6 +11,7 @@ import { getCookie } from 'lib/api'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { SSOEnforcedLoginButton, SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { usePrevious } from 'lib/hooks/usePrevious'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -50,6 +51,10 @@ function Login(): JSX.Element {
         devUsers,
         devUsersLoading,
         devLoginTimeSavedLabel,
+        isPasswordLoginUnavailable,
+        hasNoConfiguredLoginMethod,
+        restrictToProviders,
+        autoRedirectingToProvider,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
     const allowDevLogin = !!preflight?.allow_dev_login
@@ -62,7 +67,8 @@ function Login(): JSX.Element {
 
     const passwordInputRef = useRef<HTMLInputElement>(null)
     const preventPasswordError = useRef(false)
-    const isPasswordHidden = precheckResponse.status === 'pending' || precheckResponse.sso_enforcement
+    const isPasswordHidden =
+        precheckResponse.status === 'pending' || !!precheckResponse.sso_enforcement || isPasswordLoginUnavailable
     const isCodeSent = codeVerificationRequired
     const loginTitle = isCodeSent ? 'Enter your login code' : 'Log in'
     const wasPasswordHiddenRef = useRef(isPasswordHidden)
@@ -77,9 +83,11 @@ function Login(): JSX.Element {
         if (!isPasswordHidden) {
             passwordInputRef.current?.focus()
         } else if (!wasPasswordHidden) {
-            // clear form when transitioning from visible to hidden
-            resetLogin()
+            // Drop any typed password when the field goes away, but keep the email — the SSO and
+            // social buttons we show instead need it.
+            resetLogin({ email: login.email, password: '' })
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isPasswordHidden, resetLogin])
 
     // Trigger precheck for password manager autofill/paste (detected by large character delta)
@@ -200,10 +208,14 @@ function Login(): JSX.Element {
                                 // The `webauthn` token enables passkey autofill (conditional UI), which
                                 // we only offer on WebKit; elsewhere the auto-modal handles passkeys.
                                 autoComplete={isWebKitBrowser() ? 'username webauthn' : undefined}
-                                onBlur={() => precheck({ email: login.email })}
+                                // `autoAttempt` is only ever set here and on Enter — an explicit
+                                // gesture — so autofill or a mistyped address can't bounce the user
+                                // out to an identity provider.
+                                onBlur={() => precheck({ email: login.email, autoAttempt: true })}
                                 onPressEnter={(e) => {
                                     if (isPasswordHidden) {
                                         e.preventDefault() // Don't trigger submission if password field is still hidden
+                                        precheck({ email: login.email, autoAttempt: true })
                                         passwordInputRef.current?.focus()
                                     }
                                 }}
@@ -237,8 +249,26 @@ function Login(): JSX.Element {
                             </LemonField>
                         </div>
 
-                        {/* Show regular login button if SSO is not enforced */}
-                        {!precheckResponse.sso_enforcement && (
+                        {hasNoConfiguredLoginMethod && (
+                            <LemonBanner type="warning">
+                                No sign-in method is set up for this account. Use{' '}
+                                <Link to={[urls.passwordReset(), { email: login.email }]} data-attr="forgot-password">
+                                    Forgot your password?
+                                </Link>{' '}
+                                to set a password by email.
+                            </LemonBanner>
+                        )}
+
+                        {autoRedirectingToProvider && (
+                            <p className="text-secondary text-center mb-0">
+                                Redirecting to {SSO_PROVIDER_NAMES[autoRedirectingToProvider]}…
+                            </p>
+                        )}
+
+                        {/* Show regular login button unless SSO is enforced or we know the account has
+                            no password to submit — otherwise it's a button that does nothing. It stays
+                            while precheck is pending, where it doubles as a "continue" affordance. */}
+                        {!precheckResponse.sso_enforcement && !isPasswordLoginUnavailable && (
                             <LemonButton
                                 type="primary"
                                 status="alt"
@@ -286,14 +316,21 @@ function Login(): JSX.Element {
                         </Link>
                     </div>
                 )}
-                {!isCodeSent && !precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
-                    <SocialLoginButtons
-                        caption="Or log in with"
-                        topDivider
-                        lastUsedProvider={lastLoginMethod}
-                        showPasskey
-                    />
-                )}
+                {/* Normally SAML replaces this row, but when the account has no password we need to
+                    show whatever it does have. */}
+                {!isCodeSent &&
+                    !precheckResponse.sso_enforcement &&
+                    (!precheckResponse.saml_available || isPasswordLoginUnavailable) && (
+                        <SocialLoginButtons
+                            caption={isPasswordLoginUnavailable ? 'Log in with' : 'Or log in with'}
+                            topDivider
+                            lastUsedProvider={lastLoginMethod}
+                            restrictToProviders={restrictToProviders}
+                            // Once we know the account's methods, only offer a passkey if it actually has
+                            // one — otherwise this is the same dead button we're removing.
+                            showPasskey={!isPasswordLoginUnavailable || !!precheckResponse.webauthn_credentials?.length}
+                        />
+                    )}
                 {allowDevLogin && (
                     <div className="deprecated-space-y-2 border-t border-dashed pt-4 mt-4">
                         <div className="flex items-center justify-between">

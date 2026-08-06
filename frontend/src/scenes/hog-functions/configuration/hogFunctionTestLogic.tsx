@@ -12,12 +12,19 @@ import { tryJsonParse } from 'lib/utils/json'
 import { groupsModel } from '~/models/groupsModel'
 import { CyclotronJobInvocationGlobals, CyclotronJobTestInvocationResult } from '~/types'
 
-import type { GroupType, GroupTypeIndex, HogFunctionConfigurationType, HogFunctionTypeType } from '../../../types'
+import type {
+    GroupType,
+    GroupTypeIndex,
+    HogFunctionConfigurationContextId,
+    HogFunctionConfigurationType,
+    HogFunctionTypeType,
+} from '../../../types'
 import {
     HogFunctionConfigurationLogicProps,
     hogFunctionConfigurationLogic,
     sanitizeConfiguration,
 } from './hogFunctionConfigurationLogic'
+import { SAMPLE_GLOBALS_CONTEXTS } from './sampleGlobalsContexts'
 
 export type HogFunctionTestInvocationForm = {
     globals: string // CyclotronJobInvocationGlobals
@@ -71,6 +78,7 @@ export interface hogFunctionTestLogicValues {
     groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
     configuration: HogFunctionConfigurationType // hogFunctionConfigurationLogic
     configurationHasErrors: boolean // hogFunctionConfigurationLogic
+    contextId: HogFunctionConfigurationContextId // hogFunctionConfigurationLogic
     currentHogCode: string // hogFunctionConfigurationLogic
     exampleInvocationGlobals: CyclotronJobInvocationGlobals // hogFunctionConfigurationLogic
     sampleGlobals: CyclotronJobInvocationGlobals | null // hogFunctionConfigurationLogic
@@ -245,6 +253,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 'configuration',
                 'templateId',
                 'configurationHasErrors',
+                'contextId',
                 'sampleGlobals',
                 'sampleGlobalsLoading',
                 'exampleInvocationGlobals',
@@ -333,6 +342,13 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         ],
     }),
     listeners(({ values, actions }) => ({
+        toggleExpanded: () => {
+            // Contexts with a sample globals loader fetch real product data as soon as the
+            // test panel opens, instead of waiting for a "Load new event" click.
+            if (values.expanded && !values.sampleGlobals && SAMPLE_GLOBALS_CONTEXTS[values.contextId]) {
+                actions.loadSampleGlobals()
+            }
+        },
         loadSampleGlobalsSuccess: () => {
             if (values.expanded && !values.fetchCancelled && values.sampleGlobals) {
                 actions.receiveExampleGlobals(values.sampleGlobals)
@@ -351,6 +367,9 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 const event = convertToTransformationEvent(globals.event)
                 // Strip down to just the real values
                 actions.setTestInvocationValue('globals', JSON.stringify(event, null, 2))
+            } else if (values.type === 'transformation_log') {
+                // Log transformations edit the record directly
+                actions.setTestInvocationValue('globals', JSON.stringify(globals.record ?? {}, null, 2))
             } else {
                 actions.setTestInvocationValue('globals', JSON.stringify(globals, null, 2))
             }
@@ -489,13 +508,13 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 configuration.template_id = values.templateId
                 configuration.hog = values.currentHogCode
 
-                // Transformations have a simpler UI just showing the event so we need to map it back to the event
+                // Transformations have a simpler UI just showing the event/record so we map it back
                 const globals =
                     values.type === 'transformation'
-                        ? {
-                              event: parsedData,
-                          }
-                        : parsedData
+                        ? { event: parsedData }
+                        : values.type === 'transformation_log'
+                          ? { record: parsedData }
+                          : parsedData
 
                 try {
                     const res = await api.hogFunctions.createTestInvocation(props.id ?? 'new', {
@@ -533,13 +552,20 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 output: string
                 hasDiff: boolean
             } | null => {
-                if (!testResult || configuration.type !== 'transformation') {
+                if (
+                    !testResult ||
+                    (configuration.type !== 'transformation' && configuration.type !== 'transformation_log')
+                ) {
                     return null
                 }
 
-                const rawInput = convertFromTransformationEvent(
-                    convertToTransformationEvent(JSON.parse(testInvocation.globals))
-                )
+                // Log transformations edit the record directly; events round-trip through the event shape
+                const rawInput =
+                    configuration.type === 'transformation_log'
+                        ? JSON.parse(testInvocation.globals)
+                        : convertFromTransformationEvent(
+                              convertToTransformationEvent(JSON.parse(testInvocation.globals))
+                          )
 
                 const input = JSON.stringify(rawInput, null, 2)
                 const output = JSON.stringify(testResult.result, null, 2)

@@ -1,7 +1,12 @@
 import { Message } from 'node-rdkafka'
 
+import { ingestionLagGauge, ingestionLagHistogram } from '~/common/metrics'
 import { PostgresRouter } from '~/common/utils/db/postgres'
-import { SessionReplayPipeline, runSessionReplayPipeline } from '~/ingestion/pipelines/sessionreplay'
+import {
+    SessionReplayBatchProgress,
+    SessionReplayPipeline,
+    runSessionReplayPipeline,
+} from '~/ingestion/pipelines/sessionreplay'
 import { KeyStore, RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { RedisPool } from '~/types'
 
@@ -37,7 +42,7 @@ function flushMicrotasks(): Promise<void> {
     return new Promise((resolve) => setImmediate(resolve))
 }
 
-function kafkaMessage(partition: number, offset: number): Message {
+function kafkaMessage(partition: number, offset: number, capturedAtMs?: number): Message {
     return {
         value: Buffer.from('data'),
         size: 4,
@@ -45,7 +50,19 @@ function kafkaMessage(partition: number, offset: number): Message {
         partition,
         offset,
         timestamp: Date.now(),
+        headers: capturedAtMs === undefined ? undefined : [{ now: Buffer.from(new Date(capturedAtMs).toISOString()) }],
     }
+}
+
+function progress(maxOffsets: Map<number, number>, okMessages: Message[] = []): SessionReplayBatchProgress {
+    return { maxOffsets, okMessages }
+}
+
+async function lagHistogramCount(partition: string): Promise<number | undefined> {
+    const metric = await ingestionLagHistogram.get()
+    return metric.values.find(
+        (v) => v.metricName === 'ingestion_lag_ms_histogram_count' && v.labels.partition === partition
+    )?.value
 }
 
 describe('SessionRecordingIngester', () => {
@@ -125,7 +142,7 @@ describe('SessionRecordingIngester', () => {
                     })
                 )
             )
-            return new Map([[0, 42]])
+            return progress(new Map([[0, 42]]))
         })
 
         const batchPromise = ingester.handleEachBatch([kafkaMessage(0, 42)])
@@ -165,7 +182,7 @@ describe('SessionRecordingIngester', () => {
                     })
                 )
             )
-            return Promise.resolve(new Map([[0, 42]]))
+            return Promise.resolve(progress(new Map([[0, 42]])))
         })
 
         await ingester.handleEachBatch([kafkaMessage(0, 42)])
@@ -178,6 +195,60 @@ describe('SessionRecordingIngester', () => {
         ])
     })
 
+    it('reports ingestion lag only once the batch is flushed', async () => {
+        ingestionLagGauge.reset()
+        ingestionLagHistogram.reset()
+
+        // The default ingester keeps age/size out of reach, so recording a batch does not flush it —
+        // and lag must not be observed until the data is durably ingested.
+        const bufferedMessage = kafkaMessage(0, 42, Date.now() - 5000)
+        runPipelineMock.mockResolvedValue(progress(new Map([[0, 42]]), [bufferedMessage]))
+        await ingester.handleEachBatch([bufferedMessage])
+        expect(await lagHistogramCount('0')).toBeUndefined()
+
+        // With the age trigger the batch flushes immediately, so its capture lag is observed post-flush.
+        createIngester({ SESSION_RECORDING_MAX_BATCH_AGE_MS: 0 })
+        const flushedMessage = kafkaMessage(0, 43, Date.now() - 5000)
+        runPipelineMock.mockResolvedValue(progress(new Map([[0, 43]]), [flushedMessage]))
+        await ingester.handleEachBatch([flushedMessage])
+        expect(await lagHistogramCount('0')).toBe(1)
+    })
+
+    it('samples the pipeline OK-result messages, not the raw consumed batch', async () => {
+        ingestionLagHistogram.reset()
+        createIngester({ SESSION_RECORDING_MAX_BATCH_AGE_MS: 0 })
+
+        // The consumed message carries a capture header, but the pipeline dropped it (no OK results), so
+        // no lag is sampled even though the batch flushes.
+        runPipelineMock.mockResolvedValue(progress(new Map([[0, 42]]), []))
+        await ingester.handleEachBatch([kafkaMessage(0, 42, Date.now() - 5000)])
+        expect(await lagHistogramCount('0')).toBeUndefined()
+    })
+
+    it('keeps pending lag samples across a failed flush so a later successful flush still reports them', async () => {
+        ingestionLagHistogram.reset()
+        createIngester({ SESSION_RECORDING_MAX_BATCH_AGE_MS: 0 })
+
+        // A flush that fails after the capture timestamp was buffered must not observe or drop the pending
+        // sample. Poll-batch flush failures crash the process; the retain-and-report path that matters is a
+        // swallowed revoke-hook flush, after which this still-running process flushes successfully and
+        // reports the samples it kept. The failure is simulated here at the offset-store step.
+        jest.mocked(ingester.kafkaConsumer).offsetsStore.mockImplementationOnce(() => {
+            throw new Error('offset store failed')
+        })
+        const firstMessage = kafkaMessage(0, 42, Date.now() - 5000)
+        runPipelineMock.mockResolvedValue(progress(new Map([[0, 42]]), [firstMessage]))
+        await expect(ingester.handleEachBatch([firstMessage])).rejects.toThrow('offset store failed')
+        // The flush threw, so nothing is observed and the sample stays pending.
+        expect(await lagHistogramCount('0')).toBeUndefined()
+
+        // A later successful flush reports the retained sample alongside the new one.
+        const secondMessage = kafkaMessage(0, 43, Date.now() - 5000)
+        runPipelineMock.mockResolvedValue(progress(new Map([[0, 43]]), [secondMessage]))
+        await ingester.handleEachBatch([secondMessage])
+        expect(await lagHistogramCount('0')).toBe(2)
+    })
+
     it('start() wires the revoke hook, and the hook flushes the tracked offsets', async () => {
         await ingester.start()
         const connectMock = jest.mocked(ingester.kafkaConsumer).connect
@@ -185,7 +256,7 @@ describe('SessionRecordingIngester', () => {
         const [eachBatch, onPartitionsRevoked] = connectMock.mock.calls[0]
         expect(onPartitionsRevoked).toBeDefined()
 
-        runPipelineMock.mockImplementation(() => Promise.resolve(new Map([[0, 7]])))
+        runPipelineMock.mockImplementation(() => Promise.resolve(progress(new Map([[0, 7]]))))
         await eachBatch([kafkaMessage(0, 7)])
         // Age/size are out of reach, so nothing has flushed yet.
         expect(events).toEqual([])

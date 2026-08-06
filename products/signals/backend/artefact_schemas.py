@@ -113,8 +113,12 @@ class ActionabilityAssessment(BaseModel):
     )
     already_addressed: bool = Field(
         description=(
-            "Whether the core issue described by this report appears to have been "
-            "already fixed or addressed in recent code changes. Tracked separately from `actionability`."
+            "Whether the core issue described by this report is already being handled — either fixed "
+            "in recent code changes, or with a fix already in flight: an open pull request, a recently "
+            "active branch, or an assigned / in-progress issue or agent task covering the same problem. "
+            "True in any of those cases; only a fix nobody has started is False. This gates autonomous "
+            "PRs, so a wrong False opens a duplicate PR against work a human or another agent already "
+            "has going. Tracked separately from `actionability`."
         ),
     )
 
@@ -185,6 +189,19 @@ class SuggestedReviewerEntry(BaseModel):
     relevant_commits: list[RelevantCommit] = Field(
         default_factory=list,
         description="Commit evidence explaining why this reviewer is relevant.",
+    )
+    reason: str | None = Field(
+        default=None,
+        description="Why this reviewer was chosen — the evidence behind the routing (e.g. recent author on the affected surface, human correction precedent).",
+    )
+    is_skill_owner: bool = Field(
+        default=False,
+        description=(
+            "True when this entry was injected by the scout owner guardrail (an editor-controlled "
+            "`LLMSkillOwner`), rather than derived from commit authorship. Such entries route the "
+            "report but must never select the autostart task identity — otherwise a skill editor "
+            "could name a privileged teammate as owner and have an implementation agent run as them."
+        ),
     )
 
     @field_validator("github_login")
@@ -450,6 +467,25 @@ class SummaryChange(BaseModel):
         return v
 
 
+class RelatedTo(BaseModel):
+    """Content schema for a `related_to` artefact: an untyped link from this report to another
+    `SignalReport`. Written symmetrically (both reports get an entry pointing at the other), so the
+    link is discoverable from either side without a model change and the grouping dataset can be
+    reconstructed later. Direction isn't tracked — the two rows' `created_at` order captures it. The
+    grouping pipeline writes this pair when a signal that would have grouped into an already-resolved
+    report spawns a fresh report instead (resolved reports never reopen).
+    """
+
+    report_id: str = Field(description="UUID of the related SignalReport.")
+
+    @field_validator("report_id")
+    @classmethod
+    def report_id_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        return v
+
+
 class CodeReviewCounts(BaseModel):
     """One review turn's valid findings by effective priority (threshold-independent)."""
 
@@ -496,7 +532,9 @@ class CodeReview(BaseModel):
 StatusArtefactContent = (
     SafetyJudgment | ActionabilityAssessment | PriorityAssessment | RepoSelectionResult | SuggestedReviewers
 )
-LogArtefactContent = CodeReference | Commit | TaskRunArtefact | NoteArtefact | TitleChange | SummaryChange | CodeReview
+LogArtefactContent = (
+    CodeReference | Commit | TaskRunArtefact | NoteArtefact | TitleChange | SummaryChange | CodeReview | RelatedTo
+)
 ArtefactContent = StatusArtefactContent | LogArtefactContent | SignalFinding | Dismissal | VideoSegment
 
 # Keys are `SignalReportArtefact.ArtefactType` values, kept as plain strings so this module stays
@@ -517,6 +555,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "title_change": TitleChange,
     "summary_change": SummaryChange,
     "code_review": CodeReview,
+    "related_to": RelatedTo,
 }
 
 _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}

@@ -46,6 +46,8 @@ from django.utils import timezone
 
 from dateutil.relativedelta import relativedelta
 
+from posthog.models.organization import BillingPeriod
+
 from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.enums import SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalReportRefund, SignalReportTask, SignalScoutRun
@@ -115,6 +117,7 @@ BILLING_EXEMPT_SCOUT_SKILLS: dict[str, str] = {
 # mirroring `mark_report_billing_exempt`'s first-reason-wins freeze.
 BILLING_EXEMPT_SOURCE_PRODUCTS: dict[str, str] = {
     SignalSourceProduct.HEALTH_CHECKS: SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK,
+    SignalSourceProduct.ENGINEERING_ANALYTICS: SignalReport.BillingExemptReason.POSTHOG_SYSTEM,
 }
 
 
@@ -207,6 +210,32 @@ def first_billable_pr_run_at(report_id: str | uuid.UUID) -> datetime | None:
     return run.created_at if run else None
 
 
+def report_pr_is_merged(report_id: str | uuid.UUID, pr_url: str) -> bool:
+    """Whether *this* PR of the report merged, per the tasks GitHub webhook.
+
+    Reads `output.pr_merged`, the flag the webhook persists when a PR merges — the factual record of
+    a merge, independent of report status. A report can now reach RESOLVED without a merged PR (a
+    user or agent can resolve it directly), so status alone no longer attests a merge.
+
+    Scoped to one `pr_url` rather than the whole report, because the caller is deciding about a
+    specific PR: the refund reverses the charge for the billable run's PR, and it's that PR which
+    must be closed if it never merged. A report-level check would let an unrelated later PR that did
+    merge vouch for the refunded one, leaving the refunded PR open.
+
+    Fail closed like `_bridges_with_pr_run`: the PR URL, the merge flag, and the four team checks all
+    sit in one `filter()` so they resolve against the same `TaskRun` row.
+    """
+    return SignalReportTask.objects.filter(
+        relationship=_IMPLEMENTATION,
+        report_id=report_id,
+        task__team_id=F("team_id"),
+        report__team_id=F("team_id"),
+        task__runs__team_id=F("team_id"),
+        task__runs__output__pr_url=pr_url,
+        task__runs__output__pr_merged=True,
+    ).exists()
+
+
 def annotate_first_billable_pr_run_at(queryset: QuerySet[SignalReport]) -> QuerySet[SignalReport]:
     """Annotate each report with `first_billable_pr_run_at` (its billable moment, batched form of
     `first_billable_pr_run`), NULL when it never shipped a billable PR run. Applies the same
@@ -240,7 +269,7 @@ def refund_ineligibility_reason(
     has_refund: bool,
     billing_exempt: bool,
     billable_run_at: datetime | None,
-    period: tuple[datetime, datetime],
+    period: BillingPeriod,
 ) -> str | None:
     """Why a report can't be refunded right now, or None when a refund would be accepted.
 
@@ -254,8 +283,7 @@ def refund_ineligibility_reason(
         return REFUND_INELIGIBLE_BILLING_EXEMPT
     if billable_run_at is None:
         return REFUND_INELIGIBLE_NO_BILLABLE_PR
-    period_start, period_end = period
-    if not (period_start <= billable_run_at < period_end):
+    if not (period.start <= billable_run_at < period.end):
         return REFUND_INELIGIBLE_OUT_OF_PERIOD
     return None
 
@@ -278,7 +306,7 @@ def credited_refund_credits_for_org(organization_id: str | uuid.UUID, begin: dat
     )
 
 
-def current_billing_period_bounds(organization: "Organization") -> tuple[datetime, datetime]:
+def current_billing_period_bounds(organization: "Organization") -> BillingPeriod:
     """The org's current billing period `[start, end)`, falling back to the current UTC calendar
     month when billing hasn't populated `organization.usage["period"]` (e.g. self-hosted or a
     just-created org). Refund eligibility and the org-wide refund summary both key off this."""
@@ -287,7 +315,7 @@ def current_billing_period_bounds(organization: "Organization") -> tuple[datetim
         return period
     now = timezone.now()
     start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    return (start, start + relativedelta(months=1))
+    return BillingPeriod(start=start, end=start + relativedelta(months=1))
 
 
 def get_signals_billing_credits_by_team(
@@ -360,8 +388,8 @@ def get_signals_billing_credits_by_team(
     return list(totals.items())
 
 
-def period_billable_credits_for_org(organization_id: str | uuid.UUID, begin: datetime, end: datetime) -> int:
-    """The org's billable signals credits for `[begin, end)` per the exact usage-report rules —
+def period_billable_credits_for_org(organization_id: str | uuid.UUID, *, period: BillingPeriod) -> int:
+    """The org's billable signals credits for `period` per the exact usage-report rules —
     including PRs created today that haven't been reported to billing yet.
 
     Powers the inbox usage widget's live PR count: the frontend takes the max of this and
@@ -370,5 +398,6 @@ def period_billable_credits_for_org(organization_id: str | uuid.UUID, begin: dat
     refunds stay included here (usage is truthful) and are netted separately by the widget.
     """
     return sum(
-        credits for _, credits in get_signals_billing_credits_by_team(begin, end, organization_id=organization_id)
+        credits
+        for _, credits in get_signals_billing_credits_by_team(period.start, period.end, organization_id=organization_id)
     )

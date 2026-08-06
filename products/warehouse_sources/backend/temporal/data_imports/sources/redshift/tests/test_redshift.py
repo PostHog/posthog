@@ -1,12 +1,12 @@
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import psycopg
+import pyarrow as pa
 from psycopg import sql
 from psycopg.pq import TransactionStatus
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     TemporaryFileSizeExceedsLimitException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Table, TableStats
@@ -14,12 +14,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redshift import (
+    RedshiftSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift import (
+    REDSHIFT_SINGLE_NODE_FETCH_LIMIT,
     RedshiftColumn,
     RedshiftImplementation,
     _build_query,
     _explain_query,
+    _fetch_arrow_batches,
+    _stream_arrow_batches,
     filter_redshift_incremental_fields,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import (
@@ -358,6 +364,21 @@ class TestGetRowsToSync:
         with pytest.raises(TemporaryFileSizeExceedsLimitException):
             impl.get_rows_to_sync(cursor, self._inner(), None, logger)
 
+    def test_permission_denied_on_materialized_view_is_not_reported(self, impl, cursor, logger):
+        # A materialized view's base relation can be denied even when the view itself is
+        # selectable. That's an expected customer permission-config issue, not an actionable bug —
+        # row-count estimation is best-effort (the caller defaults to 0), so skip gracefully
+        # without reporting the non-actionable error to error tracking (the source of the reported
+        # noise).
+        cursor.execute.side_effect = psycopg.errors.InsufficientPrivilege(
+            'permission denied for materialized view base relation "Payment_Actions"'
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
+        ) as mock_capture:
+            assert impl.get_rows_to_sync(cursor, self._inner(), None, logger) == 0
+        mock_capture.assert_not_called()
+
 
 class TestFetchTableStats:
     def test_returns_none_when_no_row(self, impl, cursor, logger):
@@ -482,36 +503,177 @@ class TestFetchAverageRowSize:
     def _inner(self):
         return sql.SQL("SELECT 1").format()
 
-    def test_returns_none_when_no_row(self, impl, cursor, logger):
-        cursor.fetchone.return_value = None
-        assert impl.fetch_average_row_size(cursor, "public", "t", self._inner(), None, logger) is None
-
-    def test_returns_none_when_row_value_is_none(self, impl, cursor, logger):
-        cursor.fetchone.return_value = (None,)
-        assert impl.fetch_average_row_size(cursor, "public", "t", self._inner(), None, logger) is None
-
-    def test_returns_row_size_bytes(self, impl, cursor, logger):
-        cursor.fetchone.return_value = (256.4,)
-        result = impl.fetch_average_row_size(cursor, "public", "t", self._inner(), None, logger)
-        assert result == 256
+    @pytest.mark.parametrize(
+        "table_info_row,expected",
+        [
+            ((2, 100), 2 * 1024 * 1024 // 100),
+            # Rows far smaller than a byte still have to report at least 1: a 0 would make the
+            # caller discard the measurement and fall back to the full default chunk.
+            ((1, 10_000_000), 1),
+            (None, None),
+            ((0, 100), None),
+            ((10, 0), None),
+        ],
+    )
+    def test_derives_row_size_from_table_stats(self, impl, cursor, logger, table_info_row, expected):
+        cursor.fetchone.return_value = table_info_row
+        assert impl.fetch_average_row_size(cursor, "public", "t", self._inner(), None, logger) == expected
 
     def test_returns_none_on_exception(self, impl, cursor, logger):
-        cursor.execute.side_effect = [None, RuntimeError("boom")]
-        assert impl.fetch_average_row_size(cursor, "public", "t", self._inner(), None, logger) is None
-
-    def test_does_not_report_whole_row_reference_failure(self, impl, cursor, logger):
-        # Redshift rejects the `pg_column_size(t)` whole-row reference with this exact error on every
-        # table. It's a best-effort probe that falls back to the default chunk size, so it must not be
-        # reported to error tracking (the source of the noise this fix addresses).
-        cursor.execute.side_effect = [None, psycopg.errors.UndefinedColumn('column "t" does not exist in t')]
-
+        cursor.execute.side_effect = RuntimeError("boom")
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
-        ) as mock_capture:
-            result = impl.fetch_average_row_size(cursor, "public", "t", self._inner(), None, logger)
+        ):
+            assert impl.fetch_average_row_size(cursor, "public", "t", self._inner(), None, logger) is None
 
-        assert result is None
-        mock_capture.assert_not_called()
+
+# ---------------------------------------------------------------------------
+# Streaming reads
+# ---------------------------------------------------------------------------
+
+
+_STREAM_SCHEMA = pa.schema([pa.field("id", pa.int64())])
+_STREAM_QUERY = sql.SQL("SELECT id FROM public.t").format()
+
+
+def _stream_cursor(batches: list[list[tuple]]) -> MagicMock:
+    column = MagicMock()
+    column.name = "id"
+
+    cursor = MagicMock()
+    cursor.description = [column]
+    cursor.fetchmany.side_effect = [*batches, []]
+    cursor.__enter__.return_value = cursor
+    cursor.__exit__.return_value = False
+    return cursor
+
+
+def _stream_connection(
+    server_cursor: MagicMock,
+    client_cursor: MagicMock,
+    transaction_status: TransactionStatus = TransactionStatus.INTRANS,
+) -> MagicMock:
+    connection = MagicMock()
+    connection.cursor.side_effect = lambda name=None: server_cursor if name is not None else client_cursor
+    connection.info.transaction_status = transaction_status
+    return connection
+
+
+def _ids(tables) -> list[list[int]]:
+    return [table.column("id").to_pylist() for table in tables]
+
+
+class TestFetchArrowBatches:
+    def test_accumulates_small_fetches_into_chunk_sized_batches(self):
+        # Paging the FETCH must not shrink the Arrow batch too: one table per 1000-row fetch would
+        # hand the Delta writer 20x more, 20x smaller batches than the chunk size budgets for.
+        cursor = _stream_cursor([[(1,), (2,)], [(3,), (4,)], [(5,), (6,)], [(7,)]])
+
+        tables = list(_fetch_arrow_batches(cursor, 5, _STREAM_SCHEMA, fetch_size=2))
+
+        assert _ids(tables) == [[1, 2, 3, 4, 5, 6], [7]]
+        assert [c.args[0] for c in cursor.fetchmany.call_args_list] == [2, 2, 2, 2, 2]
+
+    def test_fetches_a_whole_chunk_at_a_time_by_default(self):
+        cursor = _stream_cursor([[(1,), (2,)]])
+
+        assert _ids(list(_fetch_arrow_batches(cursor, 2, _STREAM_SCHEMA))) == [[1, 2]]
+        assert [c.args[0] for c in cursor.fetchmany.call_args_list] == [2, 2]
+
+
+class TestStreamArrowBatches:
+    def test_streams_through_a_server_side_cursor(self, logger):
+        server_cursor = _stream_cursor([[(1,), (2,)], [(3,)]])
+        client_cursor = _stream_cursor([])
+        connection = _stream_connection(server_cursor, client_cursor)
+
+        tables = list(_stream_arrow_batches(connection, _STREAM_QUERY, 2, _STREAM_SCHEMA, "cur", logger))
+
+        assert _ids(tables) == [[1, 2], [3]]
+        # The whole point of the fix: an unnamed cursor is client-side, so `execute` would buffer the
+        # entire table into the worker and OOM it on anything large.
+        assert connection.cursor.call_args_list == [call(name="cur")]
+        client_cursor.execute.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "failure_point,error",
+        [
+            # Cumulative cursor result sets are capped per node type. It says "exceeds the limit"
+            # too, but shrinking the fetch can't fix it, so it must not trigger the retry below.
+            ("declare", psycopg.errors.FeatureNotSupported("cursor result set size exceeds the limit")),
+            ("fetch", psycopg.errors.InvalidCursorName("cursor does not exist")),
+        ],
+    )
+    def test_falls_back_to_a_client_cursor_when_the_server_cursor_fails(self, logger, failure_point, error):
+        server_cursor = _stream_cursor([])
+        if failure_point == "declare":
+            server_cursor.execute.side_effect = error
+        else:
+            server_cursor.fetchmany.side_effect = error
+        client_cursor = _stream_cursor([[(1,), (2,)]])
+        connection = _stream_connection(server_cursor, client_cursor, TransactionStatus.INERROR)
+
+        tables = list(_stream_arrow_batches(connection, _STREAM_QUERY, 2, _STREAM_SCHEMA, "cur", logger))
+
+        assert _ids(tables) == [[1, 2]]
+        # Without the rollback the fallback dies on `InFailedSqlTransaction` instead of syncing.
+        connection.rollback.assert_called_once()
+
+    def test_retries_at_the_single_node_limit_instead_of_falling_back(self, logger):
+        # A single-node cluster rejects the first FETCH of every sync. Falling back here reads the
+        # whole table into the worker, which is what OOM-killed the pod in production.
+        server_cursor = _stream_cursor([[(1,), (2,)]])
+        server_cursor.fetchmany.side_effect = [
+            psycopg.errors.InternalError_("Fetch size 20000 exceeds the limit of 1000 for a single node configuration"),
+            [(1,), (2,)],
+            [],
+        ]
+        client_cursor = _stream_cursor([[(9,)]])
+        connection = _stream_connection(server_cursor, client_cursor, TransactionStatus.INERROR)
+
+        tables = list(_stream_arrow_batches(connection, _STREAM_QUERY, 20_000, _STREAM_SCHEMA, "cur", logger))
+
+        assert _ids(tables) == [[1, 2]]
+        client_cursor.execute.assert_not_called()
+        assert connection.cursor.call_args_list == [call(name="cur"), call(name="cur")]
+        # The retry has to actually shrink the fetch, or Redshift rejects it identically.
+        assert [c.args[0] for c in server_cursor.fetchmany.call_args_list] == [
+            20_000,
+            REDSHIFT_SINGLE_NODE_FETCH_LIMIT,
+            REDSHIFT_SINGLE_NODE_FETCH_LIMIT,
+        ]
+
+    def test_does_not_retry_when_the_chunk_already_fits_the_single_node_limit(self, logger):
+        # Re-DECLARE-ing at the size that was just rejected would loop the same failure.
+        server_cursor = _stream_cursor([])
+        server_cursor.fetchmany.side_effect = psycopg.errors.InternalError_(
+            "Fetch size 1000 exceeds the limit of 1000 for a single node configuration"
+        )
+        client_cursor = _stream_cursor([[(1,)]])
+        connection = _stream_connection(server_cursor, client_cursor, TransactionStatus.INERROR)
+
+        tables = list(
+            _stream_arrow_batches(
+                connection, _STREAM_QUERY, REDSHIFT_SINGLE_NODE_FETCH_LIMIT, _STREAM_SCHEMA, "cur", logger
+            )
+        )
+
+        assert _ids(tables) == [[1]]
+        assert connection.cursor.call_args_list == [call(name="cur"), call()]
+
+    def test_does_not_fall_back_once_a_batch_has_been_yielded(self, logger):
+        server_cursor = _stream_cursor([])
+        server_cursor.fetchmany.side_effect = [[(1,)], psycopg.OperationalError("connection lost")]
+        client_cursor = _stream_cursor([[(9,)]])
+        connection = _stream_connection(server_cursor, client_cursor)
+
+        stream = _stream_arrow_batches(connection, _STREAM_QUERY, 1, _STREAM_SCHEMA, "cur", logger)
+
+        assert next(stream).column("id").to_pylist() == [1]
+        with pytest.raises(psycopg.OperationalError):
+            next(stream)
+        # Re-running the query here would re-emit rows the pipeline already merged.
+        client_cursor.execute.assert_not_called()
 
 
 class TestHasDuplicatePrimaryKeys:
@@ -832,6 +994,17 @@ class TestRedshiftSourceNonRetryableErrors:
             'connection failed: connection to server at "10.0.0.1", port 5439 failed: '
             "server does not support SSL, but SSL was required"
         )
+        non_retryable = RedshiftSource().get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable
+
+    def test_permission_denied_raw_message_is_non_retryable(self):
+        # The activity-level check matches the raw `str(exception)`, which for a psycopg
+        # `InsufficientPrivilege` never contains the class name — only the `InsufficientPrivilege`
+        # key (which only matches once Temporal's `ApplicationError` wraps the failure with the
+        # class name) would miss this, letting the activity burn its full retry budget on a
+        # permission denial that can't resolve itself.
+        error_msg = 'permission denied for materialized view base relation "Payment_Actions"'
         non_retryable = RedshiftSource().get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable

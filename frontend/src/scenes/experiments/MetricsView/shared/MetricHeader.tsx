@@ -10,7 +10,11 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { experimentMetricsLogic } from 'scenes/experiments/experimentMetricsLogic'
 import { isMetricThresholdCueVisible } from 'scenes/experiments/ExperimentMetricThreshold'
-import { EXPOSURE_DEFAULT_EVENT, getExposureEventAndProperty } from 'scenes/experiments/exposureContract'
+import {
+    EXPOSURE_DEFAULT_EVENT,
+    getExposureEventAndProperty,
+    resolvedExposureEvent,
+} from 'scenes/experiments/exposureContract'
 import { METRIC_CONTEXTS, experimentMetricModalLogic } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
 import { sharedMetricDetailsModalLogic } from 'scenes/experiments/Metrics/sharedMetricDetailsModalLogic'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
@@ -20,6 +24,7 @@ import type { Breakdown, EventsNode, ExperimentMetric } from '~/queries/schema/s
 import { NodeKind } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
+import { MetricRetryDetails } from './MetricRetryState'
 import { MetricTitle } from './MetricTitle'
 import { getMetricTag } from './utils'
 
@@ -30,6 +35,7 @@ const getExposureEvent = (experiment: Experiment): string =>
     getExposureEventAndProperty({
         featureFlagKey: experiment.feature_flag_key,
         exposureCriteria: experiment.exposure_criteria,
+        resolvedExposureEvent: resolvedExposureEvent(experiment),
     }).event ?? EXPOSURE_DEFAULT_EVENT
 
 const AddBreakdownMenuItem = ({
@@ -80,6 +86,7 @@ export const MetricHeader = ({
     isPrimaryMetric,
     experiment,
     onDuplicateMetricClick,
+    onDuplicateAsSingleUseMetricClick,
     onBreakdownChange,
     onDeleteMetricClick,
     readOnly,
@@ -90,6 +97,7 @@ export const MetricHeader = ({
     isPrimaryMetric: boolean
     experiment: Experiment
     onDuplicateMetricClick: (metric: ExperimentMetric) => void
+    onDuplicateAsSingleUseMetricClick: (metric: ExperimentMetric) => void
     onBreakdownChange: (breakdown: Breakdown) => void
     onDeleteMetricClick?: (metric: ExperimentMetric) => void
     readOnly?: boolean
@@ -143,20 +151,29 @@ export const MetricHeader = ({
             LemonDialog.open({
                 title: 'Duplicate this shared metric?',
                 content: (
-                    <div className="text-sm text-secondary max-w-lg">
+                    <div className="text-sm text-secondary max-w-lg deprecated-space-y-2">
                         <p>
-                            We'll take you to the form to customize and save this metric. Your new version will appear
-                            in your shared metrics, ready to be added to your experiment.
+                            <b>As a single-use metric</b> adds an editable copy to this experiment only. Other
+                            experiments using the shared metric are unaffected.
+                        </p>
+                        <p>
+                            <b>As a shared metric</b> takes you to the form to customize and save a new shared metric,
+                            ready to be added to any experiment.
                         </p>
                     </div>
                 ),
                 primaryButton: {
-                    children: 'Duplicate metric',
-                    to: urls.experimentsSharedMetric(metric.sharedMetricId!, 'duplicate'),
-                    type: 'primary',
+                    children: 'Duplicate as single-use metric',
                     size: 'small',
+                    onClick: () => onDuplicateAsSingleUseMetricClick(metric),
                 },
                 secondaryButton: {
+                    children: 'Duplicate as shared metric',
+                    to: urls.experimentsSharedMetric(metric.sharedMetricId!, 'duplicate'),
+                    type: 'secondary',
+                    size: 'small',
+                },
+                tertiaryButton: {
                     children: 'Cancel',
                     type: 'tertiary',
                     size: 'small',
@@ -200,8 +217,9 @@ export const MetricHeader = ({
     const canAddBreakdown = (metric.breakdownFilter?.breakdowns || []).length < MAX_BREAKDOWNS
 
     const recalculationEnabled = useFeatureFlag('EXPERIMENTS_METRICS_RECALCULATION')
-    const { isMetricRecalculating } = useValues(experimentMetricsLogic({ experiment }))
+    const { isMetricRecalculating, metricRetries } = useValues(experimentMetricsLogic({ experiment }))
     const showRecalculatingTag = recalculationEnabled && isMetricRecalculating(metric.uuid)
+    const metricRetry = recalculationEnabled && metric.uuid ? metricRetries[metric.uuid] : undefined
 
     return (
         <div className="text-xs font-semibold flex flex-col justify-between h-full">
@@ -282,11 +300,24 @@ export const MetricHeader = ({
                     )}
                 </div>
                 <div className="flex flex-wrap items-center gap-1">
-                    {showRecalculatingTag && (
-                        <LemonTag type="highlight" size="medium" icon={<Spinner textColored />}>
-                            Recalculating
-                        </LemonTag>
-                    )}
+                    {(showRecalculatingTag || metricRetry) &&
+                        (metricRetry ? (
+                            <LemonDropdown
+                                placement="bottom-start"
+                                showArrow
+                                trigger="hover"
+                                closeOnClickInside={false}
+                                overlay={<MetricRetryDetails retry={metricRetry} className="max-w-100 p-2" />}
+                            >
+                                <LemonTag type="warning" size="medium" icon={<Spinner textColored />}>
+                                    Retry {metricRetry.attempt} of {metricRetry.max_attempts}
+                                </LemonTag>
+                            </LemonDropdown>
+                        ) : (
+                            <LemonTag type="highlight" size="medium" icon={<Spinner textColored />}>
+                                Recalculating
+                            </LemonTag>
+                        ))}
                     <LemonTag type="muted" size="small">
                         {getMetricTag(metric)}
                     </LemonTag>

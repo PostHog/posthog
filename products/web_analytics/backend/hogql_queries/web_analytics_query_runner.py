@@ -19,6 +19,7 @@ from posthog.schema import (
     EventPropertyFilter,
     PersonPropertyFilter,
     SessionPropertyFilter,
+    WebBotsTableQuery,
     WebExternalClicksTableQuery,
     WebGoalsQuery,
     WebNotableChangesQuery,
@@ -30,8 +31,9 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import action_to_expr, apply_path_cleaning, property_to_expr
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.property import action_to_expr, apply_path_cleaning, get_property_type, property_to_expr
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, tag_queries
@@ -44,13 +46,22 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.rbac.user_access_control import UserAccessControl
 
 from products.actions.backend.models.action import Action
+from products.web_analytics.backend.hogql_queries.first_pageview_attribution import first_pageview_session_filter_expr
+from products.web_analytics.backend.hogql_queries.first_pageview_flag import (
+    evaluate_team_rollout_flag,
+    first_pageview_attribution_enabled,
+    rewritable_session_filters,
+)
 from products.web_analytics.backend.hogql_queries.metrics import (
     WEB_ANALYTICS_QUERY_COUNTER,
     WEB_ANALYTICS_QUERY_DURATION,
     WEB_ANALYTICS_QUERY_ERRORS,
 )
 from products.web_analytics.backend.hogql_queries.traffic_type import get_traffic_category_expr, get_traffic_type_expr
-from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import compute_filters_eligibility_hash
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    compute_filters_eligibility_hash,
+    is_precompute_enabled_for_team,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -62,11 +73,24 @@ WEB_ANALYTICS_NO_JOIN_SERVED = Counter(
     ["family"],
 )
 
+# Ceiling on the number of matching session ids a session-id-set fast path may ship
+# to shards via GLOBAL IN. Cross-team prod validation: memory scales ~linearly at
+# ~190 MiB per million ids on the sessions side; the id-set shape beats the join at
+# 4-5M ids (3.8s/727MiB vs 6.8s/4.5GiB at 3.8M); the extrapolated crossover where
+# the shipped set stops paying is ~20M. 10M caps session-id-set memory at ~2 GiB —
+# under half the join's typical footprint — with margin before the crossover.
+SESSION_ID_SET_MAX_MATCHING_SESSIONS = 10_000_000
+
+# Expands the env allowlist without a deploy: per-team/percent targeting and the
+# kill switch live in the flag UI. The allowlist stays as the flag-independent base.
+SESSION_ID_SET_FEATURE_FLAG_KEY = "web-analytics-session-id-set"
+
 WebQueryNode = Union[
     WebOverviewQuery,
     WebStatsTableQuery,
     WebGoalsQuery,
     WebExternalClicksTableQuery,
+    WebBotsTableQuery,
     WebVitalsPathBreakdownQuery,
     WebPageURLSearchQuery,
     WebNotableChangesQuery,
@@ -242,6 +266,76 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         return percent > 0 and self.team.pk % 100 < percent
 
     @cached_property
+    def _session_id_set_flag_enabled(self) -> bool:
+        return evaluate_team_rollout_flag(
+            self.team, SESSION_ID_SET_FEATURE_FLAG_KEY, "web_analytics_session_id_set_flag_evaluation_failed"
+        )
+
+    def _session_id_set_common_eligibility(self) -> bool:
+        """Shared gates for the session-id-set fast paths (filtered two-scan shape).
+
+        A filter is only evaluable events-side when it's an event property filter
+        (user filters) or an event/person test-account filter (person props via
+        person-on-events). Session/cohort filters can't feed the id collection
+        and keep the join path. Runners add their own shape-specific gates on top.
+        """
+        if self.team.pk not in settings.WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS and not self._session_id_set_flag_enabled:
+            return False
+        if getattr(self.query, "conversionGoal", None):
+            return False
+        properties = getattr(self.query, "properties", None) or []
+        if not properties and not self._test_account_filters:
+            return False
+        if not all(isinstance(p, EventPropertyFilter) for p in properties):
+            return False
+        if not all(f.get("type") in ("event", "person") for f in self._test_account_filters):
+            return False
+        return True
+
+    def _run_session_id_set_preflight(self, filters: ast.Expr, query_type: str) -> bool:
+        """Preflight: is the filtered session-id set small enough to ship to shards?
+
+        A cheap count over the filtered events (materialized columns only) — the
+        events scan is work the id collection does anyway, so this bounds the
+        worst case at one extra sub-second query for eligible teams. Fails closed
+        to the join path on error.
+        """
+        count_query = parse_select(
+            """
+SELECT uniq(events.$session_id_uuid) AS matching_sessions
+FROM events
+WHERE and(
+    events.$session_id_uuid IS NOT NULL,
+    {event_type_expr},
+    {inside_timestamp_period},
+    {filters},
+)
+            """,
+            placeholders={
+                "event_type_expr": self.event_type_expr,
+                "inside_timestamp_period": self._periods_expression("timestamp"),
+                "filters": filters,
+            },
+        )
+        try:
+            response = execute_hogql_query(
+                query_type=query_type,
+                query=count_query,
+                team=self.team,
+                user=self.user,
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+            )
+            matching = response.results[0][0] if response.results else None
+            if matching is None:
+                return False
+            return matching <= SESSION_ID_SET_MAX_MATCHING_SESSIONS
+        except Exception as e:
+            logger.exception("web_analytics_session_id_set_preflight_failed", error=e, query_type=query_type)
+            return False
+
+    @cached_property
     def filters_eligibility_hash(self) -> Optional[str]:
         """Stable hash of the user-facing query inputs that would fragment a
         precompute cache key. Bound on the structlog contextvars in
@@ -350,10 +444,72 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         return None
 
     @cached_property
+    def _first_pageview_attribution_enabled(self) -> bool:
+        return first_pageview_attribution_enabled(self.team)
+
+    @cached_property
+    def rewritten_first_pageview_filters(self) -> list[SessionPropertyFilter]:
+        """Session-property filters this query serves with first-pageview semantics.
+
+        Empty unless the flag is on, so every gate keyed on this is a no-op while
+        it is off. The list scan runs before the flag so a query carrying no
+        drill-down filter never reaches the flag service.
+        """
+        rewritable = rewritable_session_filters(getattr(self.query, "properties", None))
+        if not rewritable or not self._first_pageview_attribution_enabled:
+            return []
+        return rewritable
+
+    @cached_property
+    def effective_query_properties(
+        self,
+    ) -> list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter, CohortPropertyFilter]]:
+        """Rewritten session filters are dropped here because
+        `first_pageview_filter_exprs` carries them instead.
+        """
+        rewritten = {id(p) for p in self.rewritten_first_pageview_filters}
+        return [p for p in (getattr(self.query, "properties", None) or []) if id(p) not in rewritten]
+
+    @cached_property
     def property_filters_without_pathname(
         self,
     ) -> list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter, CohortPropertyFilter]]:
         return [p for p in self.query.properties if p.key != "$pathname"]
+
+    @cached_property
+    def first_pageview_filter_exprs(self) -> list[ast.Expr]:
+        """Events-side predicates replacing the rewritten session filters.
+
+        Every events scan that turns user filters into a WHERE clause must
+        include these alongside `effective_query_properties`, or that scan
+        silently ignores the drill-down filter the rest of the scene is applying
+        and its tile disagrees with the row the user clicked.
+        """
+        return [
+            first_pageview_session_filter_expr(
+                p,
+                team=self.team,
+                inside_periods=self._periods_expression(),
+                event_where=self.event_type_expr,
+                session_id_present=self.events_session_id_present,
+                outer_session_id=ast.Field(chain=["events", "$session_id"]),
+                modifiers=self.modifiers,
+                timings=self.timings,
+            )
+            for p in self.rewritten_first_pageview_filters
+        ]
+
+    def all_properties(self) -> ast.Expr:
+        return property_to_expr(
+            [*self.effective_query_properties, *self.first_pageview_filter_exprs, *self._test_account_filters],
+            team=self.team,
+        )
+
+    def session_properties(self) -> ast.Expr:
+        properties = [
+            p for p in self.effective_query_properties + self._test_account_filters if get_property_type(p) == "session"
+        ]
+        return property_to_expr(properties, team=self.team, scope="event")
 
     @cached_property
     def conversion_goal_expr(self) -> Optional[ast.Expr]:
@@ -523,7 +679,12 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         )
 
     def events_where(self):
-        properties = [self.events_where_data_range(), self.query.properties, self._test_account_filters]
+        properties = [
+            self.events_where_data_range(),
+            self.effective_query_properties,
+            self.first_pageview_filter_exprs,
+            self._test_account_filters,
+        ]
 
         return property_to_expr(
             properties,
@@ -595,7 +756,17 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
 
     def get_cache_key(self) -> str:
         original = super().get_cache_key()
-        return f"{original}_{self.team.path_cleaning_filters}"
+        # Precompute enrollment is part of the key so flipping the rollout flag
+        # invalidates cached results: with default-on reads, disabling the flag
+        # (the kill switch) must not keep serving cached precompute-produced
+        # responses until they stale out.
+        precompute = is_precompute_enabled_for_team(self.team)
+        key = f"{original}_{self.team.path_cleaning_filters}_pc{int(precompute)}"
+        # A rewritten filter selects a different population for the same query, so
+        # rewritten and entry-attributed runs must not share cache entries.
+        if self.rewritten_first_pageview_filters:
+            key = f"{key}_fpfilters"
+        return key
 
     @cached_property
     def events_session_property(self):
@@ -609,14 +780,14 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
     def events_session_id_present(self) -> ast.Expr:
         """True when the event carries a usable session id.
 
-        A missing `$session_id` materializes as an empty string, not NULL, so an
-        `IS NOT NULL` check alone lets sessionless (server-side) events through.
-        The join path excludes them implicitly (NULL session start fails the
-        period HAVING); the no-join query shapes need this explicit guard.
+        Uses the nullable-UUID materialized column in both join modes: a missing
+        `$session_id` materializes as an empty string (not NULL) and a malformed
+        one isn't a UUID — both become NULL here and are excluded, which is
+        exactly what the join path does implicitly (their NULL session start
+        fails the period HAVING). The no-join query shapes need the explicit
+        guard to match.
         """
-        if self.query.modifiers and self.query.modifiers.sessionsV2JoinMode == "uuid":
-            return parse_expr("events.$session_id_uuid IS NOT NULL")
-        return parse_expr("events.$session_id IS NOT NULL AND events.$session_id != ''")
+        return parse_expr("events.$session_id_uuid IS NOT NULL")
 
 
 def map_columns(results, mapper: dict[int, typing.Callable]):

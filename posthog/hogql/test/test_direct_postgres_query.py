@@ -1450,7 +1450,12 @@ class TestDirectPostgresQuery(APIBaseTest):
         with self.assertRaises(ExposedHogQLError) as error:
             executor.execute()
 
-        self.assertEqual(str(error.exception), "Hosts with internal IP addresses are not allowed")
+        self.assertEqual(
+            str(error.exception),
+            "This host points to an internal or private IP address, which PostHog can't reach. "
+            "Use a host that's reachable from the public internet. "
+            "If your database isn't publicly reachable, connect through an SSH tunnel.",
+        )
         mock_connect.assert_not_called()
 
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")

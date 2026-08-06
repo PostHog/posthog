@@ -8,7 +8,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.c
 from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.source import ClockodoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ClockodoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clockodo import (
+    ClockodoSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -74,10 +76,14 @@ class TestClockodoSource:
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is ClockodoResumeConfig
 
-    def test_source_for_pipeline_plumbs_arguments(self) -> None:
+    @parameterized.expand([("unpinned", None, "v3"), ("legacy_pin", "v2", "v2"), ("new_pin", "v3", "v3")])
+    def test_source_for_pipeline_threads_resolved_api_version(
+        self, _name: str, pin: str | None, expected_version: str
+    ) -> None:
         inputs = MagicMock()
         inputs.schema_name = "customers"
         inputs.logger = MagicMock()
+        inputs.api_version = pin
         manager = MagicMock()
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.source.clockodo_source"
@@ -89,3 +95,5 @@ class TestClockodoSource:
         assert kwargs["api_key"] == "secret"
         assert kwargs["endpoint"] == "customers"
         assert kwargs["resumable_source_manager"] is manager
+        # An unpinned source resolves to the default (v3); a pin is honored verbatim.
+        assert kwargs["api_version"] == expected_version

@@ -16,7 +16,12 @@ class Command(BaseCommand):
         "Generate the input file with:\n"
         '  posthog-cli exp query run "select product, document_type, document_id, timestamp, '
         "inserted_at, content, metadata from document_embeddings where model_name = "
-        "'text-embedding-3-small-1536' and product = 'signals' limit 1000\" > signals.json"
+        "'text-embedding-3-small-1536' and product = 'signals' and document_type = 'signal' "
+        'limit 1000" > signals.json\n\n'
+        # The document_type filter is load-bearing: 'signals' also holds report-level documents,
+        # which carry none of the signal metadata this importer reads and would be ingested as
+        # bogus signals defaulted to source_product/source_type 'unknown'.
+        "The document_type filter matters: the signals product also stores report documents."
     )
 
     def add_arguments(self, parser):
