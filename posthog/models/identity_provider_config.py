@@ -93,12 +93,18 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
         return self.name or str(self.id)
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        # Domain linking initializes these fields separately, so preserve them on stale config instances.
-        if self.pk is not None and (self.saml_relay_state is None or self.scim_slug is None):
-            persisted = type(self).objects.filter(pk=self.pk).values("saml_relay_state", "scim_slug").first()
-            if persisted is not None:
-                self.saml_relay_state = self.saml_relay_state or persisted["saml_relay_state"]
-                self.scim_slug = self.scim_slug or persisted["scim_slug"]
+        update_fields = kwargs.get("update_fields")
+        if self.pk is not None and update_fields is not None:
+            fields_to_preserve = [
+                field
+                for field in ("saml_relay_state", "scim_slug")
+                if field not in update_fields and getattr(self, field) is None
+            ]
+            if fields_to_preserve:
+                persisted = type(self).objects.filter(pk=self.pk).values(*fields_to_preserve).first()
+                if persisted is not None:
+                    for field in fields_to_preserve:
+                        setattr(self, field, persisted[field])
 
         super().save(*args, **kwargs)
 
