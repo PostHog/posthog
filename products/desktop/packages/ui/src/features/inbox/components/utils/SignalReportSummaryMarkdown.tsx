@@ -119,17 +119,20 @@ export function SignalReportSummaryMarkdown({
         ? {
             p: ({ node, children }) => {
               const paragraphChartIds = chartOnlyParagraphIds(node);
-              // Only draw inline when this paragraph's refs agree with the
-              // placement `ReportTrailingCharts` computed, so a chart never
-              // renders twice or nowhere.
-              const inlineCharts =
-                paragraphChartIds
-                  ?.filter((id) => inlineChartIds.has(id))
-                  .map((id) => findReportChart(charts, id)) ?? [];
+              // Only draw inline when every ref in this paragraph agrees with
+              // the placement `ReportTrailingCharts` computed, so a chart
+              // never renders twice or nowhere.
+              const inlineCharts: SignalReportChart[] = [];
+              for (const id of paragraphChartIds ?? []) {
+                const chart = inlineChartIds.has(id)
+                  ? findReportChart(charts, id)
+                  : null;
+                if (!chart) break;
+                inlineCharts.push(chart);
+              }
               if (
                 paragraphChartIds &&
-                inlineCharts.length === paragraphChartIds.length &&
-                inlineCharts.every((chart) => chart !== null)
+                inlineCharts.length === paragraphChartIds.length
               ) {
                 return (
                   <div className="my-3 flex flex-col gap-3">

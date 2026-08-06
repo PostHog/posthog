@@ -31,6 +31,11 @@ const NUMBER_FORMAT = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 2,
 });
 
+const SERIES_CHART_CONFIG = {
+  showAxisLines: true,
+  showCrosshair: true,
+};
+
 interface ReportChartCardProps {
   reportId: string;
   chart: SignalReportChart;
@@ -190,11 +195,6 @@ export function SeriesChart({
     [data.series, theme.colors, title],
   );
 
-  const config = {
-    showAxisLines: true,
-    showCrosshair: true,
-  };
-
   return (
     // flex-col + fixed height: the quill chart sizes its canvas by filling a
     // flex-column parent; a plain block collapses it to 0.
@@ -203,14 +203,14 @@ export function SeriesChart({
         <BarChart
           series={series}
           labels={data.labels}
-          config={config}
+          config={SERIES_CHART_CONFIG}
           theme={theme}
         />
       ) : (
         <LineChart
           series={series}
           labels={data.labels}
-          config={config}
+          config={SERIES_CHART_CONFIG}
           theme={theme}
         />
       )}
@@ -224,12 +224,14 @@ export function SeriesChart({
  * chart still renders below the prose.
  */
 export function ReportTrailingCharts({ report }: { report: SignalReport }) {
-  const charts = report.charts ?? [];
+  const charts = report.charts;
   const inlineIds = useMemo(
     () => resolveInlineChartIds(report.summary, charts),
     [report.summary, charts],
   );
-  const trailing = charts.filter((chart) => !inlineIds.has(chart.chart_id));
+  const trailing = (charts ?? []).filter(
+    (chart) => !inlineIds.has(chart.chart_id),
+  );
   if (trailing.length === 0) return null;
 
   return (

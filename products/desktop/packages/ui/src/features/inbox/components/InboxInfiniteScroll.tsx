@@ -40,13 +40,16 @@ export function InboxInfiniteScroll({
   // Read fresh state at intersection time via refs so the observer is created
   // once per mount instead of twice per page fetch (`hasNextPage` and
   // `isFetchingNextPage` both flip during a load), and inline callback
-  // identities don't churn it either.
+  // identities don't churn it either. Synced in an effect, not during render;
+  // intersection callbacks fire async, so post-render is early enough.
   const hasNextRef = useRef(hasNextPage);
-  hasNextRef.current = hasNextPage;
   const fetchingRef = useRef(isFetchingNextPage);
-  fetchingRef.current = isFetchingNextPage;
   const loadMoreRef = useRef(onLoadMore);
-  loadMoreRef.current = onLoadMore;
+  useEffect(() => {
+    hasNextRef.current = hasNextPage;
+    fetchingRef.current = isFetchingNextPage;
+    loadMoreRef.current = onLoadMore;
+  });
 
   const active = hasNextPage === true;
   useEffect(() => {
