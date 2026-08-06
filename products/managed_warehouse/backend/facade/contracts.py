@@ -21,12 +21,6 @@ from uuid import UUID
 __all__ = [
     "CPUnavailableError",
     "DuckgresQueryServerConfig",
-    "DuckgresSinkBackfillPlanInput",
-    "DuckgresSinkBackfillRunReference",
-    "DuckgresSinkState",
-    "DuckgresSinkStateCreateInput",
-    "DuckgresSinkStateGaugeStats",
-    "DuckgresSinkStateRecord",
     "DuckgresStoredBucketConfig",
     "DuckgresStoredServerConfig",
     "DuckLakeCatalogConnectionConfig",
@@ -93,7 +87,6 @@ class DuckgresStoredServerConfig:
     query_server: DuckgresQueryServerConfig
     catalog: DuckLakeCatalogConnectionConfig | None
     bucket: DuckgresStoredBucketConfig | None
-    sink_max_concurrency: int
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -191,65 +184,3 @@ class DuckLakeTableResult:
     row_count: int
     file_size_bytes: int = 0
     file_size_delta_bytes: int = 0
-
-
-class DuckgresSinkState(StrEnum):
-    PENDING_BACKFILL = "pending_backfill"
-    BACKFILLING = "backfilling"
-    PRIMED = "primed"
-    NEEDS_RESYNC = "needs_resync"
-
-
-@dataclass(frozen=True, kw_only=True)
-class DuckgresSinkStateCreateInput:
-    team_id: int
-    schema_id: UUID
-    state: DuckgresSinkState = DuckgresSinkState.PENDING_BACKFILL
-    snapshot_version: int | None = None
-    plan_cutoff: datetime | None = None
-    backfill_run_uuid: str | None = None
-    chunk_count: int | None = None
-    chunks_applied: int = 0
-    last_error: str | None = None
-    consecutive_failures: int = 0
-    first_failed_at: datetime | None = None
-    queue_last_applied_at: datetime | None = None
-
-
-@dataclass(frozen=True, kw_only=True)
-class DuckgresSinkBackfillPlanInput:
-    snapshot_version: int
-    backfill_run_uuid: str
-    chunk_count: int
-
-
-@dataclass(frozen=True, kw_only=True)
-class DuckgresSinkBackfillRunReference:
-    schema_id: UUID
-    backfill_run_uuid: str | None
-
-
-@dataclass(frozen=True, kw_only=True)
-class DuckgresSinkStateRecord:
-    id: UUID
-    team_id: int
-    schema_id: UUID
-    state: DuckgresSinkState
-    snapshot_version: int | None = None
-    plan_cutoff: datetime | None = None
-    backfill_run_uuid: str | None = None
-    chunk_count: int | None = None
-    chunks_applied: int = 0
-    last_error: str | None = None
-    consecutive_failures: int = 0
-    first_failed_at: datetime | None = None
-    queue_last_applied_at: datetime | None = None
-    updated_at: datetime | None = None
-    organization_id: UUID | None = None
-
-
-@dataclass(frozen=True, kw_only=True)
-class DuckgresSinkStateGaugeStats:
-    counts: dict[DuckgresSinkState, int]
-    failing_count: int
-    oldest_failure_at: datetime | None
