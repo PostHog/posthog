@@ -4,6 +4,7 @@ import time
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.test.client import Client as HttpClient
 
 from rest_framework import status
@@ -205,6 +206,34 @@ class TestPostHogConnectionForward:
                 )
         assert response.status_code == status.HTTP_504_GATEWAY_TIMEOUT
 
+    def test_forward_returns_502_when_response_exceeds_size_cap(self, client: HttpClient):
+        # A target returning more than the response cap is cut off and reported as a gateway error
+        # rather than buffering an unbounded body into a worker.
+        client.force_login(self.user)
+        big = _mock_response(200, {}, chunks=[b'{"a":1}', b"overflow"])
+        with patch("posthog.api.posthog_connection.CONNECTION_MAX_RESPONSE_BYTES", 8):
+            with patch(FORWARD_PATH, return_value=big):
+                response = client.post(
+                    self._forward_url(),
+                    {"method": "GET", "path": "api/projects/2/insights/"},
+                    content_type="application/json",
+                )
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+        assert "too large" in response.json()["data"]["error"]
+
+    def test_forward_passes_through_non_json_body_as_null(self, client: HttpClient):
+        # A target response that isn't JSON (an HTML error page, say) passes its status through with a
+        # null body rather than raising a decode error and 500-ing the proxy.
+        client.force_login(self.user)
+        with patch(FORWARD_PATH, return_value=_mock_response(500, {}, chunks=[b"<html>nope</html>"])):
+            response = client.post(
+                self._forward_url(),
+                {"method": "GET", "path": "api/projects/2/insights/"},
+                content_type="application/json",
+            )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"status": 500, "data": None}
+
     def test_forward_rejects_when_connection_at_inflight_capacity(self, client: HttpClient):
         # The per-minute throttle limits how fast forwards start, not how many run at once. When a
         # connection is already at its in-flight cap, a new forward is refused before the outbound call.
@@ -260,6 +289,45 @@ class TestPostHogConnectionForward:
 
         assert response.status_code == status.HTTP_502_BAD_GATEWAY
         assert "error" in response.json()
+
+    def test_target_caches_the_resolved_identity(self, client: HttpClient):
+        # The connected project's identity changes only on reconnect, so it's cached — a second read
+        # must not round-trip to the target again.
+        client.force_login(self.user)
+        me = {"team": {"id": 4242, "name": "EU Team"}, "organization": {"id": "org-uuid", "name": "EU Org"}}
+        with patch(FORWARD_PATH, return_value=_mock_response(200, me)) as mock_request:
+            first = client.get(self._target_url())
+            second = client.get(self._target_url())
+
+        assert first.status_code == status.HTTP_200_OK
+        assert second.json() == first.json()
+        assert mock_request.call_count == 1
+
+    def test_target_survives_a_cache_outage(self, client: HttpClient):
+        # Reading the identity fails open if the cache is down — a cache outage can't take the feature
+        # offline, it just costs the round trip the cache would have saved. Fault is scoped to this
+        # view's own key so unrelated cache users (middleware) keep working.
+        client.force_login(self.user)
+        me = {"team": {"id": 4242, "name": "EU Team"}, "organization": {"id": "org-uuid", "name": "EU Org"}}
+        real_get, real_set = cache.get, cache.set
+
+        def failing_get(key, *args, **kwargs):
+            if str(key).startswith("posthog_connection_target:"):
+                raise Exception("cache down")
+            return real_get(key, *args, **kwargs)
+
+        def failing_set(key, *args, **kwargs):
+            if str(key).startswith("posthog_connection_target:"):
+                raise Exception("cache down")
+            return real_set(key, *args, **kwargs)
+
+        with patch("posthog.api.posthog_connection.cache.get", side_effect=failing_get):
+            with patch("posthog.api.posthog_connection.cache.set", side_effect=failing_set):
+                with patch(FORWARD_PATH, return_value=_mock_response(200, me)):
+                    response = client.get(self._target_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["project_id"] == 4242
 
     def test_target_rejects_non_creator(self, client: HttpClient):
         # The connection acts as its creator, so reading where it points is as restricted as using it.
