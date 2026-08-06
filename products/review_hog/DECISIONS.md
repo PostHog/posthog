@@ -2940,6 +2940,12 @@ implement what is worth doing and safe to do unattended, answer what isn't, and 
    thread (`_installation_auth` inside `_deliver_side_effects`, auto-refreshing) instead of carrying the run-start
    token — a 20-thread session can outlive the ~1h token TTL, which silently failed the tail's replies/resolves.
    Outright delivery failures are now counted (`ResolutionRunResult.undelivered`) and named in the run note.
+   _Same date (off the poison-thread escalation):_ a session-OPEN failure now raises only while **no turn has
+   completed this run** — the outage signal stays loud — but once turns have landed it degrades to the same
+   final-attempt per-thread skip as a turn failure, so one thread whose content reliably breaks its opening turn
+   can't block the PR's resolution forever. Residual (accepted): a poison thread at position 0 with zero other
+   work is indistinguishable from an outage and still fails the run; the recorded follow-up is typed sandbox
+   errors from the Tasks facade (infra vs turn) to close that corner.
 9. **Persistence & budget** — home is the living `ReviewReport`; runs append `thread_verdict` (net-new content
    schema, latest-wins per thread) plus `commit` / `task_run` / `note` artefacts (their first writers). Idempotency
    is per-thread: unchanged state skips deterministically, any new reply re-opens that thread's triage (pushback on

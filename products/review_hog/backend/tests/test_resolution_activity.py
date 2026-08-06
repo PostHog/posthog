@@ -1,13 +1,20 @@
+from contextlib import ExitStack
+
 import pytest
 from posthog.test.base import BaseTest, NonAtomicBaseTest
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
+from posthog.models.organization import Organization
+from posthog.models.team import Team
+from posthog.models.user import User
+
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import ThreadVerdictArtefact
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
+from products.review_hog.backend.reviewer.models.thread_resolution import ThreadResolution
 from products.review_hog.backend.reviewer.persistence import load_thread_verdicts, persist_thread_verdict
 from products.review_hog.backend.reviewer.tools.github_threads import ReviewThread, ThreadComment
 from products.review_hog.backend.temporal.resolution import (
@@ -235,42 +242,91 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         assert "0 thread(s) triaged" in note.content
 
 
-class TestFailedRunReportStatus(NonAtomicBaseTest):
+class TestFailedRunActivity(NonAtomicBaseTest):
     """NonAtomic because the activity does its DB work via database_sync_to_async(thread_sensitive=False)
-    — separate connections that can't see an unfinished test transaction. One test method: the base
-    flushes class-level fixtures after every test, so a second method would run without the team."""
+    — separate connections that can't see an unfinished test transaction. Fixtures are rebuilt in
+    setUp: the base flushes class-level data after every test."""
 
-    def test_failed_run_idles_the_report_only_when_no_retry_is_coming(self) -> None:
-        thread = ReviewThread(
-            thread_id="PRRT_9",
+    def setUp(self) -> None:
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_user(email="rh-activity@example.com", first_name="RH", password="password")
+
+    def _input(self) -> ResolveThreadsInput:
+        return ResolveThreadsInput(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            acting_user_id=self.user.id,
+            owner="posthog",
+            repo="posthog",
+            pr_number=123,
+        )
+
+    def _thread(self, thread_id: str) -> ReviewThread:
+        return ReviewThread(
+            thread_id=thread_id,
             path="f.py",
             comments=[ThreadComment(id=1, author_login="greptile", author_is_bot=True, body="fix this")],
         )
-        mock_activity = Mock()
-        with (
+
+    def _base_patches(self, mock_activity: Mock, threads: list[ReviewThread]) -> list:
+        return [
             patch(f"{_RESOLUTION}._installation_auth", return_value=("token", "inst-1")),
             patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=_pr_metadata()),
-            patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=[thread]),
+            patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=threads),
             patch(
                 f"{_RESOLUTION}.load_resolution_skill_for_run",
                 return_value=Mock(skill_name="review-hog-resolution-criteria", version=1),
             ),
             patch(f"{_RESOLUTION}.activity", mock_activity),
             patch(f"{_RESOLUTION}.Heartbeater"),
-            patch(f"{_RESOLUTION}.start_sandbox_session", side_effect=RuntimeError("sandbox down")),
-        ):
+            patch(f"{_RESOLUTION}._sandbox_workflow_id_prefix", return_value="test-prefix"),
+        ]
+
+    def _report_status(self) -> str:
+        return ReviewReport.objects.for_team(self.team.id).get(repository="posthog/posthog", pr_number=123).status
+
+    def test_failed_run_idles_the_report_only_when_no_retry_is_coming(self) -> None:
+        mock_activity = Mock()
+        with ExitStack() as stack:
+            for p in self._base_patches(mock_activity, [self._thread("PRRT_9")]):
+                stack.enter_context(p)
+            stack.enter_context(patch(f"{_RESOLUTION}.start_sandbox_session", side_effect=RuntimeError("sandbox down")))
             for attempt, expected in ((1, ReviewReport.Status.ACTIVE), (2, ReviewReport.Status.IDLE)):
                 mock_activity.info.return_value.attempt = attempt
-                with pytest.raises(RuntimeError):
-                    async_to_sync(resolve_threads_activity)(
-                        ResolveThreadsInput(
-                            team_id=self.team.id,
-                            user_id=self.user.id,
-                            acting_user_id=self.user.id,
-                            owner="posthog",
-                            repo="posthog",
-                            pr_number=123,
-                        )
-                    )
-                report = ReviewReport.objects.for_team(self.team.id).get(repository="posthog/posthog", pr_number=123)
-                assert report.status == expected
+                with pytest.raises(RuntimeError, match="sandbox down"):
+                    async_to_sync(resolve_threads_activity)(self._input())
+                assert self._report_status() == expected
+
+    def test_poison_thread_skips_on_final_attempt_once_turns_have_landed(self) -> None:
+        # T1 triages fine, T2's turn dies (final-attempt skip closes the session), T3's fresh
+        # session-open dies too. With a completed turn behind it that must degrade to a skip —
+        # not fail the run, which would block this PR's resolution forever.
+        mock_activity = Mock()
+        mock_activity.info.return_value.attempt = 2
+        session = Mock()
+        session.task_run.task_id = "11111111-1111-1111-1111-111111111111"
+        session.task_run.id = "run-1"
+        res1 = ThreadResolution(thread_id="PRRT_A", outcome="wont_fix", reasoning="checked", reply="declined")
+        with ExitStack() as stack:
+            for p in self._base_patches(mock_activity, [self._thread(t) for t in ("PRRT_A", "PRRT_B", "PRRT_C")]):
+                stack.enter_context(p)
+            stack.enter_context(
+                patch(
+                    f"{_RESOLUTION}.start_sandbox_session",
+                    AsyncMock(side_effect=[(session, res1), RuntimeError("open failed")]),
+                )
+            )
+            stack.enter_context(
+                patch(f"{_RESOLUTION}.continue_sandbox_session", AsyncMock(side_effect=RuntimeError("turn failed")))
+            )
+            stack.enter_context(patch(f"{_RESOLUTION}.end_sandbox_session", AsyncMock()))
+            stack.enter_context(patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, None)))
+            stack.enter_context(patch(f"{_RESOLUTION}.resolve_thread", return_value=True))
+
+            result = async_to_sync(resolve_threads_activity)(self._input())
+
+        assert result.triaged == 1
+        assert result.outcomes == {"wont_fix": 1}
+        assert result.failed_turns == 2
+        assert self._report_status() == ReviewReport.Status.IDLE

@@ -373,6 +373,9 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
     threads and any undelivered GitHub writes (with one crash-window exception that can duplicate a
     reply, per the module docstring). A failed turn fails the activity for that cheap retry; only the
     final attempt skips the thread (continuing on a fresh session), mirroring the validation sessions.
+    A session-OPEN failure raises only while no turn has completed this run (the outage signal);
+    once turns have landed it degrades to a per-thread skip too, so one poison thread can't block
+    the PR forever.
     """
     prepared = await database_sync_to_async(_prepare_run, thread_sensitive=False)(input)
     if isinstance(prepared, ResolutionRunResult):
@@ -434,23 +437,28 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
                             label=thread.thread_id,
                         )
                 except Exception:
-                    if session is None:
-                        # The session never opened (sandbox-level) — raise so Temporal retries the
-                        # run and a real outage surfaces instead of reading as zero threads handled.
+                    if session is None and not result.triaged:
+                        # The session never opened and no turn has completed this run — the outage
+                        # shape. Raise on every attempt so a real sandbox outage surfaces loudly
+                        # instead of reading as zero threads handled.
                         raise
                     if not final_attempt:
                         logger.exception(
                             "Resolution turn failed for thread %s; failing the run to retry it", thread.thread_id
                         )
                         raise
+                    # With completed turns behind it the sandbox demonstrably works, so even a
+                    # session-open failure degrades to this thread's problem (the poison-thread
+                    # case) — skipped, never allowed to block the whole PR.
                     logger.exception(
                         "Resolution turn failed for thread %s on the final attempt; skipping it", thread.thread_id
                     )
                     result.failed_turns += 1
-                    await end_sandbox_session(
-                        session, status="failed", error=f"resolution turn failed for thread {thread.thread_id}"
-                    )
-                    session = None
+                    if session is not None:
+                        await end_sandbox_session(
+                            session, status="failed", error=f"resolution turn failed for thread {thread.thread_id}"
+                        )
+                        session = None
                     continue
 
                 if resolution.thread_id != thread.thread_id:
