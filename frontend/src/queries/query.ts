@@ -116,13 +116,18 @@ export async function pollForResults(
     methodOptions?: ApiMethodOptions,
     onPoll?: (response: QueryStatus) => void
 ): Promise<QueryStatus> {
-    const pollStart = performance.now()
+    // Measured only across time spent actually polling (page visible), not raw wall-clock time -
+    // otherwise a backgrounded tab burns down the deadline via waitForPageVisible below without
+    // ever getting a chance to poll, and the query "times out" despite never really being tried.
+    let activeElapsedMs = 0
     let currentDelay = 300 // start low, because all queries will take at minimum this
 
-    while (performance.now() - pollStart < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
+    while (activeElapsedMs < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
         await waitForPageVisible(methodOptions?.signal)
+        const iterationStart = performance.now()
         await delay(currentDelay, methodOptions?.signal)
         currentDelay = Math.min(currentDelay * 1.25, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
+        activeElapsedMs += performance.now() - iterationStart
 
         try {
             const statusResponse = (await api.queryStatus.get(queryId, true)).query_status

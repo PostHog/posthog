@@ -890,12 +890,12 @@ export const UtmMappingSuggestionsResponseApi = zod.object({
 export type UtmMappingSuggestionsResponseApi = zod.input<typeof UtmMappingSuggestionsResponseApi>
 export type UtmMappingSuggestionsResponseApiOutput = zod.output<typeof UtmMappingSuggestionsResponseApi>
 
-export const UtmIssueSeverityEnumApi = zod
+export const DiagnosticSeverityEnumApi = zod
     .enum(['error', 'warning'])
     .describe('\* `error` - error\n\* `warning` - warning')
 
-export type UtmIssueSeverityEnumApi = zod.input<typeof UtmIssueSeverityEnumApi>
-export type UtmIssueSeverityEnumApiOutput = zod.output<typeof UtmIssueSeverityEnumApi>
+export type DiagnosticSeverityEnumApi = zod.input<typeof DiagnosticSeverityEnumApi>
+export type DiagnosticSeverityEnumApiOutput = zod.output<typeof DiagnosticSeverityEnumApi>
 
 export const UtmIssueKindEnumApi = zod
     .enum(['not_linked', 'name_collision', 'no_tagged_events', 'unknown_source', 'missing_source'])

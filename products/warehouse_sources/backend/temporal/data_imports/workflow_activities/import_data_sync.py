@@ -1,4 +1,5 @@
 import uuid
+import socket
 import asyncio
 import datetime as dt
 import dataclasses
@@ -7,6 +8,7 @@ from typing import Any, NoReturn, Optional
 from django.db import InterfaceError, OperationalError
 from django.db.models import Prefetch
 
+from requests.exceptions import HTTPError
 from structlog.contextvars import bind_contextvars
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
@@ -62,6 +64,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
+from products.warehouse_sources.backend.temporal.data_imports.workload_report import aworkload_reporting
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
@@ -110,6 +113,21 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
 
     await asyncio.to_thread(report_heartbeat_timeout, inputs, logger)
 
+    # Async variant: teardown joins the sampler thread and talks to Redis, which must not block
+    # this activity's event loop (or its heartbeats).
+    async with aworkload_reporting(
+        team_id=inputs.team_id,
+        schema_id=str(inputs.schema_id),
+        run_id=str(inputs.run_id),
+        host=socket.gethostname(),
+        # Retries share the run_id; the attempt lets the newest reporter own the run key while a
+        # zombie predecessor stands down (its heartbeat timed out, but it may still be running).
+        attempt=current_activity_attempt(),
+    ):
+        return await _import_data_with_reporting(inputs, logger)
+
+
+async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: FilteringBoundLogger) -> PipelineResult:
     async with Heartbeater(factor=30), ShutdownMonitor() as shutdown_monitor:
         await setup_row_tracking(inputs.team_id, inputs.schema_id)
 
@@ -123,6 +141,8 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                     status=model.status,
                     attempt=attempt,
                 )
+                # The consumer already finalized this run (that's how it became terminal), so the
+                # workflow must not overwrite the status or release the lock — see PipelineResult.
                 return PipelineResult(
                     should_trigger_cdp_producer=False,
                     consumer_manages_job_status=True,
@@ -279,6 +299,8 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 except Exception:
                     await logger.awarning("Failed to pause per-schema schedule for CDC streaming schema")
 
+                # This activity finalized the job itself just above, so the workflow must not
+                # write a second terminal status — see PipelineResult for the ownership contract.
                 return PipelineResult(
                     should_trigger_cdp_producer=False,
                     consumer_manages_job_status=True,
@@ -305,12 +327,20 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class ImportJobModels:
+    job: ExternalDataJob
+    schema: ExternalDataSchema
+    source: ExternalDataSource
+    table: DataWarehouseTable | None
+
+
 @database_sync_to_async_pool
 def _get_models(
     job_id: str,
-) -> tuple[ExternalDataJob, ExternalDataSchema, ExternalDataSource, DataWarehouseTable | None]:
+) -> ImportJobModels:
     # `schema__source` is prefetched so `job.folder_path()` (via `schema.source.source_type`, called
-    # repeatedly through the run by `DeltaTableHelper._get_delta_table_uri`) never triggers a lazy
+    # repeatedly through the run by `DeltaTableRef._get_delta_table_uri`) never triggers a lazy
     # relation load later on a pooled connection the transaction pooler may have dropped mid-sync,
     # which raises a transient `OperationalError`/DNS failure.
     job = ExternalDataJob.objects.select_related("schema", "schema__table", "schema__source").get(id=job_id)
@@ -322,7 +352,7 @@ def _get_models(
         raise Exception("No source attached to job")
 
     table: DataWarehouseTable | None = schema.table
-    return job, schema, source, table
+    return ImportJobModels(job=job, schema=schema, source=source, table=table)
 
 
 async def _handle_import_error(
@@ -358,6 +388,16 @@ async def _handle_import_error(
     # contract by type so every REST-based source stops immediately, rather than depending on each
     # source listing the message in get_non_retryable_errors.
     if isinstance(error, RESTClientNonRetryableError):
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
+
+    # A 404 from the shared REST engine's fallback `raise_for_status()` path means the configured
+    # endpoint/resource doesn't exist — every retry replays the identical request against the same
+    # dead URL. Unlike 401 (a token needing refresh, which the REST engine's own retry re-mints) or
+    # 429/5xx (already RESTClientRetryableError), there's no self-recovering path for a 404, so
+    # classify it here rather than depending on each REST-based source listing it.
+    if isinstance(error, HTTPError) and error.response is not None and error.response.status_code == 404:
         await handle_non_retryable_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
@@ -407,7 +447,7 @@ async def _handle_import_error(
     # a raw driver connection, never Django's ORM, so this exception type can only mean a transient
     # connection-pool blip on our side (e.g. a PgBouncer query_wait_timeout under load), not a
     # customer data or config problem. Same classification already used for app-DB blips in
-    # delta_table_helper.is_transient_maintenance_error.
+    # delta_table_ref.is_transient_maintenance_error.
     if isinstance(error, OperationalError | InterfaceError):
         await logger.awarning(error_msg)
         await logger.adebug("Transient app-DB error - re-raising for Temporal retry")
@@ -448,25 +488,22 @@ async def _run(
     resumable_source_manager: ResumableSourceManager | None,
 ) -> PipelineResult:
     try:
-        job, schema, source, table = await _get_models(job_inputs.run_id)
+        models = await _get_models(job_inputs.run_id)
 
-        use_v3 = job.pipeline_version == ExternalDataJob.PipelineVersion.V3
+        use_v3 = models.job.pipeline_version == ExternalDataJob.PipelineVersion.V3
 
         if use_v3:
             from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
 
-            logger.info("Running V3 pipeline (feature flag enabled)")
+            logger.info("Running V3 pipeline (persisted job.pipeline_version is V3)")
             pipeline: PipelineV3 | PipelineNonDLT = PipelineV3(
                 source_response,
                 logger,
                 job_inputs.run_id,
                 reset_pipeline,
                 shutdown_monitor,
-                job,
-                schema,
-                source,
-                table,
                 resumable_source_manager,
+                models=models,
             )
         else:
             pipeline = PipelineNonDLT(
@@ -475,11 +512,8 @@ async def _run(
                 job_inputs.run_id,
                 reset_pipeline,
                 shutdown_monitor,
-                job,
-                schema,
-                source,
-                table,
                 resumable_source_manager,
+                models=models,
             )
 
         result = await pipeline.run()

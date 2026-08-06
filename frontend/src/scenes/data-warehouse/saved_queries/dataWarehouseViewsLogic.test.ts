@@ -1,11 +1,21 @@
 import { expectLogic } from 'kea-test-utils'
 
+// Imported from the source module rather than the `@posthog/lemon-ui` barrel so the spy replaces
+// `.error` on the same `lemonToast` singleton the logic calls at runtime.
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
+
+const rejection = {
+    type: 'validation_error',
+    code: 'invalid_input',
+    detail: "Can't refresh every 1 day: a view or endpoint built on this one needs data no older than 15 minutes. Pick 15 minutes instead.",
+    attr: null,
+}
 
 describe('dataWarehouseViewsLogic', () => {
     let logic: ReturnType<typeof dataWarehouseViewsLogic.build>
@@ -79,7 +89,7 @@ describe('dataWarehouseViewsLogic', () => {
                 },
             },
             post: {
-                '/api/environments/:team_id/warehouse_saved_queries/:id/materialize/': [200],
+                '/api/projects/:team_id/warehouse_saved_queries/:id/materialize/': [200],
             },
         })
 
@@ -108,6 +118,50 @@ describe('dataWarehouseViewsLogic', () => {
         jest.useRealTimers()
     })
 
+    // Regression: the picked cadence must reach the server. Before the frequency was part of the
+    // request the action always enabled materialization daily, which the server refuses outright
+    // for any view a sub-daily consumer reads.
+    it('materializes at the requested sync frequency', async () => {
+        let requestedFrequency: string | undefined
+        useMocks({
+            post: {
+                '/api/projects/:team_id/warehouse_saved_queries/:id/materialize/': async ({ request }) => {
+                    requestedFrequency = ((await request.json()) as { sync_frequency?: string }).sync_frequency
+                    return [200]
+                },
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.materializeDataWarehouseSavedQuery('view-1', '1hour')
+        }).toFinishAllListeners()
+
+        expect(requestedFrequency).toBe('1hour')
+    })
+
+    // Regression: a cadence the lineage can't support is rejected with a message naming the one to
+    // pick instead. A generic toast leaves the user with a button that fails and no way forward.
+    it.each([
+        [
+            'materialize',
+            () => logic.actions.materializeDataWarehouseSavedQuery('view-1', '24hour'),
+            { post: { '/api/projects/:team_id/warehouse_saved_queries/:id/materialize/': [400, rejection] } },
+        ],
+        [
+            'sync frequency update',
+            () => logic.actions.updateDataWarehouseSavedQuery({ id: 'view-1', sync_frequency: '24hour' }),
+            { patch: { '/api/environments/:team_id/warehouse_saved_queries/:id/': [400, rejection] } },
+        ],
+    ])('surfaces why the server rejected the cadence on %s', async (_name, act, mocks) => {
+        const toastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => ({ id: 'x' }) as any)
+        useMocks(mocks)
+
+        await expectLogic(logic, act).toFinishAllListeners()
+
+        expect(toastErrorSpy).toHaveBeenCalledWith(rejection.detail)
+        toastErrorSpy.mockRestore()
+    })
+
     // Regression: the poll budget must be per-view. With a shared attempt counter, a view that
     // caps out clears every still-materializing view's spinner, so a second view started later
     // loses its spinner before its own materialization settles.
@@ -126,7 +180,7 @@ describe('dataWarehouseViewsLogic', () => {
                 ],
             },
             post: {
-                '/api/environments/:team_id/warehouse_saved_queries/:id/materialize/': [200],
+                '/api/projects/:team_id/warehouse_saved_queries/:id/materialize/': [200],
             },
         })
 

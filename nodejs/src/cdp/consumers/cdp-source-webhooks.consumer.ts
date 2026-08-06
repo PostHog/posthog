@@ -23,6 +23,7 @@ import {
 } from '../types'
 import { logEntry } from '../utils'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
+import { mirrorCall, mirrorCompare } from '../utils/mirror-call'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
 const DISALLOWED_HEADERS = [
@@ -233,7 +234,10 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         try {
             const globals: HogFunctionInvocationGlobals = this.buildRequestGlobals(hogFunction, req)
 
-            const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
+            const globalsWithInputs = await this.hogExecutorAsync.hogExecutor.buildInputsWithGlobals(
+                hogFunction,
+                globals
+            )
             const invocation = createInvocation(globalsWithInputs, hogFunction)
 
             // Slightly different handling for hog flows
@@ -344,7 +348,10 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
 
         try {
             const globals: HogFunctionInvocationGlobals = this.buildRequestGlobals(hogFunction, req)
-            const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
+            const globalsWithInputs = await this.hogExecutorAsync.hogExecutor.buildInputsWithGlobals(
+                hogFunction,
+                globals
+            )
             const invocation = createInvocation(globalsWithInputs, hogFunction)
 
             if (hogFunctionState?.state === HogWatcherState.degraded) {
@@ -376,7 +383,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 }
             } else {
                 // Run the initial step - this allows functions not using fetches to respond immediately
-                result = await this.hogExecutor.execute(invocation)
+                result = await this.hogExecutorAsync.execute(invocation)
 
                 // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
                 if (!result.finished) {
@@ -432,7 +439,11 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
 
         const [webhook, hogFunctionState] = await Promise.all([
             this.getWebhook(webhookId),
-            this.hogWatcher.getCachedEffectiveState(webhookId),
+            mirrorCompare(
+                'hog-watcher.getCachedEffectiveState',
+                () => this.hogWatcher.getCachedEffectiveState(webhookId),
+                () => this.hogWatcherMirror?.getCachedEffectiveState(webhookId)
+            ),
         ])
 
         if (!webhook) {
@@ -461,7 +472,10 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
 
         void this.promiseScheduler.schedule(
             this.invocationResultsService.flush(),
-            this.hogWatcher.observeResultsBuffered(result)
+            this.hogWatcher.observeResultsBuffered(result),
+            mirrorCall('hog-watcher.observeResultsBuffered', () =>
+                this.hogWatcherMirror?.observeResultsBuffered(result)
+            )
         )
 
         return result

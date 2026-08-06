@@ -38,6 +38,7 @@ import { FilterPill } from '../components/FilterPill'
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
+import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../utils/credits'
 import { VisionMetrics } from './components/VisionMetrics'
@@ -136,6 +137,7 @@ export function ReplayScannersScene(): JSX.Element {
     const { searchParams } = useValues(router)
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { featureFlagsTimedOut } = useValues(appLogic)
+    const { showUsd } = useValues(visionQuotaLogic)
 
     if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION]) {
         // Flags load asynchronously, so wait for them before deciding the page doesn't exist.
@@ -206,7 +208,7 @@ export function ReplayScannersScene(): JSX.Element {
             render: (_, scanner) => (
                 <div className="text-sm tabular-nums">
                     <div>{formatCreditCount(scanner.credits_this_month)}</div>
-                    <div className="text-muted text-xs">≈ {creditsToUsd(scanner.credits_this_month)}</div>
+                    {showUsd && <div className="text-muted text-xs">≈ {creditsToUsd(scanner.credits_this_month)}</div>}
                 </div>
             ),
             sorter: true,
@@ -328,9 +330,9 @@ export function ReplayScannersScene(): JSX.Element {
                     ) : null}
 
                     <div className="flex flex-col gap-3">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                             <h3 className="font-semibold text-base m-0">Scanners</h3>
-                            <div className="ml-auto flex items-center gap-2">
+                            <div className="ml-auto flex flex-wrap items-center gap-2">
                                 <LemonInput
                                     type="search"
                                     placeholder="Search scanners..."

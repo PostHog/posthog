@@ -15,8 +15,9 @@ import {
     HogFunctionTypeType,
     MinimalAppMetric,
 } from '../types'
-import { mirrorCallWithPrimary } from '../utils/mirror-call'
-import { HogExecutorService } from './hog-executor.service'
+import { buildHogFunctionInvocations } from '../utils/invocation-utils'
+import { mirrorCompare } from '../utils/mirror-call'
+import { HogInputsService } from './hog-inputs.service'
 import { HogFunctionManagerService } from './managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from './monitoring/hog-masker.service'
@@ -31,7 +32,7 @@ export interface HogFunctionInvocationPipelineConfig {
 
 export interface HogFunctionInvocationPipelineDeps {
     hogFunctionManager: HogFunctionManagerService
-    hogExecutor: HogExecutorService
+    hogInputsService: HogInputsService
     hogWatcher: HogWatcherService
     hogWatcherMirror: HogWatcherService | null
     hogMasker: HogMaskerService
@@ -89,7 +90,8 @@ export class HogFunctionInvocationPipeline {
                 invocationGlobals.map(async (globals) => {
                     const teamHogFunctions = hogFunctionsByTeam[globals.project.id]
 
-                    const { invocations, metrics, logs } = await this.deps.hogExecutor.buildHogFunctionInvocations(
+                    const { invocations, metrics, logs } = await buildHogFunctionInvocations(
+                        this.deps.hogInputsService,
                         teamHogFunctions,
                         globals
                     )
@@ -103,7 +105,7 @@ export class HogFunctionInvocationPipeline {
         ).flat()
 
         const hogFunctionIds = possibleInvocations.map((x) => x.hogFunction.id)
-        const states = await mirrorCallWithPrimary(
+        const states = await mirrorCompare(
             'hog-watcher.getEffectiveStates',
             () =>
                 instrumentFn('cdpConsumer.handleEachBatch.hogWatcher.getEffectiveStates', async () => {
@@ -116,13 +118,15 @@ export class HogFunctionInvocationPipeline {
             id: x.hogFunction.id,
             cost: 1,
         }))
-        const rateLimits = await mirrorCallWithPrimary(
+        const rateLimits = await mirrorCompare(
             'hog-rate-limiter.rateLimitGrouped',
             () =>
                 instrumentFn('cdpConsumer.handleEachBatch.hogRateLimiter.rateLimitGrouped', async () => {
                     return await this.hogRateLimiter.rateLimitGrouped(rateLimitInputs)
                 }),
-            () => this.hogRateLimiterMirror?.rateLimitGrouped(rateLimitInputs)
+            () => this.hogRateLimiterMirror?.rateLimitGrouped(rateLimitInputs),
+            (primary, mirror) =>
+                primary.every(([, result], index) => result.isRateLimited === mirror[index]?.[1].isRateLimited)
         )
 
         const validInvocations: CyclotronJobInvocationHogFunction[] = []

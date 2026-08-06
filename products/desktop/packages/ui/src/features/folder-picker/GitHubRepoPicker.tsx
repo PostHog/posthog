@@ -1,4 +1,8 @@
-import { ArrowClockwise, GithubLogo } from "@phosphor-icons/react";
+import {
+  ArrowClockwise,
+  GithubLogo,
+  MagnifyingGlass,
+} from "@phosphor-icons/react";
 import {
   Button,
   Combobox,
@@ -7,20 +11,41 @@ import {
   ComboboxInput,
   ComboboxItem,
   ComboboxList,
-  ComboboxListFooter,
   ComboboxTrigger,
+  InputGroupAddon,
+  InputGroupButton,
+  Spinner,
+  Text,
 } from "@posthog/quill";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { defaultFilter } from "cmdk";
 import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 
 const COMBOBOX_INITIAL_LIMIT = 50;
+const LOAD_MORE_INDICATOR_DELAY_MS = 200;
+
+function useDelayedVisibility(visible: boolean, delay: number): boolean {
+  const [delayedVisible, setDelayedVisible] = useState(false);
+
+  useEffect(() => {
+    if (!visible) {
+      setDelayedVisible(false);
+      return;
+    }
+
+    const timeout = window.setTimeout(() => setDelayedVisible(true), delay);
+    return () => window.clearTimeout(timeout);
+  }, [delay, visible]);
+
+  return delayedVisible;
+}
 
 interface GitHubRepoPickerProps {
   value: string | null;
   onChange: (repo: string | null) => void;
   repositories: string[];
   isLoading: boolean;
+  isLoadingMore?: boolean;
   placeholder?: string;
   size?: "1" | "2";
   disabled?: boolean;
@@ -35,6 +60,7 @@ interface GitHubRepoPickerProps {
   onSearchQueryChange?: (value: string) => void;
   hasMore?: boolean;
   onLoadMore?: () => void;
+  triggerClassName?: string;
 }
 
 export function GitHubRepoPicker({
@@ -42,6 +68,7 @@ export function GitHubRepoPicker({
   onChange,
   repositories,
   isLoading,
+  isLoadingMore = false,
   placeholder = "Select repository...",
   size = "1",
   disabled = false,
@@ -55,6 +82,7 @@ export function GitHubRepoPicker({
   onSearchQueryChange,
   hasMore: controlledHasMore,
   onLoadMore,
+  triggerClassName,
 }: GitHubRepoPickerProps) {
   const buttonSize = size === "2" ? "lg" : "sm";
   const buttonTextClass = size === "2" ? "text-[13px]" : "";
@@ -69,7 +97,9 @@ export function GitHubRepoPicker({
     onSearchQueryChange !== undefined ||
     controlledHasMore !== undefined ||
     onLoadMore !== undefined;
-  const showInlineLoadingState = remoteMode && open && isLoading;
+  const effectiveIsLoadingMore = isLoadingMore;
+  const showInlineLoadingState =
+    remoteMode && open && isLoading && !effectiveIsLoadingMore;
   const onlyRepo =
     !remoteMode && repositories.length === 1 ? repositories[0] : null;
   const trimmedSearchQuery = searchQuery.trim();
@@ -85,6 +115,10 @@ export function GitHubRepoPicker({
     );
   }, [repositories, trimmedSearchQuery]);
   const hasMore = controlledHasMore ?? filteredRepositoryCount > visibleLimit;
+  const showLoadingMore = useDelayedVisibility(
+    effectiveIsLoadingMore,
+    LOAD_MORE_INDICATOR_DELAY_MS,
+  );
 
   useEffect(() => {
     if (onlyRepo && value !== onlyRepo) {
@@ -92,13 +126,24 @@ export function GitHubRepoPicker({
     }
   }, [onlyRepo, value, onChange]);
 
-  if (isLoading && !showInlineLoadingState) {
+  const loadMore = () => {
+    if (!hasMore || isLoading || effectiveIsLoadingMore) return;
+
+    if (remoteMode) {
+      onLoadMore?.();
+      return;
+    }
+
+    setVisibleLimit((currentLimit) => currentLimit + COMBOBOX_INITIAL_LIMIT);
+  };
+
+  if (isLoading && !effectiveIsLoadingMore && !showInlineLoadingState) {
     return (
       <Button
         variant="outline"
         disabled
         size={buttonSize}
-        className={buttonTextClass}
+        className={`${buttonTextClass} ${triggerClassName ?? ""}`}
       >
         <GithubLogo size={16} weight="regular" className="shrink-0" />
         Loading repos...
@@ -119,7 +164,7 @@ export function GitHubRepoPicker({
         variant="outline"
         disabled
         size={buttonSize}
-        className={buttonTextClass}
+        className={`${buttonTextClass} ${triggerClassName ?? ""}`}
       >
         <GithubLogo size={16} weight="regular" className="shrink-0" />
         No GitHub repos
@@ -137,7 +182,7 @@ export function GitHubRepoPicker({
             size={buttonSize}
             disabled
             aria-label="Repository"
-            className={`pointer-events-none min-w-0 max-w-full cursor-default justify-start disabled:opacity-100 ${buttonTextClass}`}
+            className={`pointer-events-none min-w-0 max-w-full cursor-default justify-start disabled:opacity-100 ${buttonTextClass} ${triggerClassName ?? ""}`}
           >
             <GithubLogo size={14} weight="regular" className="shrink-0" />
             <span className="min-w-0 truncate">{onlyRepo}</span>
@@ -150,7 +195,8 @@ export function GitHubRepoPicker({
   return (
     <Combobox
       items={repositories}
-      limit={visibleLimit}
+      filter={remoteMode ? null : undefined}
+      limit={remoteMode ? undefined : visibleLimit}
       value={value}
       onValueChange={(v) => {
         onChange(v ? (v as string) : null);
@@ -181,7 +227,7 @@ export function GitHubRepoPicker({
             size={buttonSize}
             disabled={disabled}
             aria-label="Repository"
-            className={buttonTextClass}
+            className={`${buttonTextClass} ${triggerClassName ?? ""}`}
           >
             <GithubLogo size={14} weight="regular" className="shrink-0" />
             <span className="min-w-0 truncate">{value ?? placeholder}</span>
@@ -192,70 +238,22 @@ export function GitHubRepoPicker({
         anchor={anchor ?? triggerRef}
         side="bottom"
         sideOffset={6}
-        className="min-w-[280px]"
+        className="flex h-80 w-80 flex-col"
       >
         {showSearchInput ? (
-          <div className="flex min-w-0 items-center gap-1 pe-2">
-            <div className="min-w-0 flex-1">
-              <ComboboxInput placeholder="Search repositories..." />
-            </div>
+          <ComboboxInput
+            placeholder="Search repositories..."
+            showTrigger={false}
+          >
+            <InputGroupAddon align="inline-start">
+              <MagnifyingGlass size={14} />
+            </InputGroupAddon>
             {onRefresh ? (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={disabled || isRefreshing}
-                aria-label="Refresh repositories"
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                }}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onRefresh();
-                }}
-              >
-                <ArrowClockwise
-                  size={14}
-                  className={isRefreshing ? "animate-spin" : undefined}
-                />
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
-        <ComboboxEmpty>
-          {showInlineLoadingState
-            ? "Loading repositories..."
-            : "No repositories found."}
-        </ComboboxEmpty>
-        <ComboboxList>
-          {(repo: string) => (
-            <ComboboxItem key={repo} value={repo}>
-              {repo}
-            </ComboboxItem>
-          )}
-        </ComboboxList>
-
-        {(hasMore ||
-          (remoteMode
-            ? repositories.length > COMBOBOX_INITIAL_LIMIT
-            : filteredRepositoryCount > COMBOBOX_INITIAL_LIMIT)) && (
-          <ComboboxListFooter>
-            <div className="px-2 pb-2">
-              <div className="px-1 pb-2 text-center text-muted-foreground text-xs">
-                {remoteMode
-                  ? trimmedSearchQuery
-                    ? `Showing ${repositories.length}${hasMore ? "+" : ""} matches`
-                    : `Showing ${repositories.length}${hasMore ? "+" : ""} repositories`
-                  : trimmedSearchQuery
-                    ? `Showing ${Math.min(visibleLimit, filteredRepositoryCount)} of ${filteredRepositoryCount} matches`
-                    : `Showing ${Math.min(visibleLimit, repositories.length)} of ${repositories.length}`}
-              </div>
-              {hasMore ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full justify-center"
+              <InputGroupAddon align="inline-end">
+                <InputGroupButton
+                  size="icon-xs"
+                  disabled={disabled || isRefreshing}
+                  aria-label="Refresh repositories"
                   onMouseDown={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -263,22 +261,57 @@ export function GitHubRepoPicker({
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
-                    if (remoteMode) {
-                      onLoadMore?.();
-                      return;
-                    }
-
-                    setVisibleLimit(
-                      (currentLimit) => currentLimit + COMBOBOX_INITIAL_LIMIT,
-                    );
+                    onRefresh();
                   }}
                 >
-                  Load more
-                </Button>
-              ) : null}
-            </div>
-          </ComboboxListFooter>
-        )}
+                  <ArrowClockwise
+                    size={14}
+                    className={isRefreshing ? "animate-spin" : undefined}
+                  />
+                </InputGroupButton>
+              </InputGroupAddon>
+            ) : null}
+          </ComboboxInput>
+        ) : null}
+        <ComboboxEmpty
+          className={
+            showInlineLoadingState
+              ? "flex-1 flex-col items-center justify-center gap-2"
+              : undefined
+          }
+        >
+          {showInlineLoadingState ? (
+            <>
+              <Spinner className="size-4" />
+              <Text size="sm" variant="muted">
+                Loading repositories
+              </Text>
+            </>
+          ) : (
+            "No repositories found."
+          )}
+        </ComboboxEmpty>
+        <ComboboxList className="flex-1">
+          {(repo: string) => (
+            <ComboboxItem key={repo} value={repo}>
+              {repo}
+            </ComboboxItem>
+          )}
+        </ComboboxList>
+        {hasMore ? (
+          <div className="shrink-0 border-t p-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              disabled={effectiveIsLoadingMore}
+              loading={showLoadingMore}
+              onClick={loadMore}
+            >
+              Load more repositories
+            </Button>
+          </div>
+        ) : null}
       </ComboboxContent>
     </Combobox>
   );
