@@ -15,7 +15,9 @@ export function HideWeekendsDeprecationNotice({ insightProps }: EditorFilterProp
 
     return (
         <LemonBanner type="info" dismissKey="hide-weekends-deprecation-notice" className="m-2">
-            The "Hide weekend data" option is being replaced by day-of-week exclusions in the date filter.
+            The "Hide weekend data" option is being replaced by day-of-week exclusions in the date filter. They work a
+            little differently: hiding weekends keeps weekend data in the calculation, excluding them leaves it out, so
+            some numbers can differ.
         </LemonBanner>
     )
 }
