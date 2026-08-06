@@ -13,10 +13,12 @@ from django.utils import timezone
 import posthoganalytics
 
 from posthog.event_usage import groups
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 
+from products.data_catalog.backend.facade.flags import is_data_catalog_enabled
 from products.signals.backend.agent_runtime import STEP_SCOUT, resolve_agent_runtime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
@@ -440,6 +442,23 @@ async def arun_signals_scout(
         raise
 
 
+def _data_catalog_enabled_for_team(team: Team) -> bool:
+    """Whether this team's scouts get the governed-metrics catalog steering.
+
+    A flag-read error falls back to off rather than propagating: this resolves inside the
+    `_spawn_and_run` call the outer handler treats as a failed run, so a transient SDK or
+    cache error would book a failure and advance the streak toward pausing the lane, over a
+    prompt section the run does not need. Mirrors `team_limits._read_flag_payload`, where a
+    read error never breaks dispatch either. Off is also the pre-catalog behaviour, so the
+    fallback can only cost steering, never mis-steer a team at a table it cannot query.
+    """
+    try:
+        return is_data_catalog_enabled(team)
+    except Exception as error:
+        capture_exception(error)
+        return False
+
+
 async def _spawn_and_run(
     *,
     team: Team,
@@ -524,12 +543,14 @@ async def _spawn_and_run(
         runtime_adapter=runtime_adapter,
         reasoning_effort=reasoning_effort,
     )
+    data_catalog_enabled = await database_sync_to_async(_data_catalog_enabled_for_team, thread_sensitive=False)(team)
     prompt = build_run_prompt(
         skill,
         run_id=str(run_id),
         team_id=team.id,
         started_at=started_at,
         github_read_access=github_guidance,
+        data_catalog_enabled=data_catalog_enabled,
         # Renders the structured-output section (schema + `scout-record-output` contract) only
         # when the config carries a schema AND emit is on — records land solely as project
         # events, so a dry-run scout must not be steered at a tool that fails closed.
