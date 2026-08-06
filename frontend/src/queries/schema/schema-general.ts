@@ -1583,7 +1583,7 @@ export type TrendsFilter = {
     excludeBoxPlotOutliers?: boolean
     /** Ignored. Superseded by `dateRange.daysOfWeek`, which excludes the days from the query
      * instead of only hiding their buckets. Still accepted so existing API clients keep working.
-     * @deprecated
+     * @deprecated Use dateRange.daysOfWeek instead.
      * @default false */
     hideWeekends?: boolean
     /** @default true */
