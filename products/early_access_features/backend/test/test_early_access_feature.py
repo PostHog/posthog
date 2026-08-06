@@ -647,6 +647,7 @@ class TestEarlyAccessFeature(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
 
+        self.assertEqual(response_data["attr"], "feature_flag_id")
         self.assertEqual(
             response_data["detail"],
             "Group-based feature flags are not supported for Early Access Features.",
@@ -695,6 +696,7 @@ class TestEarlyAccessFeature(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
 
+        self.assertEqual(response_data["attr"], "feature_flag_id")
         self.assertEqual(
             response_data["detail"],
             "Multivariate feature flags are not supported for Early Access Features.",
@@ -736,6 +738,7 @@ class TestEarlyAccessFeature(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
 
+        self.assertEqual(response_data["attr"], "feature_flag_id")
         self.assertEqual(
             response_data["detail"],
             "Linked feature flag hick-bondoogling already has a feature attached to it.",

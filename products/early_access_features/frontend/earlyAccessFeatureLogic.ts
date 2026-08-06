@@ -27,6 +27,7 @@ import {
     EarlyAccessFeatureStage,
     EarlyAccessFeatureTabs,
     EarlyAccessFeatureType,
+    FeatureFlagType,
     NewEarlyAccessFeatureType,
     PreflightStatus,
     ProjectTreeRef,
@@ -40,6 +41,27 @@ import { GAPromotionDialogContent } from './GAPromotionDialogContent'
 
 /** PostHog's own dogfooding project on US cloud — mirrors POSTHOG_TEAM_ID in the backend. */
 export const POSTHOG_TEAM_ID = 2
+
+/** Backend `attr`s that map to a form field, so their errors can render inline instead of as a toast. */
+const FORM_FIELD_NAMES = new Set(['name', 'description', 'payload', 'feature_flag_id', 'documentation_url', 'stage'])
+
+/**
+ * Why a flag can't be linked to an early access feature, or null if it can. Mirrors the create
+ * serializer's three link-time rejections so the flag picker can gray these flags out up front
+ * instead of letting the user pick one the save always refuses.
+ */
+export function getEarlyAccessFeatureFlagDisabledReason(flag: FeatureFlagType): string | null {
+    if (flag.features && flag.features.length > 0) {
+        return 'This flag is already linked to another feature.'
+    }
+    if (flag.filters?.aggregation_group_type_index != null) {
+        return "Group-based flags can't be linked to an early access feature."
+    }
+    if ((flag.filters?.multivariate?.variants?.length ?? 0) > 0) {
+        return "Multivariate flags can't be linked to an early access feature."
+    }
+    return null
+}
 
 export const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
     name: '',
@@ -515,6 +537,12 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 const attr = errorObject.attr
                 const detail = errorObject.detail
                 if (attr && detail) {
+                    // When the rejected field is on the form (e.g. an unlinkable feature flag), render
+                    // the error next to that field instead of only a toast the user has to correlate.
+                    if (FORM_FIELD_NAMES.has(attr)) {
+                        actions.setEarlyAccessFeatureManualErrors({ [attr]: detail })
+                        return
+                    }
                     const message = detail.replace(/^This field/, identifierToHuman(attr))
                     lemonToast.error(`Could not save early access feature: ${message}`)
                     return

@@ -9,9 +9,13 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { EarlyAccessFeatureStage, EarlyAccessFeatureType, FeatureFlagBasicType, Region } from '~/types'
+import { EarlyAccessFeatureStage, EarlyAccessFeatureType, FeatureFlagBasicType, FeatureFlagType, Region } from '~/types'
 
-import { POSTHOG_TEAM_ID, earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
+import {
+    POSTHOG_TEAM_ID,
+    earlyAccessFeatureLogic,
+    getEarlyAccessFeatureFlagDisabledReason,
+} from './earlyAccessFeatureLogic'
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 
 const FEATURE_FLAG: FeatureFlagBasicType = {
@@ -202,5 +206,54 @@ describe('earlyAccessFeatureLogic', () => {
 
             expect(logic.values.earlyAccessFeatureValidationErrors.description).toBeUndefined()
         })
+    })
+
+    // The picker must gray out exactly the flags the create serializer rejects at link time, so the
+    // reason mirrors those three branches. A drift here re-offers a flag the save always refuses.
+    describe('getEarlyAccessFeatureFlagDisabledReason', () => {
+        const flag = (overrides: Partial<FeatureFlagType>): FeatureFlagType =>
+            ({ filters: { groups: [] }, features: [], ...overrides }) as FeatureFlagType
+
+        it('disables a flag that already has a feature attached', () => {
+            expect(getEarlyAccessFeatureFlagDisabledReason(flag({ features: [{ id: 1 } as any] }))).toBe(
+                'This flag is already linked to another feature.'
+            )
+        })
+
+        it('disables a group-based flag', () => {
+            expect(
+                getEarlyAccessFeatureFlagDisabledReason(
+                    flag({ filters: { groups: [], aggregation_group_type_index: 0 } })
+                )
+            ).toBe("Group-based flags can't be linked to an early access feature.")
+        })
+
+        it('disables a multivariate flag', () => {
+            expect(
+                getEarlyAccessFeatureFlagDisabledReason(
+                    flag({ filters: { groups: [], multivariate: { variants: [{ key: 'a' } as any] } } })
+                )
+            ).toBe("Multivariate flags can't be linked to an early access feature.")
+        })
+
+        it('leaves a plain boolean flag selectable', () => {
+            expect(getEarlyAccessFeatureFlagDisabledReason(flag({}))).toBeNull()
+        })
+    })
+
+    // A field-scoped rejection (e.g. an unlinkable flag) must render next to the field, not vanish
+    // into a toast the user has to correlate — so its `attr` becomes a manual form error.
+    it('renders a field-scoped save error inline on that field', () => {
+        logic = earlyAccessFeatureLogic({ id: 'new' })
+        logic.mount()
+
+        logic.actions.saveEarlyAccessFeatureFailure('Some message', {
+            attr: 'feature_flag_id',
+            detail: 'Group-based feature flags are not supported for Early Access Features.',
+        })
+
+        expect(logic.values.earlyAccessFeatureManualErrors.feature_flag_id).toBe(
+            'Group-based feature flags are not supported for Early Access Features.'
+        )
     })
 })

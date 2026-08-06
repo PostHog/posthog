@@ -82,7 +82,11 @@ import {
 } from 'products/error_tracking/frontend/components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from 'products/error_tracking/frontend/components/Assignee/AssigneeSelect'
 
-import { EarlyAccessFeatureLogicProps, earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
+import {
+    EarlyAccessFeatureLogicProps,
+    earlyAccessFeatureLogic,
+    getEarlyAccessFeatureFlagDisabledReason,
+} from './earlyAccessFeatureLogic'
 import { InstructionsModal } from './InstructionsModal'
 
 const RESOURCE_TYPE = 'early-access-feature'
@@ -607,7 +611,11 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                         >
                             {({ value, onChange }) => (
                                 <div className="flex">
-                                    <FlagSelector value={value} onChange={onChange} />
+                                    <FlagSelector
+                                        value={value}
+                                        onChange={onChange}
+                                        getFlagDisabledReason={getEarlyAccessFeatureFlagDisabledReason}
+                                    />
                                     {value && (
                                         <LemonButton
                                             className="ml-2"

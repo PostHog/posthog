@@ -585,6 +585,7 @@ export const InfiniteListRow = ({
 
     if (item && itemGroup) {
         const isDisabledItem = itemGroup?.getIsDisabled?.(item) ?? false
+        const disabledReason = isDisabledItem ? (itemGroup?.getDisabledReason?.(item) ?? null) : null
         const isPinnable = !canSelectItem(listGroupType, dataWarehousePopoverFields) && !isDisabledItem
         const isCrossGroupItem = !!group?.isLocalOnly && itemGroup.type !== listGroupType
         const localListLabel = getLocalListLabel(item)
@@ -607,7 +608,7 @@ export const InfiniteListRow = ({
             fallbackGroup: group ?? itemGroup,
         })
 
-        return (
+        const row = (
             <div
                 {...commonDivProps}
                 className={clsx(commonDivProps.className, isDisabledItem && 'cursor-not-allowed opacity-60')}
@@ -652,6 +653,14 @@ export const InfiniteListRow = ({
                     </div>
                 )}
             </div>
+        )
+
+        return disabledReason ? (
+            <Tooltip title={disabledReason} placement="right">
+                {row}
+            </Tooltip>
+        ) : (
+            row
         )
     }
 

@@ -13,6 +13,7 @@ import {
     EntityFilter,
     EventDefinition,
     EventPropertyFilter,
+    FeatureFlagType,
     PersonProperty,
     PersonPropertyFilter,
     PropertyDefinition,
@@ -192,6 +193,10 @@ export interface TaxonomicFilterProps {
      *  behind it) opts in — that covers every current pageview-URL consumer — so the paths
      *  picker keeps its full URL list. */
     collapseUrlsToContainsRow?: boolean
+    /** Opt-in for the Feature Flags group: return a reason to disable (gray out) a flag, or null to
+     *  leave it selectable. Consumers use this to stop offering flags a downstream save would reject
+     *  (e.g. Early Access Features can't link group-based, multivariate, or already-linked flags). */
+    getFeatureFlagDisabledReason?: (featureFlag: FeatureFlagType) => string | null
 }
 
 export interface DataWarehousePopoverField {
@@ -261,6 +266,9 @@ export interface TaxonomicFilterGroup {
     getIcon?: (instance: any) => JSX.Element
     /** Determines if an item should be disabled (unselectable) */
     getIsDisabled?: (instance: any) => boolean
+    /** Reason an item is disabled, shown as a tooltip on the grayed-out row. Only rendered when
+     *  `getIsDisabled` returns true for the same item. */
+    getDisabledReason?: (instance: any) => string | null
     groupTypeIndex?: number
     getFullDetailUrl?: (instance: any) => string
     excludedProperties?: string[]

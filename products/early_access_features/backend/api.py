@@ -422,24 +422,27 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
 
         feature_flag = None
         if feature_flag_id:
+            # Attach these to `feature_flag_id` (the form's field) rather than raising them as
+            # non-field errors — a bare string ValidationError comes back with no `attr`, so the
+            # form can't render it next to the flag picker and it surfaces elsewhere instead.
             try:
                 feature_flag = FeatureFlag.objects.get(pk=feature_flag_id, team_id=self.context["team_id"])
             except FeatureFlag.DoesNotExist:
-                raise serializers.ValidationError("Feature Flag with this ID does not exist")
+                raise serializers.ValidationError({"feature_flag_id": "Feature Flag with this ID does not exist"})
 
             if feature_flag.features.exists():
                 raise serializers.ValidationError(
-                    f"Linked feature flag {feature_flag.key} already has a feature attached to it."
+                    {"feature_flag_id": f"Linked feature flag {feature_flag.key} already has a feature attached to it."}
                 )
 
             if feature_flag.aggregation_group_type_index is not None:
                 raise serializers.ValidationError(
-                    "Group-based feature flags are not supported for Early Access Features."
+                    {"feature_flag_id": "Group-based feature flags are not supported for Early Access Features."}
                 )
 
             if len(feature_flag.variants) > 0:
                 raise serializers.ValidationError(
-                    "Multivariate feature flags are not supported for Early Access Features."
+                    {"feature_flag_id": "Multivariate feature flags are not supported for Early Access Features."}
                 )
         elif data.get("name"):
             # No flag was chosen, so create() derives one from the name below. Checking the derived

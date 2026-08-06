@@ -7,7 +7,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 
-import { FeatureFlagBasicType } from '~/types'
+import { FeatureFlagBasicType, FeatureFlagType } from '~/types'
 
 interface FlagSelectorProps {
     value: number | undefined
@@ -15,6 +15,9 @@ interface FlagSelectorProps {
     readOnly?: boolean
     disabledReason?: string
     initialButtonLabel?: string
+    /** Return a reason to gray out a flag in the picker (unselectable), or null to leave it selectable.
+     *  Use to stop offering flags a downstream save would reject. */
+    getFlagDisabledReason?: (flag: FeatureFlagType) => string | null
 }
 
 interface PickedFlag {
@@ -48,6 +51,7 @@ export function FlagSelector({
     readOnly,
     disabledReason,
     initialButtonLabel,
+    getFlagDisabledReason,
 }: FlagSelectorProps): JSX.Element {
     const [visible, setVisible] = useState(false)
     // Recently-used flags are persisted with just `{ name, id }` (no `key`), so a pick from the
@@ -72,8 +76,11 @@ export function FlagSelector({
         optionsFromProp: undefined,
         popoverEnabled: true,
         selectFirstItem: true,
-        taxonomicFilterLogicKey: 'flag-selectorz',
+        // A distinct key when a disable predicate is in play keeps this picker's logic (and its
+        // disabled flags) from being shared with other FlagSelectors that don't restrict selection.
+        taxonomicFilterLogicKey: getFlagDisabledReason ? 'flag-selector-restricted' : 'flag-selectorz',
         selectingKeyOnly: true,
+        getFeatureFlagDisabledReason: getFlagDisabledReason,
     }
 
     const buttonLabel = flagSelectorButtonLabel({

@@ -368,6 +368,10 @@ export interface taxonomicFilterLogicValues {
     }
     excludedProperties: TaxonomicFilterGroupValueMap
     explicitActiveTab: TaxonomicFilterGroupType | null
+    featureFlagsWithDisabledReason: {
+        featureFlags: Record<string, boolean | string | undefined>
+        getFeatureFlagDisabledReason: ((featureFlag: FeatureFlagType) => string | null) | undefined
+    }
     groupAnalyticsTaxonomicGroupNames: TaxonomicFilterGroup[]
     groupAnalyticsTaxonomicGroups: TaxonomicFilterGroup[]
     groupType: any
@@ -511,6 +515,13 @@ export interface taxonomicFilterLogicMeta {
         suggestedFiltersLabel: (arg: any) => any
         metadataSource: (arg: any) => AnyDataNode
         excludedProperties: (arg: any) => TaxonomicFilterGroupValueMap
+        featureFlagsWithDisabledReason: (
+            featureFlags: FeatureFlagsSet,
+            arg: any
+        ) => {
+            featureFlags: Record<string, boolean | string | undefined>
+            getFeatureFlagDisabledReason: ((featureFlag: FeatureFlagType) => string | null) | undefined
+        }
         selectedProperties: (arg: any) => TaxonomicFilterGroupValueMap
         propertyAllowList: (arg: any) => TaxonomicFilterGroupValueMap | undefined
         propertyFilters: (
@@ -566,7 +577,7 @@ export interface taxonomicFilterLogicMeta {
                 globals?: Record<string, any>
                 showBreakdownLabelHint: boolean
             },
-            featureFlags: FeatureFlagsSet
+            featureFlagsWithDisabledReason: any
         ) => TaxonomicFilterGroup[]
         activeTaxonomicGroup: (
             activeTab: TaxonomicFilterGroupType,
@@ -582,12 +593,12 @@ export interface taxonomicFilterLogicMeta {
         groupAnalyticsTaxonomicGroupNames: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             currentTeamId: number | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => TaxonomicFilterGroup[]
         groupAnalyticsTaxonomicGroups: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             currentProjectId: number | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => TaxonomicFilterGroup[]
         infiniteListLogics: (
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
@@ -863,6 +874,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (excludedProperties) => (excludedProperties ?? {}) as ExcludedProperties,
             { resultEqualityCheck: objectsEqual },
         ],
+        // Bundle the opt-in flag-disable predicate with featureFlags so the taxonomicGroups selector
+        // stays within its typed input arity instead of taking a 17th input.
+        featureFlagsWithDisabledReason: [
+            (s) => [s.featureFlags, (_, props) => props.getFeatureFlagDisabledReason],
+            (
+                featureFlags: Record<string, boolean | string | undefined>,
+                getFeatureFlagDisabledReason: TaxonomicFilterLogicProps['getFeatureFlagDisabledReason']
+            ) => ({ featureFlags, getFeatureFlagDisabledReason }),
+        ],
         selectedProperties: [
             () => [(_, props) => props.selectedProperties],
             (selectedProperties) => (selectedProperties ?? {}) as SelectedProperties,
@@ -933,7 +953,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.hideBehavioralCohorts,
                 s.endpointFilters,
                 s.hogQLExpressionComponentProps,
-                s.featureFlags,
+                s.featureFlagsWithDisabledReason,
             ],
             (
                 currentTeam: TeamType,
@@ -969,7 +989,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     globals?: Record<string, any>
                     showBreakdownLabelHint: boolean
                 },
-                featureFlags: Record<string, boolean | string | undefined>
+                {
+                    featureFlags,
+                    getFeatureFlagDisabledReason,
+                }: {
+                    featureFlags: Record<string, boolean | string | undefined>
+                    getFeatureFlagDisabledReason: TaxonomicFilterLogicProps['getFeatureFlagDisabledReason']
+                }
             ): TaxonomicFilterGroup[] => {
                 const { eventNames, primaryPropertiesForContextEvents, mcpExcludedEventProperties } =
                     eventNamesWithPrimaryProperties
@@ -1734,8 +1760,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         ),
                         // Recently-used entries are stored stripped of `active`, so treat only an explicit
                         // `false` as disabled — otherwise recent flags are wrongly disabled and unselectable.
+                        // `getFeatureFlagDisabledReason` is an opt-in per-instance predicate (e.g. Early Access
+                        // Features grays out flags it can't link); it never runs unless a consumer passes it.
                         // Keep in sync with the Feature Flags group in utils/buildTaxonomicGroups.tsx.
-                        getIsDisabled: (featureFlag: FeatureFlagType) => featureFlag.active === false,
+                        getIsDisabled: (featureFlag: FeatureFlagType) =>
+                            featureFlag.active === false || !!getFeatureFlagDisabledReason?.(featureFlag),
+                        getDisabledReason: (featureFlag: FeatureFlagType) =>
+                            featureFlag.active === false ? null : (getFeatureFlagDisabledReason?.(featureFlag) ?? null),
                         localItemsSearch: (items, query) => {
                             if (!query) {
                                 return items
