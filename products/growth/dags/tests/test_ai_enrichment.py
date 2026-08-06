@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 from django.core.management.base import CommandError
 
+from parameterized import parameterized
+
 from posthog.models.organization import Organization
 
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
@@ -270,10 +272,15 @@ class TestAiEnrichmentJob(_EnrichmentDagTestCase):
         assert "dagster/max_runtime" in tags
 
 
-@pytest.mark.parametrize(
-    "cloud_deployment,registered",
-    [(None, True), ("LOCAL", True), ("DEV", True), ("US", True), ("EU", False)],
+@parameterized.expand(
+    [
+        ("unset", None, True),
+        ("local", "LOCAL", True),
+        ("dev", "DEV", True),
+        ("us", "US", True),
+        ("eu", "EU", False),
+    ]
 )
-def test_ai_enrichment_registered_per_environment(cloud_deployment: str | None, registered: bool) -> None:
+def test_ai_enrichment_registered_per_environment(_name: str, cloud_deployment: str | None, registered: bool) -> None:
     with patch.object(ai_enrichment.settings, "CLOUD_DEPLOYMENT", cloud_deployment):
         assert is_ai_enrichment_registered() is registered

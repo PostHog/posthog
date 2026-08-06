@@ -542,6 +542,33 @@ class TestAiProcessingConsent(_BatchCommandTestCase):
 
         assert "skipped_no_ai_consent 1" in out.getvalue()
 
+    def test_a_declined_org_ordered_before_an_approved_one_does_not_consume_the_limit(self):
+        # Regression: --limit used to count a declined org as "attempted" the moment it was
+        # enumerated, before the consent check (which only ran later, at spend-time inside
+        # _process). A declined org costs nothing, so with --limit 1 and a declined org sorting
+        # first by organization_id, the run used to exhaust its whole budget on that one free
+        # skip and never even enumerate the approved org behind it - zero verdicts, yet the
+        # command still exited 0 (tried == 0 skips the "every attempted org failed" check). A
+        # consent-filtered candidate count downstream can't tell that apart from a real failure.
+        self._config()
+        org_x = Organization.objects.create(name="x")
+        org_y = Organization.objects.create(name="y")
+        declined_org, approved_org = sorted([org_x, org_y], key=lambda org: str(org.id))
+        declined_org.is_ai_data_processing_approved = False
+        declined_org.save(update_fields=["is_ai_data_processing_approved"])
+        self._fetch(organization=declined_org)
+        self._fetch(organization=approved_org)
+        client = _mock_llm_client()
+        out = StringIO()
+
+        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+            call_command("enrichment_label_batch", label="test_label", workers=1, limit=1, stdout=out)
+
+        assert EnrichmentLabelResult.objects.filter(organization=approved_org).exists()
+        assert "attempted 1" in out.getvalue()
+        assert "skipped_no_ai_consent 1" in out.getvalue()
+        assert "failures 0" in out.getvalue()
+
     def test_the_dry_run_prints_a_skip_row_rather_than_an_error(self):
         self._config()
         self.organization.is_ai_data_processing_approved = False
