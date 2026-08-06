@@ -60,8 +60,6 @@ function SpendTooltip({
   const cumulativeSpend = context.seriesData.find(
     (series) => series.series.key === "cumulative-spend",
   )?.value;
-  const modelColor = context.seriesData[0]?.color ?? "var(--data-color-1)";
-
   return (
     <TooltipSurface>
       <div className="mb-2">
@@ -80,7 +78,7 @@ function SpendTooltip({
           key={model.model}
           className="flex min-w-0 items-center gap-2 px-1.5 py-0.5"
         >
-          <TooltipSwatch color={modelColor} />
+          <TooltipSwatch color={modelColor(model.model)} />
           <span className="flex-1 truncate">{model.model}</span>
           <strong className="tabular-nums">{formatUsd(model.cost_usd)}</strong>
           <span className="tabular-nums opacity-60">
@@ -102,6 +100,16 @@ function SpendTooltip({
       </div>
     </TooltipSurface>
   );
+}
+
+function modelColor(model: string): string {
+  let hash = 0;
+
+  for (const character of model) {
+    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  }
+
+  return `var(--data-color-${(hash % 15) + 1})`;
 }
 
 export function SpendOverTimeCard({ filledDays }: SpendOverTimeCardProps) {
