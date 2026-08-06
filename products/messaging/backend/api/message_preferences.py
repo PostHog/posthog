@@ -1,8 +1,10 @@
+import re
 from typing import Any, Literal
 
 from django.db import transaction
 
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -12,6 +14,7 @@ from rest_framework.response import Response
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.streaming import streaming_response
 from posthog.plugins import plugin_server_api
 
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
@@ -20,7 +23,11 @@ from products.messaging.backend.models.message_preferences import (
     MessageRecipientPreference,
     PreferenceStatus,
 )
+from products.messaging.backend.services.opt_out_service import BulkOptOutEntry, OptOutService, UnknownCategoryError
 from products.messaging.backend.tasks import sync_preferences_to_customerio_task
+
+MAX_BULK_OPT_OUT_ENTRIES = 1000
+UNSAFE_FILENAME_CHARACTERS = re.compile(r"[^A-Za-z0-9_-]+")
 
 
 class OptOutsPagination(PageNumberPagination):
@@ -55,17 +62,6 @@ class MessagePreferencesSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "id": {"help_text": "Server-assigned UUID for this recipient's preference record."},
         }
-
-
-class PaginatedMessagePreferencesSerializer(serializers.Serializer):
-    """OpenAPI shape for the paginated opt-outs response. Declared so drf-spectacular emits
-    the {count, next, previous, results} envelope on the generated client, rather than a bare
-    array — which the frontend actually receives at runtime."""
-
-    count = serializers.IntegerField(help_text="Total number of opted-out recipients for the team.")
-    next = serializers.URLField(allow_null=True, help_text="URL for the next page, or null on the last page.")
-    previous = serializers.URLField(allow_null=True, help_text="URL for the previous page, or null on the first page.")
-    results = MessagePreferencesSerializer(many=True)
 
 
 class AddOptOutRequestSerializer(serializers.Serializer):
@@ -108,6 +104,62 @@ class WebhookUrlSerializer(serializers.Serializer):
     url = serializers.URLField(help_text="URL to register in Customer.io so it posts subscription changes to PostHog.")
 
 
+class MessagingErrorSerializer(serializers.Serializer):
+    error = serializers.CharField(help_text="Human-readable description of what went wrong.")
+
+
+class PaginatedOptOutsSerializer(serializers.Serializer):
+    """OpenAPI shape for the paginated opt-outs response, so the generated clients get the
+    {count, next, previous, results} envelope instead of an untyped object."""
+
+    count = serializers.IntegerField(help_text="Total number of opted-out recipients for the category.")
+    next = serializers.URLField(allow_null=True, help_text="URL for the next page, or null on the last page.")
+    previous = serializers.URLField(allow_null=True, help_text="URL for the previous page, or null on the first page.")
+    results = MessagePreferencesSerializer(many=True)
+
+
+class BulkOptOutEntrySerializer(serializers.Serializer):
+    identifier = serializers.CharField(
+        max_length=512,
+        help_text="The recipient identifier to opt out (e.g. email address).",
+    )
+    category_key = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Message category key for this recipient. Overrides the request-level category_key.",
+    )
+
+
+class BulkAddOptOutsRequestSerializer(serializers.Serializer):
+    opt_outs = BulkOptOutEntrySerializer(
+        many=True,
+        allow_empty=False,
+        help_text=f"Recipients to opt out, at most {MAX_BULK_OPT_OUT_ENTRIES} per request.",
+    )
+    category_key = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Message category key applied to entries without their own. If omitted, recipients are opted out of all marketing messages.",
+    )
+
+    def validate_opt_outs(self, value: list[dict]) -> list[dict]:
+        if len(value) > MAX_BULK_OPT_OUT_ENTRIES:
+            raise serializers.ValidationError(f"Send at most {MAX_BULK_OPT_OUT_ENTRIES} opt-outs per request.")
+        return value
+
+
+class BulkAddOptOutsResultSerializer(serializers.Serializer):
+    total = serializers.IntegerField(help_text="Number of opt-out entries received.")
+    opted_out = serializers.IntegerField(help_text="Number of recipient and category pairs recorded as opted out.")
+    skipped = serializers.IntegerField(help_text="Number of entries skipped because their category_key doesn't exist.")
+    # The metaclass pops declared fields off the class, so this doesn't actually shadow
+    # Serializer.errors at runtime — mypy just can't see that.
+    errors = serializers.ListField(  # type: ignore[assignment]
+        child=serializers.CharField(),
+        help_text="The first few entry-level problems, so the caller can fix their list.",
+    )
+
+
 class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """
     Per-team messaging preferences for recipients.
@@ -119,11 +171,12 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     scope_object = "hog_flow"
     # Every action here is a custom @action, so none of them match the default read/write action
-    # names. Both lists have to be declared: without them no scope maps to the action at all and
-    # APIScopePermission rejects the request as "does not support personal API key access".
-    # `generate_link` counts as a write — the token it mints can rewrite a recipient's preferences.
-    scope_object_read_actions = ["opt_outs", "webhook_url"]
-    scope_object_write_actions = ["add_opt_out", "remove_opt_out", "generate_link"]
+    # names — an action listed in neither gets no scope mapping and APIScopePermission rejects
+    # personal API key requests for it. Only the opt-out list endpoints are reachable with API
+    # keys (and therefore MCP); webhook_url and generate_link stay session-only by being listed
+    # in neither.
+    scope_object_read_actions = ["opt_outs", "export_opt_outs_csv"]
+    scope_object_write_actions = ["add_opt_out", "bulk_add_opt_outs", "remove_opt_out"]
     serializer_class = _FallbackSerializer
 
     def _require_resource_access(self, required_level: Literal["viewer", "editor"], message: str) -> None:
@@ -136,12 +189,21 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @extend_schema(
         parameters=[
-            OpenApiParameter(name="category_key", type=str, location=OpenApiParameter.QUERY, required=False),
-            OpenApiParameter(name="page", type=int, location=OpenApiParameter.QUERY, required=False),
-            OpenApiParameter(name="page_size", type=int, location=OpenApiParameter.QUERY, required=False),
+            OpenApiParameter(
+                name="category_key",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Message category key to list opt-outs for. If omitted, lists recipients opted out of all marketing messages.",
+            ),
+            OpenApiParameter(name="page", type=OpenApiTypes.INT, location=OpenApiParameter.QUERY, required=False),
+            OpenApiParameter(name="page_size", type=OpenApiTypes.INT, location=OpenApiParameter.QUERY, required=False),
         ],
-        responses={200: PaginatedMessagePreferencesSerializer},
-        summary="List opted-out recipients for the team",
+        responses={
+            200: PaginatedOptOutsSerializer,
+            404: OpenApiResponse(response=MessagingErrorSerializer),
+        },
+        summary="List recipients opted out of a message category",
     )
     @action(detail=False, methods=["get"])
     def opt_outs(self, request: Request, **kwargs: Any) -> Response:
@@ -284,6 +346,73 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             preferences[str(other_category_id)] = PreferenceStatus.OPTED_OUT.value
 
         preferences[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = PreferenceStatus.OPTED_IN.value
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="category_key",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Message category key to export. If omitted, exports recipients opted out of all marketing messages.",
+            )
+        ],
+        responses={
+            (200, "text/csv"): OpenApiTypes.STR,
+            404: OpenApiResponse(response=MessagingErrorSerializer),
+        },
+        summary="Download the opt-out list as a CSV file",
+    )
+    @action(detail=False, methods=["get"])
+    def export_opt_outs_csv(self, request, **kwargs):
+        """Stream the opt-out list for a category as a CSV file that can be re-imported as-is."""
+        self._require_resource_access("viewer", "You need hog_flow viewer access to view the opt-out list.")
+
+        category_key = request.query_params.get("category_key")
+        service = OptOutService(team_id=self.team_id, user=request.user)
+
+        try:
+            rows = service.export_rows(category_key)
+        except UnknownCategoryError as e:
+            return Response({"error": str(e)}, status=status.HTTP_404_NOT_FOUND)
+
+        filename_suffix = (
+            UNSAFE_FILENAME_CHARACTERS.sub("-", category_key).strip("-") if category_key else "all-marketing"
+        )
+        return streaming_response(
+            rows,
+            content_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="opt-outs-{filename_suffix or "category"}.csv"'},
+        )
+
+    @extend_schema(
+        request=BulkAddOptOutsRequestSerializer,
+        responses={
+            200: BulkAddOptOutsResultSerializer,
+            404: OpenApiResponse(response=MessagingErrorSerializer),
+        },
+        summary="Add multiple recipients to the opt-out list",
+    )
+    @action(detail=False, methods=["post"])
+    def bulk_add_opt_outs(self, request, **kwargs):
+        """Opt every recipient in the list out of the category named on their entry, or a default category."""
+        self._require_resource_access("editor", "You need hog_flow editor access to modify the opt-out list.")
+
+        serializer = BulkAddOptOutsRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        entries = [
+            BulkOptOutEntry(identifier=entry["identifier"], category_key=entry.get("category_key") or None)
+            for entry in serializer.validated_data["opt_outs"]
+        ]
+
+        service = OptOutService(team_id=self.team_id, user=request.user)
+        try:
+            result = service.opt_out_recipients(entries, serializer.validated_data.get("category_key") or None)
+        except UnknownCategoryError as e:
+            return Response({"error": str(e)}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response(BulkAddOptOutsResultSerializer(result).data, status=status.HTTP_200_OK)
 
     @extend_schema(
         responses={200: WebhookUrlSerializer},

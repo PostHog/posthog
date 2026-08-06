@@ -7,7 +7,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 
 from ee.api.agentic_provisioning.credentials import maybe_create_provisioned_pat
-from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import ProvisioningTestBase, provisioning_config
 
 
 class TestProvisioningResources(ProvisioningTestBase):
@@ -25,8 +25,7 @@ class TestProvisioningResources(ProvisioningTestBase):
         assert "host" in data["complete"]["access_configuration"]
 
     def test_create_resource_rate_limited_uses_status_envelope(self):
-        self.partner.provisioning_rate_limit_resource_creates = 1
-        self.partner.save(update_fields=["provisioning_rate_limit_resource_creates"])
+        self.partner.update_provisioning_rate_limits(resource_creates=1)
         token = self._get_bearer_token()
 
         assert self._post_with_bearer("/api/agentic/provisioning/resources", token=token).status_code == 200
@@ -164,8 +163,7 @@ class TestProvisioningResources(ProvisioningTestBase):
     def test_create_resource_omits_pat_when_app_gate_off(self):
         token = self._get_bearer_token()
         app = self.partner
-        app.provisioning_issues_personal_api_key = False
-        app.save(update_fields=["provisioning_issues_personal_api_key"])
+        app.update_provisioning(issues_personal_api_key=False)
         before = PersonalAPIKey.objects.filter(user=self.user).count()
         res = self._post_with_bearer(
             "/api/agentic/provisioning/resources",
@@ -186,7 +184,7 @@ class TestProvisioningResources(ProvisioningTestBase):
             redirect_uris="https://localhost",
             algorithm="RS256",
             scopes=["insight:read"],
-            provisioning_issues_personal_api_key=gate_on,
+            _provisioning_config=provisioning_config(issues_personal_api_key=gate_on),
         )
         result = maybe_create_provisioned_pat(self.user, self.team, app, "insight:read")
         if gate_on:
@@ -498,7 +496,6 @@ class TestProvisioningResources(ProvisioningTestBase):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://localhost",
             algorithm="RS256",
-            provisioning_partner_type="other_partner",
         )
         other_partner_team = Team.objects.create_with_data(
             initiating_user=self.user,
@@ -689,7 +686,6 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://localhost",
             algorithm="RS256",
-            provisioning_partner_type="other_partner",
         )
         TeamProvisioningConfig.objects.update_or_create(
             team=self.team, defaults={"application": other_partner, "stripe_project_id": "proj_other_owner"}

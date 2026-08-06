@@ -11,7 +11,7 @@ use crate::error::UnhandledError;
 use crate::langs::native::DebugImage;
 use crate::stages::resolution::exception::ExceptionResolver;
 use crate::stages::resolution::frame::FrameResolver;
-use crate::stages::resolution::ResolutionStage;
+use crate::stages::resolution::LocalResolutionContext;
 use crate::types::Exception;
 use cymbal_proto::cymbal::resolution::v1::{
     resolve_outcome, Accepted, Done, Error as ItemError, ResolveItem, ResolveOutcome,
@@ -27,7 +27,7 @@ const SERVER_ITEMS_TOTAL: &str = "cymbal_remote_resolution_server_items_total";
 
 pub(super) async fn run_resolve(
     mut input: Streaming<ResolveItem>,
-    stage: ResolutionStage,
+    stage: LocalResolutionContext,
     tx: mpsc::Sender<Result<ResolveOutcome, Status>>,
     load_monitor: LoadMonitor,
 ) {
@@ -139,7 +139,7 @@ impl Drop for InFlightGuard {
 }
 
 async fn process_item(
-    stage: ResolutionStage,
+    stage: LocalResolutionContext,
     item: ResolveItem,
     in_flight_guard: InFlightGuard,
 ) -> ProcessedItem {
@@ -230,7 +230,10 @@ enum ItemFailure {
     Unhandled(String),
 }
 
-async fn resolve_item(stage: &ResolutionStage, item: &ResolveItem) -> Result<Vec<u8>, ItemFailure> {
+async fn resolve_item(
+    stage: &LocalResolutionContext,
+    item: &ResolveItem,
+) -> Result<Vec<u8>, ItemFailure> {
     let exception: Exception = serde_json::from_slice(&item.exception_json)
         .map_err(|e| ItemFailure::InvalidPayload(format!("invalid exception_json: {e}")))?;
 
@@ -270,7 +273,7 @@ enum ResolveOneError {
 }
 
 async fn resolve_one_exception(
-    stage: ResolutionStage,
+    stage: LocalResolutionContext,
     team_id: i32,
     exception: Exception,
     debug_images: Vec<DebugImage>,
@@ -299,7 +302,7 @@ async fn resolve_one_exception(
 }
 
 async fn acquire_permit(
-    stage: &ResolutionStage,
+    stage: &LocalResolutionContext,
 ) -> Result<tokio::sync::OwnedSemaphorePermit, ResolveOneError> {
     stage
         .acquire_symbol_resolution_permit()

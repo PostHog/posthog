@@ -1,3 +1,4 @@
+from datetime import timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -282,6 +283,15 @@ class TestRemoteConfig(_RemoteConfigBase):
 
         list_limited_team_attributes.clear_cache()
 
+    def test_site_functions_query_failure_degrades_to_empty_list(self):
+        with patch(
+            "products.cdp.backend.models.hog_functions.hog_function.HogFunction.objects.select_related",
+            side_effect=Exception("column posthog_hogfunction.version does not exist"),
+        ):
+            result = self.remote_config._build_site_apps_js()
+
+        assert result == []
+
 
 class TestRemoteConfigSurveys(_RemoteConfigBase):
     # Largely copied from TestSurveysAPIList
@@ -310,6 +320,27 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
 
         self.sync_remote_config()
         assert "survey_config" not in self.remote_config.config
+
+    def test_surveys_disabled_when_only_draft_and_stopped_surveys_exist(self):
+        Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Draft survey",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a survey?"}],
+        )
+        Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Stopped survey",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a hedgehog?"}],
+            start_date=timezone.now() - timedelta(days=2),
+            end_date=timezone.now() - timedelta(days=1),
+        )
+
+        self.sync_remote_config()
+        assert self.remote_config.config["surveys"] is False
 
     def test_includes_range_of_survey_types(self):
         survey_basic = Survey.objects.create(

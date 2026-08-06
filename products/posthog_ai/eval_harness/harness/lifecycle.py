@@ -236,7 +236,7 @@ class SandboxedEvalHarness:
                 overrides.update(
                     DEBUG=True,  # Required for sandbox URL validation to allow http://localhost
                     # The sandbox reaches the Django live server with a non-loopback
-                    # Host header (host.docker.internal, or the ngrok domain); allow it
+                    # Host header (host.docker.internal, or the Tailscale Funnel host); allow it
                     # (test-only) so the agent's event-ingest stream isn't rejected with
                     # an invalid-host 400.
                     ALLOWED_HOSTS=["*"],

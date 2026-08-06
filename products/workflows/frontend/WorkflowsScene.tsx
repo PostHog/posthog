@@ -2,13 +2,12 @@ import { MakeLogicType, actions, connect, kea, path, props, reducers, selectors,
 import { urlToAction } from 'kea-router'
 
 import { IconApple, IconAndroid, IconLetter, IconPlusSmall } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonMenu, LemonMenuItems, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonMenu, LemonMenuItems, LemonTag } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -122,6 +121,8 @@ export const workflowsSceneLogic = kea<workflowsSceneLogicType>([
                 let possibleTab: WorkflowsSceneTab = (tab as WorkflowsSceneTab) ?? 'workflows'
                 possibleTab = WORKFLOW_SCENE_TABS.includes(possibleTab) ? possibleTab : 'workflows'
 
+                // The reputation tab is beta, feature-flagged: redirect direct navigation for
+                // everyone outside the flag.
                 if (possibleTab === 'reputation' && !values.featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_REPUTATION]) {
                     possibleTab = 'workflows'
                 }
@@ -148,7 +149,6 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { openSetupModal } = useActions(integrationsLogic)
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
     const { showNewWorkflowModal } = useActions(newWorkflowLogic)
-    const emailReputationEnabled = useFeatureFlag('WORKFLOWS_EMAIL_REPUTATION')
     const newChannelRestrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -241,10 +241,17 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
             content: <SuppressionScene />,
             link: urls.workflows('suppression'),
         },
-        ...(emailReputationEnabled
+        ...(featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_REPUTATION]
             ? [
                   {
-                      label: 'Reputation',
+                      label: (
+                          <>
+                              Reputation{' '}
+                              <LemonTag className="ml-1" type="completion">
+                                  Beta
+                              </LemonTag>
+                          </>
+                      ),
                       key: 'reputation' as const,
                       content: <WorkflowsReputation />,
                       link: urls.workflows('reputation'),
@@ -329,14 +336,8 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
             {emailSendingSuspended && (
                 <LemonBanner type="error" data-attr="workflows-email-suspended-banner">
                     Email sending is suspended for this project. Workflow emails are not being delivered.
-                    {emailSendingSuspensionReason ? <> Reason: {emailSendingSuspensionReason}.</> : null}{' '}
-                    {emailReputationEnabled && (
-                        <>
-                            Review the <Link to={urls.workflows('reputation')}>Reputation tab</Link>
-                            {' and '}
-                        </>
-                    )}
-                    contact support to get sending re-enabled.
+                    {emailSendingSuspensionReason ? <> Reason: {emailSendingSuspensionReason}.</> : null} Contact
+                    support to get sending re-enabled.
                 </LemonBanner>
             )}
             <LemonTabs activeKey={currentTab} tabs={tabs} sceneInset data-attr="workflows-scene-tabs" />

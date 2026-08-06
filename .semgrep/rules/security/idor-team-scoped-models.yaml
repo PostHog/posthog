@@ -56,6 +56,7 @@ rules:
                           (?x)(
                               AccessControl
                               |Account
+                              |AccountChannelSummary
                               |AccountRelationship
                               |AccountRelationshipDefinition
                               |Action
@@ -84,7 +85,13 @@ rules:
                               |BatchImport
                               |BriefConfig
                               |ButtonTile
+                              |Canvas
+                              |CanvasBuild
+                              |CanvasSourceVersion
                               |ChangeRequest
+                              |ChannelContextGeneration
+                              |ChannelInstructions
+                              |ChannelStar
                               |ClusteringConfig
                               |ClusteringJob
                               |Cohort
@@ -110,6 +117,8 @@ rules:
                               |DataModelingJob
                               |Dataset
                               |DatasetItem
+                              |DatasetItemVersion
+                              |DatasetRevision
                               |DataWarehouseCredential
                               |DataWarehouseJoin
                               |DataWarehouseManagedViewSet
@@ -147,6 +156,7 @@ rules:
                               |ErrorTrackingSuppressionRule
                               |ErrorTrackingSymbolSet
                               |Evaluation
+                              |EvaluationDirectory
                               |Experiment
                               |ExperimentHoldout
                               |ExperimentMetricsRecalculation
@@ -160,6 +170,7 @@ rules:
                               |FeatureFlag
                               |TeamExperimentsConfig
                               |TeamFeatureFlagDefaultsConfig
+                              |TeamMCPGatewayConfig
                               |TeamSessionSummariesConfig
                               |TeamWorkflowsConfig
                               |FieldNote
@@ -177,6 +188,7 @@ rules:
                               |HogFlowSchedule
                               |HogFlowTemplate
                               |HogFunction
+                              |HogFunctionRevision
                               |Hook
                               |Insight
                               |InsightVariable
@@ -205,6 +217,7 @@ rules:
                               |LLMSkillOwner
                               |LLMTraceSummary
                               |ManagedWarehouseBackfillPartition
+                              |ManagedWarehouseSourceJob
                               |MarketingAnalyticsGoalMapping
                               |MessageCategory
                               |MessageRecipientPreference
@@ -213,9 +226,16 @@ rules:
                               |Metric
                               |RelationshipProposal
                               |MCPAnalyticsSubmission
+                              |MCPAuditEvent
+                              |MCPGatewayServer
                               |MCPIntentClusterSnapshot
                               |MCPIntentEmbeddingCache
+                              |MCPMemberServerRevocation
+                              |MCPOrgRule
+                              |MCPServiceAccount
+                              |MCPServiceAccountServerAccess
                               |MCPSession
+                              |MCPToolPolicy
                               |Opportunity
                               |OptOutSyncConfig
                               |Node
@@ -268,6 +288,7 @@ rules:
                               |SignalScoutRun
                               |SignalScoutEmission
                               |SignalScoutNote
+                              |SignalScoutStructuredOutput
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -290,6 +311,7 @@ rules:
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
+                              |TaskSession
                               |TaskThreadMessage
                               |TaskThreadMessageMention
                               |Channel
@@ -300,6 +322,7 @@ rules:
                               |Threshold
                               |ToleratedHash
                               |TeamConversationsTeamsConfig
+                              |SigningSecret
                               |Ticket
                               |TicketView
                               |TicketViewFavorite
@@ -379,6 +402,7 @@ rules:
                     (?x)(
                         AccessControl
                         |Account
+                        |AccountChannelSummary
                         |AccountRelationship
                         |AccountRelationshipDefinition
                         |Action
@@ -407,7 +431,13 @@ rules:
                         |BatchImport
                         |BriefConfig
                         |ButtonTile
+                        |Canvas
+                        |CanvasBuild
+                        |CanvasSourceVersion
                         |ChangeRequest
+                        |ChannelContextGeneration
+                        |ChannelInstructions
+                        |ChannelStar
                         |ClusteringConfig
                         |ClusteringJob
                         |Cohort
@@ -433,6 +463,8 @@ rules:
                         |DataModelingJob
                         |Dataset
                         |DatasetItem
+                        |DatasetItemVersion
+                        |DatasetRevision
                         |DataWarehouseCredential
                         |DataWarehouseJoin
                         |DataWarehouseManagedViewSet
@@ -470,6 +502,7 @@ rules:
                         |ErrorTrackingSuppressionRule
                         |ErrorTrackingSymbolSet
                         |Evaluation
+                        |EvaluationDirectory
                         |Experiment
                         |ExperimentHoldout
                         |ExperimentMetricsRecalculation
@@ -483,6 +516,7 @@ rules:
                         |FeatureFlag
                         |TeamExperimentsConfig
                         |TeamFeatureFlagDefaultsConfig
+                        |TeamMCPGatewayConfig
                         |TeamSessionSummariesConfig
                         |TeamWorkflowsConfig
                         |FieldNote
@@ -500,6 +534,7 @@ rules:
                         |HogFlowSchedule
                         |HogFlowTemplate
                         |HogFunction
+                        |HogFunctionRevision
                         |Hook
                         |Insight
                         |InsightVariable
@@ -523,6 +558,7 @@ rules:
                         |LLMSkillOwner
                         |LLMTraceSummary
                         |ManagedWarehouseBackfillPartition
+                        |ManagedWarehouseSourceJob
                         |MarketingAnalyticsGoalMapping
                         |MessageCategory
                         |MessageRecipientPreference
@@ -530,9 +566,16 @@ rules:
                         |MessageTemplate
                         |Metric
                         |RelationshipProposal
+                        |MCPAuditEvent
+                        |MCPGatewayServer
                         |MCPIntentClusterSnapshot
                         |MCPIntentEmbeddingCache
+                        |MCPMemberServerRevocation
+                        |MCPOrgRule
+                        |MCPServiceAccount
+                        |MCPServiceAccountServerAccess
                         |MCPSession
+                        |MCPToolPolicy
                         |Opportunity
                         |OptOutSyncConfig
                         |Node
@@ -585,6 +628,7 @@ rules:
                         |SignalScoutRun
                         |SignalScoutEmission
                         |SignalScoutNote
+                        |SignalScoutStructuredOutput
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
@@ -607,6 +651,7 @@ rules:
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
+                        |TaskSession
                         |TaskThreadMessage
                         |TaskThreadMessageMention
                         |Channel
@@ -617,6 +662,7 @@ rules:
                         |Threshold
                         |ToleratedHash
                         |TeamConversationsTeamsConfig
+                        |SigningSecret
                         |Ticket
                         |TicketView
                         |TicketViewFavorite
@@ -896,10 +942,12 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              DashboardPrivilege
+                              CommunitySkillVote
+                              |DashboardPrivilege
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
                               |SignalUserAutonomyConfig
+                              |TaskPin
                               |UserPushToken
                               |WebauthnCredential
                           )$
@@ -950,10 +998,12 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        DashboardPrivilege
+                        CommunitySkillVote
+                        |DashboardPrivilege
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
                         |SignalUserAutonomyConfig
+                        |TaskPin
                         |UserPushToken
                         |WebauthnCredential
                     )$

@@ -38,6 +38,16 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { newInternalTab } from 'lib/utils/newInternalTab'
+import { biEditorLogic } from 'scenes/data-warehouse/editor/bi/biEditorLogic'
+import {
+    BI_FIELD_DRAG_MIME_TYPE,
+    BIDataSource,
+    BIEditorView,
+    BIField,
+    getBIFieldId,
+    isBIFieldCompatible,
+    serializeBIField,
+} from 'scenes/data-warehouse/editor/bi/biEditorTypes'
 import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelectorLogic'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
@@ -52,6 +62,7 @@ import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/l
 import { buildSelectAllQuery } from 'products/data_warehouse/frontend/utils'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
+import { TableCertificationIcon } from '../../TableCertificationBadge'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
@@ -70,6 +81,20 @@ export function getSidebarAddJoinSourceTableName(
         default:
             return null
     }
+}
+
+/**
+ * The text a column row inserts at the cursor, or null when there is nothing to insert.
+ *
+ * The name has to be checked rather than assumed: escaping an undefined one throws, and a throw
+ * escapes the tree row's `<a>` click handler before it can preventDefault, so the browser follows
+ * the row's placeholder href and leaves the scene the tree is embedded in.
+ */
+export function getColumnInsertText(record: Record<string, any> | undefined): string | null {
+    if (record?.type !== 'column' || !record.columnName) {
+        return null
+    }
+    return escapeDottedHogQLIdentifier(record.columnName)
 }
 
 /**
@@ -92,6 +117,7 @@ const filterTreeSections = (sections: TreeDataItem[], searchTerm: string): TreeD
 export const QueryDatabase = ({
     virtualizationScrollContainerRef,
     extraTreeSections,
+    tabId,
 }: {
     virtualizationScrollContainerRef?: React.RefObject<HTMLDivElement | null>
     /**
@@ -101,6 +127,7 @@ export const QueryDatabase = ({
      * unaffected.
      */
     extraTreeSections?: TreeDataItem[]
+    tabId: string
 }): JSX.Element => {
     const {
         searchTerm,
@@ -114,6 +141,8 @@ export const QueryDatabase = ({
         highlightViewsSectionDrop,
         featureFlags,
     } = useValues(queryDatabaseLogic)
+    const { config: biConfig, editorView } = useValues(biEditorLogic({ tabId }))
+    const isBIEditor = editorView === BIEditorView.BI
     const {
         setExpandedFolders,
         toggleFolderOpen,
@@ -158,7 +187,10 @@ export const QueryDatabase = ({
     )
     const addJoinAccessDisabledReason = resourceLevelEditorDisabledReason
     const materializationAccessDisabledReason = resourceLevelEditorDisabledReason
-    const warehouseAccessControlEnabled = !!featureFlags[FEATURE_FLAGS.HOGQL_WAREHOUSE_ACCESS_CONTROL]
+    // Embedded editors mount no modals (SQLEditor gates them on FullScene), so an access control
+    // item there opens nothing. Most embedded callers hide the tree entirely, but not all.
+    const warehouseAccessControlEnabled =
+        !!featureFlags[FEATURE_FLAGS.HOGQL_WAREHOUSE_ACCESS_CONTROL] && !isEmbeddedMode
     const formatTraversalChain = (chain?: (string | number)[]): string | null => {
         if (!chain || chain.length === 0) {
             return null
@@ -354,8 +386,10 @@ export const QueryDatabase = ({
         <LemonTree
             ref={treeRef}
             data={treeData}
-            enableDragAndDrop={!searchTerm}
-            isItemDraggable={(item) => !searchTerm && item.record?.type === 'view' && item.record?.isSavedQuery}
+            enableDragAndDrop={!searchTerm && !isBIEditor}
+            isItemDraggable={(item) =>
+                !searchTerm && !isBIEditor && item.record?.type === 'view' && item.record?.isSavedQuery
+            }
             isItemDroppable={(item) =>
                 !searchTerm &&
                 ((item.record?.type === 'folder' && item.record?.folderType === 'view-folder') ||
@@ -399,8 +433,9 @@ export const QueryDatabase = ({
                 }
 
                 // Insert the column at the cursor, preserving the rest of the query the user has typed
-                if (item && item.record?.type === 'column') {
-                    insertTextAtCursor(escapeDottedHogQLIdentifier(item.record.columnName))
+                const columnInsertText = isBIEditor ? null : getColumnInsertText(item?.record)
+                if (columnInsertText) {
+                    insertTextAtCursor(columnInsertText)
                 }
 
                 if (item && item.record?.type === 'unsaved-query') {
@@ -412,8 +447,35 @@ export const QueryDatabase = ({
                 const matches = item.record?.searchMatches
                 const hasMatches = matches && matches.length > 0
                 const isColumn = item.record?.type === 'column'
+                const biFieldSource: BIDataSource | null =
+                    isColumn && typeof item.record?.table === 'string'
+                        ? {
+                              table: item.record.table,
+                              connectionId:
+                                  connectionId && connectionId !== POSTHOG_WAREHOUSE ? connectionId : undefined,
+                          }
+                        : null
+                const columnName =
+                    isColumn && typeof item.record?.columnName === 'string' ? item.record.columnName : null
+                const biField: BIField | null =
+                    biFieldSource && columnName
+                        ? {
+                              id: getBIFieldId(biFieldSource, columnName),
+                              name: item.name,
+                              expression: columnName,
+                              type: item.record?.field.type,
+                              source: biFieldSource,
+                          }
+                        : null
+                const canDragBIField = isBIEditor && !!biField && isBIFieldCompatible(biConfig.source, biField)
                 const columnType = isColumn ? item.record?.field?.type : null
                 const tableKindLabel = !isColumn && item.children?.length ? getTableKindLabel(item) : null
+                const certification =
+                    item.record?.type === 'table'
+                        ? item.record?.table?.certification
+                        : item.record?.type === 'view'
+                          ? item.record?.certification
+                          : undefined
                 const itemLabel = typeof item.displayName === 'string' ? item.displayName : item.name
                 const isHighlightedFolderDropTarget =
                     item.record?.type === 'folder' &&
@@ -427,7 +489,21 @@ export const QueryDatabase = ({
 
                 return (
                     <span
-                        className="truncate"
+                        className={cn(
+                            'truncate',
+                            isBIEditor && isColumn && 'cursor-grab',
+                            isBIEditor && isColumn && !canDragBIField && 'cursor-not-allowed opacity-40'
+                        )}
+                        draggable={canDragBIField}
+                        onDragStart={(event) => {
+                            if (!biField || !canDragBIField) {
+                                event.preventDefault()
+                                return
+                            }
+                            event.stopPropagation()
+                            event.dataTransfer.effectAllowed = 'copy'
+                            event.dataTransfer.setData(BI_FIELD_DRAG_MIME_TYPE, serializeBIField(biField))
+                        }}
                         onDoubleClick={(e) => {
                             if (!isPreviewableViewItem(item)) {
                                 return
@@ -460,6 +536,7 @@ export const QueryDatabase = ({
                                         {item.displayName ?? item.name}
                                     </span>
                                 )}
+                                <TableCertificationIcon certification={certification} />
                                 {isColumn && columnType ? (
                                     <span className="shrink rounded px-1.5 py-0.5 text-xs text-muted-alt">
                                         {columnType === 'field_traverser' && item?.record?.field.chain
@@ -1004,6 +1081,48 @@ export const QueryDatabase = ({
                                                 >
                                                     {source.label}
                                                 </Link>
+                                            </DropdownMenuItem>
+                                        ))}
+                                    </DropdownMenuSubContent>
+                                </DropdownMenuSub>
+                            ) : null}
+                            {warehouseAccessControlEnabled && sources.length === 1 ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        openAccessControlModal({
+                                            resource: AccessControlResourceType.ExternalDataSource,
+                                            resourceId: sources[0].id,
+                                            name: sources[0].label || sourceType || 'Source',
+                                        })
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>Access control</ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : warehouseAccessControlEnabled && sources.length > 1 ? (
+                                <DropdownMenuSub>
+                                    <DropdownMenuSubTrigger asChild>
+                                        <ButtonPrimitive menuItem>
+                                            Access control
+                                            <IconChevronRight className="ml-auto size-3" />
+                                        </ButtonPrimitive>
+                                    </DropdownMenuSubTrigger>
+                                    <DropdownMenuSubContent>
+                                        {sources.map((source) => (
+                                            <DropdownMenuItem
+                                                key={source.id}
+                                                asChild
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    openAccessControlModal({
+                                                        resource: AccessControlResourceType.ExternalDataSource,
+                                                        resourceId: source.id,
+                                                        name: source.label || sourceType || 'Source',
+                                                    })
+                                                }}
+                                            >
+                                                <ButtonPrimitive menuItem>{source.label}</ButtonPrimitive>
                                             </DropdownMenuItem>
                                         ))}
                                     </DropdownMenuSubContent>

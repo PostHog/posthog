@@ -274,9 +274,14 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
     def _can_single_scan(self) -> bool:
         # Events-only, non-property-aggregating series read the same `events` source on both arms, so the
-        # start and return timestamp arrays can be computed in one pass. Property aggregation has a known
-        # legacy/variant discrepancy and stays on the UNION; a data-warehouse entity is a genuinely
-        # different source and cannot collapse here.
+        # start and return timestamp arrays can be computed in one pass. Property aggregation stays on the
+        # UNION only because this builder does not collect the (interval, value, timestamp) tuple arrays
+        # (_start_event_data / _return_event_data) that _get_intervals_from_base_exprs reads in
+        # aggregation mode, so routing it through the single scan fails to resolve those fields.
+        # Collecting them inline, the way build_base_query_legacy does on one scan, is a legitimate perf
+        # follow-up; the UNION shape matches legacy results (compared by the aggregation tests in
+        # test_retention_query_runner.py). A data-warehouse entity is a genuinely different source and
+        # cannot collapse here.
         return (
             not self.has_property_aggregation
             and self.start_event.type != EntityType.DATA_WAREHOUSE
@@ -506,8 +511,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
     ) -> ast.SelectQuery:
         entity_is_dwh = entity.type == EntityType.DATA_WAREHOUSE
 
-        actor_column_name = entity.aggregation_target_field if entity_is_dwh else self.aggregation_target_events_column
-        assert actor_column_name
+        actor_column_name = self.entity_actor_id_column(entity)
         actor_field = ast.Field(chain=[actor_column_name])
 
         timestamp_column_name = entity.timestamp_field if entity_is_dwh else "timestamp"

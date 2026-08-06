@@ -88,6 +88,7 @@ class TestMessagePreferencesAccessControl(APIBaseTest):
         self.client.force_login(user)
 
         assert self.client.get(self._url("opt_outs")).status_code == list_status
+        assert self.client.get(self._url("export_opt_outs_csv")).status_code == list_status
         assert (
             self.client.post(
                 self._url("add_opt_out"), {"identifier": f"{grant_type}@example.com"}, format="json"
@@ -99,4 +100,13 @@ class TestMessagePreferencesAccessControl(APIBaseTest):
                 self._url("remove_opt_out"), {"identifier": f"{grant_type}@example.com"}, format="json"
             ).status_code
             == remove_status
+        )
+        bulk_status = status.HTTP_200_OK if add_status != status.HTTP_403_FORBIDDEN else status.HTTP_403_FORBIDDEN
+        assert (
+            self.client.post(
+                self._url("bulk_add_opt_outs"),
+                {"opt_outs": [{"identifier": f"bulk-{grant_type}@example.com"}]},
+                format="json",
+            ).status_code
+            == bulk_status
         )

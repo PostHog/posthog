@@ -11,19 +11,22 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AddOptOutRequestApi,
     AddSuppressionRequestApi,
+    BulkAddOptOutsRequestApi,
+    BulkAddOptOutsResultApi,
     GenerateLinkRequestApi,
     MessageCategoryApi,
     MessagePreferencesApi,
     MessageSuppressionApi,
     MessageTemplateApi,
     MessagingCategoriesListParams,
+    MessagingPreferencesExportOptOutsCsvRetrieveParams,
     MessagingPreferencesOptOutsRetrieveParams,
     MessagingSuppressionsSuppressionsRetrieveParams,
     MessagingTemplatesListParams,
     PaginatedMessageCategoryListApi,
-    PaginatedMessagePreferencesApi,
     PaginatedMessageSuppressionApi,
     PaginatedMessageTemplateListApi,
+    PaginatedOptOutsApi,
     PatchedDesignPatchApi,
     PatchedMessageCategoryApi,
     PatchedMessageTemplateApi,
@@ -360,6 +363,61 @@ export const messagingPreferencesAddOptOutCreate = async (
     })
 }
 
+export const getMessagingPreferencesBulkAddOptOutsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_preferences/bulk_add_opt_outs/`
+}
+
+/**
+ * Opt every recipient in the list out of the category named on their entry, or a default category.
+ * @summary Add multiple recipients to the opt-out list
+ */
+export const messagingPreferencesBulkAddOptOutsCreate = async (
+    projectId: string,
+    bulkAddOptOutsRequestApi: BulkAddOptOutsRequestApi,
+    options?: RequestInit
+): Promise<BulkAddOptOutsResultApi> => {
+    return apiMutator<BulkAddOptOutsResultApi>(getMessagingPreferencesBulkAddOptOutsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkAddOptOutsRequestApi),
+    })
+}
+
+export const getMessagingPreferencesExportOptOutsCsvRetrieveUrl = (
+    projectId: string,
+    params?: MessagingPreferencesExportOptOutsCsvRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/messaging_preferences/export_opt_outs_csv/?${stringifiedParams}`
+        : `/api/projects/${projectId}/messaging_preferences/export_opt_outs_csv/`
+}
+
+/**
+ * Stream the opt-out list for a category as a CSV file that can be re-imported as-is.
+ * @summary Download the opt-out list as a CSV file
+ */
+export const messagingPreferencesExportOptOutsCsvRetrieve = async (
+    projectId: string,
+    params?: MessagingPreferencesExportOptOutsCsvRetrieveParams,
+    options?: RequestInit
+): Promise<string> => {
+    return apiMutator<string>(getMessagingPreferencesExportOptOutsCsvRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getMessagingPreferencesGenerateLinkCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/messaging_preferences/generate_link/`
 }
@@ -402,14 +460,14 @@ export const getMessagingPreferencesOptOutsRetrieveUrl = (
 
 /**
  * Get opt-outs filtered by category or overall opt-outs if no category specified
- * @summary List opted-out recipients for the team
+ * @summary List recipients opted out of a message category
  */
 export const messagingPreferencesOptOutsRetrieve = async (
     projectId: string,
     params?: MessagingPreferencesOptOutsRetrieveParams,
     options?: RequestInit
-): Promise<PaginatedMessagePreferencesApi> => {
-    return apiMutator<PaginatedMessagePreferencesApi>(getMessagingPreferencesOptOutsRetrieveUrl(projectId, params), {
+): Promise<PaginatedOptOutsApi> => {
+    return apiMutator<PaginatedOptOutsApi>(getMessagingPreferencesOptOutsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
