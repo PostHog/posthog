@@ -1465,6 +1465,19 @@ class TestPrinter(BaseTest):
             self.assertIn("events.properties.", printed, expression)
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_new_events_schema_nested_read_on_scalar_subcolumn_json_extracts(self) -> None:
+        # A scalar-hinted subcolumn (e.g. `$groups`, a String holding a JSON object) has no sub-paths,
+        # so a nested read must read the subcolumn as a string and JSONExtract the rest — never append
+        # the deeper key to the subcolumn path (`properties.$groups.organization`), which ClickHouse
+        # rejects with `Missing columns`.
+        for key, deeper in (("$groups", "organization"), ("$feature_flag_payloads", "key")):
+            printed = self._expr(
+                f"properties.{key}.{deeper}", HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+            )
+            self.assertIn(f"JSONExtractRaw(events.properties.`{key}`", printed)
+            self.assertNotIn(f"events.properties.`{key}`.{deeper}", printed)
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_to_json_string_scrubs_absent_typed_paths(self) -> None:
         printed = self._expr("toJSONString(properties)")
 
