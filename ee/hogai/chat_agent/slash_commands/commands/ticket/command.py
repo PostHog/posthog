@@ -19,7 +19,7 @@ from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
 
 from .prompts import SUPPORT_SUMMARIZER_SYSTEM_PROMPT, SUPPORT_SUMMARIZER_USER_PROMPT
-from .transcript import customer_turns, render_transcript, replace_em_dashes_outside_quotes, strip_unverifiable_quotes
+from .transcript import customer_turns, render_transcript, strip_unverifiable_quotes
 
 
 class TicketCommand(SlashCommand):
@@ -140,5 +140,5 @@ class TicketCommand(SlashCommand):
         content = response.content
         if isinstance(content, list):
             content = "".join(str(item) for item in content)
-        verified = replace_em_dashes_outside_quotes(strip_unverifiable_quotes(content, customer_turns(messages)))
+        verified = strip_unverifiable_quotes(content, customer_turns(messages))
         return f"{summarization_header}:\n\n{verified}"

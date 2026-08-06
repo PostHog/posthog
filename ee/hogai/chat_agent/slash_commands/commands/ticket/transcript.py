@@ -8,8 +8,6 @@ from ee.hogai.utils.types import AssistantMessageUnion
 TICKET_COMMAND = "/ticket"
 
 _QUOTED_SPAN = re.compile(r'["“]([^"“”]+)["”]')
-# Quoted spans come first so a dash the customer wrote is consumed as part of the quote
-_QUOTE_OR_DASH = re.compile(r'["“][^"“”]+["”]|\s*[—–]\s*')
 _SMART_QUOTES = str.maketrans({"“": '"', "”": '"', "‘": "'", "’": "'"})
 
 
@@ -62,20 +60,6 @@ def _quote_matches(span: str, normalized_turns: Sequence[str]) -> bool:
 def quoted_spans(summary: str) -> list[str]:
     """Every span the summary presents as the customer's own words."""
     return _QUOTED_SPAN.findall(summary)
-
-
-def replace_em_dashes_outside_quotes(summary: str) -> str:
-    """Swap em and en dashes for a spaced hyphen, leaving the customer's own words untouched.
-
-    A dash the customer wrote has to survive inside its quote, or the summary would present
-    rewritten text as verbatim.
-    """
-
-    def keep_or_replace(match: re.Match[str]) -> str:
-        span = match.group(0)
-        return span if span[0] in '"“' else " - "
-
-    return _QUOTE_OR_DASH.sub(keep_or_replace, summary)
 
 
 def unverifiable_quotes(summary: str, turns: Sequence[str]) -> list[str]:

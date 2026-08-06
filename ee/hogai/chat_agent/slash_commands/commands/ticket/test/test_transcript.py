@@ -7,7 +7,6 @@ from posthog.schema import AssistantMessage, HumanMessage
 from ee.hogai.chat_agent.slash_commands.commands.ticket.transcript import (
     customer_turns,
     render_transcript,
-    replace_em_dashes_outside_quotes,
     strip_unverifiable_quotes,
     unverifiable_quotes,
 )
@@ -110,20 +109,3 @@ class TestStripUnverifiableQuotes(TestCase):
             strip_unverifiable_quotes(f"They said {quoted} today", ["the sync is failing"]),
             f"They said {expected} today",
         )
-
-
-class TestReplaceEmDashesOutsideQuotes(TestCase):
-    @parameterized.expand(
-        [
-            ("em dash in narration", "for their DPA — the customer was told", "for their DPA - the customer was told"),
-            ("en dash in narration", "down since 6am – still down now", "down since 6am - still down now"),
-            ("no dash is untouched", "the sync is failing", "the sync is failing"),
-            (
-                "a dash the customer wrote survives inside its quote",
-                'They said "the sync broke — again" today',
-                'They said "the sync broke — again" today',
-            ),
-        ]
-    )
-    def test_narration_dashes_go_but_quoted_ones_stay(self, _name, summary, expected):
-        self.assertEqual(replace_em_dashes_outside_quotes(summary), expected)
