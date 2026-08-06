@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_c
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.reports import (
     MAX_DISCOVERY_PAGES,
+    CheckoutComReportsListingError,
     _parse_report_file_rows,
     checkout_com_reports_source,
     discover_report_types,
@@ -229,6 +230,23 @@ class TestReportsMetadataTable:
 
         assert _rows(_source("reports")) == []
 
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.reports.MAX_LIST_PAGES", 2
+    )
+    @mock.patch(SESSION_PATCH)
+    def test_sync_fails_loudly_when_listing_exceeds_page_cap(self, mock_make_session):
+        api_session = _FakeSession(
+            [_listing([_report(f"rpt_{page}", "2024-01-01T00:00:00Z")], next_token=f"tok_{page}") for page in range(3)]
+        )
+        mock_make_session.side_effect = [api_session]
+        manager = _FakeManager()
+
+        # A partial listing must not produce rows: yielding would advance the
+        # incremental watermark past the reports that were never listed.
+        with pytest.raises(CheckoutComReportsListingError):
+            _rows(_source("reports", manager=manager))
+        assert manager.saved_states == []
+
 
 class TestReportFileSync:
     @mock.patch(SESSION_PATCH)
@@ -249,7 +267,12 @@ class TestReportFileSync:
                         ),
                     ]
                 ),
-                _FakeResponse(status_code=302, headers={"Location": "https://files.example.com/signed"}),
+                _FakeResponse(
+                    status_code=302,
+                    headers={
+                        "Location": "https://files.example.com/signed?X-Amz-Credential=AKIA%2F1&X-Amz-Signature=sig123"
+                    },
+                ),
             ]
         )
         file_session = _FakeSession([_FakeResponse(text=csv_text)])
@@ -298,8 +321,17 @@ class TestReportFileSync:
         assert file_request["auth"] is not None
         assert file_request["stream"] is True
         assert file_session.requests == [
-            {"url": "https://files.example.com/signed", "stream": True, "timeout": mock.ANY}
+            {
+                "url": "https://files.example.com/signed?X-Amz-Credential=AKIA%2F1&X-Amz-Signature=sig123",
+                "stream": True,
+                "timeout": mock.ANY,
+            }
         ]
+        # The signed URL's raw query values are in the file session's redaction set, so
+        # the replayable download credentials never appear in request logs.
+        file_session_redactions = mock_make_session.call_args_list[1].kwargs["redact_values"]
+        assert "sig123" in file_session_redactions
+        assert "AKIA%2F1" in file_session_redactions
         # The XLSX file is skipped with a warning, and the report checkpoints once
         # after its files are fully yielded.
         logger.warning.assert_called_once()
@@ -315,13 +347,13 @@ class TestReportFileSync:
                 _FakeResponse(text="Action ID\nact_1\n"),
             ]
         )
-        file_session = _FakeSession()
-        mock_make_session.side_effect = [api_session, file_session]
+        mock_make_session.side_effect = [api_session]
 
         rows = _rows(_source("financial_actions_report"))
 
         assert [row["action_id"] for row in rows] == ["act_1"]
-        assert file_session.requests == []
+        # No redirect means no separate download session is ever built.
+        assert mock_make_session.call_count == 1
 
     @pytest.mark.parametrize("location", [None, "http://files.example.com/signed"])
     @mock.patch(SESSION_PATCH)
@@ -333,7 +365,7 @@ class TestReportFileSync:
                 _FakeResponse(status_code=302, headers=headers),
             ]
         )
-        mock_make_session.side_effect = [api_session, _FakeSession()]
+        mock_make_session.side_effect = [api_session]
 
         with pytest.raises(ValueError):
             _rows(_source("financial_actions_report"))
@@ -351,7 +383,7 @@ class TestReportFileSync:
         self, mock_make_session, should_use_incremental_field, last_value, expected
     ):
         api_session = _FakeSession([_listing([])])
-        mock_make_session.side_effect = [api_session, _FakeSession()]
+        mock_make_session.side_effect = [api_session]
 
         _rows(
             _source(
@@ -376,7 +408,7 @@ class TestReportFileSync:
                 _FakeResponse(text="Action ID\nact_9\n"),
             ]
         )
-        mock_make_session.side_effect = [api_session, _FakeSession()]
+        mock_make_session.side_effect = [api_session]
         manager = _FakeManager(CheckoutComResumeConfig(report_created_on="2024-02-01T00:00:00Z", report_id="rpt_done"))
 
         rows = _rows(

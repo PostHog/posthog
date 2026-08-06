@@ -43,8 +43,10 @@ REPORT_FILE_TIMEOUT_SECONDS = 600
 # Yield parsed CSV rows in chunks rather than one list per file.
 REPORT_CHUNK_SIZE = 5000
 # Guard against a pagination loop (a next link that never advances) and bound how much
-# a single listing walks. 200 pages is ~20k reports, decades of daily reports.
-MAX_LIST_PAGES = 200
+# a single listing walks. 1000 pages is ~100k reports, centuries of daily reports; a
+# sync that hits it fails loudly rather than syncing a partial listing (see
+# CheckoutComReportsListingError).
+MAX_LIST_PAGES = 1000
 # Schema discovery runs inline on API requests, so it reads fewer pages; report types
 # repeat constantly, so the most recent pages carry every active type.
 MAX_DISCOVERY_PAGES = 10
@@ -53,6 +55,15 @@ REPORTS_METADATA_ENDPOINT = "reports"
 REPORT_TABLE_SUFFIX = "_report"
 
 logger: FilteringBoundLogger = structlog.get_logger(__name__)
+
+
+class CheckoutComReportsListingError(Exception):
+    """The reports listing could not be walked to completion.
+
+    Raised before any rows are yielded: yielding a partial listing would advance the
+    incremental watermark past the reports that were never listed, permanently
+    excluding them from later syncs.
+    """
 
 
 def report_type_table_name(report_type: str) -> Optional[str]:
@@ -83,8 +94,16 @@ def _make_api_session(client_secret: str) -> requests.Session:
     return make_tracked_session(redact_values=(client_secret,), allow_redirects=False, capture=False)
 
 
-def _make_file_session() -> requests.Session:
-    return make_tracked_session(allow_redirects=True, capture=False)
+def _make_file_session(signed_url: str) -> requests.Session:
+    # The signed URL's query string carries replayable download credentials (e.g.
+    # X-Amz-Signature, X-Amz-Security-Token), and the shared URL scrubber doesn't know
+    # the storage provider's parameter names, so every raw query component is redacted
+    # by value. Raw (undecoded) segments are used so the literals match the logged URL.
+    raw_query = urlparse(signed_url).query
+    redact_values = tuple(
+        {raw_query, *(segment.partition("=")[2] for segment in raw_query.split("&") if "=" in segment)} - {""}
+    )
+    return make_tracked_session(allow_redirects=True, capture=False, redact_values=redact_values)
 
 
 def _next_pagination_token(payload: dict[str, Any]) -> Optional[str]:
@@ -113,6 +132,7 @@ def _list_reports(
     logger: FilteringBoundLogger,
     created_after: Optional[str] = None,
     max_pages: int = MAX_LIST_PAGES,
+    raise_when_capped: bool = False,
 ) -> Iterator[dict[str, Any]]:
     params: dict[str, Any] = {"limit": REPORTS_PAGE_SIZE}
     if created_after is not None:
@@ -140,6 +160,12 @@ def _list_reports(
         if not next_token or next_token == pagination_token:
             return
         pagination_token = next_token
+    if raise_when_capped:
+        # Continuing with a partial listing would advance the watermark past the
+        # unlisted reports and permanently skip them.
+        raise CheckoutComReportsListingError(
+            f"Checkout.com returned more than {max_pages} pages of reports; refusing to sync a partial listing"
+        )
     logger.warning("Checkout.com reports listing hit the page cap; not all reports were listed", max_pages=max_pages)
 
 
@@ -156,7 +182,17 @@ def _collect_reports_ascending(
     an ascending incremental watermark, so ordering is enforced here. Report objects are
     small (the file contents are fetched separately), so buffering the listing is cheap.
     """
-    reports = list(_list_reports(session, auth, api_base, logger, created_after=created_after))
+    reports = list(
+        _list_reports(
+            session,
+            auth,
+            api_base,
+            logger,
+            created_after=created_after,
+            max_pages=MAX_LIST_PAGES,
+            raise_when_capped=True,
+        )
+    )
     reports.sort(key=lambda report: (str(report.get("created_on") or ""), str(report.get("id") or "")))
     return reports
 
@@ -172,7 +208,6 @@ def _strip_links(value: Any) -> Any:
 @contextlib.contextmanager
 def _open_report_file(
     api_session: requests.Session,
-    file_session: requests.Session,
     auth: OAuth2Auth,
     api_base: str,
     report_id: str,
@@ -182,7 +217,8 @@ def _open_report_file(
 
     ``GET /reports/{id}/files/{file_id}`` redirects to a signed storage URL. The
     redirect is followed manually with a credential-free session so the bearer token
-    is only ever sent to the Checkout.com API host.
+    is only ever sent to the Checkout.com API host; the session is built per URL so
+    its redaction set covers that URL's signing parameters (see _make_file_session).
     """
     response = api_session.get(
         f"{api_base}/reports/{report_id}/files/{file_id}",
@@ -195,7 +231,7 @@ def _open_report_file(
             location = response.headers.get("Location")
             if not location or not location.startswith("https://"):
                 raise ValueError(f"Checkout.com file download for {file_id} redirected without an https location")
-            download = file_session.get(location, stream=True, timeout=REPORT_FILE_TIMEOUT_SECONDS)
+            download = _make_file_session(location).get(location, stream=True, timeout=REPORT_FILE_TIMEOUT_SECONDS)
         else:
             download = response
         try:
@@ -256,7 +292,6 @@ def _report_metadata_rows(reports: list[dict[str, Any]]) -> Iterator[list[dict[s
 def _report_file_rows(
     reports: list[dict[str, Any]],
     api_session: requests.Session,
-    file_session: requests.Session,
     auth: OAuth2Auth,
     api_base: str,
     logger: FilteringBoundLogger,
@@ -294,7 +329,7 @@ def _report_file_rows(
                 "report_entity_id": account.get("entity_id"),
                 "file_id": file_id,
             }
-            with _open_report_file(api_session, file_session, auth, api_base, report_id, file_id) as download:
+            with _open_report_file(api_session, auth, api_base, report_id, file_id) as download:
                 # Decode compression on the fly and read physical lines off the socket so
                 # quoted multi-line CSV fields survive (unlike `iter_lines`, which strips
                 # the terminators csv needs).
@@ -368,7 +403,6 @@ def _get_rows(
     yield from _report_file_rows(
         matching,
         api_session,
-        _make_file_session(),
         auth,
         hosts["api"],
         logger,
