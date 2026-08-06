@@ -1,0 +1,109 @@
+"""Tests for failure fingerprinting and LLM-backed classification.
+
+Fingerprinting is a pure function — covered without Django. Classification hits an LLM boundary,
+which is mocked; no test calls the real API.
+"""
+
+import json
+
+from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
+
+from parameterized import parameterized
+
+from products.mcp_analytics.backend.failure_classification import (
+    CLASSIFY_BATCH_SIZE,
+    FailureClass,
+    classify_fingerprints,
+    normalize_fingerprint,
+)
+
+
+class TestNormalizeFingerprint:
+    @parameterized.expand(
+        [
+            (
+                "uuid",
+                "Resource 123e4567-e89b-12d3-a456-426614174000 not found",
+                "resource not found",
+            ),
+            ("email", "No account for user@example.com", "no account for"),
+            ("url", "fetch failed: https://api.example.com/v1/things?id=1", "fetch failed:"),
+            (
+                "double_quoted_value",
+                'Invalid arguments: "some-tool-name" is not a valid tool',
+                "invalid arguments: is not a valid tool",
+            ),
+            ("single_quoted_value", "Field 'email' is required", "field is required"),
+            ("numbers", "timed out after 45000ms, retried 3 times", "timed out after ms, retried times"),
+            ("iso_date", "Rate limited until 2026-08-06T12:00:00Z", "rate limited until"),
+            ("whitespace", "tool   failed\n\nwith   no cause", "tool failed with no cause"),
+        ]
+    )
+    def test_strips_variable_content(self, _name: str, raw: str, expected: str) -> None:
+        assert normalize_fingerprint(raw) == expected
+
+    def test_truncates_to_200_chars(self) -> None:
+        assert len(normalize_fingerprint("x" * 500)) == 200
+
+    def test_translation_stays_a_distinct_fingerprint(self) -> None:
+        # Fingerprinting groups occurrences of the same wording; it must not merge a message
+        # with its translation, which classify_fingerprints treats as separate inputs.
+        english = normalize_fingerprint("The email field is required")
+        portuguese = normalize_fingerprint("O campo email é obrigatório")
+
+        assert english != portuguese
+
+
+def _openai_response(content: str) -> MagicMock:
+    response = MagicMock()
+    response.choices = [MagicMock(message=MagicMock(content=content))]
+    return response
+
+
+def _classification_payload(fingerprints: list[str], failure_class: str) -> str:
+    return json.dumps(
+        {"classifications": [{"line_number": i + 1, "failure_class": failure_class} for i in range(len(fingerprints))]}
+    )
+
+
+class TestClassifyFingerprints(BaseTest):
+    def test_returns_mapping_from_fingerprint_to_class(self) -> None:
+        fingerprints = ["timed out after seconds", "resource not found"]
+        payload = json.dumps(
+            {
+                "classifications": [
+                    {"line_number": 1, "failure_class": "timeout"},
+                    {"line_number": 2, "failure_class": "resource_not_found"},
+                ]
+            }
+        )
+        with patch("products.mcp_analytics.backend.failure_classification.OpenAI") as mock_openai_cls:
+            mock_openai_cls.return_value.chat.completions.create.return_value = _openai_response(payload)
+            result = classify_fingerprints(fingerprints, self.team)
+
+        assert result == {"timed out after seconds": "timeout", "resource not found": "resource_not_found"}
+
+    def test_batches_at_25_fingerprints(self) -> None:
+        fingerprints = [f"fingerprint {i}" for i in range(CLASSIFY_BATCH_SIZE + 1)]
+        with patch("products.mcp_analytics.backend.failure_classification.OpenAI") as mock_openai_cls:
+            mock_create = mock_openai_cls.return_value.chat.completions.create
+            mock_create.side_effect = [
+                _openai_response(_classification_payload(fingerprints[:CLASSIFY_BATCH_SIZE], "internal_error")),
+                _openai_response(_classification_payload(fingerprints[CLASSIFY_BATCH_SIZE:], "internal_error")),
+            ]
+            result = classify_fingerprints(fingerprints, self.team)
+
+        assert mock_create.call_count == 2
+        assert len(result) == len(fingerprints)
+
+    def test_invalid_class_is_retried_then_marked_internal_error(self) -> None:
+        fingerprints = ["some fingerprint"]
+        invalid_payload = json.dumps({"classifications": [{"line_number": 1, "failure_class": "not_a_real_class"}]})
+        with patch("products.mcp_analytics.backend.failure_classification.OpenAI") as mock_openai_cls:
+            mock_create = mock_openai_cls.return_value.chat.completions.create
+            mock_create.side_effect = [_openai_response(invalid_payload), _openai_response(invalid_payload)]
+            result = classify_fingerprints(fingerprints, self.team)
+
+        assert mock_create.call_count == 2
+        assert result == {"some fingerprint": FailureClass.INTERNAL_ERROR.value}
