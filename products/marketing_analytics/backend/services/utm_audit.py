@@ -560,9 +560,3 @@ def _cross_reference(
         )
 
     return results
-
-
-# Defined at the bottom because `database_sync_to_async` resolves its target eagerly,
-# and both functions are declared above this point.
-get_campaigns_with_spend_async = database_sync_to_async(get_campaigns_with_spend)
-get_utm_campaign_catalogue_async = database_sync_to_async(get_utm_campaign_catalogue)

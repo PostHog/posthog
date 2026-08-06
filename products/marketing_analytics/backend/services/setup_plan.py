@@ -164,11 +164,9 @@ async def get_setup_plan(
     suggestions: list[Suggestion] = []
     suggestions.extend(_integration_suggestions(diagnostic))
 
-    if attribution is not None:
-        utm_mappings = await _safe_utm_mappings(team, attribution, degraded)
-        if utm_mappings is not None:
-            suggestions.extend(_source_mapping_suggestions(utm_mappings))
-
+    # Ahead of the mapping suggester so its proposals can be injected there. Order is otherwise
+    # irrelevant — `sort_suggestions` imposes a total order on the result.
+    campaign_mappings: CampaignMappingSuggestions | None = None
     if campaigns and mappings is not None:
         audit = build_audit(campaigns, utm_events, mappings)
         suggestions.extend(
@@ -178,6 +176,11 @@ async def get_setup_plan(
         )
         campaign_mappings = suggest_campaign_name_mappings(campaigns, utm_events, mappings)
         suggestions.extend(_campaign_mapping_suggestions(campaign_mappings))
+
+    if attribution is not None:
+        utm_mappings = await _safe_utm_mappings(team, attribution, campaign_mappings, degraded)
+        if utm_mappings is not None:
+            suggestions.extend(_source_mapping_suggestions(utm_mappings))
 
     suggestions.extend(_conversion_goal_suggestions(diagnostic.conversion_goals, candidates, goal_flags))
 
@@ -207,11 +210,20 @@ def _or_degraded(result: Any, name: str, degraded: list[str], team: Team) -> Any
 
 
 async def _safe_utm_mappings(
-    team: Team, attribution: AttributionHealthResponse, degraded: list[str]
+    team: Team,
+    attribution: AttributionHealthResponse,
+    campaign_proposals: CampaignMappingSuggestions | None,
+    degraded: list[str],
 ) -> UtmMappingSuggestionsResponse | None:
-    """Run after the gather because it consumes the gathered attribution result."""
+    """Run after the gather because it consumes the gathered attribution result.
+
+    Both inputs are injected rather than left to derive themselves: this function already holds
+    them, and deriving re-reads campaigns, the UTM catalogue and team mappings from the database.
+    `campaign_proposals` is None only when the plan couldn't compute them either, in which case
+    letting the suggester try is the better answer.
+    """
     try:
-        return await suggest_utm_mappings(team, attribution=attribution)
+        return await suggest_utm_mappings(team, attribution=attribution, campaign_proposals=campaign_proposals)
     except Exception as error:
         logger.warning("setup_plan.leaf_failed", leaf="mapping_suggester", team_id=team.pk, error=str(error))
         degraded.append("mapping_suggester")

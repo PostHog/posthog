@@ -205,6 +205,27 @@ class TestInvariants(SetupPlanTestCase):
             assert "fix_platform_urls" in ops, f"{suggestion.id} has no URL fix"
 
     @pytest.mark.asyncio
+    async def test_campaign_proposals_are_injected_rather_than_derived_twice(self):
+        # `suggest_utm_mappings` derives its own proposals when none are passed, and doing so
+        # re-reads campaigns, the UTM catalogue and team mappings — all three of which this
+        # function already gathered. Leaving the argument off meant three redundant queries plus
+        # a second fuzzy pass, and two independently-computed proposal sets in one response that
+        # could disagree. The injection parameter exists precisely to prevent that.
+        self.campaigns = [
+            Campaign("spring_sale_2024", "1", "google", 8200.0, 0, 0),
+            *[Campaign(f"c{i}", str(i), "google", 100.0, 0, 0) for i in range(9)],
+        ]
+        self.utm_events = {("sprng_sale_2024", "google"): 1340}
+
+        await get_setup_plan(self.team)
+
+        _, kwargs = self.mocks["suggest_utm_mappings"].await_args
+        proposals = kwargs.get("campaign_proposals")
+        assert proposals is not None, "campaign_proposals was not injected"
+        # The same object the plan builds its own suggestions from, not an equal-looking copy.
+        assert [p.raw_utm_campaign for p in proposals.proposals] == ["sprng_sale_2024"]
+
+    @pytest.mark.asyncio
     async def test_output_is_byte_stable_across_runs(self):
         self.diagnostic = MarketingDiagnosticResponse(
             integrations=[
@@ -297,6 +318,14 @@ class TestDegradation(SetupPlanTestCase):
 
     @pytest.mark.asyncio
     async def test_campaign_query_failure_skips_only_campaign_suggestions(self):
+        # The fixture has to be one that *would* produce campaign suggestions, or the second
+        # assertion proves nothing: `self.campaigns` defaults to empty, and the plan skips the
+        # campaign suggesters on empty input anyway, so the absence would hold either way.
+        self.campaigns = [
+            Campaign("spring_sale_2024", "1", "google", 8200.0, 0, 0),
+            *[Campaign(f"c{i}", str(i), "google", 100.0, 0, 0) for i in range(9)],
+        ]
+        self.utm_events = {("sprng_sale_2024", "google"): 1340}
         self.mocks["get_campaigns_with_spend_async"].side_effect = RuntimeError("nope")
 
         plan = await get_setup_plan(self.team)
@@ -355,9 +384,62 @@ class TestReadiness(SetupPlanTestCase):
 
         plan = await get_setup_plan(self.team)
 
+        # Pinned as an exact set: "non-empty and a subset of every suggestion" also passes when
+        # `_blockers` ignores the capability and returns everything, which is the one thing this
+        # test exists to rule out. Both suggestions are present here — only one unlocks ROAS.
         roas = self._readiness(plan, Capability.ROAS)
-        assert roas.blocked_by
-        assert set(roas.blocked_by) <= {s.id for s in plan.suggestions}
+        assert {s.id for s in plan.suggestions} == {"mark_goal_as_revenue:any", "mark_goal_as_customer:any"}
+        assert set(roas.blocked_by) == {"mark_goal_as_revenue:any"}
+        assert set(self._readiness(plan, Capability.CAC).blocked_by) == {"mark_goal_as_customer:any"}
+
+    @pytest.mark.asyncio
+    async def test_roas_names_both_gaps_when_spend_is_missing_too(self):
+        # Three of the five readiness branches differ only in their explanation, so a regression
+        # that swapped two would change what the user is told to do next while every status stayed
+        # correct. One test per branch, asserting the distinguishing phrase.
+        self.diagnostic = MarketingDiagnosticResponse(
+            integrations=[_integration("google_ads", "GoogleAds", status="not_connected")],
+            overall_status="no_sources",
+            conversion_goals=ConversionGoalsListResponse(goals=[_goal()]),
+        )
+        self.goal_flags = {"g1": {}}
+
+        plan = await get_setup_plan(self.team)
+
+        roas = self._readiness(plan, Capability.ROAS)
+        assert roas.status == ReadinessStatus.BLOCKED
+        assert "Needs spend data and a conversion goal" in roas.explanation
+
+    @pytest.mark.asyncio
+    async def test_roas_blames_only_the_spend_when_the_goal_is_flagged(self):
+        self.diagnostic = MarketingDiagnosticResponse(
+            integrations=[_integration("google_ads", "GoogleAds", status="not_connected")],
+            overall_status="no_sources",
+            conversion_goals=ConversionGoalsListResponse(goals=[_goal()]),
+        )
+
+        plan = await get_setup_plan(self.team)
+
+        roas = self._readiness(plan, Capability.ROAS)
+        assert roas.status == ReadinessStatus.BLOCKED
+        assert roas.explanation == "A goal is flagged, but there is no spend data to divide by."
+
+    @pytest.mark.asyncio
+    async def test_roas_is_partial_when_only_some_integrations_report_spend(self):
+        self.diagnostic = MarketingDiagnosticResponse(
+            integrations=[
+                _integration("google_ads", "GoogleAds", status="healthy"),
+                _integration("meta_ads", "MetaAds", status="sync_broken"),
+            ],
+            overall_status="degraded",
+            conversion_goals=ConversionGoalsListResponse(goals=[_goal()]),
+        )
+
+        plan = await get_setup_plan(self.team)
+
+        roas = self._readiness(plan, Capability.ROAS)
+        assert roas.status == ReadinessStatus.PARTIAL
+        assert roas.explanation == "Available, but only for the integrations whose spend is readable."
 
     @pytest.mark.asyncio
     async def test_attribution_blocked_when_no_utm_events_arrive(self):

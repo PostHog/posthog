@@ -278,7 +278,6 @@ class Suggestion(BaseModel):
     rank_score: float = 0.0
     integration: str | None = None
     deep_link: str | None = None
-    docs_url: str | None = None
     spend_at_risk: float = 0.0
     event_volume: int = 0
 
