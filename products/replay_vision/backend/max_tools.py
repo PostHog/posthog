@@ -1240,8 +1240,9 @@ Use this tool to set up a recurring summary of what a Replay Vision scanner is f
 
 # What it does
 Creates a scheduled group summary: on the cadence you give it, one report is synthesized from the
-observations the scanner produced since the last run. It reads observations that already exist and
-starts no new scans, so it spends no Replay Vision credits.
+observations the scanner produced since the last run. It starts no new scans, so it spends no Replay
+Vision credits, but each run calls the synthesis model and bills the team's AI credits. That recurs
+until someone disables it, so the user is asked to confirm before it is created.
 
 The report appears in the app. Delivering it to Slack or a webhook needs an integration id, so point the
 user at the scanner's "Summaries and alerts" tab for that rather than guessing one.
@@ -1265,9 +1266,10 @@ class CreateVisionActionArgs(BaseModel):
 
 
 class CreateReplayVisionActionTool(ReplayVisionGatesMixin, MaxTool):
-    # A summary synthesizes over observations that already exist. Quota counts usage receipts,
-    # in-flight scans and prompt evaluations; a summary run is none of those.
-    spends_credits: ClassVar[bool] = False
+    # It spends no Replay Vision observation credits, but each run calls the synthesis model with
+    # `$ai_billable`, so it commits the team to recurring AI spend that continues until someone disables
+    # it. Recurring, agent-created spend is the case the confirmation exists for.
+    spends_credits: ClassVar[bool] = True
     name: str = "create_replay_vision_action"
     description: str = CREATE_ACTION_TOOL_DESCRIPTION
     args_schema: type[BaseModel] = CreateVisionActionArgs
@@ -1278,6 +1280,13 @@ class CreateReplayVisionActionTool(ReplayVisionGatesMixin, MaxTool):
     # No is_dangerous_operation: a summary synthesizes over observations that already exist, so it
     # spends no observation credits. Quota counts usage receipts, in-flight scans and prompt
     # evaluations; a summary run is none of those.
+
+    async def format_dangerous_operation_preview(self, name: str = "", cadence: str = "daily", **kwargs) -> str:
+        return (
+            f"**Create a {cadence} summary** '{name}'. It runs on that schedule from now on, and each run "
+            "calls the synthesis model and bills the project's AI credits. It keeps running until someone "
+            "disables it. This spends no Replay Vision scanning credits."
+        )
 
     async def _arun_impl(
         self, scanner_id: str, name: str, cadence: str = "daily", focus: str | None = None

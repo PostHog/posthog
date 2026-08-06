@@ -513,6 +513,9 @@ class TestReplayVisionChargeConfirmation(BaseTest):
             (ScanReplayVisionSessionsTool, {"session_ids": ["s1"], "prompt": "did it fail?"}),
             (RetryReplayVisionObservationTool, {"observation_id": str(uuid.uuid4())}),
             (CreateReplayVisionScannerTool, {"enabled": True}),
+            # No Replay Vision credits, but each run bills the team's AI credits, on a schedule
+            # that continues until someone disables it.
+            (CreateReplayVisionActionTool, {}),
         ]
         for tool_cls, kwargs in cases:
             assert await self._tool(tool_cls).is_dangerous_operation(**kwargs) is True, tool_cls.__name__
@@ -522,7 +525,6 @@ class TestReplayVisionChargeConfirmation(BaseTest):
     async def test_tools_that_spend_nothing_do_not_ask(self):
         # A confirmation prompt for a free action trains users to click through the ones that aren't.
         assert await self._tool(GetReplayVisionQuotaTool).is_dangerous_operation() is False
-        assert await self._tool(CreateReplayVisionActionTool).is_dangerous_operation() is False
         # A scanner created disabled has no schedule, so it spends nothing until someone enables it.
         assert await self._tool(CreateReplayVisionScannerTool).is_dangerous_operation(enabled=False) is False
 
