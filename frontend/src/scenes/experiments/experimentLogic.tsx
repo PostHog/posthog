@@ -963,6 +963,17 @@ export interface experimentLogicActions {
         refreshId: string
         triggeredBy: ExperimentTriggeredBy
     }
+    moveMetricsBetweenSections: (
+        isSecondary: boolean,
+        orderedUuids: string[],
+        removedUuids: string[],
+        movedUuids: string[]
+    ) => {
+        isSecondary: boolean
+        movedUuids: string[]
+        orderedUuids: string[]
+        removedUuids: string[]
+    }
     pauseExperiment: () => {
         value: true
     }
@@ -1024,17 +1035,6 @@ export interface experimentLogicActions {
     }
     retrySecondaryMetric: (index: number) => {
         index: number
-    }
-    saveMetricsReorder: (
-        isSecondary: boolean,
-        orderedUuids: string[],
-        removedUuids: string[],
-        movedUuids: string[]
-    ) => {
-        isSecondary: boolean
-        movedUuids: string[]
-        orderedUuids: string[]
-        removedUuids: string[]
     }
     setAutoRefresh: (
         enabled: boolean,
@@ -1679,7 +1679,7 @@ export const experimentLogic = kea<experimentLogicType>([
         // Semantic metric actions - each controls its own reload behavior
         removeMetric: (uuid: string, context: 'primary' | 'secondary') => ({ uuid, context }),
         reorderMetrics: (isSecondary: boolean, orderedUuids: string[]) => ({ isSecondary, orderedUuids }),
-        saveMetricsReorder: (
+        moveMetricsBetweenSections: (
             isSecondary: boolean,
             orderedUuids: string[],
             removedUuids: string[],
@@ -3311,20 +3311,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 lemonToast.error('Could not save the new metric order')
             }
         },
-        saveMetricsReorder: async ({ isSecondary, orderedUuids, removedUuids, movedUuids }) => {
+        moveMetricsBetweenSections: async ({ isSecondary, orderedUuids, removedUuids, movedUuids }) => {
             const removed = new Set(removedUuids)
             const moved = new Set(movedUuids)
             const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
-
-            // Pure reorder: only the ordering array changes, so the positional
-            // results arrays stay aligned and nothing needs reloading.
-            if (removed.size === 0 && moved.size === 0) {
-                await asyncActions.updateExperiment({
-                    [orderingField]: orderedUuids,
-                    update_feature_flag_params: false,
-                })
-                return
-            }
 
             // Moves and removals don't change any metric's definition, so existing
             // results stay valid — they only need realigning to the new positional

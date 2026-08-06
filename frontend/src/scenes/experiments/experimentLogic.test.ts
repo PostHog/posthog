@@ -582,7 +582,7 @@ describe('experimentLogic', () => {
             expect(logic.values.experiment.description).toEqual('stale write')
         })
     })
-    describe('saveMetricsReorder', () => {
+    describe('moveMetricsBetweenSections', () => {
         const primaryMetric = {
             kind: 'ExperimentMetric',
             uuid: 'primary-metric-uuid',
@@ -626,35 +626,6 @@ describe('experimentLogic', () => {
             api.update.mockClear()
         })
 
-        it('persists a pure reorder without touching metric arrays or results', async () => {
-            const testExperiment = {
-                ...experiment,
-                saved_metrics: [],
-                metrics: [primaryMetric, otherPrimaryMetric],
-                metrics_secondary: [],
-                primary_metrics_ordered_uuids: ['primary-metric-uuid', 'other-primary-uuid'],
-            } as unknown as Experiment
-
-            logic.actions.setExperiment(testExperiment)
-            logic.actions.setPrimaryMetricsResults([primaryMetricResult, otherPrimaryMetricResult])
-            api.update.mockResolvedValue({
-                ...testExperiment,
-                primary_metrics_ordered_uuids: ['other-primary-uuid', 'primary-metric-uuid'],
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.saveMetricsReorder(false, ['other-primary-uuid', 'primary-metric-uuid'], [], [])
-            })
-                .toFinishAllListeners()
-                .toNotHaveDispatchedActions(['refreshExperimentResults', 'loadPrimaryMetricsResults'])
-
-            expect(api.update).toHaveBeenCalledWith(expect.stringContaining('/experiments/'), {
-                primary_metrics_ordered_uuids: ['other-primary-uuid', 'primary-metric-uuid'],
-                update_feature_flag_params: false,
-            })
-            expect(logic.values.primaryMetricsResults).toEqual([primaryMetricResult, otherPrimaryMetricResult])
-        })
-
         it('moves an inline metric to secondary and reuses existing results', async () => {
             const testExperiment = {
                 ...experiment,
@@ -675,7 +646,7 @@ describe('experimentLogic', () => {
             })
 
             await expectLogic(logic, () => {
-                logic.actions.saveMetricsReorder(
+                logic.actions.moveMetricsBetweenSections(
                     false,
                     ['primary-metric-uuid', 'other-primary-uuid'],
                     [],
@@ -733,7 +704,7 @@ describe('experimentLogic', () => {
             })
 
             await expectLogic(logic, () => {
-                logic.actions.saveMetricsReorder(
+                logic.actions.moveMetricsBetweenSections(
                     false,
                     ['primary-metric-uuid', 'other-primary-uuid', 'third-primary-uuid'],
                     ['other-primary-uuid'],
@@ -792,7 +763,7 @@ describe('experimentLogic', () => {
             })
 
             await expectLogic(logic, () => {
-                logic.actions.saveMetricsReorder(false, ['shared-metric-uuid'], [], ['shared-metric-uuid'])
+                logic.actions.moveMetricsBetweenSections(false, ['shared-metric-uuid'], [], ['shared-metric-uuid'])
             })
                 .toFinishAllListeners()
                 .toNotHaveDispatchedActions(['refreshExperimentResults', 'loadExperiment'])
@@ -852,7 +823,7 @@ describe('experimentLogic', () => {
             })
 
             await expectLogic(logic, () => {
-                logic.actions.saveMetricsReorder(true, ['secondary-metric-uuid'], [], ['secondary-metric-uuid'])
+                logic.actions.moveMetricsBetweenSections(true, ['secondary-metric-uuid'], [], ['secondary-metric-uuid'])
             })
                 .toDispatchActions(['updateExperimentSuccess', 'retryPrimaryMetric'])
                 .toFinishAllListeners()
@@ -892,7 +863,7 @@ describe('experimentLogic', () => {
             })
 
             await expectLogic(logic, () => {
-                logic.actions.saveMetricsReorder(false, ['primary-metric-uuid'], [], ['primary-metric-uuid'])
+                logic.actions.moveMetricsBetweenSections(false, ['primary-metric-uuid'], [], ['primary-metric-uuid'])
             })
                 .toDispatchActions(['updateExperiment', 'refreshExperimentResults'])
                 .toFinishAllListeners()

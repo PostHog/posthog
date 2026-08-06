@@ -115,7 +115,7 @@ export const MetricHeader = ({
         openSecondarySharedMetricModal,
     } = useActions(modalsLogic)
 
-    const { saveMetricsReorder } = useActions(experimentLogic)
+    const { moveMetricsBetweenSections } = useActions(experimentLogic)
     const { openExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { openSharedMetricDetailModal } = useActions(sharedMetricDetailsModalLogic)
 
@@ -229,7 +229,7 @@ export const MetricHeader = ({
     const handleMoveSection = (): void => {
         // Same path the reorder modal used for moves: it flips shared-metric links, prunes the
         // ordering arrays and realigns existing results in one update.
-        saveMetricsReorder(isPrimaryMetric === false, sectionUuids, [], [metricUuid])
+        moveMetricsBetweenSections(isPrimaryMetric === false, sectionUuids, [], [metricUuid])
     }
 
     const recalculationEnabled = useFeatureFlag('EXPERIMENTS_METRICS_RECALCULATION')
