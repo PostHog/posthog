@@ -11,6 +11,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ReviewLogArtefactContent,
     ReviewWorkingStateContent,
     TaskRunArtefact,
+    ThreadVerdictArtefact,
     ValidationVerdict,
     artefact_type_for,
 )
@@ -163,6 +164,8 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         # The classified fate of a published finding, written by the outcome-telemetry batch after
         # the PR merged (one per finding); its presence marks the finding already classified.
         FINDING_OUTCOME = "finding_outcome"
+        # The resolution stage's per-thread ruling (latest row per thread_id wins).
+        THREAD_VERDICT = "thread_verdict"
         TASK_RUN = "task_run"
         COMMIT = "commit"
         CODE_REFERENCE = "code_reference"
@@ -270,6 +273,13 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         Presence means the finding's outcome is decided and must never be re-decided; the report is
         only *done* once `ReviewReport.outcomes_emitted_at` is stamped after its events flushed.
         """
+        return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
+
+    @classmethod
+    def append_thread_verdict(
+        cls, *, team_id: int, report_id: str, content: ThreadVerdictArtefact, attribution: ArtefactAttribution
+    ) -> "ReviewReportArtefact":
+        """Append a `thread_verdict` (latest row per `thread_id` wins at read time)."""
         return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
 
     @classmethod

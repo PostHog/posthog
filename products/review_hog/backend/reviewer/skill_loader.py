@@ -335,6 +335,58 @@ def load_blind_spots_skill_for_run(team_id: int, acting_user_id: int) -> LoadedB
     return LoadedBlindSpotsSkill(skill_name=skill_name, version=version)
 
 
+# Naming contract for the resolution-criteria skill: the bar the resolution stage applies per thread
+# ("worth implementing" / "safe to implement unattended"). Single-active per user, exactly the
+# validator pattern — the hard floors stay in code (the prompt); the skill may tighten, never loosen.
+REVIEW_HOG_RESOLUTION_PREFIX = "review-hog-resolution-"
+REVIEW_HOG_RESOLUTION_SKILL_NAME = f"{REVIEW_HOG_RESOLUTION_PREFIX}criteria"
+
+# Canonical resolution names `register_missing_resolution_config` auto-enables — one today, kept a
+# tuple to mirror the multi-name perspective seed.
+CANONICAL_RESOLUTION_SKILL_NAMES: tuple[str, ...] = (REVIEW_HOG_RESOLUTION_SKILL_NAME,)
+
+
+class ResolutionSkillNotFoundError(LookupError):
+    """The acting user's selected resolution skill has no live `LLMSkill` row (a real setup error)."""
+
+
+@dataclass(frozen=True)
+class LoadedResolutionSkill:
+    """The resolution-criteria skill resolved for one run: its skill name and pinned version."""
+
+    skill_name: str
+    # Snapshotted so the sandbox agent's `skill-get` pulls the exact version this run was planned
+    # against, even if a new version is published mid-run.
+    version: int
+
+
+def register_missing_resolution_config(team_id: int, user_id: int) -> None:
+    """Seed an enabled `ReviewSkillConfig` for the canonical resolution skill this user lacks.
+
+    Mirrors `register_missing_validation_config`: single-active is enforced in app code, so this
+    only ever seeds the one canonical.
+    """
+    _register_missing_configs(team_id, user_id, CANONICAL_RESOLUTION_SKILL_NAMES)
+
+
+def load_resolution_skill_for_run(team_id: int, acting_user_id: int) -> LoadedResolutionSkill:
+    """Resolve the acting user's selected resolution criteria, pinned to its current latest version.
+
+    Mirrors `load_validation_skill_for_run`: seeds the canonical config, then resolves the user's one
+    enabled `review-hog-resolution-*` row (canonical fallback when none is enabled or the selection's
+    row is dead; loud `ResolutionSkillNotFoundError` only when the canonical itself is missing).
+    """
+    register_missing_resolution_config(team_id, acting_user_id)
+    skill_name, version = _load_single_active_skill(
+        team_id,
+        acting_user_id,
+        prefix=REVIEW_HOG_RESOLUTION_PREFIX,
+        canonical_name=REVIEW_HOG_RESOLUTION_SKILL_NAME,
+        error=ResolutionSkillNotFoundError,
+    )
+    return LoadedResolutionSkill(skill_name=skill_name, version=version)
+
+
 # Naming contract for the authoring companion (mirrors scouts' `authoring-scouts`): the one canonical
 # guide the "Create your own …" tasks pull over MCP to author custom perspectives / blind-spot checks /
 # validation criteria. Not a run skill — it has no loader and never gets `ReviewSkillConfig` rows; it

@@ -54,6 +54,10 @@ class ReviewPRWorkflowInputs:
     signal_report_id: str | None = None
     # Branch target (PR-less review): the pushed head branch to review when no PR URL is known.
     head_branch: str | None = None
+    # Chain the resolution stage after this turn (fire-and-forget `resolve-pr` dispatch once the
+    # turn finishes, when the target has a PR). Off by default; defaults False so in-flight payloads
+    # serialized before the field existed replay deterministically (the dispatch never fires for them).
+    resolve_comments: bool = False
 
     @property
     def repository(self) -> str:
@@ -70,6 +74,38 @@ class ReviewPRWorkflowInputs:
         }
 
 
+@dataclass
+class ResolvePRWorkflowInputs:
+    """Input for one `ResolvePRWorkflow` run (the resolution stage on one PR).
+
+    PR-only — review threads live on PRs, so there is no branch-target shape. `(team_id, user_id)`
+    are the explicit identity the sandbox session runs under; `acting_user_id` pins whose selected
+    resolution-criteria skill applies (defaults to `user_id` when None).
+    """
+
+    team_id: int
+    user_id: int
+    owner: str
+    repo: str
+    pr_number: int
+    pr_url: str = ""
+    acting_user_id: int | None = None
+    trigger_source: str = TRIGGER_MANUAL
+
+    @property
+    def repository(self) -> str:
+        return f"{self.owner}/{self.repo}"
+
+    @property
+    def properties_to_log(self) -> dict[str, object]:
+        return {
+            "team_id": self.team_id,
+            "repository": self.repository,
+            "pr_number": self.pr_number,
+            "trigger_source": self.trigger_source,
+        }
+
+
 def review_pr_workflow_id(*, team_id: int, owner: str, repo: str, pr_number: int) -> str:
     """Deterministic per-PR workflow id, so a re-trigger of the same PR review collapses by id.
 
@@ -82,3 +118,8 @@ def review_pr_workflow_id(*, team_id: int, owner: str, repo: str, pr_number: int
 def review_branch_workflow_id(*, team_id: int, owner: str, repo: str, head_branch: str) -> str:
     """Deterministic per-branch workflow id for PR-less targets, mirroring `review_pr_workflow_id`."""
     return f"review-branch:{team_id}:{owner}/{repo}:{head_branch}".lower()
+
+
+def resolve_pr_workflow_id(*, team_id: int, owner: str, repo: str, pr_number: int) -> str:
+    """Deterministic per-PR id for the resolution stage — one run per PR at a time, by construction."""
+    return f"resolve-pr:{team_id}:{owner}/{repo}:{pr_number}".lower()
