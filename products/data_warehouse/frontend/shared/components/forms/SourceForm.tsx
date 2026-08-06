@@ -151,41 +151,52 @@ export const sourceFieldToElement = (
         return <React.Fragment key={field.name} />
     }
 
-    // It doesn't make sense for this to show on an update to an existing connection since we likely just want to change
-    // a field or two. There is also some divergence in creates vs. updates that make this a bit more complex to handle.
     if (field.type === 'text' && field.name === 'connection_string') {
-        if (isUpdateMode) {
-            return <React.Fragment key={field.name} />
+        // On update the stored secret is redacted out of the form, so the input starts blank. An
+        // empty value is preserved server-side (the existing connection string is kept), which lets
+        // this double as the credential-rotation path for sources like MongoDB whose only credential
+        // lives in the connection string. Typing a value still parses into sibling fields (host,
+        // user, ...) for sources that have them.
+        const parseIntoSiblingFields = (updatedConnectionString: string): void => {
+            const { isValid, fields } = parseConnectionStringForSource(sourceConfig.name, updatedConnectionString)
+            if (!isValid) {
+                return
+            }
+            for (const { path, value } of fields) {
+                if (setSourceConnectionDetailsValue) {
+                    setSourceConnectionDetailsValue(['payload', ...path], value)
+                } else {
+                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(['payload', ...path], value)
+                }
+            }
         }
+
         return (
             <React.Fragment key={field.name}>
-                <LemonField name={field.name} label={field.label}>
-                    {({ onChange }) => (
+                <LemonField
+                    name={field.name}
+                    label={field.label}
+                    help={
+                        isUpdateMode
+                            ? 'Leave blank to keep your current connection string. Enter a new one to replace it, for example when rotating credentials.'
+                            : undefined
+                    }
+                >
+                    {({ value, onChange }) => (
                         <LemonInput
                             key={field.name}
                             className="ph-connection-string"
                             data-attr={field.name}
-                            placeholder={field.placeholder}
-                            type="text"
-                            onChange={(updatedConnectionString) => {
+                            placeholder={
+                                isUpdateMode
+                                    ? 'Enter a new connection string to replace the current one'
+                                    : field.placeholder
+                            }
+                            type={isUpdateMode ? 'password' : 'text'}
+                            value={isUpdateMode ? value || '' : undefined}
+                            onChange={(updatedConnectionString: string) => {
                                 onChange(updatedConnectionString)
-                                const { isValid, fields } = parseConnectionStringForSource(
-                                    sourceConfig.name,
-                                    updatedConnectionString
-                                )
-
-                                if (isValid) {
-                                    for (const { path, value } of fields) {
-                                        if (setSourceConnectionDetailsValue) {
-                                            setSourceConnectionDetailsValue(['payload', ...path], value)
-                                        } else {
-                                            sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                                ['payload', ...path],
-                                                value
-                                            )
-                                        }
-                                    }
-                                }
+                                parseIntoSiblingFields(updatedConnectionString)
                             }}
                         />
                     )}

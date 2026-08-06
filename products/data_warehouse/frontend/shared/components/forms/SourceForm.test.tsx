@@ -1,4 +1,9 @@
-import { SourceConfig, SourceFieldSelectConfig, SourceFieldSwitchGroupConfig } from '~/queries/schema/schema-general'
+import {
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSwitchGroupConfig,
+} from '~/queries/schema/schema-general'
 
 import { sourceFieldToElement } from './SourceForm'
 
@@ -47,7 +52,42 @@ const switchGroupState = (storedGroupValue: any, formValue?: any): { checked: bo
     return { checked: toggle.props.checked, childrenVisible: !!children.find((child: any) => child?.props?.name) }
 }
 
+const CONNECTION_STRING_FIELD: SourceFieldInputConfig = {
+    type: 'text',
+    name: 'connection_string',
+    label: 'Connection String',
+    required: true,
+    placeholder: 'mongodb://…',
+    secret: true,
+}
+
+// Finds the connection_string LemonInput inside the field's rendered fragment and returns it.
+const renderConnectionStringInput = (isUpdateMode: boolean): any => {
+    const fragment = sourceFieldToElement(CONNECTION_STRING_FIELD, SOURCE_CONFIG, undefined, isUpdateMode)
+    const children = Array.isArray(fragment.props.children) ? fragment.props.children : [fragment.props.children]
+    const field = children.find((child: any) => child?.props?.name === 'connection_string')
+    if (!field) {
+        throw new Error('connection string field did not render')
+    }
+    return { field, input: field.props.children({ value: '', onChange: jest.fn() }) }
+}
+
 describe('sourceFieldToElement', () => {
+    // Rotating a connection-string credential used to require deleting and recreating the source,
+    // because the field was suppressed entirely on update. It must now render as an editable,
+    // password-style input that starts blank (an empty value keeps the stored secret server-side).
+    it('renders the connection string as an editable password input on update', () => {
+        const { field, input } = renderConnectionStringInput(true)
+        expect(input.props.type).toBe('password')
+        expect(field.props.help).toContain('Leave blank')
+    })
+
+    it('renders the connection string as a text input without help on create', () => {
+        const { field, input } = renderConnectionStringInput(false)
+        expect(input.props.type).toBe('text')
+        expect(field.props.help).toBeUndefined()
+    })
+
     it('renders a select field caption as field help text', () => {
         const element = sourceFieldToElement(SELECT_FIELD, SOURCE_CONFIG)
         expect(element.props.help).toBeTruthy()
