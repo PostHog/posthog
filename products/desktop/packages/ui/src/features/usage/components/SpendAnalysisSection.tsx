@@ -31,6 +31,7 @@ export function SpendAnalysisSection() {
       data.by_day.items,
       data.summary.date_from,
       data.summary.date_to,
+      data.by_day_model,
     );
   }, [data]);
 

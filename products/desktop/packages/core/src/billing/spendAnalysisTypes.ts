@@ -34,6 +34,17 @@ export interface SpendAnalysisDayRow {
   day: string;
   event_count: number;
   cost_usd: number;
+  input_tokens: number;
+  output_tokens: number;
+}
+
+export interface SpendAnalysisDayModelRow {
+  day: string;
+  model: string;
+  cost_usd: number;
+  input_tokens: number;
+  output_tokens: number;
+  generation_count: number;
 }
 
 export interface SpendAnalysisBreakdown<TRow> {
@@ -48,4 +59,5 @@ export interface SpendAnalysisResponse {
   by_model: SpendAnalysisBreakdown<SpendAnalysisModelRow>;
   // Optional until the backend by_day rollout reaches every deployment.
   by_day?: SpendAnalysisBreakdown<SpendAnalysisDayRow>;
+  by_day_model?: SpendAnalysisDayModelRow[];
 }
