@@ -2016,9 +2016,11 @@ class HedgeboxMatrix(Matrix):
         created_issue_ids: list = []
         demo_issues: list = []
         for issue_index, issue_spec in enumerate(issue_specs):
-            existing_fingerprint = ErrorTrackingIssueFingerprintV2.objects.filter(
-                team=team, fingerprint=issue_spec["fingerprint"]
-            ).select_related("issue").first()
+            existing_fingerprint = (
+                ErrorTrackingIssueFingerprintV2.objects.filter(team=team, fingerprint=issue_spec["fingerprint"])
+                .select_related("issue")
+                .first()
+            )
             if existing_fingerprint is not None:
                 demo_issues.append((issue_index, existing_fingerprint.issue))
                 continue
