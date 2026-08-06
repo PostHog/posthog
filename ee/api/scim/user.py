@@ -76,12 +76,12 @@ class PostHogSCIMUser(SCIMUser):
 
     @property
     def user_name(self) -> str:
-        scim_user = SCIMProvisionedUser.objects.filter(user=self.obj, identity_provider_config=self._config).first()
+        scim_user = SCIMProvisionedUser.objects.record_for(user=self.obj, config=self._config)
         return scim_user.username if scim_user else self.obj.email
 
     @property
     def identity_provider(self) -> str:
-        scim_user = SCIMProvisionedUser.objects.filter(user=self.obj, identity_provider_config=self._config).first()
+        scim_user = SCIMProvisionedUser.objects.record_for(user=self.obj, config=self._config)
         return scim_user.identity_provider if scim_user else SCIMProvisionedUser.IdentityProvider.OTHER
 
     @property
@@ -173,7 +173,7 @@ class PostHogSCIMUser(SCIMUser):
             user = User.objects.filter(email__iexact=email).first()
 
             # Check if already SCIM-provisioned for this IdP config
-            if user and SCIMProvisionedUser.objects.filter(user=user, identity_provider_config=config).exists():
+            if user and SCIMProvisionedUser.objects.record_for(user=user, config=config) is not None:
                 raise SCIMUserConflict()
 
             if user:
@@ -206,9 +206,9 @@ class PostHogSCIMUser(SCIMUser):
                 user.current_team = config.organization.teams.first()
                 user.save()
 
-            SCIMProvisionedUser.objects.update_or_create(
+            SCIMProvisionedUser.objects.upsert(
                 user=user,
-                identity_provider_config=config,
+                config=config,
                 defaults={
                     "identity_provider": identity_provider,
                     "username": user_name,
@@ -247,9 +247,9 @@ class PostHogSCIMUser(SCIMUser):
             self.obj.email = email
             self.obj.save()
 
-            SCIMProvisionedUser.objects.update_or_create(
+            SCIMProvisionedUser.objects.upsert(
                 user=self.obj,
-                identity_provider_config=self._config,
+                config=self._config,
                 defaults={
                     "username": user_name,
                     "active": is_active,
@@ -282,10 +282,7 @@ class PostHogSCIMUser(SCIMUser):
         """
         self._leave_organization()
 
-        SCIMProvisionedUser.objects.filter(
-            user=self.obj,
-            identity_provider_config=self._config,
-        ).update(active=False)
+        SCIMProvisionedUser.objects.for_config(self._config).filter(user=self.obj).update(active=False)
 
     def delete(self) -> None:
         """
@@ -293,10 +290,7 @@ class PostHogSCIMUser(SCIMUser):
         """
         self._leave_organization()
 
-        SCIMProvisionedUser.objects.filter(
-            user=self.obj,
-            identity_provider_config=self._config,
-        ).delete()
+        SCIMProvisionedUser.objects.for_config(self._config).filter(user=self.obj).delete()
 
     def handle_replace(self, path: AttrPath, value: Union[str, list, dict], operation: dict) -> None:
         """
@@ -321,9 +315,9 @@ class PostHogSCIMUser(SCIMUser):
                         defaults={"level": OrganizationMembership.Level.MEMBER},
                     )
 
-                    SCIMProvisionedUser.objects.update_or_create(
+                    SCIMProvisionedUser.objects.upsert(
                         user=self.obj,
-                        identity_provider_config=self._config,
+                        config=self._config,
                         defaults={
                             "active": True,
                             "username": self.user_name,
@@ -358,9 +352,9 @@ class PostHogSCIMUser(SCIMUser):
                     self.obj.email = email
 
             elif attr_name == "userName" and isinstance(value, str):
-                SCIMProvisionedUser.objects.update_or_create(
+                SCIMProvisionedUser.objects.upsert(
                     user=self.obj,
-                    identity_provider_config=self._config,
+                    config=self._config,
                     defaults={
                         "username": value,
                         "active": True,
@@ -386,9 +380,9 @@ class PostHogSCIMUser(SCIMUser):
                     defaults={"level": OrganizationMembership.Level.MEMBER},
                 )
 
-                SCIMProvisionedUser.objects.update_or_create(
+                SCIMProvisionedUser.objects.upsert(
                     user=self.obj,
-                    identity_provider_config=self._config,
+                    config=self._config,
                     defaults={
                         "active": True,
                         "username": self.user_name,
@@ -425,9 +419,9 @@ class PostHogSCIMUser(SCIMUser):
                     self.obj.save()
 
             elif attr_name == "userName" and isinstance(value, str):
-                SCIMProvisionedUser.objects.update_or_create(
+                SCIMProvisionedUser.objects.upsert(
                     user=self.obj,
-                    identity_provider_config=self._config,
+                    config=self._config,
                     defaults={
                         "username": value,
                         "active": True,

@@ -50,7 +50,7 @@ class TestBackfillSCIMProvisionedUserConfig(BaseTest):
 
     def test_leaves_a_second_record_for_the_same_config_on_its_domain_key(self):
         # Two domains sharing a config used to serve SCIM separately, so one user can hold a record
-        # per domain. Claiming both for the config would break the unique constraint added in 0059.
+        # per domain. Claiming both for the config would break the unique constraint added in 0060.
         second_domain = OrganizationDomain.objects.create(
             organization=self.organization,
             domain="partner.example.com",

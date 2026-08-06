@@ -45,6 +45,19 @@ SCIM 2.0 (System for Cross-domain Identity Management) enables automated user pr
 - `ee/models/scim_provisioned_user.py` - One provisioning record per (user, config)
 - `ee/models/scim_request_log.py` - Request log per config, listed per domain in the UI
 
+Both carry a legacy `organization_domain` from when SCIM was addressed per domain. Provisioning
+records are attributed to their config by migration `ee.0058`; request logs by the
+`backfill_scim_request_log_config` command, which runs outside the deploy because that table grows
+with every SCIM request:
+
+```bash
+python manage.py backfill_scim_request_log_config --dry-run
+python manage.py backfill_scim_request_log_config --batch-size 1000 --sleep 0.1
+```
+
+It is resumable and safe to re-run. Until it has finished, the per-domain log listing reads both
+keys, so no history is hidden while it works.
+
 ### Core SCIM Implementation (`ee/api/scim/`)
 
 - `auth.py` - Bearer token authentication

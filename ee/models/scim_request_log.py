@@ -15,9 +15,10 @@ class SCIMRequestLog(UUIDModel):
         blank=True,
         db_index=False,
     )
-    # Legacy tenant key, still read by the per-domain log listing so admins keep seeing requests
-    # logged before SCIM moved onto the config. Don't write it: a SCIM request names a config, and a
-    # config can back several domains.
+    # Legacy tenant key. Don't write it: a SCIM request names a config, and a config can back
+    # several domains. Rows logged before the move are attributed to their config by the
+    # `backfill_scim_request_log_config` command, which runs outside the deploy because this table
+    # is large; until it has, the per-domain log listing reads this column so no history is hidden.
     organization_domain = models.ForeignKey(
         "posthog.OrganizationDomain",
         on_delete=models.CASCADE,

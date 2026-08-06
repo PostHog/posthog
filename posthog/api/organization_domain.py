@@ -304,7 +304,9 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
 
         domain: OrganizationDomain = self.get_object()
         # SCIM authenticates against the linked IdP config, so its requests are logged against the
-        # config. Rows logged before that move key on the domain itself, so match both.
+        # config. Match the domain too: rows logged before the move carry only that until the
+        # `backfill_scim_request_log_config` command reaches them, and a domain that was later
+        # unlinked from its config keeps nothing else to find its history by.
         scope = Q(organization_domain=domain)
         if domain.identity_provider_config_id is not None:
             scope |= Q(identity_provider_config_id=domain.identity_provider_config_id)

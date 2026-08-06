@@ -278,10 +278,9 @@ class PostHogUserFilterQuery(UserFilterQuery):
             # UserFilterQuery only queries User model, so use scim2-filter-parser directly
             scim_attr_map = {("userName", None, None): "username"}
             q_obj = get_query(filter_query, scim_attr_map)
-            scim_user_ids = SCIMProvisionedUser.objects.filter(
-                q_obj,
-                identity_provider_config=config,
-            ).values_list("user_id", flat=True)
+            scim_user_ids = (
+                SCIMProvisionedUser.objects.for_config(config).filter(q_obj).values_list("user_id", flat=True)
+            )
             return User.objects.filter(id__in=scim_user_ids).order_by("id")
 
         raw_queryset = super().search(filter_query, request)
@@ -379,7 +378,8 @@ class SCIMUserDetailView(SCIMBaseView):
         config = cast(IdentityProviderConfig, self.request.auth)
         user = User.objects.filter(
             Q(organization_membership__organization=config.organization)
-            | Q(scim_provisions__identity_provider_config=config),
+            | Q(scim_provisions__identity_provider_config=config)
+            | Q(scim_provisions__organization_domain__identity_provider_config=config),
             id=user_id,
         ).first()
         if not user:

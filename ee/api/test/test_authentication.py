@@ -429,13 +429,17 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
     # Initiate SAML flow
 
+    def _grant_saml(self) -> None:
+        if self.organization.is_feature_available(AvailableFeature.SAML):
+            return
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            {"key": AvailableFeature.SAML, "name": AvailableFeature.SAML},
+        ]
+        self.organization.save()
+
     def test_saml_config_can_back_multiple_verified_domains(self):
-        if not self.organization.is_feature_available(AvailableFeature.SAML):
-            self.organization.available_product_features = [
-                *(self.organization.available_product_features or []),
-                {"key": AvailableFeature.SAML, "name": AvailableFeature.SAML},
-            ]
-            self.organization.save()
+        self._grant_saml()
 
         config = self.organization_domain.identity_provider_config
         assert config is not None
@@ -452,10 +456,24 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
         self.assertEqual(idp.name, config.saml_relay_state)
 
+    def test_relay_state_minted_before_the_move_to_configs_still_resolves(self):
+        # A login redirected while SAML routed on domain ids comes back after the switch to config
+        # identifiers. The identifier in flight has to keep resolving or the user lands on an error.
+        self._grant_saml()
+        config = self.organization_domain.identity_provider_config
+        assert config is not None
+        config.refresh_from_db()
+
+        auth = object.__new__(MultitenantSAMLAuth)
+        idp = auth.get_idp(str(self.organization_domain.id))
+
+        self.assertEqual(idp.entity_id, config.saml_entity_id)
+
     def test_saml_assertion_accepts_any_verified_domain_on_the_config(self):
         # An assertion carries the config's identifier, not a domain, so it is valid for every domain
         # the config backs. Checking the email against a single one of them locks out everyone on the
         # others.
+        self._grant_saml()
         config = self.organization_domain.identity_provider_config
         assert config is not None
         config.refresh_from_db()
