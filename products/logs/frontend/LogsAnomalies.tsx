@@ -87,7 +87,9 @@ export function LogsAnomalies(): JSX.Element {
                     <ServiceFilter
                         value={serviceName ? [serviceName] : []}
                         onChange={(serviceNames) => setServiceName(serviceNames?.[0] ?? null)}
-                        dateRange={{ date_from: '-7d' }}
+                        // Match the scan's baseline lookback so a service that recently went
+                        // silent still shows up as a scannable suggestion.
+                        dateRange={{ date_from: '-42d' }}
                         selectionMode="single"
                         emptyButtonLabel="Choose a service"
                     />
