@@ -12,6 +12,7 @@ import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannels
 import { useCurrentChannel } from "@posthog/ui/features/canvas/hooks/useCurrentChannel";
 import { useTrackChannelsSpaceViewed } from "@posthog/ui/features/canvas/hooks/useTrackChannelsSpaceViewed";
 import {
+  consumeKeepListForNextRoute,
   showChannelList,
   showChannelPane,
   useChannelPaneStore,
@@ -176,7 +177,9 @@ export function ChannelsSidebar() {
     setCurrentChannel(routeChannelId);
     // Landing on a channel — a deep link, a mention, ⌘1-9 — is a request to see
     // it, so the slider follows the route even if the list was being browsed.
-    showChannelPane();
+    // Unless the navigation said otherwise: opening a session from the list's
+    // tree loads it without taking the tree off the screen.
+    if (!consumeKeepListForNextRoute()) showChannelPane();
   }, [channelsLayout, routeChannelId, setCurrentChannel]);
 
   // Browsing the list is view state, not navigation: you stay in the channel
