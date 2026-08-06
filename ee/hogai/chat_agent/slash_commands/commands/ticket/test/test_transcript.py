@@ -80,3 +80,23 @@ class TestStripUnverifiableQuotes(TestCase):
     def test_unverifiable_quotes_reports_the_offending_spans(self):
         summary = 'They said "the sync is failing" and "the sync exploded"'
         self.assertEqual(unverifiable_quotes(summary, ["the sync is failing"]), ["the sync exploded"])
+
+    def test_a_multi_line_quote_does_not_swallow_the_words_after_it(self):
+        turns = ["Automation failed: undefined at Move ticket\nFired by Event: $conversation_message_received"]
+        error = "Automation failed: undefined at Move ticket\nFired by Event: $conversation_message_received"
+        self.assertEqual(
+            strip_unverifiable_quotes(f'The customer pasted "{error}" and then said "it broke everything".', turns),
+            f'The customer pasted "{error}" and then said it broke everything.',
+        )
+
+    @parameterized.expand(
+        [
+            ("curly marks around the customer's words are kept", "“the sync is failing”", "“the sync is failing”"),
+            ("curly marks around invented words are stripped", "“the sync exploded”", "the sync exploded"),
+        ]
+    )
+    def test_curly_quotation_marks_are_verified_too(self, _name, quoted, expected):
+        self.assertEqual(
+            strip_unverifiable_quotes(f"They said {quoted} today", ["the sync is failing"]),
+            f"They said {expected} today",
+        )

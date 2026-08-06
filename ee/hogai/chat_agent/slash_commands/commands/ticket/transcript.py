@@ -7,7 +7,7 @@ from ee.hogai.utils.types import AssistantMessageUnion
 
 TICKET_COMMAND = "/ticket"
 
-_QUOTED_SPAN = re.compile(r'"([^"\n]{6,})"')
+_QUOTED_SPAN = re.compile(r'["“]([^"“”]{6,})["”]')
 _SMART_QUOTES = str.maketrans({"“": '"', "”": '"', "‘": "'", "’": "'"})
 
 
@@ -57,10 +57,15 @@ def _quote_matches(span: str, normalized_turns: Sequence[str]) -> bool:
     return any(all(_normalize(fragment) in turn for fragment in fragments) for turn in normalized_turns)
 
 
+def quoted_spans(summary: str) -> list[str]:
+    """Every span the summary presents as the customer's own words."""
+    return _QUOTED_SPAN.findall(summary)
+
+
 def unverifiable_quotes(summary: str, turns: Sequence[str]) -> list[str]:
     """Quoted spans that no single customer message contains."""
     normalized = [_normalize(turn) for turn in turns]
-    return [span for span in _QUOTED_SPAN.findall(summary) if not _quote_matches(span, normalized)]
+    return [span for span in quoted_spans(summary) if not _quote_matches(span, normalized)]
 
 
 def strip_unverifiable_quotes(summary: str, turns: Sequence[str]) -> str:

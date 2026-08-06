@@ -19,6 +19,7 @@ from ee.hogai.chat_agent.slash_commands.commands.ticket.prompts import (
 )
 from ee.hogai.chat_agent.slash_commands.commands.ticket.transcript import (
     customer_turns,
+    quoted_spans,
     render_transcript,
     unverifiable_quotes,
 )
@@ -29,8 +30,6 @@ from ..base import MaxPublicEval
 VALID_TOPIC_KEYS = set(re.findall(r"^- ([\w-]+):", SUPPORT_TICKET_TOPICS, re.M))
 
 TOPIC_LINE = re.compile(r"\*\*Topic:?\*\*:?\s*([\w-]+)")
-
-QUOTED_SPAN = re.compile(r'"([^"\n]{6,})"')
 
 
 def _to_messages(conversation: list[dict[str, str]]) -> list[HumanMessage | AssistantMessage]:
@@ -89,7 +88,7 @@ class QuoteFidelity(ScorerWithPartial):
 
     def _run_eval_sync(self, output, expected, **kwargs):
         turns = customer_turns(_to_messages(kwargs["input"]))
-        spans = QUOTED_SPAN.findall(output or "")
+        spans = quoted_spans(output or "")
         if not spans:
             return Score(name=self._name(), score=None, metadata={"reason": "no quoted spans"})
         bad = unverifiable_quotes(output, turns)
@@ -101,7 +100,11 @@ class QuoteFidelity(ScorerWithPartial):
 
 
 class ResolvableTopic(ScorerWithPartial):
-    """The Topic line must resolve to a real key, or be absent so the support form can fall back."""
+    """The Topic line must carry a key from the prompt's list, or be absent so the form can fall back.
+
+    This catches a key the model invented. It cannot catch the prompt's list drifting from the
+    frontend's TARGET_AREA_OPTIONS, which is the other way a key ends up unresolvable.
+    """
 
     def _run_eval_sync(self, output, expected, **kwargs):
         match = TOPIC_LINE.search(output or "")
