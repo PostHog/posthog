@@ -62,6 +62,14 @@ GENERIC_CONNECTION_ERROR = (
     "your server, and that PostHog's IP addresses are allowed through any firewall."
 )
 
+# A pasted URL or connection string in the host field otherwise fails DNS resolution with a
+# misleading "check the spelling" message that echoes the raw value back (which can embed
+# credentials). Catch it early with an actionable message that never reflects the input.
+_HOST_IS_URL_ERROR = (
+    "Enter just the hostname in the host field (for example, play.clickhouse.com), not a full URL or "
+    "connection string. Remove any scheme (like https://) and any username, password, port, or path."
+)
+
 # A transient gateway/rate-limit response that survived the in-process connect
 # retries. The connection details are fine — the server is momentarily busy or
 # waking (idle ClickHouse Cloud services routinely 5xx the first request), so
@@ -482,6 +490,9 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
         if not is_ssh_valid:
             return is_ssh_valid, ssh_valid_errors
+
+        if "://" in config.host:
+            return False, _HOST_IS_URL_ERROR
 
         valid_host, host_errors = self.is_database_host_valid(
             config.host, team_id, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False
