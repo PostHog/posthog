@@ -238,7 +238,6 @@ from posthog.schema_enums import (
     SessionTableVersion as SessionTableVersion,
     SidebarDensity as SidebarDensity,
     SlackIntegrationScope as SlackIntegrationScope,
-    SlackIntegrationScopeInReview as SlackIntegrationScopeInReview,
     SlashCommandName as SlashCommandName,
     SliceContent as SliceContent,
     SnapchatAdsConversionFields as SnapchatAdsConversionFields,

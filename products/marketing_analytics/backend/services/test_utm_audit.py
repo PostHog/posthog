@@ -290,6 +290,22 @@ class TestCrossReferenceIssueKinds:
                 assert issue.mapping_candidate == ""
                 assert SuggestedAction.ADD_CAMPAIGN_NAME_MAPPING not in issue.suggested_actions
 
+    @patch("products.marketing_analytics.backend.services.utm_audit.suggest_campaign_name_mappings")
+    def test_audit_survives_a_broken_suggester(self, mock_suggester):
+        # The candidate is advisory decoration on an audit people rely on, so its failure is
+        # contained. Asserted rather than left to the docstring: the `except` is the only thing
+        # standing between a bug in the suggester and the whole audit 500ing.
+        mock_suggester.side_effect = RuntimeError("boom")
+        campaigns = [Campaign("spring_sale_2024", "456", "google", 500.0, 100, 5000)]
+        utm_events = {("sprng_sale_2024", "google"): 1340}
+
+        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
+
+        issue = results[0].issues[0]
+        assert issue.kind == UtmIssueKind.NOT_LINKED
+        assert issue.mapping_candidate == ""
+        assert issue.suggested_actions == [SuggestedAction.FIX_PLATFORM_URLS]
+
     def test_no_tagged_events_when_alt_source_is_another_default(self):
         # Bing campaign but events only arrive with utm_source=google (Google's default).
         # Mapping google→bing would break Google attribution, so ADD_SOURCE_MAPPING must not be suggested.
