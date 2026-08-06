@@ -8,6 +8,11 @@ from django.utils import timezone
 
 from posthog.models import Organization, Team
 
+from products.replay_vision.backend.api.backfills import (
+    MAX_BACKFILL_WINDOW_DAYS,
+    BackfillEnumerationThrottle,
+    ReplayScannerBackfillViewSet,
+)
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.replay_scanner_backfill import BackfillStatus, ReplayScannerBackfill
@@ -316,6 +321,16 @@ class TestBackfillsApi(APIBaseTest):
         assert body["total_credits"] == 40 * body["credits_per_observation"]
         assert not ReplayScannerBackfill.objects.for_team(self.team.id).filter(scanner=self.scanner).exists()
 
+    def test_estimate_rejects_window_longer_than_the_cap(self) -> None:
+        # An unbounded window makes the synchronous enumeration pay for the whole partition range.
+        body = {
+            "window_start": (self.scanner.last_swept_at - dt.timedelta(days=MAX_BACKFILL_WINDOW_DAYS + 1)).isoformat(),
+            "window_end": self.scanner.last_swept_at.isoformat(),
+        }
+        response = self.client.post(f"{self.base_url}/estimate/", body, format="json")
+        assert response.status_code == 400
+        assert "365 days" in str(response.json())
+
     def test_estimate_rejects_window_entirely_past_the_watermark(self) -> None:
         body = {
             "window_start": (self.scanner.last_swept_at + dt.timedelta(hours=1)).isoformat(),
@@ -344,6 +359,16 @@ class TestBackfillsApi(APIBaseTest):
         running = backfill
         response = self.client.post(f"{self.base_url}/{running.id}/resume/")
         assert response.status_code == 400
+
+    def test_enumerating_actions_are_throttled_for_session_auth(self) -> None:
+        # The global burst/sustained throttles only cover personal API keys, so dropping this wiring
+        # would leave the synchronous ClickHouse enumeration open to an ordinary UI session.
+        viewset = ReplayScannerBackfillViewSet()
+        for enumerating_action in ("estimate", "create"):
+            viewset.action = enumerating_action
+            assert any(isinstance(t, BackfillEnumerationThrottle) for t in viewset.get_throttles())
+        viewset.action = "cancel"
+        assert not any(isinstance(t, BackfillEnumerationThrottle) for t in viewset.get_throttles())
 
     def test_list_includes_observation_progress_counts(self) -> None:
         backfill = _make_backfill(self.scanner, dispatched_count=3)

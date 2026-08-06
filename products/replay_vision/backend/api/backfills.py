@@ -19,6 +19,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
@@ -39,6 +40,21 @@ logger = structlog.get_logger(__name__)
 # The enumeration runs inside the request; a pathological filter must fail the request, not hang it.
 ENUMERATION_MAX_EXECUTION_SECONDS = 30
 
+# Beyond a year a backfill is asking for recordings almost every team has already aged out, while the
+# enumeration pays for the whole partition range. Bounds the per-request ClickHouse cost.
+MAX_BACKFILL_WINDOW_DAYS = 365
+
+
+class BackfillEnumerationThrottle(PersonalApiKeyOrUserRateThrottle):
+    """Covers session-authenticated callers, which the global burst/sustained throttles skip.
+
+    `estimate` and `create` each run a synchronous ClickHouse enumeration, so an ordinary UI session
+    could otherwise saturate the Replay Vision query pool by resubmitting wide windows.
+    """
+
+    scope = "replay_vision_backfill_enumeration"
+    rate = "20/minute"
+
 
 class BackfillWindowSerializer(serializers.Serializer):
     window_start = serializers.DateTimeField(help_text="Inclusive lower bound of the historical window to scan.")
@@ -49,6 +65,10 @@ class BackfillWindowSerializer(serializers.Serializer):
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if attrs["window_start"] >= attrs["window_end"]:
             raise ValidationError("window_start must be before window_end.")
+        if (attrs["window_end"] - attrs["window_start"]).days > MAX_BACKFILL_WINDOW_DAYS:
+            raise ValidationError(
+                f"Backfill windows are limited to {MAX_BACKFILL_WINDOW_DAYS} days. Pick a shorter range."
+            )
         return attrs
 
 
@@ -126,6 +146,13 @@ class ReplayScannerBackfillViewSet(
     queryset = ReplayScannerBackfill.objects.unscoped()
 
     _WRITE_ACTIONS = frozenset(scope_object_write_actions)
+    # Both run the ClickHouse enumeration; cancel and resume do not.
+    _ENUMERATING_ACTIONS = frozenset({"estimate", "create"})
+
+    def get_throttles(self) -> list[Any]:
+        if self.action in self._ENUMERATING_ACTIONS:
+            return [BackfillEnumerationThrottle()]
+        return super().get_throttles()
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         # Same authorization as /observe/: a backfill dispatches scans, which exposes recording contents.
