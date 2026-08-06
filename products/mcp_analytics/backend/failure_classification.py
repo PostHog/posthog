@@ -122,7 +122,8 @@ input_schema_mismatch, not timeout).
 entitlement_gap wins. If genuinely no cause is recoverable, internal_error — never guess.
 
 Each input line is numbered. Return exactly one classification per input line, in the same order, \
-naming the class for each."""
+as JSON of exactly this shape:
+{{"classifications": [{{"line_number": 1, "failure_class": "<one of the 14 class names>"}}, ...]}}"""
 
 # The LLM reads the raw representative message, never the normalized fingerprint: normalization
 # strips numbers, so the status and JSON-RPC codes the boundary rules pivot on (429, 403, -32601)
