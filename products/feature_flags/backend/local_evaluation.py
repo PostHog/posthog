@@ -482,7 +482,10 @@ def _skip_write_if_group_mapping_emptied(key: KeyType, payload: dict[str, Any]) 
     HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER.labels(namespace="feature_flags").inc()
     _capture_flag_cache_skip_throttled(
         "flag_cache_group_mapping_emptied_capture_throttle",
-        Exception(f"group_type_mapping would be emptied for team {team.id}"),
+        # Keep team.id out of the message so error tracking groups every team's skip into
+        # one issue instead of spawning a separate issue per team. The team is on the log
+        # line below for debugging.
+        Exception("group_type_mapping would be emptied for a team with populated group types"),
         "Skipped feature_flags cache rebuild: refusing to empty a populated group_type_mapping",
         team_id=team.id,
     )

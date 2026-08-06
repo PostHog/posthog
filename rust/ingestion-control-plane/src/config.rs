@@ -87,6 +87,24 @@ pub struct Config {
     #[envconfig(default = "2")]
     pub analysis_max_concurrent_jobs: usize,
 
+    /// Messages scanned per synchronous browse request while filling a page
+    /// of matches; a rarely-matching filter stops here and resumes from the
+    /// returned cursor on the next request.
+    #[envconfig(default = "25000")]
+    pub browse_scan_message_count: u64,
+
+    #[envconfig(default = "10")]
+    pub browse_deadline_secs: u64,
+
+    /// Kafka transfers full records even though browsing only returns
+    /// headers, so bound the bytes fetched per request. 256 MiB by default.
+    #[envconfig(default = "268435456")]
+    pub browse_max_fetch_bytes: u64,
+
+    /// Concurrent synchronous browse requests; more are rejected with 429.
+    #[envconfig(default = "3")]
+    pub browse_max_concurrent: usize,
+
     /// `kubernetes` discovers consumer pods via the K8s API; `static` uses
     /// the fixed `STATIC_PODS` list (local testing, like the
     /// ingestion-consumer's static worker discovery).

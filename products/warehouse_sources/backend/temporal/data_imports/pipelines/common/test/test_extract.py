@@ -5,9 +5,6 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.db import InterfaceError, OperationalError
-
-import deltalake.exceptions
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
@@ -15,13 +12,17 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     handle_corrupted_delta_log,
     handle_reset_or_full_refresh,
     persist_primary_keys,
     report_heartbeat_timeout,
     resolve_primary_keys,
-    run_pre_write_defensive_compact,
+    validate_incremental_sync,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    MissingPrimaryKeysException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
@@ -128,138 +129,6 @@ class TestPersistPrimaryKeys:
             await persist_primary_keys(schema, resource, True, logger)
 
         logger.aexception.assert_awaited_once()
-
-
-class TestRunPreWriteDefensiveCompact:
-    @parameterized.expand(
-        [
-            # (schema_partition_count, resource_partition_count, expected_passed_to_run_maintenance)
-            ("schema_value_wins", 10, 72, 10),
-            ("falls_back_to_resource", None, 72, 72),
-            ("both_none_passes_none", None, None, None),
-        ]
-    )
-    @pytest.mark.asyncio
-    async def test_resolves_partition_count_schema_over_resource(
-        self, _name: str, schema_count: int | None, resource_count: int | None, expected: int | None
-    ):
-        run_maintenance = AsyncMock(return_value=None)
-        helper = MagicMock(run_maintenance=run_maintenance)
-
-        await run_pre_write_defensive_compact(
-            helper,
-            MagicMock(partition_count=schema_count, sync_type_config={}),
-            MagicMock(partition_count=resource_count),
-            MagicMock(aexception=AsyncMock()),
-        )
-
-        assert run_maintenance.await_args is not None
-        assert run_maintenance.await_args.kwargs["partition_count"] == expected
-
-    @pytest.mark.asyncio
-    async def test_swallows_maintenance_failure(self):
-        # The whole point of the wrapper: a maintenance error must never propagate and
-        # block the sync — it's captured and logged instead.
-        helper = MagicMock(run_maintenance=AsyncMock(side_effect=RuntimeError("maintenance blew up")))
-        logger = MagicMock(aexception=AsyncMock())
-
-        schema = MagicMock(partition_count=5, sync_type_config={})
-        with patch(f"{_EXTRACT_MODULE}.capture_exception") as mock_capture:
-            await run_pre_write_defensive_compact(helper, schema, MagicMock(partition_count=None), logger)
-
-        mock_capture.assert_called_once()
-        logger.aexception.assert_awaited_once()
-
-    @parameterized.expand(
-        [
-            (
-                "credentials_loading",
-                OSError,
-                "Operation not supported: an error occurred while loading credentials: dispatch failure: timeout",
-            ),
-            (
-                "credential_provider_not_enabled",
-                OSError,
-                "Operation not supported: the credential provider was not enabled: no providers in chain provided credentials",
-            ),
-            (
-                "generic_s3_error",
-                OSError,
-                "Generic S3 error: Error getting list response body: operation timed out",
-            ),
-            (
-                # table.vacuum()/optimize.compact() surface the identical object-store error text
-                # wrapped in DeltaError instead of OSError (unlike is_deltatable()'s OSError) — the
-                # exact shape of the issue this test guards against.
-                "generic_s3_error_as_delta_error",
-                deltalake.exceptions.DeltaError,
-                "Generic error: Kernel error: Error interacting with object store: Generic S3 error: "
-                "Server returned non-2xx status code: 503 Service Unavailable: SlowDown",
-            ),
-        ]
-    )
-    @pytest.mark.asyncio
-    async def test_logs_transient_object_store_error_without_capturing(
-        self, _name: str, error_cls: type[Exception], error_message: str
-    ):
-        # A transient blip talking to our own delta S3 bucket (credential-provider or connectivity
-        # errors from delta-rs) isn't a bug in this function — it shouldn't flood error tracking the
-        # way an actual maintenance bug does (see test_swallows_maintenance_failure above).
-        helper = MagicMock(run_maintenance=AsyncMock(side_effect=error_cls(error_message)))
-        logger = MagicMock(aexception=AsyncMock(), awarning=AsyncMock())
-
-        schema = MagicMock(partition_count=5, sync_type_config={})
-        with patch(f"{_EXTRACT_MODULE}.capture_exception") as mock_capture:
-            await run_pre_write_defensive_compact(helper, schema, MagicMock(partition_count=None), logger)
-
-        mock_capture.assert_not_called()
-        logger.awarning.assert_awaited_once()
-        logger.aexception.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_logs_transient_delta_maintenance_race_without_capturing(self):
-        # Regression: a concurrent optimize/vacuum pass on the same table (e.g. a zombie Temporal
-        # attempt racing its own retry) can have `optimize.compact` scan a file the other attempt
-        # already vacuumed away. Nothing gets committed when the scan fails, so the table isn't
-        # corrupted — this must be treated the same as the object-store blips above, not captured.
-        error = deltalake.exceptions.DeltaError(
-            "Failed to parse parquet: Optimize selected-file scan failed while scanning data: "
-            "Object at location .../part-0.parquet not found: 404 Not Found"
-        )
-        helper = MagicMock(run_maintenance=AsyncMock(side_effect=error))
-        logger = MagicMock(aexception=AsyncMock(), awarning=AsyncMock())
-
-        schema = MagicMock(partition_count=5, sync_type_config={})
-        with patch(f"{_EXTRACT_MODULE}.capture_exception") as mock_capture:
-            await run_pre_write_defensive_compact(helper, schema, MagicMock(partition_count=None), logger)
-
-        mock_capture.assert_not_called()
-        logger.awarning.assert_awaited_once()
-        logger.aexception.assert_not_awaited()
-
-    @parameterized.expand(
-        [
-            ("dns_resolution_failure", OperationalError, "[Errno -2] Name or service not known"),
-            ("pooler_dropped_connection", InterfaceError, "connection already closed"),
-        ]
-    )
-    @pytest.mark.asyncio
-    async def test_logs_transient_db_connection_error_without_capturing(
-        self, _name: str, error_cls: type[Exception], error_message: str
-    ):
-        # A DNS/pooler blip hit while resolving `job.folder_path()` on a pooled app-DB connection
-        # (e.g. inside `_get_delta_table_uri`) isn't a maintenance bug either — same treatment as
-        # the object-store blips above, so a self-healing retry doesn't flood error tracking.
-        helper = MagicMock(run_maintenance=AsyncMock(side_effect=error_cls(error_message)))
-        logger = MagicMock(aexception=AsyncMock(), awarning=AsyncMock())
-
-        schema = MagicMock(partition_count=5, sync_type_config={})
-        with patch(f"{_EXTRACT_MODULE}.capture_exception") as mock_capture:
-            await run_pre_write_defensive_compact(helper, schema, MagicMock(partition_count=None), logger)
-
-        mock_capture.assert_not_called()
-        logger.awarning.assert_awaited_once()
-        logger.aexception.assert_not_awaited()
 
 
 class TestReportHeartbeatTimeoutRecording(BaseTest):
@@ -422,6 +291,32 @@ class TestHandleCorruptedDeltaLog:
         job.refresh_from_db()
         assert job.billable is True
 
+    def test_is_table_corrupted_transient_object_store_error_skips_without_capturing(self, team):
+        # `is_table_corrupted` opens the table via `DeltaTable.is_deltatable`, which can raise the
+        # same IMDS/STS credential-provider blip as any other delta-rs object-store call. That isn't
+        # evidence of corruption — it must be treated like the reset-path blip above (skip, log a
+        # warning, no error-tracking capture) rather than unconditionally reported as a defect.
+        schema, job = self._schema_and_job(team)
+        corrupt_check_error = OSError(
+            "Operation not supported: an error occurred while loading credentials: dispatch failure: "
+            "timeout: client error (Connect): HTTP connect timeout occurred after 3.1s: timed out"
+        )
+        helper = MagicMock(is_table_corrupted=AsyncMock(side_effect=corrupt_check_error), reset_table=AsyncMock())
+        logger = self._logger()
+
+        with (
+            patch(f"{_EXTRACT_MODULE}.posthoganalytics"),
+            patch(f"{_EXTRACT_MODULE}.capture_exception") as mock_capture,
+        ):
+            result = async_to_sync(handle_corrupted_delta_log)(schema, job, helper, logger)
+
+        assert result is False
+        mock_capture.assert_not_called()
+        helper.reset_table.assert_not_awaited()
+        logger.awarning.assert_awaited()
+        job.refresh_from_db()
+        assert job.billable is True
+
     def test_revive_marker_resets_readable_table(self, team):
         # A hollow table — log opens fine but references data files gone from S3 — is invisible to
         # is_table_corrupted; the repartition scan marks it instead. The marker alone must trigger the
@@ -546,3 +441,41 @@ class TestHandleResetOrFullRefresh:
         helper.reset_table.assert_awaited_once()
         schema.refresh_from_db()
         assert "reset_pipeline" not in schema.sync_type_config
+
+
+class TestValidateIncrementalSync:
+    @parameterized.expand(
+        [
+            # The failure this guard exists for: a keyless incremental table can never merge into
+            # the Delta table that an earlier run already wrote.
+            ("keyless_incremental_after_first_sync_raises", True, False, None, True),
+            # The first run writes the whole table, so it doesn't need a merge key. Raising here
+            # would break every initial sync of a keyless table.
+            ("keyless_incremental_first_sync_allowed", True, True, None, False),
+            # Full refresh overwrites, so it never merges on a key.
+            ("keyless_full_refresh_allowed", False, False, None, False),
+            ("incremental_with_key_allowed", True, False, ["id"], False),
+        ]
+    )
+    def test_missing_primary_keys(
+        self,
+        _name: str,
+        is_incremental: bool,
+        is_first_sync: bool,
+        primary_keys: list[str] | None,
+        expect_raise: bool,
+    ):
+        resource = MagicMock(primary_keys=primary_keys, has_duplicate_primary_keys=False)
+
+        if not expect_raise:
+            validate_incremental_sync(is_incremental, resource, is_first_sync=is_first_sync)
+            return
+
+        with pytest.raises(MissingPrimaryKeysException):
+            validate_incremental_sync(is_incremental, resource, is_first_sync=is_first_sync)
+
+    def test_message_stays_classified_as_non_retryable(self):
+        # The message is what pauses the schema: without a matching Any_Source_Errors entry the
+        # run is retried on every schedule even though only the user can resolve it.
+        message = str(MissingPrimaryKeysException())
+        assert [key for key in Any_Source_Errors if key in message]

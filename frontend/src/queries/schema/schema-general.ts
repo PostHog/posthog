@@ -40,6 +40,7 @@ import {
     LifecycleToggle,
     LogEntryPropertyFilter,
     MatchedRecordingEvent,
+    PathCleaningFilter,
     PathsFilterType,
     PersonPropertyFilter,
     PropertyGroupFilter,
@@ -52,7 +53,6 @@ import {
     SessionPropertyFilter,
     SessionRecordingType,
     SlackIntegrationScope,
-    SlackIntegrationScopeInReview,
     StepOrderValue,
     StickinessFilterType,
     TrendsFilterType,
@@ -61,10 +61,9 @@ import {
 import { integer, numerical_key, positive_integer } from './type-utils'
 
 export { ChartDisplayCategory }
-// Re-exported so the codegen picks them up and emits matching `StrEnum`s in posthog/schema.py.
-// The runtime consts live in `~/types` as `SLACK_INTEGRATION_SCOPES` (always-on) and
-// `SLACK_INTEGRATION_SCOPES_IN_REVIEW` (DEV-instance only until Slack approves them).
-export { SlackIntegrationScope, SlackIntegrationScopeInReview }
+// Re-exported so the codegen picks it up and emits a matching `StrEnum` in posthog/schema.py.
+// The runtime const lives in `~/types` as `SLACK_INTEGRATION_SCOPES`.
+export { SlackIntegrationScope }
 
 /**
  * PostHog Query Schema definition.
@@ -97,6 +96,7 @@ export enum NodeKind {
     GroupsQuery = 'GroupsQuery',
     FunnelsActorsQuery = 'FunnelsActorsQuery',
     FunnelCorrelationActorsQuery = 'FunnelCorrelationActorsQuery',
+    PathsV2ActorsQuery = 'PathsV2ActorsQuery',
     SessionsTimelineQuery = 'SessionsTimelineQuery',
     RecordingsQuery = 'RecordingsQuery',
     SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
@@ -126,6 +126,7 @@ export enum NodeKind {
     FunnelsQuery = 'FunnelsQuery',
     RetentionQuery = 'RetentionQuery',
     PathsQuery = 'PathsQuery',
+    PathsV2Query = 'PathsV2Query',
     StickinessQuery = 'StickinessQuery',
     StickinessActorsQuery = 'StickinessActorsQuery',
     LifecycleQuery = 'LifecycleQuery',
@@ -150,6 +151,8 @@ export enum NodeKind {
     // Marketing analytics queries
     MarketingAnalyticsTableQuery = 'MarketingAnalyticsTableQuery',
     MarketingAnalyticsAggregatedQuery = 'MarketingAnalyticsAggregatedQuery',
+    MarketingAnalyticsAttributionQuery = 'MarketingAnalyticsAttributionQuery',
+    MarketingAnalyticsAttributionPathsQuery = 'MarketingAnalyticsAttributionPathsQuery',
     NonIntegratedConversionsTableQuery = 'NonIntegratedConversionsTableQuery',
 
     // Experiment queries
@@ -187,6 +190,8 @@ export enum NodeKind {
     EndpointsUsageTrendsQuery = 'EndpointsUsageTrendsQuery',
 
     // MCP analytics
+    MCPToolCallBreakdownQuery = 'MCPToolCallBreakdownQuery',
+    MCPToolCallsAndErrorsQuery = 'MCPToolCallsAndErrorsQuery',
     MCPHarnessBreakdownQuery = 'MCPHarnessBreakdownQuery',
     MCPToolTopUsersQuery = 'MCPToolTopUsersQuery',
     MCPToolFailuresQuery = 'MCPToolFailuresQuery',
@@ -225,6 +230,8 @@ export type AnyDataNode =
     | HogQLAutocomplete
     | MarketingAnalyticsTableQuery
     | MarketingAnalyticsAggregatedQuery
+    | MarketingAnalyticsAttributionQuery
+    | MarketingAnalyticsAttributionPathsQuery
     | NonIntegratedConversionsTableQuery
     | WebOverviewQuery
     | WebStatsTableQuery
@@ -263,6 +270,8 @@ export type AnyDataNode =
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
+    | MCPToolCallBreakdownQuery
+    | MCPToolCallsAndErrorsQuery
     | MCPHarnessBreakdownQuery
     | MCPToolTopUsersQuery
     | MCPToolFailuresQuery
@@ -327,6 +336,8 @@ export type QuerySchema =
     // Marketing analytics
     | MarketingAnalyticsTableQuery
     | MarketingAnalyticsAggregatedQuery
+    | MarketingAnalyticsAttributionQuery
+    | MarketingAnalyticsAttributionPathsQuery
     | NonIntegratedConversionsTableQuery
 
     // Interface nodes
@@ -340,6 +351,7 @@ export type QuerySchema =
     | FunnelsQuery
     | RetentionQuery
     | PathsQuery
+    | PathsV2Query
     | StickinessQuery
     | LifecycleQuery
     | FunnelCorrelationQuery
@@ -385,6 +397,8 @@ export type QuerySchema =
     | EndpointsUsageTrendsQuery
 
     // MCP analytics
+    | MCPToolCallBreakdownQuery
+    | MCPToolCallsAndErrorsQuery
     | MCPHarnessBreakdownQuery
     | MCPToolTopUsersQuery
     | MCPToolFailuresQuery
@@ -489,6 +503,8 @@ export interface HogQLQueryModifiers {
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
     useWebAnalyticsPreAggregatedTables?: boolean
+    /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
+    webAnalyticsFirstPageviewFilters?: boolean
     formatCsvAllowDoubleQuotes?: boolean
     convertToProjectTimezone?: boolean
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level **/
@@ -2023,6 +2039,191 @@ export interface PathsQuery extends InsightsQueryBase<PathsQueryResponse> {
     funnelPathsFilter?: FunnelPathsFilter
 }
 
+/** A step source defines which events can become path items in a paths v2 query. */
+export type PathsV2StepSource = {
+    /** Name of the event this source matches. */
+    event: string
+    /**
+     * Event property whose value labels the path item, e.g. `$pathname` for pageviews.
+     * Team path cleaning rules are applied to the value. Without a naming property,
+     * the event itself is the path item.
+     */
+    namingProperty?: string
+}
+
+/** Identity of a journey grid node: the step source's event plus the label value. */
+export type PathsV2Item = {
+    /** Event of the step source this item belongs to. */
+    event: string
+    /**
+     * Label value from the source's naming property, after path cleaning. An empty string when
+     * the property is missing on the event. Null for sources without a naming property.
+     */
+    label?: string | null
+}
+
+/** One row of a journey grid column: a path item and its unique-actor count. */
+export type PathsV2Row = {
+    item: PathsV2Item
+    /** Unique actors with a journey whose item at this step is this path item. */
+    count: number
+}
+
+/** One journey grid column: the top path items at a step, plus other-row and drop-off counts. */
+export type PathsV2Step = {
+    /** 0-based step index (column) in the journey grid. */
+    stepIndex: integer
+    /** Top path items at this step, ordered by unique-actor count descending. */
+    rows: PathsV2Row[]
+    /** Unique actors at this step whose path item is beyond the top rows. */
+    otherCount: number
+    /** Unique actors whose journey ends at this step. */
+    dropOffCount: number
+}
+
+/** A displayed transition between path items at adjacent journey grid columns. */
+export type PathsV2Edge = {
+    /** 0-based step index of the source column; the target sits at `stepIndex + 1`. */
+    stepIndex: integer
+    /** Source path item, or null for the source column's "other" row. */
+    source: PathsV2Item | null
+    /** Target path item, or null for the target column's "other" row. */
+    target: PathsV2Item | null
+    /** Unique actors with a journey that transitions from source to target between these steps. */
+    count: number
+    /**
+     * Unique actors who transition from source to target at any step of any of their whole
+     * journeys, the position-free count behind "went source → target at any step". Equals the
+     * two-step item-strict funnel's converted count. Only set in open mode on edges between two
+     * named items.
+     */
+    anyStepCount?: number
+}
+
+/**
+ * A concrete anchored chain from the anchor and the unique actors whose single sequence begins with
+ * exactly these path items. Powers the hover funnel preview over the journey grid.
+ */
+export type PathsV2Prefix = {
+    /** The chain's path items in order, starting at the anchor. */
+    items: PathsV2Item[]
+    /** Unique actors whose anchored sequence begins with exactly these items. */
+    count: number
+}
+
+export type PathsV2Results = {
+    steps: PathsV2Step[]
+    edges: PathsV2Edge[]
+    /**
+     * Concrete anchored chains with per-chain unique-actor counts, ordered by descending count. Empty
+     * in open mode; in anchored mode it carries the counts the hover funnel preview reads per chain.
+     * Only chains the grid displays in full are carried: chains through the other bucket are omitted,
+     * so the response never exposes labels the chart hides.
+     */
+    prefixes: PathsV2Prefix[]
+}
+
+export interface PathsV2QueryResponse extends AnalyticsQueryResponseBase {
+    results: PathsV2Results
+}
+
+export type CachedPathsV2QueryResponse = CachedQueryResponse<PathsV2QueryResponse>
+
+/** Whether an anchored chart is built around the journeys' start or their end. */
+export enum PathsV2AnchorType {
+    Start = 'start',
+    End = 'end',
+}
+
+/** The start or end point an anchored-mode chart is built around. */
+export type PathsV2Anchor = {
+    /**
+     * `start` runs each actor's single sequence forward from the anchor item; `end` runs it up to the
+     * anchor item. Either way the anchor is the grid's single 100% node.
+     */
+    type: PathsV2AnchorType
+    /** The path item the chart anchors on. Its event must be one of the step sources. */
+    item: PathsV2Item
+}
+
+export type PathsV2Filter = {
+    /**
+     * Step sources defining which events can become path items. Defaults to the pageviews
+     * preset: `$pageview` named by `$pathname`.
+     * @minItems 1
+     * @maxItems 20
+     */
+    stepSources?: PathsV2StepSource[]
+    /**
+     * Anchor selecting anchored mode. When set, each actor contributes exactly one sequence bounded by
+     * the conversion window, so every displayed segment equals a plain funnel. Absent selects open
+     * mode, which splits an actor's events into journeys on the inactivity gap instead.
+     */
+    anchor?: PathsV2Anchor
+    /**
+     * Anchored mode's single conversion window W, anchored at the anchor and reused verbatim as the
+     * emitted funnel's window. Bounds per unit are validated server-side against
+     * CONVERSION_WINDOW_INTERVAL_BOUNDS, the same funnel conversion window bounds as the gap.
+     * @asType integer
+     * @default 30
+     */
+    conversionWindowInterval?: number
+    /** @default minute */
+    conversionWindowIntervalUnit?: FunnelConversionWindowTimeUnit
+    /**
+     * Number of journey steps (columns) shown.
+     * @asType integer
+     * @default 5
+     * @minimum 2
+     * @maximum 20
+     */
+    maxSteps?: number
+    /**
+     * Number of path item rows per step; items beyond this go into the "other" row.
+     * @asType integer
+     * @default 3
+     * @minimum 1
+     * @maximum 10
+     */
+    maxRowsPerStep?: number
+    /**
+     * Inactivity gap that splits an actor's events into journeys. Bounds per unit are validated
+     * server-side against CONVERSION_WINDOW_INTERVAL_BOUNDS, the funnel conversion window bounds.
+     * @asType integer
+     * @default 30
+     */
+    gapInterval?: number
+    /** @default minute */
+    gapIntervalUnit?: FunnelConversionWindowTimeUnit
+    /**
+     * Merge immediate repeats of the same path item within a journey.
+     * @default true
+     */
+    collapseRepeats?: boolean
+    /**
+     * Path items dropped from the item universe: events deriving to one of these items are ignored
+     * as if their event were not a step source, on both the paths side and the "view as funnel" side.
+     * @maxItems 100
+     */
+    excludedItems?: PathsV2Item[]
+    /**
+     * Apply the team's path cleaning rules to naming property values before they become path items.
+     * @default true
+     */
+    applyTeamPathCleaning?: boolean
+    /** Path cleaning rules for this insight only, applied after the team's rules. */
+    localPathCleaningFilters?: PathCleaningFilter[]
+}
+
+export interface PathsV2Query extends Omit<
+    InsightsQueryBase<PathsV2QueryResponse>,
+    'samplingFactor' | 'aggregation_group_type_index'
+> {
+    kind: NodeKind.PathsV2Query
+    /** Properties specific to the paths v2 insight */
+    pathsV2Filter?: PathsV2Filter
+}
+
 /** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params  */
 export type StickinessFilterLegacy = Omit<StickinessFilterType, keyof FilterType | 'stickiness_days' | 'shown_as'>
 
@@ -2475,6 +2676,7 @@ export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
         | FunnelCorrelationActorsQuery
         | ExperimentActorsQuery
         | StickinessActorsQuery
+        | PathsV2ActorsQuery
         | HogQLQuery
     select?: HogQLExpression[]
     search?: string
@@ -2674,6 +2876,56 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase {
 }
 
 export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
+
+/** One tool's call count within one interval bucket. */
+export interface MCPToolCallBreakdownItem {
+    /** Bucket start as a project-timezone wall clock ("YYYY-MM-DD HH:mm:ss"), never zone-stamped, so
+     * the client can join it against generated axis keys without reinterpreting it as an instant. */
+    bucket: string
+    tool: string
+    calls: integer
+}
+
+export interface MCPToolCallBreakdownQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolCallBreakdownItem[]
+}
+
+/** Interval-bucketed call counts per tool, powering the dashboard's "Tool call breakdown" chart. */
+export interface MCPToolCallBreakdownQuery extends DataNode<MCPToolCallBreakdownQueryResponse> {
+    kind: NodeKind.MCPToolCallBreakdownQuery
+    dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
+    /** Bucket granularity; the frontend passes getDefaultInterval. Defaults to day. */
+    interval?: IntervalType
+}
+
+export type CachedMCPToolCallBreakdownQueryResponse = CachedQueryResponse<MCPToolCallBreakdownQueryResponse>
+
+/** One interval bucket of MCP tool-call activity, split into successful and failed calls. */
+export interface MCPToolCallsAndErrorsItem {
+    /** Bucket start as a project-timezone wall clock ("YYYY-MM-DD HH:mm:ss"), never zone-stamped, so
+     * the client can join it against generated axis keys without reinterpreting it as an instant. */
+    bucket: string
+    successes: integer
+    errors: integer
+}
+
+export interface MCPToolCallsAndErrorsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolCallsAndErrorsItem[]
+}
+
+/** Interval-bucketed success/error split powering the dashboard's "Tool calls and errors" chart. */
+export interface MCPToolCallsAndErrorsQuery extends DataNode<MCPToolCallsAndErrorsQueryResponse> {
+    kind: NodeKind.MCPToolCallsAndErrorsQuery
+    dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
+    /** Bucket granularity; the frontend passes getDefaultInterval. Defaults to day. */
+    interval?: IntervalType
+}
+
+export type CachedMCPToolCallsAndErrorsQueryResponse = CachedQueryResponse<MCPToolCallsAndErrorsQueryResponse>
 
 /** One row of the MCP harness (client) breakdown: a resolved customer label and its activity. */
 export interface MCPHarnessBreakdownItem {
@@ -3522,6 +3774,9 @@ export interface LogMessage {
 /** Field to break down sparkline data by */
 export type LogsSparklineBreakdownBy = 'severity' | 'service'
 
+/** Metric the sparkline ranks breakdown values by before collapsing the tail into an "other" bucket */
+export type LogsSparklineRankBy = 'count' | 'bytes'
+
 /** @title LogsOrderBy */
 export type LogsOrderBy = 'latest' | 'earliest'
 
@@ -3554,6 +3809,12 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     after?: string
     /** Field to break down sparkline data by (used only by sparkline endpoint) */
     sparklineBreakdownBy?: LogsSparklineBreakdownBy
+    /**
+     * Metric used to rank breakdown values before the tail is collapsed into a single "other"
+     * bucket, so the returned row count stays bounded (used only by sparkline endpoint).
+     * Defaults to ranking by log count.
+     */
+    sparklineRankBy?: LogsSparklineRankBy
     resourceFingerprint?: string
     /** Omit the per-log `attributes` and `resource_attributes` maps from results to keep payloads compact */
     excludeAttributes?: boolean
@@ -4235,6 +4496,7 @@ export type InsightQueryNode =
     | FunnelsQuery
     | RetentionQuery
     | PathsQuery
+    | PathsV2Query
     | StickinessQuery
     | LifecycleQuery
     | WebStatsTableQuery
@@ -4895,6 +5157,7 @@ export type InsightFilterProperty =
     | 'funnelsFilter'
     | 'retentionFilter'
     | 'pathsFilter'
+    | 'pathsV2Filter'
     | 'stickinessFilter'
     | 'calendarHeatmapFilter'
     | 'lifecycleFilter'
@@ -4905,6 +5168,7 @@ export type InsightFilter =
     | FunnelsFilter
     | RetentionFilter
     | PathsFilter
+    | PathsV2Filter
     | StickinessFilter
     | LifecycleFilter
     | CalendarHeatmapFilter
@@ -4964,6 +5228,55 @@ export interface FunnelCorrelationActorsQuery extends InsightActorsQueryBase {
     funnelCorrelationPersonConverted?: boolean
     funnelCorrelationPersonEntity?: AnyEntityNode
     funnelCorrelationPropertyValues?: AnyPropertyFilter[]
+}
+
+/** The kind of journey grid element a PathsV2ActorsQuery drills into. */
+export enum PathsV2ElementType {
+    Node = 'node',
+    Edge = 'edge',
+    DropOff = 'dropOff',
+    Other = 'other',
+    Chain = 'chain',
+}
+
+/**
+ * Selects the journey grid element whose actors a PathsV2ActorsQuery returns. The same journeys
+ * that produced the grid produce these actor sets, so each element's modal equals its displayed
+ * number by construction.
+ */
+export type PathsV2ElementSelector = {
+    elementType: PathsV2ElementType
+    /**
+     * 0-based step index (column) of the element; for an edge, its source column. Required for
+     * node, other, dropOff, and positional edge elements.
+     */
+    stepIndex?: integer
+    /** The node card's path item. Node elements only. */
+    item?: PathsV2Item
+    /** The edge's source path item; omit for the source column's "other" row. Edge elements only. */
+    source?: PathsV2Item
+    /** The edge's target path item; omit for the target column's "other" row. Edge elements only. */
+    target?: PathsV2Item
+    /**
+     * Match the source → target transition at any step of any whole journey instead of at one step
+     * pair: the position-free set behind an edge's anyStepCount. Requires a named source and
+     * target and open mode. Edge elements only.
+     */
+    anyStep?: boolean
+    /**
+     * The chain's path items in order from the anchor. Returns the actors whose anchored sequence
+     * begins with exactly these items, the set behind a hover preview's per-chain counts. Chain
+     * elements only, anchored mode only. Bounded by the step maximum: a longer chain can never
+     * match a displayed card.
+     * @maxItems 20
+     */
+    chain?: PathsV2Item[]
+}
+
+export interface PathsV2ActorsQuery extends InsightActorsQueryBase {
+    kind: NodeKind.PathsV2ActorsQuery
+    source: PathsV2Query
+    element: PathsV2ElementSelector
 }
 
 export interface EventDefinition {
@@ -5074,6 +5387,7 @@ export interface InsightActorsQueryOptions extends Node<InsightActorsQueryOption
         | FunnelCorrelationActorsQuery
         | StickinessActorsQuery
         | ExperimentActorsQuery
+        | PathsV2ActorsQuery
 }
 
 export interface DatabaseSchemaSchema {
@@ -6328,6 +6642,184 @@ export interface MarketingAnalyticsAggregatedQuery extends Omit<
     /** Drill-down hierarchy level: channel, source, or campaign (default) */
     drillDownLevel?: MarketingAnalyticsDrillDownLevel
 }
+
+/**
+ * Row dimension for the Attribution table. String values match MarketingAnalyticsDrillDownLevel for the
+ * levels they share, so both surfaces speak the same vocabulary. It's a separate enum because
+ * `ad_group`/`ad` can't be attributed to events at all (no ad identifier reaches the events table), while
+ * `referring_domain`/`landing_page` have no cost-side expression and so don't belong in the drill-down.
+ */
+export enum MarketingAnalyticsAttributionBreakdown {
+    Channel = 'channel',
+    Source = 'source',
+    Campaign = 'campaign',
+    Medium = 'medium',
+    Content = 'content',
+    Term = 'term',
+    ReferringDomain = 'referring_domain',
+    LandingPage = 'landing_page',
+}
+
+export interface MarketingAnalyticsAttributionQuery extends Omit<
+    WebAnalyticsQueryBase<MarketingAnalyticsAttributionQueryResponse>,
+    'orderBy' | 'compareFilter'
+> {
+    kind: NodeKind.MarketingAnalyticsAttributionQuery
+    /** Row dimension. Defaults to channel. */
+    breakdownBy?: MarketingAnalyticsAttributionBreakdown
+    /** conversion_goal_id of the goal to attribute. The table is meaningless without one. */
+    conversionGoalId: string
+    /**
+     * Drop direct sessions from the touchpoint set before weights are computed, so the remaining
+     * touchpoints renormalize to full credit rather than losing direct's share.
+     */
+    excludeDirectTraffic?: boolean
+    /**
+     * Drop touchpoints whose current breakdown value is empty or unknown — the "(none)" row — before
+     * weights are computed, so the remaining touchpoints renormalize to full credit.
+     */
+    excludeUnattributed?: boolean
+    /**
+     * How many days before each conversion a touchpoint can earn credit, overriding the team's
+     * configured attribution window for this query only.
+     */
+    lookbackWindowDays?: integer
+    /**
+     * Whether one person converting repeatedly counts once or every time. Null follows the goal's own
+     * math: unique-users goals count each person once, count-based goals count every conversion. Set
+     * explicitly to override. Counting every conversion makes the rate columns exceed 100%, since a
+     * person can convert more times than they visited.
+     */
+    allowMultipleConversionsPerVisitor?: boolean
+    /** Number of rows to return */
+    limit?: integer
+    /** Number of rows to skip before returning rows */
+    offset?: integer
+    /** Filter test accounts */
+    filterTestAccounts?: boolean
+}
+
+/** One attribution model's credit for one breakdown row. */
+export interface MarketingAnalyticsAttributionModelCell {
+    model: AttributionMode
+    /** Fractional for multi-touch models: each conversion's credit is split across its touchpoints. */
+    conversions: number
+    /** conversions / visitors. Null when the row has no visitors. */
+    conversionRate: number | null
+    /** Null unless the goal is revenue-bearing. */
+    conversionValue: number | null
+}
+
+export interface MarketingAnalyticsAttributionRow {
+    breakdownValue: string
+    /** Unique persons who arrived via this dimension in the date range, converters or not. */
+    visitors: integer
+    /**
+     * Conversions with at least one touchpoint on this dimension. Counted once per conversion, so a
+     * conversion influenced by several dimensions is counted in each of their rows. These
+     * deliberately sum to more than the total, unlike the per-model columns.
+     */
+    influencedConversions: integer
+    influencedValue: number | null
+    /** One cell per model, always in the order given by the response's `models`. */
+    models: MarketingAnalyticsAttributionModelCell[]
+}
+
+export interface MarketingAnalyticsAttributionQueryResponse extends AnalyticsQueryResponseBase {
+    results: MarketingAnalyticsAttributionRow[]
+    /** Model order for the column groups. */
+    models: AttributionMode[]
+    /** Whether the goal is revenue-bearing, which gates the value columns. */
+    hasValue: boolean
+    /** The team's configured attribution window, for the tooltips. */
+    attributionWindowDays: integer
+    /**
+     * Whether this result counted a repeat converter's every conversion, after resolving the query's
+     * null against the goal's math. The rate columns are a true share only when this is false, so the
+     * table reads it to label them.
+     */
+    allowsMultipleConversionsPerVisitor: boolean
+    /** Conversions with no touchpoint in the window. Reported in the footer, not in any row. */
+    unattributedConversions: integer
+    /** Total conversions in range, so the footer can say "N of M". */
+    totalConversions: integer
+    hogql?: string
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedMarketingAnalyticsAttributionQueryResponse =
+    CachedQueryResponse<MarketingAnalyticsAttributionQueryResponse>
+
+export interface MarketingAnalyticsAttributionPathsQuery extends Omit<
+    WebAnalyticsQueryBase<MarketingAnalyticsAttributionPathsQueryResponse>,
+    'orderBy' | 'compareFilter'
+> {
+    kind: NodeKind.MarketingAnalyticsAttributionPathsQuery
+    /** Path step dimension. Defaults to channel. */
+    breakdownBy?: MarketingAnalyticsAttributionBreakdown
+    /** conversion_goal_id of the goal whose conversions the paths lead to. */
+    conversionGoalId: string
+    /** Drop direct sessions from every path, mirroring the attribution table's option. */
+    excludeDirectTraffic?: boolean
+    /** Drop touchpoints whose breakdown value is empty or unknown — the "(none)" steps. */
+    excludeUnattributed?: boolean
+    /**
+     * How many days before each conversion a touchpoint can be part of its path, overriding the
+     * team's configured attribution window for this query only.
+     */
+    lookbackWindowDays?: integer
+    /** Whether one person converting repeatedly contributes one path or one per conversion. Null follows the goal's math. */
+    allowMultipleConversionsPerVisitor?: boolean
+    /** Only paths with at least this many touchpoints, counted before truncation. */
+    minTouchpoints?: integer
+    /** Only paths with at most this many touchpoints, counted before truncation. */
+    maxTouchpoints?: integer
+    /** Number of rows to return */
+    limit?: integer
+    /** Number of rows to skip before returning rows */
+    offset?: integer
+    /** Filter test accounts */
+    filterTestAccounts?: boolean
+}
+
+export interface MarketingAnalyticsAttributionPathRow {
+    /**
+     * Breakdown values in touch order, oldest first. Consecutive repeats are preserved — collapsing
+     * them to "×N" is a display concern. Truncated to the most recent steps when the journey is
+     * longer than the grouping cap.
+     */
+    path: string[]
+    /** Conversions whose in-window touchpoints form exactly this path. */
+    conversions: integer
+    /** Null unless the goal is revenue-bearing. */
+    conversionValue: number | null
+    /** True when at least one grouped conversion had more touchpoints than the path shows. */
+    pathTruncated: boolean
+}
+
+export interface MarketingAnalyticsAttributionPathsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MarketingAnalyticsAttributionPathRow[]
+    /** All conversions in range, before the touchpoint-count filter. */
+    totalConversions: integer
+    /**
+     * Conversions with at least one in-window touchpoint. The share denominator — deliberately
+     * unfiltered by min/maxTouchpoints so shares stay comparable across filter values.
+     */
+    attributedConversions: integer
+    /** The attribution window actually used, for the tooltips. */
+    attributionWindowDays: integer
+    /** Whether the goal is revenue-bearing, which gates the value column. */
+    hasValue: boolean
+    hogql?: string
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedMarketingAnalyticsAttributionPathsQueryResponse =
+    CachedQueryResponse<MarketingAnalyticsAttributionPathsQueryResponse>
 
 /** Columns for non-integrated conversions table */
 export enum NonIntegratedConversionsColumnsSchemaNames {
@@ -7768,6 +8260,7 @@ export const externalDataSources = [
     'Campfire',
     'Crisp',
     'Kommo',
+    'GoogleMerchantCenter',
     'Axiom',
     'Plivo',
     'DataForSEO',
@@ -8180,6 +8673,15 @@ export const externalDataSources = [
     'Clay',
     'TradableBits',
     'Swan',
+    'Hyros',
+    'Odoo',
+    'Airbridge',
+    'Snovio',
+    'Raisely',
+    'WindsorAi',
+    'Wix',
+    'Sevalla',
+    'Motion',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -8716,10 +9218,16 @@ export interface SidebarItemsConfiguration {
     help?: UIVisibilityConfig
 }
 
-/** Customization of the main navigation sidebar. */
+/** How densely the sidebar renders its rows. An absent value means "comfortable". */
+export type SidebarDensity = 'comfortable' | 'compact'
+
+/** Customization of the main navigation sidebar. Extra keys are tolerated so older servers accept configs written by newer clients. */
 export interface SidebarConfiguration {
     sections?: SidebarSectionsConfiguration
     items?: SidebarItemsConfiguration
+    /** Row density of the sidebar. */
+    density?: SidebarDensity
+    [key: string]: unknown
 }
 
 /**
@@ -8735,6 +9243,7 @@ export interface UserUIConfiguration {
      */
     version: number
     sidebar?: SidebarConfiguration
+    [key: string]: unknown
 }
 
 // Keep this in alphabetical order if you wanna maintain Rafa's sanity

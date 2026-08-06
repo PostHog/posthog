@@ -253,6 +253,23 @@ function webhookResultHasNoPendingInputs(webhookResult: WebhookCreateResult | nu
     return !!webhookResult?.success && (webhookResult.pending_inputs?.length ?? 0) === 0
 }
 
+// A thrown fetch has no HTTP status, so its message is the raw "Failed to fetch", most often an ad
+// blocker or extension blocking the request. Name that likely cause instead of echoing it.
+export function resolveConnectErrorMessage(e: any): string {
+    const apiMessage = e?.data?.message ?? e?.detail
+    if (apiMessage) {
+        return apiMessage
+    }
+    if (e?.status === undefined || e?.status === null || e?.status === 0) {
+        return "PostHog couldn't reach the server to set up your source. This is often an ad blocker or browser extension blocking the request. Try pausing it or switching networks, then try again."
+    }
+    if (e?.status >= 500) {
+        return 'PostHog could not validate your connection in time. This can happen with a very large schema or a slow or unreachable database — please check your connection details and try again.'
+    }
+    // A 4xx without a message body would otherwise toast "undefined".
+    return e?.message ?? 'Something went wrong setting up your source. Please try again.'
+}
+
 const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
     aws: 'S3',
     'google-cloud': 'Google Cloud Storage',
@@ -569,6 +586,7 @@ export interface sourceWizardLogicActions {
             | 'Ahrefs'
             | 'AikidoSecurity'
             | 'Airbrake'
+            | 'Airbridge'
             | 'Airbyte'
             | 'Aircall'
             | 'AirOps'
@@ -1055,6 +1073,7 @@ export interface sourceWizardLogicActions {
             | 'GoogleDirectory'
             | 'GoogleDrive'
             | 'GoogleForms'
+            | 'GoogleMerchantCenter'
             | 'GooglePageSpeedInsights'
             | 'GooglePlayConsole'
             | 'GoogleSearchConsole'
@@ -1112,6 +1131,7 @@ export interface sourceWizardLogicActions {
             | 'Humanitix'
             | 'Huntr'
             | 'Hyperspell'
+            | 'Hyros'
             | 'Ikas'
             | 'IlluminaBasespace'
             | 'Imagga'
@@ -1293,6 +1313,7 @@ export interface sourceWizardLogicActions {
             | 'MonteCarlo'
             | 'Moodle'
             | 'Motherduck'
+            | 'Motion'
             | 'Moxie'
             | 'MSSQL'
             | 'Mux'
@@ -1331,6 +1352,7 @@ export interface sourceWizardLogicActions {
             | 'Nylas'
             | 'Octolens'
             | 'OctopusDeploy'
+            | 'Odoo'
             | 'Oecd'
             | 'Okendo'
             | 'Okta'
@@ -1469,6 +1491,7 @@ export interface sourceWizardLogicActions {
             | 'QuickBooks'
             | 'Railway'
             | 'Railz'
+            | 'Raisely'
             | 'Raken'
             | 'Ramp'
             | 'Rapid7Insightvm'
@@ -1554,6 +1577,7 @@ export interface sourceWizardLogicActions {
             | 'ServiceNow'
             | 'Servicetitan'
             | 'Servicetrade'
+            | 'Sevalla'
             | 'Sevdesk'
             | 'SevenShifts'
             | 'SFTP'
@@ -1595,6 +1619,7 @@ export interface sourceWizardLogicActions {
             | 'Smartwaiver'
             | 'Smokeball'
             | 'SnapchatAds'
+            | 'Snovio'
             | 'Snowflake'
             | 'Snowplow'
             | 'Snyk'
@@ -1763,6 +1788,8 @@ export interface sourceWizardLogicActions {
             | 'Whop'
             | 'WikipediaPageviews'
             | 'Windmill'
+            | 'WindsorAi'
+            | 'Wix'
             | 'Wiz'
             | 'Wompi'
             | 'WooCommerce'
@@ -3029,19 +3056,24 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.setIsLoading(false)
         },
         onSubmit: () => {
-            // Shared function that triggers different actions depending on the current step
-            if (values.currentStep === 1) {
+            // Shared function that triggers different actions depending on the current step.
+            // Snapshot the step once: some branches below (e.g. step 4) dispatch actions that
+            // synchronously advance `currentStep`, and re-reading `values.currentStep` after that
+            // would let this same call fall through into the next step's branch too.
+            const step = values.currentStep
+
+            if (step === 1) {
                 return
             }
 
-            if (values.currentStep === 2 && values.selectedConnector?.name) {
+            if (step === 2 && values.selectedConnector?.name) {
                 actions.submitSourceConnectionDetails()
-            } else if (values.currentStep === 2 && values.isManualLinkFormVisible) {
+            } else if (step === 2 && values.isManualLinkFormVisible) {
                 selfManagedSourceLogic.actions.submitTable()
                 posthog.capture('source created', { sourceType: 'Manual' })
             }
 
-            if (values.currentStep === 3 && values.selectedConnector?.name) {
+            if (step === 3 && values.selectedConnector?.name) {
                 if (values.isDirectQueryMode) {
                     actions.updateSource({
                         payload: {
@@ -3220,7 +3252,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 })
             }
 
-            if (values.currentStep === 4) {
+            if (step === 4) {
                 if (webhookResultHasNoPendingInputs(values.webhookResult)) {
                     actions.onNext()
                 } else {
@@ -3228,9 +3260,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     // (validates, then triggers submitWebhookFields)
                     actions.submitWebhookFieldInputs()
                 }
-            }
-
-            if (values.currentStep === 5) {
+            } else if (step === 5) {
                 if (props.onComplete) {
                     props.onComplete()
                 } else {
@@ -3297,7 +3327,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     actions.setStep(5)
                 }
             } catch (e: any) {
-                lemonToast.error(e.data?.message ?? e.message)
+                lemonToast.error(resolveConnectErrorMessage(e))
                 // Surface the failure instead of leaving it as a toast-only dead end: a captured
                 // exception keeps the stack triageable, and the event closes the connect funnel.
                 posthog.captureException(e)
@@ -3342,7 +3372,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
             }
 
-            actions.onNext()
+            // Only advance from the webhook step — guards against a stray double submission
+            // (e.g. the form's own Save button plus the wizard's Next button) re-firing this and
+            // pushing `currentStep` past the last real step.
+            if (values.currentStep === 4) {
+                actions.onNext()
+            }
         },
         handleRedirect: async ({ source }) => {
             // By default, we assume the source is a valid external data source
@@ -3473,15 +3508,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setDatabaseSchemas(schemas)
                 actions.onNext()
             } catch (e: any) {
-                // A gateway timeout / 5xx has no JSON body, so e.message is the raw
-                // "Non-OK response [POST ...] (status 504: )" — meaningless to the user. Surface a
-                // friendly hint for server-side failures while keeping any API-provided message.
                 const apiMessage = e.data?.message ?? e.detail
-                const errorMessage =
-                    apiMessage ??
-                    (e.status >= 500
-                        ? 'PostHog could not validate your connection in time. This can happen with a very large schema or a slow or unreachable database — please check your connection details and try again.'
-                        : e.message)
+                const errorMessage = resolveConnectErrorMessage(e)
                 lemonToast.error(errorMessage)
 
                 // A 5xx with no body is an unexpected server failure, not a user credential
