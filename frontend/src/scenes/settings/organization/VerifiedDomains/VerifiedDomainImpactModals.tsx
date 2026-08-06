@@ -161,8 +161,8 @@ export function EnforceVerifiedDomainsModal(): JSX.Element {
             <div className="space-y-2">
                 <p>
                     {impactedCount === 1 ? '1 member has' : `${impactedCount} members have`} an email address outside
-                    your verified domains. Confirming removes them from this organization and they lose access
-                    immediately. To keep someone, cancel and verify their email domain first.
+                    your verified domains and will no longer be able to log in. Confirming also removes them from this
+                    organization.
                 </p>
                 <ImpactedMembersTable impact={enforcementImpact} loading={enforcementImpactLoading} />
                 {includesOwner && (
