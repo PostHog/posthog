@@ -145,6 +145,26 @@ def _comment_is_private(comment: Comment) -> bool:
     return isinstance(ctx, dict) and ctx.get("is_private") is True
 
 
+def _first_response_at(comments: list[Comment]) -> datetime | None:
+    """When the team first replied, matching signals.update_ticket_on_message's first-response rule.
+
+    `comments` must be in chronological order. The first public message opens the ticket and never
+    counts as a response — whether a customer or the team sent it — so a ticket the team started
+    outbound isn't recorded as responding to itself. The first public team comment after that is
+    the first response.
+    """
+    seen_earlier_public = False
+    for comment in comments:
+        if _comment_is_private(comment):
+            continue
+        ctx = comment.item_context
+        author_type = ctx.get("author_type") if isinstance(ctx, dict) else None
+        if author_type != "customer" and seen_earlier_public:
+            return comment.created_at
+        seen_earlier_public = True
+    return None
+
+
 def _process_attachments(
     client: ZendeskImportClient,
     team: Team,
@@ -524,6 +544,12 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
             if last_visible is not None:
                 update_fields_dict["last_message_at"] = last_visible.created_at
                 update_fields_dict["last_message_text"] = (last_visible.content or "")[:500]
+            # bulk_create skips the message signal, so stamp first_response_at here from the same
+            # historical comment timestamps. Without it the column stays NULL until the next live
+            # reply, which the signal would then record as a first response the team gave years ago.
+            first_response_at = _first_response_at(ticket_comments)
+            if first_response_at is not None:
+                update_fields_dict["first_response_at"] = first_response_at
             # Only still-active imported tickets should surface unread badges. Pending/on-hold/
             # resolved (Zendesk solved+closed) tickets are done or parked, so lighting up the agent
             # inbox (unread_team_count) or the customer widget (unread_customer_count) with years-old

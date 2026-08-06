@@ -216,6 +216,41 @@ class TestZendeskImportBatchActivity(BaseTest):
         self.assertEqual(ticket.unread_team_count, 0)
         self.assertEqual(ticket.unread_customer_count, 0)
 
+    # (author_id, public, created_at) per comment, then the created_at the reply should stamp.
+    # 10 is the requester (end-user); 20 is an agent. Distinct timestamps prove the opening
+    # message is excluded rather than the earliest comment always winning.
+    _T1, _T2, _T3 = "2020-01-02T00:00:00Z", "2020-01-02T01:00:00Z", "2020-01-02T02:00:00Z"
+
+    @parameterized.expand(
+        [
+            ("customer_opens", [(10, True, _T1), (20, True, _T2)], _T2),
+            ("team_opens_outbound", [(20, True, _T1), (20, True, _T2)], _T2),
+            ("team_opens_then_customer_replies", [(20, True, _T1), (10, True, _T2), (20, True, _T3)], _T3),
+            ("no_team_reply", [(10, True, _T1), (10, True, _T2)], None),
+            ("private_agent_note_is_not_a_response", [(10, True, _T1), (20, False, _T2)], None),
+        ]
+    )
+    def test_import_stamps_first_response_at(
+        self, _name: str, comment_specs: list[tuple[int, bool, str]], expected: str | None
+    ) -> None:
+        # bulk_create skips the message signal, so the import stamps first_response_at itself.
+        # Getting it wrong injects a bogus time-to-first-response: the opener's timestamp yields
+        # ~0, and leaving it NULL lets the next live reply record a response given years earlier.
+        comments = [
+            _zd_comment(i, author_id, public=public, created_at=created_at)
+            for i, (author_id, public, created_at) in enumerate(comment_specs, start=1)
+        ]
+        self._run_batch(
+            [301],
+            tickets=[_zd_ticket(301, 10)],
+            users={10: _zd_user(10, "requester@x.com"), 20: _zd_user(20, "agent@x.com", role="agent")},
+            comments_by_ticket={301: comments},
+        )
+
+        ticket = Ticket.objects.get(team=self.team, zendesk_ticket_id=301)
+        expected_at = _parse_zendesk_datetime(expected) if expected is not None else None
+        self.assertEqual(ticket.first_response_at, expected_at)
+
     def test_unmatched_requester_sets_anonymous_traits_for_display(self) -> None:
         # The customer must render as their Zendesk name/email (via anonymous_traits) instead of
         # "Anonymous user".
