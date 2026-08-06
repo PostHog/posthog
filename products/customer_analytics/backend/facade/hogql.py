@@ -93,6 +93,10 @@ account_resource_notebooks: _AccountScopedPostgresTable = _AccountScopedPostgres
 account_custom_property_values: PostgresTable = PostgresTable(
     name="_account_custom_property_values",
     postgres_table_name="customer_analytics_custompropertyvalue",
+    # Per-account deny filters used to arrive via the account-subquery predicate; with the
+    # direct team guard they must be declared explicitly, filtering on the account FK.
+    access_scope="account",
+    access_control_id_field="account_id",
     description="Internal federated table (PostgreSQL `customer_analytics_custompropertyvalue`) of custom property values per account; not for direct querying — use `system.accounts.custom_properties`.",
     # Unlike the FK-only junction tables, this table has a real `team_id` column, so the
     # framework's standard `team_id = X` guard scopes it, and as a plain column comparison it is
@@ -133,6 +137,8 @@ account_custom_property_values: PostgresTable = PostgresTable(
 account_custom_property_values_history: PostgresTable = PostgresTable(
     name="_account_custom_property_values_history",
     postgres_table_name="customer_analytics_custompropertyvalue",
+    access_scope="account",
+    access_control_id_field="account_id",
     description="Internal federated table (PostgreSQL `customer_analytics_custompropertyvalue`) of every custom property value write per account, superseded rows included; not for direct querying — use `system.accounts.custom_properties_history`.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Primary key of the custom property value row."),
