@@ -6271,7 +6271,7 @@
         "feature_flag": "logs-alerting"
     },
     "logs-anomalies-scan": {
-        "description": "Run anomaly detection on demand over one service's log volume for a time window of up to 7 days. Learns per-severity baselines from up to 6 weeks of history and returns spike, drop, and silence issues plus per-severity learning status. Requires a serviceName (use logs-services-list or the resource attribute values tool to discover services). Experimental; synchronous and read only, so prefer windows of a few hours to a day.",
+        "description": "Run anomaly detection on demand over one service's log volume for a time window of up to 7 days. Learns per-severity baselines from up to 6 weeks of history and returns spike, drop, and silence issues plus per-severity learning status. Requires a serviceName (use logs-services-list or the resource attribute values tool to discover services). Experimental; synchronous and read only, so prefer windows of a few hours to a day. Per-bucket band evidence is omitted from the tool response to save tokens; the API endpoint returns it for charts.",
         "category": "Logs",
         "feature": "logs",
         "summary": "Scan a service's logs for volume anomalies",

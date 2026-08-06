@@ -315,7 +315,8 @@ tools:
             Learns per-severity baselines from up to 6 weeks of history and returns spike, drop, and silence
             issues plus per-severity learning status. Requires a serviceName (use logs-services-list or the
             resource attribute values tool to discover services). Experimental; synchronous and read only,
-            so prefer windows of a few hours to a day.
+            so prefer windows of a few hours to a day. Per-bucket band evidence is omitted from the tool
+            response to save tokens; the API endpoint returns it for charts.
         feature_flag: logs-anomalies
         response:
             exclude:

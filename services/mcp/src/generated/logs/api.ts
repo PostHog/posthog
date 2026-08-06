@@ -4166,12 +4166,18 @@ export const LogsAnomaliesScanCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Service to scan (the log record's service_name). Required: the scan aggregates weeks of baseline history from raw logs, so it is scoped to one service per call."
         ),
-    dateFrom: zod.iso
-        .datetime({ offset: true })
-        .describe('Start of the evaluation window (ISO 8601). Buckets before this are only used as baseline history.'),
-    dateTo: zod.iso
-        .datetime({ offset: true })
-        .describe('End of the evaluation window (ISO 8601), clamped to now. The window may span at most 7 days.'),
+    dateRange: zod
+        .object({
+            date_from: zod.iso
+                .datetime({ offset: true })
+                .describe(
+                    'Start of the evaluation window (ISO 8601). Buckets before this are only used as baseline history.'
+                ),
+            date_to: zod.iso
+                .datetime({ offset: true })
+                .describe('End of the evaluation window (ISO 8601), clamped to now.'),
+        })
+        .describe('Evaluation window to scan for anomalies. May span at most 7 days.'),
 })
 
 export const LogsAttributesRetrieveParams = /* @__PURE__ */ zod.object({

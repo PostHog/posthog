@@ -468,11 +468,8 @@ const logsAnomaliesScan = (): ToolBase<typeof LogsAnomaliesScanSchema, Schemas.L
         if (params.serviceName !== undefined) {
             body['serviceName'] = params.serviceName
         }
-        if (params.dateFrom !== undefined) {
-            body['dateFrom'] = params.dateFrom
-        }
-        if (params.dateTo !== undefined) {
-            body['dateTo'] = params.dateTo
+        if (params.dateRange !== undefined) {
+            body['dateRange'] = params.dateRange
         }
         const result = await context.api.request<Schemas.LogsAnomalyScanResponse>({
             method: 'POST',

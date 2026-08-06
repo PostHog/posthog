@@ -14,20 +14,23 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import LogsAnomalyScanBurstRateThrottle, LogsAnomalyScanSustainedRateThrottle
 
-from products.logs.backend.anomaly_scan import (
-    BUCKETS_PER_DAY,
-    MAX_EVAL_DAYS,
-    ScanBudgetExceeded,
-    ScanResult,
-    floor_to_bucket,
-    run_scan,
-)
+from products.logs.backend.anomaly_scan import MAX_EVAL_DAYS, ScanBudgetExceeded, floor_to_bucket, run_scan
 
 SCAN_CACHE_TTL_SECONDS = 60
 
 _STAGE_CHOICES = ["insufficient", "cold_start", "developing", "mature"]
 _VERDICT_CHOICES = ["spike", "drop", "silence"]
 _TIER_CHOICES = ["a", "b", "c", "d"]
+_CONSTRAINT_CHOICES = ["team_retention", "byte_budget"]
+
+
+class _ScanDateRangeSerializer(serializers.Serializer):
+    date_from = serializers.DateTimeField(
+        help_text="Start of the evaluation window (ISO 8601). Buckets before this are only used as baseline history.",
+    )
+    date_to = serializers.DateTimeField(
+        help_text="End of the evaluation window (ISO 8601), clamped to now.",
+    )
 
 
 class LogsAnomalyScanRequestSerializer(serializers.Serializer):
@@ -37,22 +40,16 @@ class LogsAnomalyScanRequestSerializer(serializers.Serializer):
             "baseline history from raw logs, so it is scoped to one service per call."
         ),
     )
-    dateFrom = serializers.DateTimeField(
-        help_text="Start of the evaluation window (ISO 8601). Buckets before this are only used as baseline history.",
-    )
-    dateTo = serializers.DateTimeField(
-        help_text=(
-            "End of the evaluation window (ISO 8601), clamped to now. The window may span at most "
-            f"{MAX_EVAL_DAYS} days."
-        ),
+    dateRange = _ScanDateRangeSerializer(
+        help_text=f"Evaluation window to scan for anomalies. May span at most {MAX_EVAL_DAYS} days.",
     )
 
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        if attrs["dateTo"] <= attrs["dateFrom"]:
-            raise serializers.ValidationError("dateTo must be after dateFrom.")
-        if attrs["dateTo"] - attrs["dateFrom"] > dt.timedelta(days=MAX_EVAL_DAYS):
+    def validate_dateRange(self, value: dict[str, Any]) -> dict[str, Any]:
+        if value["date_to"] <= value["date_from"]:
+            raise serializers.ValidationError("date_to must be after date_from.")
+        if value["date_to"] - value["date_from"] > dt.timedelta(days=MAX_EVAL_DAYS):
             raise serializers.ValidationError(f"The evaluation window may span at most {MAX_EVAL_DAYS} days.")
-        return attrs
+        return value
 
 
 class LogsAnomalyScanBucketSerializer(serializers.Serializer):
@@ -101,12 +98,18 @@ class LogsAnomalyScanSeriesSerializer(serializers.Serializer):
             "d (below the detection floor of roughly 1 record per minute)."
         ),
     )
-    historyStart = serializers.DateTimeField(
+    history_start = serializers.DateTimeField(
+        allow_null=True,
+        help_text="Earliest bucket with data inside the fetched lookback.",
+    )
+    limited_by = serializers.ChoiceField(
+        choices=["series_history", *_CONSTRAINT_CHOICES],
         allow_null=True,
         help_text=(
-            "Earliest bucket with data inside the fetched lookback. When this is later than the lookback "
-            "start, the series is younger than the lookback or older data has been dropped by a "
-            "retention rule."
+            "What limited this series' baseline maturity, or null for a full baseline. series_history: "
+            "data starts inside the lookback, because the series is young or a per-stream retention rule "
+            "trimmed it (indistinguishable from the data). byte_budget and team_retention mirror the "
+            "scan level constraints."
         ),
     )
     buckets = LogsAnomalyScanBucketSerializer(
@@ -132,34 +135,35 @@ class LogsAnomalyScanIssueSerializer(serializers.Serializer):
         choices=["pending", "active", "resolved"],
         help_text="Lifecycle state at the end of the evaluation window.",
     )
-    openedAt = serializers.DateTimeField(help_text="Bucket where the issue first opened.")
-    lastAnomalousAt = serializers.DateTimeField(help_text="Most recent anomalous bucket attributed to this issue.")
-    resolvedAt = serializers.DateTimeField(
+    opened_at = serializers.DateTimeField(help_text="Bucket where the issue first opened.")
+    last_anomalous_at = serializers.DateTimeField(help_text="Most recent anomalous bucket attributed to this issue.")
+    resolved_at = serializers.DateTimeField(
         allow_null=True,
         help_text="Bucket where the issue resolved, or null if it was still open at the end of the window.",
     )
-    anomalousBucketTimes = serializers.ListField(
+    anomalous_bucket_times = serializers.ListField(
         child=serializers.DateTimeField(),
         help_text="Every anomalous bucket attributed to this issue, oldest first.",
     )
 
 
 class LogsAnomalyScanResponseSerializer(serializers.Serializer):
-    serviceName = serializers.CharField(help_text="Service that was scanned.")
-    evalStart = serializers.DateTimeField(help_text="Actual start of the evaluated window after any clipping.")
-    evalEnd = serializers.DateTimeField(help_text="Actual end of the evaluated window after clamping to now.")
-    lookbackDays = serializers.FloatField(help_text="Days of baseline history the scan used.")
-    evalClipped = serializers.BooleanField(
+    service_name = serializers.CharField(help_text="Service that was scanned.")
+    eval_start = serializers.DateTimeField(help_text="Actual start of the evaluated window after any clipping.")
+    eval_end = serializers.DateTimeField(help_text="Actual end of the evaluated window after clamping to now.")
+    lookback_days = serializers.FloatField(help_text="Days of baseline history the scan used.")
+    eval_clipped = serializers.BooleanField(
         help_text="True when the evaluation window was clipped to fit the read budget. The response covers only the clipped window.",
     )
     degraded = serializers.BooleanField(
         help_text="True when the scan could not afford the full lookback and fell back to a cheaper configuration.",
     )
-    bindingConstraint = serializers.ChoiceField(
-        choices=["none", "team_retention", "byte_budget"],
+    binding_constraints = serializers.ListField(
+        child=serializers.ChoiceField(choices=_CONSTRAINT_CHOICES),
         help_text=(
-            "What limited the baseline. team_retention: the project's log retention is shorter than the "
-            "full lookback. byte_budget: the scan degraded to stay inside its ClickHouse read budget."
+            "Everything that limited the baseline, empty for an unconstrained scan. team_retention: the "
+            "project's log retention is shorter than the full lookback. byte_budget: the scan degraded "
+            "to stay inside its ClickHouse read budget."
         ),
     )
     series = LogsAnomalyScanSeriesSerializer(
@@ -172,50 +176,8 @@ class LogsAnomalyScanResponseSerializer(serializers.Serializer):
     )
 
 
-def _result_payload(result: ScanResult) -> dict[str, Any]:
-    return {
-        "serviceName": result.service_name,
-        "evalStart": result.eval_start,
-        "evalEnd": result.eval_end,
-        "lookbackDays": result.lookback_buckets / BUCKETS_PER_DAY,
-        "evalClipped": result.eval_clipped,
-        "degraded": result.degraded,
-        "bindingConstraint": result.binding_constraint,
-        "series": [
-            {
-                "severity": series.severity,
-                "stage": series.stage,
-                "tier": series.tier,
-                "historyStart": series.history_start,
-                "buckets": [
-                    {
-                        "time": bucket.time,
-                        "observed": bucket.observed,
-                        "expected": bucket.expected,
-                        "lower": bucket.lower,
-                        "upper": bucket.upper,
-                        "stage": bucket.stage,
-                        "verdict": bucket.verdict,
-                    }
-                    for bucket in series.buckets
-                ],
-            }
-            for series in result.series
-        ],
-        "issues": [
-            {
-                "direction": issue.direction,
-                "severity": issue.severity,
-                "kind": issue.kind,
-                "state": issue.state,
-                "openedAt": issue.opened_at,
-                "lastAnomalousAt": issue.last_anomalous_at,
-                "resolvedAt": issue.resolved_at,
-                "anomalousBucketTimes": issue.anomalous_bucket_times,
-            }
-            for issue in result.issues
-        ],
-    }
+class LogsAnomalyScanErrorSerializer(serializers.Serializer):
+    error = serializers.CharField(help_text="Human readable description of why the scan could not run.")
 
 
 class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -237,7 +199,10 @@ class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 response=LogsAnomalyScanResponseSerializer,
                 description="Scan results: per severity evidence series and any issues that opened.",
             ),
-            422: OpenApiResponse(description="The scan exceeded its read budget at every degradation step."),
+            422: OpenApiResponse(
+                response=LogsAnomalyScanErrorSerializer,
+                description="The scan exceeded its read budget at every degradation step.",
+            ),
         },
         summary="Scan a service's logs for volume anomalies",
         description=(
@@ -250,13 +215,10 @@ class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def scan(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         data = request.validated_data
         service_name: str = data["serviceName"]
-        eval_start = floor_to_bucket(data["dateFrom"])
-        eval_end = floor_to_bucket(min(data["dateTo"], dt.datetime.now(dt.UTC)))
+        eval_start = floor_to_bucket(data["dateRange"]["date_from"])
+        eval_end = floor_to_bucket(min(data["dateRange"]["date_to"], dt.datetime.now(dt.UTC)))
         if eval_end <= eval_start:
-            return Response(
-                {"error": "The evaluation window is empty after clamping to now."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            raise serializers.ValidationError("The evaluation window is empty after clamping to now.")
 
         cache_key = (
             "logs_anomaly_scan/"
@@ -273,8 +235,6 @@ class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except ScanBudgetExceeded as err:
             return Response({"error": str(err)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-        payload = _result_payload(result)
-        response_serializer = LogsAnomalyScanResponseSerializer(payload)
-        response_data = response_serializer.data
+        response_data = LogsAnomalyScanResponseSerializer(result).data
         cache.set(cache_key, response_data, SCAN_CACHE_TTL_SECONDS)
         return Response(response_data)

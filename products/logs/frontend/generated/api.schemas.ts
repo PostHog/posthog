@@ -811,24 +811,27 @@ export interface LogsAlertSimulateResponseApi {
     threshold_operator: string
 }
 
+export interface _ScanDateRangeApi {
+    /** Start of the evaluation window (ISO 8601). Buckets before this are only used as baseline history. */
+    date_from: string
+    /** End of the evaluation window (ISO 8601), clamped to now. */
+    date_to: string
+}
+
 export interface LogsAnomalyScanRequestApi {
     /** Service to scan (the log record's service_name). Required: the scan aggregates weeks of baseline history from raw logs, so it is scoped to one service per call. */
     serviceName: string
-    /** Start of the evaluation window (ISO 8601). Buckets before this are only used as baseline history. */
-    dateFrom: string
-    /** End of the evaluation window (ISO 8601), clamped to now. The window may span at most 7 days. */
-    dateTo: string
+    /** Evaluation window to scan for anomalies. May span at most 7 days. */
+    dateRange: _ScanDateRangeApi
 }
 
 /**
- * * `none` - none
  * * `team_retention` - team_retention
  * * `byte_budget` - byte_budget
  */
-export type BindingConstraintEnumApi = (typeof BindingConstraintEnumApi)[keyof typeof BindingConstraintEnumApi]
+export type BindingConstraintsEnumApi = (typeof BindingConstraintsEnumApi)[keyof typeof BindingConstraintsEnumApi]
 
-export const BindingConstraintEnumApi = {
-    None: 'none',
+export const BindingConstraintsEnumApi = {
     TeamRetention: 'team_retention',
     ByteBudget: 'byte_budget',
 } as const
@@ -863,6 +866,19 @@ export const LogsAnomalyScanSeriesTierEnumApi = {
     B: 'b',
     C: 'c',
     D: 'd',
+} as const
+
+/**
+ * * `series_history` - series_history
+ * * `team_retention` - team_retention
+ * * `byte_budget` - byte_budget
+ */
+export type LimitedByEnumApi = (typeof LimitedByEnumApi)[keyof typeof LimitedByEnumApi]
+
+export const LimitedByEnumApi = {
+    SeriesHistory: 'series_history',
+    TeamRetention: 'team_retention',
+    ByteBudget: 'byte_budget',
 } as const
 
 /**
@@ -931,10 +947,16 @@ export interface LogsAnomalyScanSeriesApi {
      * * `d` - d */
     tier: LogsAnomalyScanSeriesTierEnumApi | null
     /**
-     * Earliest bucket with data inside the fetched lookback. When this is later than the lookback start, the series is younger than the lookback or older data has been dropped by a retention rule.
+     * Earliest bucket with data inside the fetched lookback.
      * @nullable
      */
-    historyStart: string | null
+    history_start: string | null
+    /** What limited this series' baseline maturity, or null for a full baseline. series_history: data starts inside the lookback, because the series is young or a per-stream retention rule trimmed it (indistinguishable from the data). byte_budget and team_retention mirror the scan level constraints.
+     *
+     * * `series_history` - series_history
+     * * `team_retention` - team_retention
+     * * `byte_budget` - byte_budget */
+    limited_by: LimitedByEnumApi | null
     /** Per bucket observed counts and expected bands across the evaluation window, for evidence charts. */
     buckets: LogsAnomalyScanBucketApi[]
 }
@@ -989,41 +1011,42 @@ export interface LogsAnomalyScanIssueApi {
      * * `resolved` - resolved */
     state: LogsAnomalyScanIssueStateEnumApi
     /** Bucket where the issue first opened. */
-    openedAt: string
+    opened_at: string
     /** Most recent anomalous bucket attributed to this issue. */
-    lastAnomalousAt: string
+    last_anomalous_at: string
     /**
      * Bucket where the issue resolved, or null if it was still open at the end of the window.
      * @nullable
      */
-    resolvedAt: string | null
+    resolved_at: string | null
     /** Every anomalous bucket attributed to this issue, oldest first. */
-    anomalousBucketTimes: string[]
+    anomalous_bucket_times: string[]
 }
 
 export interface LogsAnomalyScanResponseApi {
     /** Service that was scanned. */
-    serviceName: string
+    service_name: string
     /** Actual start of the evaluated window after any clipping. */
-    evalStart: string
+    eval_start: string
     /** Actual end of the evaluated window after clamping to now. */
-    evalEnd: string
+    eval_end: string
     /** Days of baseline history the scan used. */
-    lookbackDays: number
+    lookback_days: number
     /** True when the evaluation window was clipped to fit the read budget. The response covers only the clipped window. */
-    evalClipped: boolean
+    eval_clipped: boolean
     /** True when the scan could not afford the full lookback and fell back to a cheaper configuration. */
     degraded: boolean
-    /** What limited the baseline. team_retention: the project's log retention is shorter than the full lookback. byte_budget: the scan degraded to stay inside its ClickHouse read budget.
-     *
-     * * `none` - none
-     * * `team_retention` - team_retention
-     * * `byte_budget` - byte_budget */
-    bindingConstraint: BindingConstraintEnumApi
+    /** Everything that limited the baseline, empty for an unconstrained scan. team_retention: the project's log retention is shorter than the full lookback. byte_budget: the scan degraded to stay inside its ClickHouse read budget. */
+    binding_constraints: BindingConstraintsEnumApi[]
     /** One entry per severity level observed for the service, with per bucket evidence. */
     series: LogsAnomalyScanSeriesApi[]
     /** Anomaly issues that opened during the evaluation window, oldest first. */
     issues: LogsAnomalyScanIssueApi[]
+}
+
+export interface LogsAnomalyScanErrorApi {
+    /** Human readable description of why the scan could not run. */
+    error: string
 }
 
 export interface _DateRangeApi {
