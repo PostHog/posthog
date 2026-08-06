@@ -111,6 +111,46 @@ describe('TrendsLineChart', () => {
             expect(tooltip.row('Spike')).toContain('3')
         })
 
+        it('prefixes rows with the series name when multiple series share a breakdown', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [
+                        { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                    ],
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                }),
+            })
+
+            await chart.clickAtIndex(2)
+
+            // Each breakdown value appears once per series; without the prefix the rows
+            // would be indistinguishable (e.g. two bare "Spike" rows).
+            const tooltip = createInsightTooltipAccessor(chart.getTooltip()!)
+            expect(tooltip.row('Pageview · Spike')).toContain('90')
+            expect(tooltip.row('Napped · Spike')).toContain('3')
+        })
+
+        it('adds series letters when same-named series share a breakdown', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [
+                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                    ],
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                }),
+            })
+
+            await chart.clickAtIndex(2)
+
+            // The name alone can't tell the two series apart, so rows get the A/B
+            // letters from the insight editor.
+            const tooltip = createInsightTooltipAccessor(chart.getTooltip()!)
+            const spikeRows = tooltip.rows().filter((label) => label.includes('Spike'))
+            expect(spikeRows.map((label) => label[0]).sort()).toEqual(['A', 'B'])
+        })
+
         it('shows every breakdown value when a formula is applied', async () => {
             renderInsight({
                 query: buildTrendsQuery({
@@ -126,6 +166,24 @@ describe('TrendsLineChart', () => {
             expect(tooltip.row('Spike')).toContain('3')
             expect(tooltip.row('Bramble')).toContain('1')
             expect(tooltip.row('Prickles')).toContain('1')
+        })
+
+        it('prefixes rows with the formula name when multiple formulas share a breakdown', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                    trendsFilter: { formulas: ['A', 'A*2'] },
+                }),
+            })
+
+            await chart.clickAtIndex(2)
+
+            // Formula rows carry no `action`; their `order` is what keeps the repeated
+            // breakdown values from separate formulas attributable.
+            const tooltip = createInsightTooltipAccessor(chart.getTooltip()!)
+            expect(tooltip.row('Formula (A) · Spike')).toContain('3')
+            expect(tooltip.row('Formula (A*2) · Spike')).toContain('6')
         })
 
         it('shows current and previous period rows in compare mode', async () => {
@@ -524,6 +582,22 @@ describe('TrendsLineChart', () => {
                 expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
             })
             expect(screen.queryByLabelText(/chart with/i)).not.toBeInTheDocument()
+        })
+
+        it('renders the chart when the first series is empty but a later one has data', async () => {
+            // Regresses the bug this PR fixes: the old check only looked at
+            // indexedResults[0], so a leading empty series blanked the whole chart even when a
+            // later series (here, ActiveSeries) had real counts.
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'ZeroCounts', name: 'ZeroCounts' }],
+                }),
+            })
+
+            await waitFor(() => {
+                expect(screen.getByLabelText(/chart with/i)).toBeInTheDocument()
+            })
+            expect(screen.queryByTestId('insight-empty-state')).not.toBeInTheDocument()
         })
 
         it('uses context.emptyStateHeading override when provided', async () => {
