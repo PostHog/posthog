@@ -55,7 +55,6 @@ import { AccessControlLevel } from '~/types'
 import type { BillingType } from '../types'
 import { handleLoginRedirect } from './authentication/login/loginLogic'
 import { billingLogic } from './billing/billingLogic'
-import { parseCouponCampaign } from './coupons/utils'
 import { isOnboardingRedirectSuppressed } from './onboarding/legacy/onboardingDelegationState'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
@@ -855,13 +854,6 @@ export const sceneLogic = kea<sceneLogicType>([
                         const nextUrl =
                             getRelativeNextPath(params.searchParams.next, location) ??
                             removeProjectIdIfPresent(location.pathname)
-
-                        // Check if user is coming from a coupon campaign link
-                        const campaign = nextUrl ? parseCouponCampaign(nextUrl) : null
-                        if (campaign) {
-                            router.actions.replace(urls.onboarding({ campaign }), { next: nextUrl })
-                            return
-                        }
 
                         router.actions.replace(urls.onboarding(), nextUrl ? { next: nextUrl } : undefined)
                         return

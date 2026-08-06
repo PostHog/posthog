@@ -65,7 +65,7 @@ export function Billing(): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { location, searchParams } = useValues(router)
-    const { activeCoupons, couponsOverviewLoading } = useValues(couponLogic({}))
+    const { activeCoupons, couponsOverviewLoading, isAdminOrOwner } = useValues(couponLogic({}))
     const { memberCount } = useValues(membersLogic)
 
     const restrictionReason = useRestrictedArea({
@@ -223,6 +223,14 @@ export function Billing(): JSX.Element {
                             </div>
                         </div>
                     </LemonBanner>
+                </div>
+            )}
+
+            {!couponsOverviewLoading && isAdminOrOwner && (
+                <div className="mt-6 flex">
+                    <LemonButton type="secondary" to={urls.coupons()} data-attr="billing-redeem-coupon">
+                        Redeem a coupon
+                    </LemonButton>
                 </div>
             )}
 
