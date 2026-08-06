@@ -263,7 +263,7 @@ export function PullRequestDiffView({
     }, [files, isDarkModeOn, diffStyle, onLineNumberClick])
 
     if (parseFailed) {
-        return <p className="m-0 text-sm text-danger">Couldn't parse this diff — it may be in an unexpected format.</p>
+        return <p className="m-0 text-sm text-danger">Couldn't parse this diff. It may be in an unexpected format.</p>
     }
 
     if (files.length === 0) {
@@ -288,7 +288,7 @@ export function PullRequestDiffView({
             ))}
             {truncated ? (
                 <p className="m-0 text-xs text-tertiary italic">
-                    Diff truncated — open the pull request in GitHub for the full change.
+                    The diff is truncated. Open the pull request in GitHub for the full change.
                 </p>
             ) : null}
         </div>

@@ -3,12 +3,15 @@ import { useValues } from 'kea'
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type {
     PatchedSignalScoutConfigUpdateApi as SignalScoutConfigUpdate,
     SignalScoutConfigApi as SignalScoutConfig,
 } from 'products/signals/frontend/generated/api.schemas'
+import { ScoutConfigNetworkAccessEnumApi } from 'products/signals/frontend/generated/api.schemas'
 
 import {
     dailyCronToTime,
@@ -21,6 +24,7 @@ import {
     timeToDailyCron,
 } from '../../../utils/scoutRunsWindow'
 import { ScoutSlackDestination } from './ScoutSlackDestination'
+import { ScoutTagsEditor } from './ScoutTagsEditor'
 
 interface ScoutConfigControlsProps {
     config: SignalScoutConfig
@@ -66,6 +70,7 @@ export function ScoutConfigForm({
     updating = false,
 }: ScoutConfigFormProps): JSX.Element {
     const { timezone: projectTimezone } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const dailyTime = dailyCronToTime(config.run_cron_schedule)
     const scheduleMode = getScoutScheduleMode(config)
     const controlsDisabledReason = updating
@@ -137,10 +142,65 @@ export function ScoutConfigForm({
             ) : null}
             <div className="flex items-center justify-between gap-4">
                 <div className="flex flex-col min-w-0">
-                    <span className="text-xs text-default">Keep running while quiet</span>
+                    <span className="text-xs text-default">Network access</span>
                     <span className="text-[11.5px] text-muted">
-                        A scout that goes two weeks without surfacing anything anyone uses is paused. Turn this on for a
-                        scout whose job is to stay quiet.
+                        What the scout can reach while it runs. Trusted domains cover PostHog, GitHub, and common
+                        package registries. Full access lets it reach any site.
+                    </span>
+                </div>
+                <LemonSelect
+                    size="small"
+                    value={config.network_access}
+                    options={[
+                        { value: ScoutConfigNetworkAccessEnumApi.Trusted, label: 'Trusted domains only' },
+                        { value: ScoutConfigNetworkAccessEnumApi.Full, label: 'Full access' },
+                    ]}
+                    // Editable while the scout is disabled, unlike the schedule controls: a newly
+                    // enabled scout with no prior run is immediately due, so network access must be
+                    // settable BEFORE the enable or the first run races out under the default policy.
+                    disabledReason={updating ? 'Saving scout settings' : undefined}
+                    className="w-44"
+                    onChange={(value) => {
+                        if (value !== config.network_access) {
+                            onUpdate(config.id, { network_access: value })
+                        }
+                    }}
+                />
+            </div>
+            {featureFlags[FEATURE_FLAGS.SCOUTS_MODEL_CONFIG] ? (
+                <div className="flex items-center justify-between gap-4">
+                    <div className="flex flex-col min-w-0">
+                        <span className="text-xs text-default">Model</span>
+                        <span className="text-[11.5px] text-muted">
+                            The model this scout runs on. Pick a more capable model for harder tasks. Leave empty to use
+                            the default.
+                        </span>
+                    </div>
+                    <LemonInput
+                        key={config.model ?? 'unset'}
+                        size="small"
+                        placeholder="Default"
+                        defaultValue={config.model ?? ''}
+                        // Editable while the scout is disabled for the same reason as network access:
+                        // a newly enabled scout is immediately due, so the model must be settable first.
+                        disabledReason={updating ? 'Saving scout settings' : undefined}
+                        className="w-44"
+                        onBlur={(event) => {
+                            const value = event.currentTarget.value.trim()
+                            if (value !== (config.model ?? '')) {
+                                onUpdate(config.id, { model: value || null })
+                            }
+                        }}
+                        aria-label={`${config.skill_name} model`}
+                    />
+                </div>
+            ) : null}
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-col min-w-0">
+                    <span className="text-xs text-default">Opt out of auto-pause</span>
+                    <span className="text-[11.5px] text-muted">
+                        A scout is paused when nobody acts on its reports for a few weeks, and flagged as quiet when it
+                        surfaces nothing. Turn this on to opt this scout out of both.
                     </span>
                 </div>
                 <LemonSwitch
@@ -148,8 +208,15 @@ export function ScoutConfigForm({
                     checked={config.auto_pause_exempt}
                     disabledReason={controlsDisabledReason}
                     onChange={(checked) => onUpdate(config.id, { auto_pause_exempt: checked })}
-                    aria-label={`${config.skill_name} keep running while quiet`}
+                    aria-label={`${config.skill_name} opt out of auto-pause`}
                 />
+            </div>
+            <div className="flex flex-col gap-1">
+                <div className="flex flex-col min-w-0">
+                    <span className="text-xs text-default">Tags</span>
+                    <span className="text-[11.5px] text-muted">Use tags to group scouts and filter the list.</span>
+                </div>
+                <ScoutTagsEditor config={config} onUpdate={onUpdate} updating={updating} />
             </div>
             <ScoutSlackDestination
                 destination={config.output_destinations?.slack}

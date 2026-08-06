@@ -98,6 +98,8 @@ const EMPTY_PLAN: OffloadPlan = {
     blobs: [],
     rewrittenProps: {},
     savedChars: 0,
+    occurrenceCount: 0,
+    occurrenceBytes: 0,
     belowFloorCount: 0,
     belowFloorBytes: 0,
     skipReason: null,
@@ -236,6 +238,10 @@ describe('offloadAiBlobs stage', () => {
         const outputUrl = (props.$ai_output as ImageParts)[0].image_url.url
         expect(parseBlobPointer(inputUrl)?.hash).toBe(storedHash)
         expect(parseBlobPointer(outputUrl)?.hash).toBe(storedHash)
+        // Stored once, but the call carried the payload twice: the stamped
+        // properties reflect occurrences, not the deduplicated upload.
+        expect(props.$ai_blob_count).toBe(2)
+        expect(props.$ai_blob_bytes).toBe(2 * PNG_BYTES.length)
     })
 
     describe('createExtractAiBlobsStep', () => {
@@ -427,22 +433,27 @@ describe('offloadAiBlobs stage', () => {
                 blobs: [imageBlob, audioBlob],
                 rewrittenProps: { $ai_input: [{ image_url: { url: 'posthog-blob://rewritten' } }] },
                 savedChars: 123,
+                occurrenceCount: 3,
+                occurrenceBytes: 99,
             }
             const merged = mergeAiBlobPointersFanIn({ ...input, aiBlobOffloadPlan: plan }, [
                 { blob: imageBlob, outcome: 'uploaded' },
                 { blob: audioBlob, outcome: 'fresh' },
             ])
+            // Stamps the plan's per-occurrence totals, not the deduplicated upload set.
             expect(merged.normalizedEvent.properties).toEqual({
                 $ai_input: [{ image_url: { url: 'posthog-blob://rewritten' } }],
                 $ai_model: 'gpt-9',
+                $ai_blob_count: 3,
+                $ai_blob_bytes: 99,
             })
             expect('aiBlobOffloadPlan' in merged).toBe(false)
             // Original event untouched — the rewrite must not mutate in place.
             expect((input.normalizedEvent.properties!.$ai_input as ImageParts)[0].image_url.url).toBe('data:original')
             expect(metricsMock.aiBlobOffloadBlobsCounter.labels).toHaveBeenCalledWith('data_uri', 'image', 'uploaded')
             expect(metricsMock.aiBlobOffloadBlobsCounter.labels).toHaveBeenCalledWith('data_uri', 'audio', 'fresh')
-            expect(metricsMock.aiBlobOffloadBlobBytes.labels).toHaveBeenCalledWith('image')
-            expect(metricsMock.aiBlobOffloadBlobBytes.labels).toHaveBeenCalledWith('audio')
+            expect(metricsMock.aiBlobOffloadBlobBytes.labels).toHaveBeenCalledWith('image', 'uploaded')
+            expect(metricsMock.aiBlobOffloadBlobBytes.labels).toHaveBeenCalledWith('audio', 'fresh')
             expect(metricsMock.aiBlobOffloadBlobsPerEvent.observe).toHaveBeenCalledWith(2)
             expect(metricsMock.aiBlobOffloadEventBytesSaved.observe).toHaveBeenCalledWith(123)
             expect(metricsMock.aiBlobOffloadEventsCounter.labels).toHaveBeenCalledWith('offloaded')

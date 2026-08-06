@@ -437,61 +437,70 @@ describe('SesWebhookHandler', () => {
         expect(result.metrics).toEqual([])
     })
 
+    // Real SNS SubscriptionConfirmation shape: SubscribeURL is a top-level envelope field and
+    // Message is human-readable text, not JSON.
+    const buildConfirmationEnvelope = (subscribeUrl: string): Record<string, any> => ({
+        Type: 'SubscriptionConfirmation',
+        MessageId: 'sns-msg-1',
+        Token: 'token-123',
+        TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-topic',
+        Message:
+            'You have chosen to subscribe to the topic arn:aws:sns:us-east-1:123456789012:ses-topic.\nTo confirm the subscription, visit the SubscribeURL included in this message.',
+        SubscribeURL: subscribeUrl,
+        Timestamp: '2025-10-03T12:10:00Z',
+        SignatureVersion: '1',
+        Signature: 'fake',
+        SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
+    })
+
     it('confirms SubscriptionConfirmation with valid SNS SubscribeURL', async () => {
         const fetchSpy = jest.spyOn(handler as any, 'fetchText').mockResolvedValue('')
-        const snsEnvelope = {
-            Type: 'SubscriptionConfirmation',
-            MessageId: 'sns-msg-1',
-            Token: 'token-123',
-            TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-topic',
-            Message: JSON.stringify({
-                SubscribeURL:
-                    'https://sns.us-east-1.amazonaws.com/?Action=ConfirmSubscription&TopicArn=arn:aws:sns:us-east-1:123456789012:ses-topic&Token=token-123',
-            }),
-            Timestamp: '2025-10-03T12:10:00Z',
-            SignatureVersion: '1',
-            Signature: 'fake',
-            SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
-        }
+        const snsEnvelope = buildConfirmationEnvelope(
+            'https://sns.us-east-1.amazonaws.com/?Action=ConfirmSubscription&TopicArn=arn:aws:sns:us-east-1:123456789012:ses-topic&Token=token-123'
+        )
         const result = await handler.handleWebhook({ body: snsEnvelope, headers: {}, verifySignature: false })
         expect(result.status).toBe(200)
         expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining('https://sns.us-east-1.amazonaws.com/'))
         fetchSpy.mockRestore()
     })
 
-    it('rejects SubscriptionConfirmation with non-SNS SubscribeURL', async () => {
-        const snsEnvelope = {
-            Type: 'SubscriptionConfirmation',
-            MessageId: 'sns-msg-1',
-            Token: 'token-123',
-            TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-topic',
-            Message: JSON.stringify({
-                SubscribeURL: 'https://evil.lhr.life/latest/meta-data/iam/security-credentials/role',
-            }),
-            Timestamp: '2025-10-03T12:10:00Z',
-            SignatureVersion: '1',
-            Signature: 'fake',
-            SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
-        }
-        const result = await handler.handleWebhook({ body: snsEnvelope, headers: {}, verifySignature: false })
-        expect(result.status).toBe(403)
+    it('confirms a signed SubscriptionConfirmation end to end (SubscribeURL is part of the signed string)', async () => {
+        const { generateKeyPairSync, createSign } = jest.requireActual<typeof import('node:crypto')>('node:crypto')
+        const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
+        const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' }).toString()
+
+        const envelope = buildConfirmationEnvelope(
+            'https://sns.us-east-1.amazonaws.com/?Action=ConfirmSubscription&TopicArn=arn:aws:sns:us-east-1:123456789012:ses-topic&Token=token-123'
+        )
+        // String to sign per AWS SNS SignatureVersion=1 for SubscriptionConfirmation:
+        // alphabetical key/value lines incl. the top-level SubscribeURL.
+        const stringToSign =
+            ['Message', 'MessageId', 'SubscribeURL', 'Timestamp', 'Token', 'TopicArn', 'Type']
+                .map((k) => `${k}\n${envelope[k]}`)
+                .join('\n') + '\n'
+        const sign = createSign('RSA-SHA1')
+        sign.update(stringToSign, 'utf8')
+        envelope.Signature = sign.sign(privateKey, 'base64')
+
+        const fetchSpy = jest
+            .spyOn(handler as any, 'fetchText')
+            .mockImplementation((url) => Promise.resolve((url as string).endsWith('.pem') ? publicKeyPem : ''))
+
+        const result = await handler.handleWebhook({ body: envelope, headers: {}, verifySignature: true })
+        expect(result.status).toBe(200)
+        expect(fetchSpy).toHaveBeenCalledWith(envelope.SubscribeURL)
+        fetchSpy.mockRestore()
     })
 
-    it('rejects SubscriptionConfirmation with HTTP SubscribeURL', async () => {
-        const snsEnvelope = {
-            Type: 'SubscriptionConfirmation',
-            MessageId: 'sns-msg-1',
-            Token: 'token-123',
-            TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-topic',
-            Message: JSON.stringify({
-                SubscribeURL: 'http://sns.us-east-1.amazonaws.com/subscribe',
-            }),
-            Timestamp: '2025-10-03T12:10:00Z',
-            SignatureVersion: '1',
-            Signature: 'fake',
-            SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
-        }
-        const result = await handler.handleWebhook({ body: snsEnvelope, headers: {}, verifySignature: false })
+    it.each([
+        ['non-SNS SubscribeURL', 'https://evil.lhr.life/latest/meta-data/iam/security-credentials/role'],
+        ['HTTP SubscribeURL', 'http://sns.us-east-1.amazonaws.com/subscribe'],
+    ])('rejects SubscriptionConfirmation with %s', async (_label, subscribeUrl) => {
+        const result = await handler.handleWebhook({
+            body: buildConfirmationEnvelope(subscribeUrl),
+            headers: {},
+            verifySignature: false,
+        })
         expect(result.status).toBe(403)
     })
 
@@ -747,7 +756,16 @@ describe('SesWebhookHandler', () => {
             Type: envelopeType,
             MessageId: 'sns-msg-1',
             TopicArn: topicArn,
-            Message: envelopeType === 'Notification' ? JSON.stringify(innerRecord) : JSON.stringify({}),
+            Message:
+                envelopeType === 'Notification'
+                    ? JSON.stringify(innerRecord)
+                    : `You have chosen to subscribe to the topic ${topicArn}.`,
+            ...(envelopeType === 'SubscriptionConfirmation'
+                ? {
+                      Token: 'token-123',
+                      SubscribeURL: 'https://sns.us-east-1.amazonaws.com/?Action=ConfirmSubscription',
+                  }
+                : {}),
             Timestamp: '2025-10-03T12:10:00Z',
             SignatureVersion: '1',
             Signature: 'stubbed',

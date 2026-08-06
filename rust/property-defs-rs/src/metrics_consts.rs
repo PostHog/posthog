@@ -20,17 +20,17 @@ pub const UPDATE_PRODUCER_OFFSET: &str = "prop_defs_update_producer_offset";
 pub const GROUP_TYPE_CACHE: &str = "prop_defs_group_type_cache";
 pub const RECV_DEQUEUED: &str = "prop_defs_recv_dequeued";
 pub const COMPACTED_UPDATES: &str = "prop_defs_compaction_dropped_updates";
-pub const UPDATE_TRANSACTION_TIME: &str = "prop_defs_update_transaction_time_ms";
-pub const GROUP_TYPE_RESOLVE_TIME: &str = "prop_defs_group_type_resolve_time_ms";
 pub const UPDATES_SKIPPED: &str = "prop_defs_skipped_updates";
 pub const UPDATES_DROPPED: &str = "prop_defs_dropped_updates";
 pub const SKIPPED_DUE_TO_TEAM_FILTER: &str = "prop_defs_skipped_due_to_team_filter";
 pub const ISSUE_FAILED: &str = "prop_defs_issue_failed";
 pub const CHUNK_SIZE: &str = "prop_defs_chunk_size";
 pub const DUPLICATES_IN_BATCH: &str = "prop_defs_duplicates_in_batch";
-pub const SINGLE_UPDATE_ISSUE_TIME: &str = "prop_defs_single_update_issue_time_ms";
 pub const CHANNEL_MESSAGES_IN_FLIGHT: &str = "prop_defs_channel_messages_in_flight";
+// Remaining free slots, not the channel size. CHANNEL_CAPACITY_TOTAL carries the size, so
+// occupancy is 1 - (capacity / capacity_total).
 pub const CHANNEL_CAPACITY: &str = "prop_defs_channel_capacity";
+pub const CHANNEL_CAPACITY_TOTAL: &str = "prop_defs_channel_capacity_total";
 
 pub const ISOLATED_PROPDEFS_DB_SELECTED: &str = "isolated_propdefs_db_selected";
 

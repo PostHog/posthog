@@ -88,7 +88,7 @@ export interface LoopContextOutputsDTOApi {
 export interface LoopContextTargetDTOApi {
     /** What the loop maintains in this context each run. */
     outputs: LoopContextOutputsDTOApi
-    folder_id: string
+    channel_id: string
     name: string
 }
 
@@ -333,10 +333,10 @@ export interface LoopContextOutputsWriteApi {
 }
 
 export interface LoopContextTargetWriteApi {
-    /** Desktop folder id of the context this loop is attached to. */
-    folder_id: string
+    /** Id of the channel (context) this loop is attached to. */
+    channel_id: string
     /**
-     * Context (channel) name, used to file runs into its feed.
+     * Display name of the context, shown in the loop's publish prompt.
      * @maxLength 128
      */
     name: string
@@ -368,7 +368,7 @@ export interface LoopTriggerWriteApi {
     type: LoopTriggerTypeEnumApi
     /** Whether this trigger is active. Disabling pauses only this trigger. */
     enabled?: boolean
-    /** Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels}`; api takes no config. */
+    /** Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels, payload}`. Use `actions` for the event action; `payload` is for anything else in the webhook body, as a list of `{path, equals}` conditions where `path` is a dot-path of object keys and `equals` is a string or list of strings, e.g. `[{"path": "requested_team.slug", "equals": "team-security"}]` to run only when that team is asked to review. All filters must match. API triggers take no config. */
     config?: unknown
 }
 
@@ -913,6 +913,8 @@ export interface PatchedSandboxEnvironmentWriteApi {
  * * `awaiting_input` - awaiting_input
  * * `completed` - completed
  * * `mention` - mention
+ * * `thread_reply` - thread_reply
+ * * `owned_item_comment` - owned_item_comment
  * * `message` - message
  * * `created` - created
  */
@@ -922,6 +924,8 @@ export const ActivityKindEnumApi = {
     AwaitingInput: 'awaiting_input',
     Completed: 'completed',
     Mention: 'mention',
+    ThreadReply: 'thread_reply',
+    OwnedItemComment: 'owned_item_comment',
     Message: 'message',
     Created: 'created',
 } as const
@@ -938,20 +942,28 @@ export interface TaskActivityDTOApi {
     /** @nullable */
     channel_name: string | null
     activity_at: string
-    /** What the latest activity on this task was: an agent run waiting on the requester (awaiting_input), a completed run (completed), someone @-mentioning them (mention), a thread reply (message), or their creating the task (created).
+    /** What the latest activity on this task was: an agent run waiting on the requester (awaiting_input), a completed run (completed), someone @-mentioning them (mention), a comment-thread reply (thread_reply), a comment on their item (owned_item_comment), a task-thread reply (message), or their creating the task (created).
      *
      * * `awaiting_input` - awaiting_input
      * * `completed` - completed
      * * `mention` - mention
+     * * `thread_reply` - thread_reply
+     * * `owned_item_comment` - owned_item_comment
      * * `message` - message
      * * `created` - created */
     activity_kind: ActivityKindEnumApi
-    /** Content of the thread message tied to the latest activity; empty for task-creation rows. */
+    /** Content of the thread message or resource comment tied to the latest activity. */
     snippet: string
     /** Author of the thread message tied to the latest activity, when one applies. */
     latest_author?: TaskUserBasicInfoApi | null
     /** @nullable */
     latest_message_id?: string | null
+    /** @nullable */
+    latest_comment_id?: string | null
+    /** @nullable */
+    latest_comment_scope?: string | null
+    /** @nullable */
+    latest_comment_item_id?: string | null
     /** Whether the requester has yet to see this activity. Activity they caused themselves is never unread. */
     is_unread: boolean
 }
@@ -979,6 +991,11 @@ export interface TaskActivityPageDTOApi {
 export interface TaskActivityReadMarkerApi {
     /** Task whose displayed activity should be marked read. */
     task_id: string
+    /**
+     * Comment activity row to mark read. Omit for collapsed task activity.
+     * @nullable
+     */
+    activity_id?: string | null
     /** Mark activity at or before this timestamp read without clearing newer activity. */
     seen_before: string
 }
@@ -1128,8 +1145,12 @@ export interface ChannelDTOApi {
     id: string
     name: string
     channel_type: string
+    /** @nullable */
+    github_integration: number | null
+    repositories: string[]
     created_at: string
     created_by?: TaskUserBasicInfoApi | null
+    starred?: boolean
 }
 
 export interface PaginatedChannelDTOListApi {
@@ -1203,15 +1224,93 @@ export interface ChannelFeedMessageWriteApi {
     created_at?: string
 }
 
-/**
- * Request body for creating (resolve-or-create) or renaming a public channel.
- */
-export interface PatchedChannelWriteApi {
+export interface PatchedChannelUpdateApi {
     /**
      * Channel name, rendered as #<name>. Normalized to lowercase-dashed.
      * @maxLength 128
      */
     name?: string
+    /**
+     * Team GitHub integration used for repositories linked to this channel.
+     * @nullable
+     */
+    github_integration?: number | null
+    /**
+     * GitHub repositories inherited by new tasks in this channel.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    repositories?: string[]
+}
+
+/**
+ * The task currently generating this channel's CONTEXT.md, or null.
+ */
+export interface ChannelContextGenerationApi {
+    /** @nullable */
+    task_id: string | null
+}
+
+/**
+ * Response shape for a channel's CONTEXT.md instructions version.
+ */
+export interface ChannelInstructionsDTOApi {
+    channel: string
+    content: string
+    version: number
+    /** @nullable */
+    created_at?: string | null
+    created_by?: TaskUserBasicInfoApi | null
+}
+
+/**
+ * Request body for publishing a new instructions version.
+ */
+export interface ChannelInstructionsWriteApi {
+    /**
+     * The complete markdown instructions (CONTEXT.md) for the channel.
+     * @maxLength 100000
+     */
+    content: string
+    /**
+     * Optimistic-concurrency guard: the version the edit is based on (0 for a channel with no instructions yet). A stale base is rejected with 409; omit to publish unguarded.
+     * @minimum 0
+     * @nullable
+     */
+    base_version?: number | null
+}
+
+/**
+ * Request body for publishing a new instructions version.
+ */
+export interface PatchedChannelInstructionsWriteApi {
+    /**
+     * The complete markdown instructions (CONTEXT.md) for the channel.
+     * @maxLength 100000
+     */
+    content?: string
+    /**
+     * Optimistic-concurrency guard: the version the edit is based on (0 for a channel with no instructions yet). A stale base is rejected with 409; omit to publish unguarded.
+     * @minimum 0
+     * @nullable
+     */
+    base_version?: number | null
+}
+
+export interface PaginatedChannelInstructionsDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ChannelInstructionsDTOApi[]
+}
+
+/**
+ * Request body for starring/unstarring a channel for the requesting user.
+ */
+export interface ChannelStarWriteApi {
+    starred: boolean
 }
 
 /**
@@ -1261,6 +1360,30 @@ export type TaskRunDetailDTOProviderEnumApi =
 export const TaskRunDetailDTOProviderEnumApi = {
     Anthropic: 'anthropic',
     Openai: 'openai',
+} as const
+
+/**
+ * * `off` - off
+ * * `minimal` - minimal
+ * * `low` - low
+ * * `medium` - medium
+ * * `high` - high
+ * * `xhigh` - xhigh
+ * * `max` - max
+ * * `ultracode` - ultracode
+ */
+export type TaskRunReasoningEffortEnumApi =
+    (typeof TaskRunReasoningEffortEnumApi)[keyof typeof TaskRunReasoningEffortEnumApi]
+
+export const TaskRunReasoningEffortEnumApi = {
+    Off: 'off',
+    Minimal: 'minimal',
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Xhigh: 'xhigh',
+    Max: 'max',
+    Ultracode: 'ultracode',
 } as const
 
 export interface TaskRunArtifactMetadataApi {
@@ -1357,13 +1480,15 @@ export interface TaskRunDetailDTOApi {
     model?: string | null
     /** Configured reasoning effort for this run when the selected model supports it.
      *
+     * * `off` - off
+     * * `minimal` - minimal
      * * `low` - low
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max
      * * `ultracode` - ultracode */
-    reasoning_effort?: ReasoningEffortEnumApi | null
+    reasoning_effort?: TaskRunReasoningEffortEnumApi | null
     /**
      * Presigned S3 URL for log access (valid for 1 hour).
      * @nullable
@@ -1411,6 +1536,7 @@ export interface TaskDetailDTOApi {
     readonly runtime: RuntimeEnumApi
     /** @nullable */
     repository: string | null
+    repositories: string[]
     /** @nullable */
     github_integration: number | null
     /** @nullable */
@@ -1532,6 +1658,12 @@ export interface TaskCreateApi {
      * @nullable
      */
     repository?: string | null
+    /**
+     * GitHub repositories available to this task, each in `organization/repo` format.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    repositories?: string[]
     /**
      * GitHub integration for this task.
      * @nullable
@@ -1670,6 +1802,12 @@ export interface TaskWriteApi {
      */
     repository?: string | null
     /**
+     * GitHub repositories available to this task, each in `organization/repo` format.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    repositories?: string[]
+    /**
      * GitHub integration for this task.
      * @nullable
      */
@@ -1792,6 +1930,12 @@ export interface PatchedTaskWriteApi {
      */
     repository?: string | null
     /**
+     * GitHub repositories available to this task, each in `organization/repo` format.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    repositories?: string[]
+    /**
      * GitHub integration for this task.
      * @nullable
      */
@@ -1867,6 +2011,150 @@ export interface PatchedTaskWriteApi {
      * @nullable
      */
     channel?: string | null
+}
+
+export interface TaskArtifactApi {
+    /** Stable artifact id used to filter task comments. */
+    id: string
+    /** Artifact type: artifact or canvas. */
+    type: string
+    /** Display name of the artifact. */
+    name: string
+}
+
+export interface TaskArtifactsResponseApi {
+    /** Artifacts and canvases linked to this task. */
+    artifacts: TaskArtifactApi[]
+}
+
+export interface TaskCommentTargetApi {
+    /** Stable target id. */
+    id: string
+    /** Target type: task, artifact, or canvas. */
+    type: string
+    /** Display name of the comment target. */
+    name: string
+}
+
+export interface TaskCommentSummaryApi {
+    /** Root comment id. */
+    id: string
+    /** Task, artifact, or canvas receiving the comment. */
+    target: TaskCommentTargetApi
+    /** Bounded excerpt of the root comment body. */
+    content: string
+    /** Whether the root comment body has more content. */
+    content_truncated: boolean
+    /**
+     * Text selected when the comment was created.
+     * @nullable
+     */
+    selected_text: string | null
+    /** When the root comment was created. */
+    created_at: string
+    /** Number of human replies. */
+    reply_count: number
+    /** Whether the comment is resolved. */
+    resolved: boolean
+}
+
+export interface TaskCommentsResponseApi {
+    /** Root comments, newest first. */
+    comments: TaskCommentSummaryApi[]
+    /**
+     * Opaque cursor for the next page, or null.
+     * @nullable
+     */
+    next: string | null
+}
+
+export interface TaskCommentAnchorApi {
+    /** Anchor kind. */
+    kind?: string
+    /** Selected text. */
+    quote?: string
+    /** Text immediately before the selection. */
+    prefix?: string
+    /** Text immediately after the selection. */
+    suffix?: string
+    /**
+     * Selection start offset.
+     * @minimum 0
+     */
+    start?: number
+    /**
+     * Selection end offset.
+     * @minimum 1
+     */
+    end?: number
+    /**
+     * Horizontal region position.
+     * @minimum 0
+     * @maximum 1
+     */
+    x?: number
+    /**
+     * Vertical region position.
+     * @minimum 0
+     * @maximum 1
+     */
+    y?: number
+    /**
+     * Region width.
+     * @minimum 0
+     * @maximum 1
+     */
+    width?: number
+    /**
+     * Region height.
+     * @minimum 0
+     * @maximum 1
+     */
+    height?: number
+}
+
+export interface TaskCommentEntryApi {
+    /** Comment id. */
+    id: string
+    /** Byte-bounded comment body chunk. */
+    content: string
+    /** Whether this comment body has more content. */
+    content_truncated: boolean
+    /**
+     * Byte offset for the next body chunk, or null when complete.
+     * @nullable
+     */
+    content_next_offset: number | null
+    /**
+     * Comment author's display name.
+     * @nullable
+     */
+    author: string | null
+    /** When the comment was created. */
+    created_at: string
+    /** Normalized text or document anchor. */
+    anchor: TaskCommentAnchorApi | null
+    /**
+     * Canvas version receiving the comment.
+     * @nullable
+     */
+    canvas_version_id: string | null
+}
+
+export interface TaskCommentDetailApi {
+    /** Root comment id. */
+    id: string
+    /** Task, artifact, or canvas receiving the comment. */
+    target: TaskCommentTargetApi
+    /** Whether the comment is resolved. */
+    resolved: boolean
+    /** Comments in this page, oldest first. */
+    comments: TaskCommentEntryApi[]
+    /**
+     * Opaque cursor for the next page, or null.
+     * @nullable
+     */
+    next: string | null
 }
 
 export interface TaskPinRequestApi {
@@ -2521,13 +2809,15 @@ export interface TaskRunBootstrapCreateRequestApi {
     model?: string
     /** Reasoning effort to request for models that expose an effort control.
      *
+     * * `off` - off
+     * * `minimal` - minimal
      * * `low` - low
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max
      * * `ultracode` - ultracode */
-    reasoning_effort?: ReasoningEffortEnumApi
+    reasoning_effort?: TaskRunReasoningEffortEnumApi
     /** Context window size for models that support the 1M window.
      *
      * * `200k` - 200k
@@ -3936,6 +4226,55 @@ export const TasksListStatus = {
     Failed: 'failed',
     Cancelled: 'cancelled',
 } as const
+
+export type TasksCommentsListParams = {
+    /**
+     * Artifact id returned by the artifacts endpoint.
+     * @minLength 1
+     * @maxLength 72
+     */
+    artifact_id?: string
+    /**
+     * Opaque cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 256
+     */
+    cursor?: string
+    /**
+     * Whether to include resolved comment threads.
+     */
+    include_resolved?: boolean
+    /**
+     * Maximum number of root comments to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+}
+
+export type TasksCommentsRetrieveParams = {
+    /**
+     * Comment id whose truncated body should continue. Use with content_offset.
+     */
+    comment_id?: string
+    /**
+     * Byte offset returned as content_next_offset for the selected comment.
+     * @minimum 0
+     */
+    content_offset?: number
+    /**
+     * Opaque cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 256
+     */
+    cursor?: string
+    /**
+     * Maximum number of comments in the thread to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+}
 
 export type TasksRunsListParams = {
     /**
