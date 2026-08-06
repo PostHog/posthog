@@ -1156,6 +1156,92 @@ class TaskActivity(TeamScopedRootMixin):
             )
 
 
+class TaskCommentActivity(TeamScopedRootMixin):
+    class Kind(models.TextChoices):
+        MENTION = "mention", "Mention"
+        THREAD_REPLY = "thread_reply", "Thread reply"
+        OWNED_ITEM_COMMENT = "owned_item_comment", "Owned item comment"
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
+    comment = models.ForeignKey(
+        "posthog.Comment",
+        on_delete=models.CASCADE,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+    )
+    root_comment = models.ForeignKey(
+        "posthog.Comment",
+        on_delete=models.CASCADE,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+    )
+    kind = models.CharField(max_length=32, choices=Kind)
+    activity_at = models.DateTimeField()
+    read_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_task_comment_activity"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "user", "comment"],
+                name="task_comment_activity_unique",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["team", "user", "activity_at", "id"], name="task_comment_activity_feed"),
+            models.Index(
+                fields=["team", "user"],
+                condition=models.Q(read_at__isnull=True),
+                name="task_comment_activity_unread",
+            ),
+        ]
+
+    @classmethod
+    def record_many(
+        cls,
+        *,
+        team_id: int,
+        task_id: uuid.UUID | str,
+        comment_id: uuid.UUID,
+        root_comment_id: uuid.UUID,
+        activity_at: datetime,
+        recipients: dict[int, str],
+    ) -> None:
+        if not recipients:
+            return
+        values = []
+        params: list[Any] = []
+        for user_id, kind in recipients.items():
+            values.append("(%s, %s, %s, %s, %s, %s, %s, %s, NULL)")
+            params.extend([uuid7(), team_id, user_id, task_id, comment_id, root_comment_id, kind, activity_at])
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                INSERT INTO {cls._meta.db_table}
+                       (id, team_id, user_id, task_id, comment_id, root_comment_id, kind, activity_at, read_at)
+                VALUES {", ".join(values)}
+                ON CONFLICT (team_id, user_id, comment_id) DO UPDATE
+                   SET task_id = EXCLUDED.task_id,
+                       root_comment_id = EXCLUDED.root_comment_id,
+                       kind = EXCLUDED.kind,
+                       activity_at = EXCLUDED.activity_at,
+                       read_at = CASE
+                           WHEN {cls._meta.db_table}.activity_at <= EXCLUDED.activity_at
+                                AND {cls._meta.db_table}.kind = EXCLUDED.kind
+                           THEN {cls._meta.db_table}.read_at
+                           ELSE NULL
+                       END
+                 WHERE {cls._meta.db_table}.activity_at <= EXCLUDED.activity_at
+                """,
+                params,
+            )
+
+
 class TaskPin(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
