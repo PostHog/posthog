@@ -54,6 +54,9 @@ from products.ai_observability.backend.text_repr.formatters import (
 
 logger = structlog.get_logger(__name__)
 
+# Event types the formatters can render on their own, so a single one of them can be summarized by UUID.
+SUMMARIZABLE_EVENT_TYPES = ["$ai_generation", "$ai_span", "$ai_embedding", "$ai_evaluation"]
+
 
 # Request/Response Serializers
 class SummarizeRequestSerializer(serializers.Serializer):
@@ -289,13 +292,16 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
             raise exceptions.NotFound(f"Trace '{trace_id}' not found in the given date range.")
 
         trace_obj = response.results[0]
-        trace_dict, hierarchy = llm_trace_to_formatter_format(trace_obj)
+        trace_dict, hierarchy = llm_trace_to_formatter_format(trace_obj, nest_children=True)
         return trace_id, {"trace": trace_dict, "hierarchy": hierarchy}
 
     def _fetch_generation_data(
         self, generation_id: str, date_from: str | None, date_to: str | None
     ) -> tuple[str, dict]:
-        """Fetch a single generation event by UUID and return (entity_id, entity_data) for summarization."""
+        """Fetch a single event by UUID and return (entity_id, entity_data) for summarization.
+
+        Covers every event type the trace view offers a summary for, not just generations.
+        """
         from datetime import datetime
 
         qdr = QueryDateRange(
@@ -311,7 +317,7 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
                     """
                     SELECT uuid, event, timestamp, properties
                     FROM events
-                    WHERE event = '$ai_generation'
+                    WHERE event IN {summarizable_events}
                       AND uuid = {generation_uuid}
                       AND timestamp >= {date_from}
                       AND timestamp <= {date_to}
@@ -319,6 +325,7 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
                     """,
                 ),
                 placeholders={
+                    "summarizable_events": ast.Tuple(exprs=[ast.Constant(value=e) for e in SUMMARIZABLE_EVENT_TYPES]),
                     "generation_uuid": ast.Constant(value=generation_id),
                     "date_from": ast.Constant(value=qdr.date_from().isoformat()),
                     "date_to": ast.Constant(value=qdr.date_to().isoformat()),
@@ -327,7 +334,7 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
             )
 
         if not result.results:
-            raise exceptions.NotFound(f"Generation '{generation_id}' not found in the given date range.")
+            raise exceptions.NotFound(f"Event '{generation_id}' not found in the given date range.")
 
         row = result.results[0]
         props = row[3]

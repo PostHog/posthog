@@ -10,7 +10,9 @@ import json
 import base64
 from typing import Any
 
-from posthog.schema import LLMTrace
+from dateutil.parser import isoparse
+
+from posthog.schema import LLMTrace, LLMTraceEvent
 
 from .constants import DEFAULT_MAX_LENGTH, MAX_TREE_DEPTH, SEPARATOR
 from .event_formatter import format_event_text_repr
@@ -23,13 +25,102 @@ from .message_formatter import (
     truncate_content,
 )
 
+# Annotations the trace view attaches to other nodes rather than rendering as steps of its own.
+FEEDBACK_EVENT_TYPES = frozenset({"$ai_feedback", "$ai_metric"})
 
-def llm_trace_to_formatter_format(llm_trace: LLMTrace) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+
+def _first_set_property(properties: dict[str, Any], *keys: str) -> Any:
+    """First of `keys` that is set, mirroring the `??` chains the trace view resolves IDs with."""
+    for key in keys:
+        value = properties.get(key)
+        if value is not None:
+            return value
+    return None
+
+
+def _latency_ms(event: LLMTraceEvent) -> float:
+    try:
+        latency = float(event.properties.get("$ai_latency", 0))
+    except (TypeError, ValueError):
+        return 0.0
+    return latency * 1000 if latency > 0 else 0.0
+
+
+def _operation_start_ms(event: LLMTraceEvent) -> float:
+    """Epoch ms the event's operation began. PostHog AI SDKs capture an event when the operation
+    finishes, so its timestamp is the end; OTel-ingested spans already carry the start."""
+    try:
+        end_ms = isoparse(event.createdAt).timestamp() * 1000
+    except (TypeError, ValueError):
+        return 0.0
+    if event.properties.get("$ai_ingestion_source") == "otel":
+        return end_ms
+    return end_ms - _latency_ms(event)
+
+
+def _to_formatter_event(event: LLMTraceEvent) -> dict[str, Any]:
+    return {
+        "id": event.id,
+        "event": event.event,
+        "properties": event.properties,
+        "timestamp": event.createdAt,
+    }
+
+
+def _nest_events(llm_trace: LLMTrace) -> list[dict[str, Any]]:
+    """Rebuild the parent/child hierarchy the trace view shows, following `$ai_parent_id` links."""
+    events_by_node_id: dict[Any, LLMTraceEvent] = {}
+    child_ids: dict[Any, list[Any]] = {}
+
+    for event in llm_trace.events:
+        if event.event in FEEDBACK_EVENT_TYPES:
+            continue
+        node_id = _first_set_property(event.properties, "$ai_generation_id", "$ai_span_id") or event.id
+        events_by_node_id[node_id] = event
+        parent_id = _first_set_property(event.properties, "$ai_parent_id", "$ai_trace_id")
+        if parent_id is not None:
+            child_ids.setdefault(parent_id, []).append(node_id)
+
+    def sort_key(node_id: Any) -> tuple[float, float]:
+        event = events_by_node_id[node_id]
+        # Siblings that began together are ordered longest first, matching the timeline.
+        return (_operation_start_ms(event), -_latency_ms(event))
+
+    def build(node_id: Any, ancestors: frozenset[Any]) -> dict[str, Any] | None:
+        event = events_by_node_id.get(node_id)
+        if event is None or node_id in ancestors:
+            return None
+        children = sorted(child_ids.get(node_id, []), key=sort_key)
+        return {
+            "event": _to_formatter_event(event),
+            "children": [
+                node for node in (build(child_id, ancestors | {node_id}) for child_id in children) if node is not None
+            ],
+        }
+
+    # An event whose parent never made it into the trace still has to be rendered, so it becomes a root.
+    orphan_ids = [
+        node_id
+        for node_id, event in events_by_node_id.items()
+        if (parent_id := _first_set_property(event.properties, "$ai_parent_id", "$ai_trace_id")) is not None
+        and parent_id != llm_trace.id
+        and parent_id not in events_by_node_id
+    ]
+    root_ids = sorted([*child_ids.get(llm_trace.id, []), *orphan_ids], key=sort_key)
+    return [node for node in (build(root_id, frozenset()) for root_id in root_ids) if node is not None]
+
+
+def llm_trace_to_formatter_format(
+    llm_trace: LLMTrace, *, nest_children: bool = False
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """
     Convert an LLMTrace object to the format expected by format_trace_text_repr.
 
     Args:
         llm_trace: The LLMTrace object from TraceQueryRunner
+        nest_children: Reconstruct the parent/child hierarchy instead of returning every event as a
+            root. Callers that render a trace for a reader want this; the flat shape is kept as the
+            default so existing prompts and evaluations see the events they saw before.
 
     Returns:
         A tuple of (trace_dict, hierarchy) suitable for format_trace_text_repr
@@ -45,18 +136,10 @@ def llm_trace_to_formatter_format(llm_trace: LLMTrace) -> tuple[dict[str, Any], 
         },
     }
 
-    hierarchy = [
-        {
-            "event": {
-                "id": event.id,
-                "event": event.event,
-                "properties": event.properties,
-                "timestamp": event.createdAt,
-            },
-            "children": [],
-        }
-        for event in llm_trace.events
-    ]
+    if nest_children:
+        return trace_dict, _nest_events(llm_trace)
+
+    hierarchy = [{"event": _to_formatter_event(event), "children": []} for event in llm_trace.events]
 
     return trace_dict, hierarchy
 
