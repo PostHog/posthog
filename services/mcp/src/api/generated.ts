@@ -2269,6 +2269,8 @@ export namespace Schemas {
      * * `awaiting_input` - awaiting_input
      * * `completed` - completed
      * * `mention` - mention
+     * * `thread_reply` - thread_reply
+     * * `owned_item_comment` - owned_item_comment
      * * `message` - message
      * * `created` - created
      */
@@ -2279,6 +2281,8 @@ export namespace Schemas {
       AwaitingInput: 'awaiting_input',
       Completed: 'completed',
       Mention: 'mention',
+      ThreadReply: 'thread_reply',
+      OwnedItemComment: 'owned_item_comment',
       Message: 'message',
       Created: 'created',
     } as const;
@@ -12810,9 +12814,8 @@ export namespace Schemas {
     /**
      * * `started` - Started
      * * `already_running` - Already running
-     * * `already_scanned` - Already scanned
-     * * `skipped_limit` - Skipped - in-flight limit reached
-     * * `skipped_quota` - Skipped - monthly credit quota reached
+     * * `skipped_limit` - Skipped — in-flight limit reached
+     * * `skipped_quota` - Skipped — monthly credit quota reached
      * * `failed` - Failed to start
      */
     export type ScanOutcomeEnum = typeof ScanOutcomeEnum[keyof typeof ScanOutcomeEnum];
@@ -12821,7 +12824,6 @@ export namespace Schemas {
     export const ScanOutcomeEnum = {
       Started: 'started',
       AlreadyRunning: 'already_running',
-      AlreadyScanned: 'already_scanned',
       SkippedLimit: 'skipped_limit',
       SkippedQuota: 'skipped_quota',
       Failed: 'failed',
@@ -12833,13 +12835,12 @@ export namespace Schemas {
     export interface BulkObserveResult {
       /** The session recording this outcome is for. */
       session_id: string;
-      /** 'started' - a scan workflow was kicked off; 'already_running' - a scan for this session is already in flight (no-op, not recharged); 'already_scanned' - this scanner already has a finished observation for this session, so nothing was started and nothing was charged (read it back, or use the retry action to run it again); 'skipped_limit' - the in-flight cap was reached before this session; 'skipped_quota' - the monthly credit quota would be exceeded; 'failed' - the workflow failed to start.
+      /** 'started' — a scan workflow was kicked off; 'already_running' — a scan for this session is already in flight (no-op, not recharged); 'skipped_limit' — the in-flight cap was reached before this session; 'skipped_quota' — the monthly credit quota would be exceeded; 'failed' — the workflow failed to start.
        *
        * * `started` - Started
        * * `already_running` - Already running
-       * * `already_scanned` - Already scanned
-       * * `skipped_limit` - Skipped - in-flight limit reached
-       * * `skipped_quota` - Skipped - monthly credit quota reached
+       * * `skipped_limit` - Skipped — in-flight limit reached
+       * * `skipped_quota` - Skipped — monthly credit quota reached
        * * `failed` - Failed to start */
       scan_outcome: ScanOutcomeEnum;
     }
@@ -14903,8 +14904,7 @@ export namespace Schemas {
      * * `dataset_name_conflict` - dataset_name_conflict
      * * `dataset_item_archived` - dataset_item_archived
      * * `dataset_item_active` - dataset_item_active
-     * * `client_item_id_conflict` - client_item_id_conflict
-     * * `limit_reached` - limit_reached
+     * * `external_id_conflict` - external_id_conflict
      * * `stale_version` - stale_version
      */
     export type CodeEnum = typeof CodeEnum[keyof typeof CodeEnum];
@@ -14915,8 +14915,7 @@ export namespace Schemas {
       DatasetNameConflict: 'dataset_name_conflict',
       DatasetItemArchived: 'dataset_item_archived',
       DatasetItemActive: 'dataset_item_active',
-      ClientItemIdConflict: 'client_item_id_conflict',
-      LimitReached: 'limit_reached',
+      ExternalIdConflict: 'external_id_conflict',
       StaleVersion: 'stale_version',
     } as const;
 
@@ -15329,7 +15328,9 @@ export namespace Schemas {
 
     export interface Comment {
       readonly id: string;
-      readonly created_by: UserBasic;
+      readonly created_by: UserBasic | null;
+      /** Metadata for the comment target, anchor, thread state, and owning task. */
+      item_context?: unknown;
       /** @nullable */
       deleted?: boolean | null;
       mentions?: number[];
@@ -15350,7 +15351,6 @@ export namespace Schemas {
          * @nullable
          */
       item_id?: string | null;
-      item_context?: unknown;
       /** @maxLength 79 */
       scope: string;
       /**
@@ -22303,20 +22303,6 @@ export namespace Schemas {
       Databricks: 'Databricks',
     } as const;
 
-    /**
-     * * `datasets` - datasets
-     * * `dataset_items` - dataset_items
-     * * `dataset_item_versions` - dataset_item_versions
-     */
-    export type ResourceEnum = typeof ResourceEnum[keyof typeof ResourceEnum];
-
-
-    export const ResourceEnum = {
-      Datasets: 'datasets',
-      DatasetItems: 'dataset_items',
-      DatasetItemVersions: 'dataset_item_versions',
-    } as const;
-
     export interface DatasetConflictResponse {
       /** Stable code identifying why the mutation was rejected.
        *
@@ -22324,8 +22310,7 @@ export namespace Schemas {
        * * `dataset_name_conflict` - dataset_name_conflict
        * * `dataset_item_archived` - dataset_item_archived
        * * `dataset_item_active` - dataset_item_active
-       * * `client_item_id_conflict` - client_item_id_conflict
-       * * `limit_reached` - limit_reached
+       * * `external_id_conflict` - external_id_conflict
        * * `stale_version` - stale_version */
       code: CodeEnum;
       /** Explanation of how to resolve the conflict. */
@@ -22336,20 +22321,10 @@ export namespace Schemas {
          */
       current_version?: number | null;
       /**
-         * Existing item ID when the conflict concerns a client item ID.
+         * Existing item ID when the conflict concerns an external ID.
          * @nullable
          */
       current_item_id?: string | null;
-      /** Resource whose configured limit was reached.
-       *
-       * * `datasets` - datasets
-       * * `dataset_items` - dataset_items
-       * * `dataset_item_versions` - dataset_item_versions */
-      resource?: ResourceEnum;
-      /** Number of resources that already exist. */
-      current_count?: number;
-      /** Maximum number of resources allowed. */
-      limit?: number;
     }
 
     /**
@@ -22384,48 +22359,6 @@ export namespace Schemas {
       Persons: 'persons',
     } as const;
 
-    export interface DatasetExportCreate {
-      /**
-         * Dataset revision to export. Defaults to the latest revision when the export is created.
-         * @minimum 1
-         */
-      revision?: number;
-    }
-
-    export interface DatasetExportError {
-      /** Why the export cannot be created or downloaded yet. */
-      detail: string;
-    }
-
-    export type DatasetExportReadStatusEnum = typeof DatasetExportReadStatusEnum[keyof typeof DatasetExportReadStatusEnum];
-
-
-    export const DatasetExportReadStatusEnum = {
-      Pending: 'pending',
-      Complete: 'complete',
-      Failed: 'failed',
-    } as const;
-
-    export interface DatasetExportRead {
-      /** Export ID used to check status and download the file. */
-      readonly id: number;
-      /** Current export state: pending, complete, or failed. */
-      readonly status: DatasetExportReadStatusEnum;
-      /** Immutable dataset revision included in the export. */
-      readonly dataset_revision: number;
-      /** Generated JSONL filename. */
-      readonly filename: string;
-      /** When the export was requested. */
-      readonly created_at: string;
-      /** When the generated file expires. */
-      readonly expires_after: string;
-      /**
-         * Reason the export failed, or null while it is pending or complete.
-         * @nullable
-         */
-      readonly exception: string | null;
-    }
-
     export interface DatasetItemArchive {
       /**
          * Current item version observed by the caller.
@@ -22445,11 +22378,11 @@ export namespace Schemas {
       /** Dataset that will own the item. */
       dataset: string;
       /**
-         * Optional case-sensitive stable key used for idempotent creates. It cannot be changed.
+         * Optional case-sensitive stable key used for idempotent creates.
          * @maxLength 255
          * @nullable
          */
-      client_item_id?: string | null;
+      external_id?: string | null;
       /** Input supplied to the system under test. Any non-null JSON value is accepted. */
       input: DatasetJSONValue;
       /** Optional user-authored expected output. */
@@ -22488,10 +22421,10 @@ export namespace Schemas {
       /** Dataset that owns the item. */
       readonly dataset: string;
       /**
-         * Optional caller-owned stable key that cannot be changed.
+         * Optional caller-owned stable key.
          * @nullable
          */
-      readonly client_item_id: string | null;
+      readonly external_id: string | null;
       readonly version: number;
       /** ID of this immutable item version. */
       readonly version_id: string;
@@ -22548,9 +22481,6 @@ export namespace Schemas {
      */
     export type DatasetReadMetadata = { [key: string]: unknown };
 
-    /**
-     * Mixin for serializers to add user access control fields
-     */
     export interface DatasetRead {
       readonly id: string;
       readonly name: string;
@@ -22574,11 +22504,6 @@ export namespace Schemas {
       readonly created_by: UserBasic | null;
       /** Project that owns the dataset. */
       readonly team_id: number;
-      /**
-         * The effective access level the user has for this object
-         * @nullable
-         */
-      readonly user_access_level: string | null;
     }
 
     export interface DatasetRevisionRead {
@@ -28013,30 +27938,6 @@ export namespace Schemas {
       name: string;
     }
 
-    export interface EventDefinitionBulkUpdateVerifiedItem {
-      /** UUID of the event definition whose verified state changed. */
-      id: string;
-      /** The event's verified state after the update. */
-      verified: boolean;
-    }
-
-    export interface EventDefinitionBulkUpdateVerifiedRequest {
-      /**
-         * List of event definition UUIDs to update.
-         * @maxItems 500
-         */
-      ids: string[];
-      /** Target verified state to apply to every matched event. `true` marks the events as verified (and unhides them, since an event cannot be both hidden and verified); `false` unverifies them. */
-      verified: boolean;
-    }
-
-    export interface EventDefinitionBulkUpdateVerifiedResponse {
-      /** Events whose verified state was changed. Events already in the target state are omitted. */
-      updated: EventDefinitionBulkUpdateVerifiedItem[];
-      /** Events that were skipped (e.g. not found in this project), with a reason each. */
-      skipped: BulkUpdateTagsUUIDError[];
-    }
-
     /**
      * Serializer mixin that handles tags for objects.
      */
@@ -30074,12 +29975,11 @@ export namespace Schemas {
      * * `video/mp4` - video/mp4
      * * `image/gif` - image/gif
      * * `application/json` - application/json
-     * * `application/x-ndjson` - application/x-ndjson
      */
-    export type ExportedAssetExportFormatEnum = typeof ExportedAssetExportFormatEnum[keyof typeof ExportedAssetExportFormatEnum];
+    export type ExportFormatEnum = typeof ExportFormatEnum[keyof typeof ExportFormatEnum];
 
 
-    export const ExportedAssetExportFormatEnum = {
+    export const ExportFormatEnum = {
       ImagePng: 'image/png',
       ApplicationPdf: 'application/pdf',
       TextCsv: 'text/csv',
@@ -30088,7 +29988,6 @@ export namespace Schemas {
       VideoMp4: 'video/mp4',
       ImageGif: 'image/gif',
       ApplicationJson: 'application/json',
-      ApplicationXNdjson: 'application/x-ndjson',
     } as const;
 
     /**
@@ -30100,77 +29999,7 @@ export namespace Schemas {
       dashboard?: number | null;
       /** @nullable */
       insight?: number | null;
-      /** File format of the generated export.
-       *
-       * * `image/png` - image/png
-       * * `application/pdf` - application/pdf
-       * * `text/csv` - text/csv
-       * * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
-       * * `video/webm` - video/webm
-       * * `video/mp4` - video/mp4
-       * * `image/gif` - image/gif
-       * * `application/json` - application/json
-       * * `application/x-ndjson` - application/x-ndjson */
-      readonly export_format: ExportedAssetExportFormatEnum;
-      readonly created_at: string;
-      readonly has_content: boolean;
-      export_context?: unknown;
-      readonly filename: string;
-      /** @nullable */
-      readonly expires_after: string | null;
-      /** @nullable */
-      readonly exception: string | null;
-      /**
-         * The effective access level the user has for this object
-         * @nullable
-         */
-      readonly user_access_level: string | null;
-    }
-
-    /**
-     * * `image/png` - image/png
-     * * `application/pdf` - application/pdf
-     * * `text/csv` - text/csv
-     * * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
-     * * `video/webm` - video/webm
-     * * `video/mp4` - video/mp4
-     * * `image/gif` - image/gif
-     * * `application/json` - application/json
-     */
-    export type ExportedAssetCreateExportFormatEnum = typeof ExportedAssetCreateExportFormatEnum[keyof typeof ExportedAssetCreateExportFormatEnum];
-
-
-    export const ExportedAssetCreateExportFormatEnum = {
-      ImagePng: 'image/png',
-      ApplicationPdf: 'application/pdf',
-      TextCsv: 'text/csv',
-      ApplicationVndopenxmlformatsOfficedocumentspreadsheetmlsheet: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      VideoWebm: 'video/webm',
-      VideoMp4: 'video/mp4',
-      ImageGif: 'image/gif',
-      ApplicationJson: 'application/json',
-    } as const;
-
-    /**
-     * Standard ExportedAsset serializer that doesn't return content.
-     */
-    export interface ExportedAssetCreate {
-      readonly id: number;
-      /** @nullable */
-      dashboard?: number | null;
-      /** @nullable */
-      insight?: number | null;
-      /** File format to generate. Dataset JSONL exports use the dataset export endpoint.
-       *
-       * * `image/png` - image/png
-       * * `application/pdf` - application/pdf
-       * * `text/csv` - text/csv
-       * * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
-       * * `video/webm` - video/webm
-       * * `video/mp4` - video/mp4
-       * * `image/gif` - image/gif
-       * * `application/json` - application/json */
-      export_format: ExportedAssetCreateExportFormatEnum;
+      export_format: ExportFormatEnum;
       readonly created_at: string;
       readonly has_content: boolean;
       export_context?: unknown;
@@ -38981,69 +38810,6 @@ export namespace Schemas {
       samples: IngestionWarningV2Sample[];
     }
 
-    /**
-     * * `monitor` - Monitor
-     * * `classifier` - Classifier
-     * * `scorer` - Scorer
-     * * `summarizer` - Summarizer
-     */
-    export type ScannerTypeEnum = typeof ScannerTypeEnum[keyof typeof ScannerTypeEnum];
-
-
-    export const ScannerTypeEnum = {
-      Monitor: 'monitor',
-      Classifier: 'classifier',
-      Scorer: 'scorer',
-      Summarizer: 'summarizer',
-    } as const;
-
-    /**
-     * Body of POST /vision/scanners/inline_scan/ - a prompt plus the sessions to point it at.
-     */
-    export interface InlineScanRequest {
-      /**
-         * Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.
-         * @maxItems 200
-         * @items.maxLength 128
-         */
-      session_ids: string[];
-      /**
-         * What to look for in these sessions, in plain language. The same instruction a saved scanner carries.
-         * @maxLength 20000
-         */
-      prompt: string;
-      /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt.
-       *
-       * * `monitor` - Monitor
-       * * `classifier` - Classifier
-       * * `scorer` - Scorer
-       * * `summarizer` - Summarizer */
-      scanner_type?: ScannerTypeEnum;
-      /** Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here. */
-      scanner_config?: unknown;
-      /** Model to scan with. Determines what each observation costs in credits.
-       *
-       * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
-       * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.6-flash` - Gemini 3.6 Flash */
-      model?: ScannerModelEnum;
-    }
-
-    /**
-     * `bulk_observe`'s partial-success shape plus the id to read the results back through.
-     */
-    export interface InlineScanResponse {
-      /** How many new scans were started. */
-      started: number;
-      /** Per-session outcomes, in request order (deduplicated). */
-      results: BulkObserveResult[];
-      /**
-         * Read results from `/vision/scanners/{scan_id}/observations/`. Stable for a given prompt and model, so asking the same question again returns the same id. Null when nothing was started and nothing existed to read, which happens when the quota is already used up.
-         * @nullable
-         */
-      scan_id: string | null;
-    }
-
     export interface InsightBulkDeleteRequest {
       /**
          * Insight IDs to soft-delete (or restore). At most 1000 ids per request. Soft-deleted insights can be brought back via the bulk_restore endpoint.
@@ -41650,7 +41416,7 @@ export namespace Schemas {
       type: LoopTriggerTypeEnum;
       /** Whether this trigger is active. Disabling pauses only this trigger. */
       enabled?: boolean;
-      /** Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels, payload}`. Use `actions` for the event action; `payload` is for anything else in the webhook body, as a list of `{path, equals}` conditions where `path` is a dot-path of object keys and `equals` is a string or list of strings, e.g. `[{"path": "requested_team.slug", "equals": "team-security"}]` to run only when that team is asked to review. All filters must match. API triggers take no config. */
+      /** Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels}`; api takes no config. */
       config?: unknown;
     }
 
@@ -44355,14 +44121,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * 200 from POST /vision/scanners/{id}/observe/ - nothing started, the answer already exists.
-     */
-    export interface ObserveAlreadyScanned {
-      /** The settled observation this scanner already has for the session. Nothing was started and nothing was charged; read it from /vision/scanners/{id}/observations/, or use the retry action on it to scan the session again. */
-      observation_id: string;
-    }
-
-    /**
      * Body of POST /vision/scanners/{id}/observe/.
      */
     export interface ObserveRequest {
@@ -46948,6 +46706,22 @@ export namespace Schemas {
     }
 
     /**
+     * * `monitor` - Monitor
+     * * `classifier` - Classifier
+     * * `scorer` - Scorer
+     * * `summarizer` - Summarizer
+     */
+    export type ScannerTypeEnum = typeof ScannerTypeEnum[keyof typeof ScannerTypeEnum];
+
+
+    export const ScannerTypeEnum = {
+      Monitor: 'monitor',
+      Classifier: 'classifier',
+      Scorer: 'scorer',
+      Summarizer: 'summarizer',
+    } as const;
+
+    /**
      * Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.
      */
     export interface ScannerSnapshot {
@@ -48752,7 +48526,7 @@ export namespace Schemas {
          */
       interval: number;
       /**
-         * Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+         * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
          * @nullable
          */
       byweekday?: SubscriptionByweekdayItem[] | null;
@@ -51586,7 +51360,9 @@ export namespace Schemas {
 
     export interface PatchedComment {
       readonly id?: string;
-      readonly created_by?: UserBasic;
+      readonly created_by?: UserBasic | null;
+      /** Metadata for the comment target, anchor, thread state, and owning task. */
+      item_context?: unknown;
       /** @nullable */
       deleted?: boolean | null;
       mentions?: number[];
@@ -51607,7 +51383,6 @@ export namespace Schemas {
          * @nullable
          */
       item_id?: string | null;
-      item_context?: unknown;
       /** @maxLength 79 */
       scope?: string;
       /**
@@ -56930,7 +56705,7 @@ export namespace Schemas {
          */
       interval?: number;
       /**
-         * Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+         * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
          * @nullable
          */
       byweekday?: PatchedSubscriptionByweekdayItem[] | null;
@@ -72839,20 +72614,28 @@ export namespace Schemas {
       /** @nullable */
       channel_name: string | null;
       activity_at: string;
-      /** What the latest activity on this task was: an agent run waiting on the requester (awaiting_input), a completed run (completed), someone @-mentioning them (mention), a thread reply (message), or their creating the task (created).
+      /** What the latest activity on this task was: an agent run waiting on the requester (awaiting_input), a completed run (completed), someone @-mentioning them (mention), a comment-thread reply (thread_reply), a comment on their item (owned_item_comment), a task-thread reply (message), or their creating the task (created).
        *
        * * `awaiting_input` - awaiting_input
        * * `completed` - completed
        * * `mention` - mention
+       * * `thread_reply` - thread_reply
+       * * `owned_item_comment` - owned_item_comment
        * * `message` - message
        * * `created` - created */
       activity_kind: ActivityKindEnum;
-      /** Content of the thread message tied to the latest activity; empty for task-creation rows. */
+      /** Content of the thread message or resource comment tied to the latest activity. */
       snippet: string;
       /** Author of the thread message tied to the latest activity, when one applies. */
       latest_author?: TaskUserBasicInfo | null;
       /** @nullable */
       latest_message_id?: string | null;
+      /** @nullable */
+      latest_comment_id?: string | null;
+      /** @nullable */
+      latest_comment_scope?: string | null;
+      /** @nullable */
+      latest_comment_item_id?: string | null;
       /** Whether the requester has yet to see this activity. Activity they caused themselves is never unread. */
       is_unread: boolean;
     }
@@ -72860,6 +72643,11 @@ export namespace Schemas {
     export interface TaskActivityReadMarker {
       /** Task whose displayed activity should be marked read. */
       task_id: string;
+      /**
+         * Comment activity row to mark read. Omit for collapsed task activity.
+         * @nullable
+         */
+      activity_id?: string | null;
       /** Mark activity at or before this timestamp read without clearing newer activity. */
       seen_before: string;
     }
@@ -72902,6 +72690,15 @@ export namespace Schemas {
       next_before_id?: string | null;
     }
 
+    export interface TaskArtifact {
+      /** Stable artifact id used to filter task comments. */
+      id: string;
+      /** Artifact type: artifact or canvas. */
+      type: string;
+      /** Display name of the artifact. */
+      name: string;
+    }
+
     /**
      * * `active` - active
      * * `failed` - failed
@@ -72913,6 +72710,11 @@ export namespace Schemas {
       Active: 'active',
       Failed: 'failed',
     } as const;
+
+    export interface TaskArtifactsResponse {
+      /** Artifacts and canvases linked to this task. */
+      artifacts: TaskArtifact[];
+    }
 
     /**
      * Request body for creating or updating a task automation.
@@ -72953,6 +72755,136 @@ export namespace Schemas {
       template_id?: string | null;
       /** Whether the schedule is active; paused when false. */
       enabled?: boolean;
+    }
+
+    export interface TaskCommentAnchor {
+      /** Anchor kind. */
+      kind?: string;
+      /** Selected text. */
+      quote?: string;
+      /** Text immediately before the selection. */
+      prefix?: string;
+      /** Text immediately after the selection. */
+      suffix?: string;
+      /**
+         * Selection start offset.
+         * @minimum 0
+         */
+      start?: number;
+      /**
+         * Selection end offset.
+         * @minimum 1
+         */
+      end?: number;
+      /**
+         * Horizontal region position.
+         * @minimum 0
+         * @maximum 1
+         */
+      x?: number;
+      /**
+         * Vertical region position.
+         * @minimum 0
+         * @maximum 1
+         */
+      y?: number;
+      /**
+         * Region width.
+         * @minimum 0
+         * @maximum 1
+         */
+      width?: number;
+      /**
+         * Region height.
+         * @minimum 0
+         * @maximum 1
+         */
+      height?: number;
+    }
+
+    export interface TaskCommentTarget {
+      /** Stable target id. */
+      id: string;
+      /** Target type: task, artifact, or canvas. */
+      type: string;
+      /** Display name of the comment target. */
+      name: string;
+    }
+
+    export interface TaskCommentEntry {
+      /** Comment id. */
+      id: string;
+      /** Byte-bounded comment body chunk. */
+      content: string;
+      /** Whether this comment body has more content. */
+      content_truncated: boolean;
+      /**
+         * Byte offset for the next body chunk, or null when complete.
+         * @nullable
+         */
+      content_next_offset: number | null;
+      /**
+         * Comment author's display name.
+         * @nullable
+         */
+      author: string | null;
+      /** When the comment was created. */
+      created_at: string;
+      /** Normalized text or document anchor. */
+      anchor: TaskCommentAnchor | null;
+      /**
+         * Canvas version receiving the comment.
+         * @nullable
+         */
+      canvas_version_id: string | null;
+    }
+
+    export interface TaskCommentDetail {
+      /** Root comment id. */
+      id: string;
+      /** Task, artifact, or canvas receiving the comment. */
+      target: TaskCommentTarget;
+      /** Whether the comment is resolved. */
+      resolved: boolean;
+      /** Comments in this page, oldest first. */
+      comments: TaskCommentEntry[];
+      /**
+         * Opaque cursor for the next page, or null.
+         * @nullable
+         */
+      next: string | null;
+    }
+
+    export interface TaskCommentSummary {
+      /** Root comment id. */
+      id: string;
+      /** Task, artifact, or canvas receiving the comment. */
+      target: TaskCommentTarget;
+      /** Bounded excerpt of the root comment body. */
+      content: string;
+      /** Whether the root comment body has more content. */
+      content_truncated: boolean;
+      /**
+         * Text selected when the comment was created.
+         * @nullable
+         */
+      selected_text: string | null;
+      /** When the root comment was created. */
+      created_at: string;
+      /** Number of human replies. */
+      reply_count: number;
+      /** Whether the comment is resolved. */
+      resolved: boolean;
+    }
+
+    export interface TaskCommentsResponse {
+      /** Root comments, newest first. */
+      comments: TaskCommentSummary[];
+      /**
+         * Opaque cursor for the next page, or null.
+         * @nullable
+         */
+      next: string | null;
     }
 
     /**
@@ -79085,6 +79017,13 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type CanvasesBuildsRetrieveParams = {
+    /**
+     * Include the retained ready build for this historical source version.
+     */
+    version_id?: string;
+    };
+
     export type CanvasesSourceRetrieveParams = {
     /**
      * Read this historical source version instead of the head (for version browsing).
@@ -79219,6 +79158,10 @@ export namespace Schemas {
      * @minLength 1
      */
     source_comment?: string;
+    /**
+     * Owning task for task, task_artifact, and desktop_canvas comment scopes.
+     */
+    task_id?: string;
     };
 
     export type CommentsListCompleted = typeof CommentsListCompleted[keyof typeof CommentsListCompleted];
@@ -80060,14 +80003,6 @@ export namespace Schemas {
     offset?: number;
     /**
      * Return the exact dataset snapshot at this revision.
-     * @minimum 1
-     */
-    revision?: number;
-    };
-
-    export type DatasetItemsRetrieveParams = {
-    /**
-     * Return the item as it appeared at this exact dataset revision.
      * @minimum 1
      */
     revision?: number;
@@ -86310,6 +86245,55 @@ export namespace Schemas {
       Failed: 'failed',
       Cancelled: 'cancelled',
     } as const;
+
+    export type TasksCommentsListParams = {
+    /**
+     * Artifact id returned by the artifacts endpoint.
+     * @minLength 1
+     * @maxLength 72
+     */
+    artifact_id?: string;
+    /**
+     * Opaque cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 256
+     */
+    cursor?: string;
+    /**
+     * Whether to include resolved comment threads.
+     */
+    include_resolved?: boolean;
+    /**
+     * Maximum number of root comments to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
+
+    export type TasksCommentsRetrieveParams = {
+    /**
+     * Comment id whose truncated body should continue. Use with content_offset.
+     */
+    comment_id?: string;
+    /**
+     * Byte offset returned as content_next_offset for the selected comment.
+     * @minimum 0
+     */
+    content_offset?: number;
+    /**
+     * Opaque cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 256
+     */
+    cursor?: string;
+    /**
+     * Maximum number of comments in the thread to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
 
     export type TasksRunsListParams = {
     /**

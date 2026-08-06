@@ -355,6 +355,10 @@ export const commentsCreateBodyItemIdMax = 72
 export const commentsCreateBodyScopeMax = 79
 
 export const CommentsCreateBody = /* @__PURE__ */ zod.object({
+    item_context: zod
+        .unknown()
+        .optional()
+        .describe('Metadata for the comment target, anchor, thread state, and owning task.'),
     deleted: zod.boolean().nullish(),
     mentions: zod.array(zod.number()).optional(),
     slug: zod.string().optional(),
@@ -367,7 +371,6 @@ export const CommentsCreateBody = /* @__PURE__ */ zod.object({
     content: zod.string().nullish(),
     rich_content: zod.unknown().optional(),
     item_id: zod.string().max(commentsCreateBodyItemIdMax).nullish(),
-    item_context: zod.unknown().optional(),
     scope: zod.string().max(commentsCreateBodyScopeMax),
     source_comment: zod.uuid().nullish(),
 })
@@ -378,6 +381,10 @@ export const commentsUpdateBodyItemIdMax = 72
 export const commentsUpdateBodyScopeMax = 79
 
 export const CommentsUpdateBody = /* @__PURE__ */ zod.object({
+    item_context: zod
+        .unknown()
+        .optional()
+        .describe('Metadata for the comment target, anchor, thread state, and owning task.'),
     deleted: zod.boolean().nullish(),
     mentions: zod.array(zod.number()).optional(),
     slug: zod.string().optional(),
@@ -390,7 +397,6 @@ export const CommentsUpdateBody = /* @__PURE__ */ zod.object({
     content: zod.string().nullish(),
     rich_content: zod.unknown().optional(),
     item_id: zod.string().max(commentsUpdateBodyItemIdMax).nullish(),
-    item_context: zod.unknown().optional(),
     scope: zod.string().max(commentsUpdateBodyScopeMax),
     source_comment: zod.uuid().nullish(),
 })
@@ -401,6 +407,10 @@ export const commentsPartialUpdateBodyItemIdMax = 72
 export const commentsPartialUpdateBodyScopeMax = 79
 
 export const CommentsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    item_context: zod
+        .unknown()
+        .optional()
+        .describe('Metadata for the comment target, anchor, thread state, and owning task.'),
     deleted: zod.boolean().nullish(),
     mentions: zod.array(zod.number()).optional(),
     slug: zod.string().optional(),
@@ -413,7 +423,6 @@ export const CommentsPartialUpdateBody = /* @__PURE__ */ zod.object({
     content: zod.string().nullish(),
     rich_content: zod.unknown().optional(),
     item_id: zod.string().max(commentsPartialUpdateBodyItemIdMax).nullish(),
-    item_context: zod.unknown().optional(),
     scope: zod.string().max(commentsPartialUpdateBodyScopeMax).optional(),
     source_comment: zod.uuid().nullish(),
 })
