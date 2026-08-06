@@ -124,4 +124,6 @@ If you access `poe.properties.$browser`, we will actually access the field `pers
 
 In practice, you should avoid both and access `person.properties.$browser`, which will choose the right approach for you.
 
+Nested reads from the person update payload also use the event's `person_properties` snapshot. For example, `properties.$set.email` and `properties.$set_once.email` both read `poe.properties.email`. A `$set_once` read returns the value that was retained on the person, which can differ from the value attempted by that event. Whole-object reads such as `properties.$set` continue to read the raw event payload, so they return no value for events that do not store that object.
+
 Add new tables and fields as needed! Just make sure each table has a `team_id` column.

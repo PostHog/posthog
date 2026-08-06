@@ -114,6 +114,31 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertResponseMatchesSnapshot(response)
             self.assertEqual(response.results, [(2, "random event")])
 
+    def test_event_person_update_properties_read_from_person_snapshot(self) -> None:
+        event_uuid = _create_event(
+            distinct_id="person-update-properties",
+            event="person update",
+            team=self.team,
+            properties={
+                "$set": {"email": "set@example.com"},
+                "$set_once": {"plan": "attempted-plan"},
+            },
+            person_properties={"email": "set@example.com", "plan": "existing-plan"},
+        )
+
+        response = execute_hogql_query(
+            "SELECT properties.$set.email, properties.$set_once.plan FROM events WHERE uuid = {event_uuid}",
+            placeholders={"event_uuid": ast.Constant(value=event_uuid)},
+            team=self.team,
+            pretty=False,
+        )
+
+        assert response.results == [("set@example.com", "existing-plan")]
+        assert response.columns == ["$set__email", "$set_once__plan"]
+        assert response.clickhouse is not None
+        assert "person_properties" in response.clickhouse
+        assert "events.properties" not in response.clickhouse
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_subquery(self):
         with freeze_time("2020-01-10"):

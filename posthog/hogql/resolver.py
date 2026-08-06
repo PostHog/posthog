@@ -86,6 +86,8 @@ _UUID_GUARDED_COMPARE_OPS = (
     ast.CompareOperationOp.GlobalNotIn,
 )
 
+_PERSON_UPDATE_PROPERTY_KEYS = frozenset({"$set", "$set_once"})
+
 
 def _string_constants(node: ast.Expr) -> list[ast.Constant]:
     if isinstance(node, ast.Constant):
@@ -2341,6 +2343,9 @@ class Resolver(CloningVisitor):
                 raise ResolutionError(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
         node.type = loop_type
 
+        if rewritten_node := self._rewrite_event_person_update_property(node):
+            return rewritten_node
+
         if isinstance(node.type, ast.ExpressionFieldType):
             # only swap out expression fields in ClickHouse
             if self.dialect == "clickhouse":
@@ -2383,6 +2388,43 @@ class Resolver(CloningVisitor):
             )
 
         return node
+
+    def _rewrite_event_person_update_property(self, node: ast.Field) -> ast.Expr | None:
+        if self.dialect != "clickhouse" or not isinstance(node.type, ast.PropertyType):
+            return None
+
+        property_type = node.type
+        database_field = property_type.field_type.resolve_database_field(self.context)
+        if (
+            not self._is_events_table(node)
+            or not isinstance(database_field, StringJSONDatabaseField)
+            or database_field.name != "properties"
+            or not property_type.chain
+            or property_type.chain[0] not in _PERSON_UPDATE_PROPERTY_KEYS
+        ):
+            return None
+
+        if len(property_type.chain) == 1:
+            return None
+
+        base_field_index = len(node.chain) - len(property_type.chain) - 1
+        rewritten_field = ast.Field(
+            chain=[*node.chain[:base_field_index], "poe", "properties", *property_type.chain[1:]],
+            start=node.start,
+            end=node.end,
+        )
+        rewritten_node = self.visit(rewritten_field)
+
+        if not isinstance(rewritten_node, ast.Alias) or not rewritten_node.hidden:
+            return rewritten_node
+
+        property_alias = "__".join(str(link) for link in property_type.chain)
+        return ast.Alias(
+            alias=property_alias,
+            expr=rewritten_node.expr,
+            hidden=True,
+            type=ast.FieldAliasType(alias=property_alias, type=rewritten_node.expr.type or ast.UnknownType()),
+        )
 
     def visit_array_access(self, node: ast.ArrayAccess):
         node = super().visit_array_access(node)

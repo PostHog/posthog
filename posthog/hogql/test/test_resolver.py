@@ -96,6 +96,27 @@ class TestResolver(BaseTest):
         expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(expr) == self.snapshot
 
+    @parameterized.expand([("$set",), ("$set_once",)])
+    def test_does_not_rewrite_complete_event_person_update_property(self, update_property: str) -> None:
+        sql, _ = prepare_and_print_ast(
+            self._select(f"SELECT properties.{update_property} FROM events"),
+            self.context,
+            "clickhouse",
+        )
+
+        assert "events.properties" in sql
+        assert "person_properties" not in sql
+
+    def test_does_not_rewrite_person_table_update_property(self) -> None:
+        sql, _ = prepare_and_print_ast(
+            self._select("SELECT properties.$set.email FROM persons"),
+            self.context,
+            "clickhouse",
+        )
+
+        assert "person_properties" not in sql
+        assert "JSONExtractRaw(person.properties" in sql
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_events_table_column_alias(self):
         expr = self._select("SELECT event as ee, ee, ee as e, e.timestamp FROM events e WHERE e.event = 'test'")

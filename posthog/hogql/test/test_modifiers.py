@@ -187,6 +187,18 @@ class TestModifiers(BaseTest):
             for value in test_case.other_expected_values:
                 assert value in clickhouse_query
 
+            person_update_query = execute_hogql_query(
+                "SELECT e.properties.$set.`account.plan`, e.properties.$set_once.profile.name "
+                "FROM events AS e WHERE e.properties.$set.email != ''",
+                team=self.team,
+                modifiers=HogQLQueryModifiers(personsOnEventsMode=test_case.mode),
+                pretty=False,
+            ).clickhouse
+            assert person_update_query is not None
+            assert "person_properties" in person_update_query
+            assert "e.properties" not in person_update_query
+            assert " JOIN " not in person_update_query
+
     def test_modifiers_persons_argmax_version_v2(self):
         query = "SELECT * FROM persons"
 
