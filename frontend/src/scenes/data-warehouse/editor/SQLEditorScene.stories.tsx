@@ -43,6 +43,23 @@ GROUP BY server, tool
 ORDER BY calls DESC
 LIMIT 20`
 
+// Every regex form the editor underlines, in one query: a function's pattern argument, both regex
+// operators, and an array of patterns. `'$pageview'` and the `'/:id/'` replacement are the control —
+// they sit in the same statement and must stay unmarked.
+const REGEX_SQL = `SELECT
+    extract(properties.$current_url, 'utm_source=([^&]*)') AS utm_source,
+    replaceRegexpAll(properties.$pathname, '/[0-9]+/', '/:id/') AS cleaned_path,
+    count() AS pageviews
+FROM events
+WHERE event = '$pageview'
+    AND match(properties.$current_url, '/blog/[0-9]{4}/')
+    AND properties.$pathname !~ '^/internal'
+    AND multiMatchAny(properties.$referrer, ['^https://posthog\\.com', '^https://news\\.ycombinator\\.com'])
+    AND timestamp > now() - INTERVAL 7 DAY
+GROUP BY utm_source, cleaned_path
+ORDER BY pageviews DESC
+LIMIT 20`
+
 // Mock results for the "top tools per server" query. The visual-regression snapshot captures the
 // editor with the query pre-loaded but NOT run (driving Run in the snapshot races the async query
 // against Storybook's story-prepare step and flakes). These results back the query when a human
@@ -138,6 +155,22 @@ export default meta
 
 type Story = StoryObj<{}>
 export const TopToolsPerServer: Story = {}
+
+// The regex tester underlines each pattern the query hands to a regex engine, and a hover opens a
+// popover to try it against a sample value. The underline is a computed style rather than markup, so
+// it fails silently — an unresolvable color token once dropped it while the decorations still applied.
+// This snapshot is the guard for that. It captures the underlines at rest: the popover is hover-only,
+// and driving a hover from a play function would race the snapshot the way pressing Run does.
+export const RegexPatterns: Story = {
+    parameters: {
+        pageUrl: urls.sqlEditor({ query: REGEX_SQL }),
+        testOptions: {
+            // Decorations land a tick after the editor mounts, so wait for one rather than the editor.
+            waitForSelector: ['.monaco-editor', '.RegexTester__literal'],
+            viewport: { width: 1600, height: 900 },
+        },
+    },
+}
 
 // Selecting the managed warehouse puts its long name in the sidebar's connection selector, where it
 // has to ellipsize on one line rather than wrap or overflow into the Run button's toolbar.
