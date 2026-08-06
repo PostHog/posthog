@@ -8438,6 +8438,7 @@ export const externalDataSources = [
     'WindsorAi',
     'Wix',
     'Sevalla',
+    'Motion',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
