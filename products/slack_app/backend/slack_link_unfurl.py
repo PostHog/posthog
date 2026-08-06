@@ -32,6 +32,7 @@ _QUERY_KIND_TO_SHORT_NAME: dict[str, str] = {
     "FunnelCorrelationQuery": "Funnel correlation",
     "RetentionQuery": "Retention",
     "PathsQuery": "Paths",
+    "PathsV2Query": "Journeys",
     "StickinessQuery": "Stickiness",
     "LifecycleQuery": "Lifecycle",
     "WebStatsTableQuery": "Web analytics",

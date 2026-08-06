@@ -64,6 +64,12 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig]):
             # cause (TLS EOF, refused connection, timeout), so match that stable prefix rather
             # than the per-request URL or nested error id.
             "Max retries exceeded with url",
+            # Defensive fallback for the mid-TLS-handshake drop: the same self-recovering condition
+            # ClickHouse already classifies this way. These stable OpenSSL SSLEOFError strings sit
+            # inside the MaxRetryError message above, so match them too and the SSL EOF case stays
+            # recognized even if that outer wrapper ever changes.
+            "UNEXPECTED_EOF_WHILE_READING",
+            "EOF occurred in violation of protocol",
         }
 
     @property
