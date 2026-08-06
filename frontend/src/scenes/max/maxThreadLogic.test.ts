@@ -153,7 +153,7 @@ describe('maxThreadLogic', () => {
                 {
                     type: AssistantMessageType.Assistant,
                     content: undefined as unknown as string,
-                    status: 'in_progress',
+                    status: 'loading',
                     id: 'assistant-streaming',
                 },
             ])
