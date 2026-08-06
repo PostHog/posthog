@@ -606,7 +606,12 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
 
             actions.bulkArchiveFlagsFinished({ archivedIds, failed })
             actions.loadFeatureFlags()
-            reportFeatureFlagsBulkArchived(archivedIds.length, failed.length)
+            const pendingApprovalCount = failed.filter((failure) => failure.approvalPending).length
+            reportFeatureFlagsBulkArchived(
+                archivedIds.length,
+                pendingApprovalCount,
+                failed.length - pendingApprovalCount
+            )
 
             const { level, message } = summarizeBulkArchive(archivedIds.length, failed)
             lemonToast[level](message)

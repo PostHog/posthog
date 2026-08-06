@@ -13,8 +13,16 @@ export function reportFeatureFlagArchived(via: FeatureFlagArchivedSource): void 
 }
 
 /** One event per bulk action rather than per flag, matching how bulk copy reports itself. */
-export function reportFeatureFlagsBulkArchived(archivedCount: number, failedCount: number): void {
-    posthog.capture('feature flags bulk archived', { archived_count: archivedCount, failed_count: failedCount })
+export function reportFeatureFlagsBulkArchived(
+    archivedCount: number,
+    pendingApprovalCount: number,
+    failedCount: number
+): void {
+    posthog.capture('feature flags bulk archived', {
+        archived_count: archivedCount,
+        pending_approval_count: pendingApprovalCount,
+        failed_count: failedCount,
+    })
 }
 
 /**
@@ -53,7 +61,7 @@ export function openBulkArchiveFlagsDialog(flagCount: number, onArchive: () => v
     LemonDialog.open({
         title: `Archive ${pluralize(flagCount, 'flag')}?`,
         description:
-            'Any of these flags that are still enabled will be disabled, and immediately rolled back from users matching their release conditions. Archived flags are hidden from the flag list, but linked experiments and surveys keep their data. You can unarchive them at any time.',
+            'Any of these flags that are still enabled will be disabled and rolled back from users matching their release conditions. Flags that need approval to disable will create a change request instead of archiving. Archived flags are hidden from the flag list, but linked experiments and surveys keep their data. You can unarchive them at any time.',
         primaryButton: {
             children: 'Archive',
             type: 'primary',
