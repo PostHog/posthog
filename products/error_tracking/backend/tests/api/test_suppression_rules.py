@@ -238,6 +238,13 @@ class TestGetClientSafeSuppressionRules(APIBaseTest):
 
         assert result == []
 
+    def test_excludes_rule_with_legacy_list_filters(self) -> None:
+        ErrorTrackingSuppressionRule.objects.create(team=self.team, filters=[], bytecode=[], order_key=0)
+
+        result = get_client_safe_suppression_rules(self.team.id)
+
+        assert result == []
+
     def test_handles_mixed_rules(self) -> None:
         safe_filters = {"values": [{"operator": "exact", "key": "$exception_types", "value": "TypeError"}]}
         has_server_only = {

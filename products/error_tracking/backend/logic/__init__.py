@@ -818,14 +818,23 @@ def reorder_bypass_rules(team_id: int, orders: dict[str, int]) -> None:
     _reorder_rules(ErrorTrackingBypassRule, team_id, orders)
 
 
-def get_client_safe_filters(filters: dict) -> dict | None:
+def get_client_safe_filters(filters: object) -> dict | None:
     """Return the filters if every leaf is client-safe, otherwise None.
 
     A filter that references a server-only property, or an operator the SDK does not implement,
     cannot be evaluated client-side, so the whole rule is excluded and left to server-side
     evaluation during ingestion.
     """
-    for value in filters.get("values", []):
+    if not isinstance(filters, dict):
+        return None
+
+    values = filters.get("values", [])
+    if not isinstance(values, list):
+        return None
+
+    for value in values:
+        if not isinstance(value, dict):
+            return None
         if "values" in value:
             if get_client_safe_filters(value) is None:
                 return None
