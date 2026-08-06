@@ -275,6 +275,26 @@ describe('experimentsLogic', () => {
             expect(api.get).toHaveBeenCalledWith(expect.stringContaining('archived=true'))
         })
 
+        it('includes tags filters in params and the API call', async () => {
+            api.get.mockClear()
+
+            await expectLogic(logic, () => {
+                logic.actions.setExperimentsFilters({ tags: ['growth'], excluded_tags: ['deprecated'] })
+            })
+                .delay(350)
+                .toFinishAllListeners()
+
+            expect(logic.values.paramsFromFilters).toMatchObject({
+                tags: ['growth'],
+                excluded_tags: ['deprecated'],
+            })
+            // toParams JSON-encodes arrays; the backend's parse_tag_names_param expects exactly this shape.
+            expect(api.get).toHaveBeenCalledWith(expect.stringContaining(`tags=${encodeURIComponent('["growth"]')}`))
+            expect(api.get).toHaveBeenCalledWith(
+                expect.stringContaining(`excluded_tags=${encodeURIComponent('["deprecated"]')}`)
+            )
+        })
+
         it('discards a stale search response that resolves after a newer one', async () => {
             api.get.mockClear()
 
