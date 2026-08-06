@@ -1097,6 +1097,26 @@ class TestSourceClassValidateCredentials:
         assert valid is False
         assert msg == "Invalid user or password"
 
+    def test_url_in_host_field_returns_actionable_message_without_reflecting_input(self):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import source as source_module
+
+        source = source_module.ClickHouseSource()
+
+        config = MagicMock()
+        config.host = "https://secret.clickhouse.cloud"
+        config.ssh_tunnel = None
+
+        with patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)):
+            with patch.object(source, "is_database_host_valid") as host_valid:
+                valid, msg = source.validate_credentials(config, team_id=1)
+
+        assert valid is False
+        assert "Enter just the hostname" in (msg or "")
+        # The pasted value can embed credentials — it must never be echoed back.
+        assert "secret.clickhouse.cloud" not in (msg or "")
+        # Short-circuits before we attempt DNS resolution of the bad host.
+        host_valid.assert_not_called()
+
     def test_returns_generic_message_for_unknown_error(self):
         from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import source as source_module
         from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import (
