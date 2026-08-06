@@ -1251,12 +1251,12 @@ export interface SurveyAppearanceSchemaApi {
 export interface SurveySerializerCreateUpdateOnlySchemaApi {
     readonly id: string
     /**
-     * Survey name.
+     * Survey name. Delivered to every visitor's browser alongside the questions and appearance text, so anyone can read it. Keep customer names and other private details out of it.
      * @minLength 1
      * @maxLength 400
      */
     name: string
-    /** Survey description. */
+    /** Survey description. Internal only: this is the one survey field that is never delivered to visitors. */
     description?: string
     /** Survey type.
      *
@@ -1688,12 +1688,12 @@ export interface SurveySerializerCreateUpdateOnlyApi {
 export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
     readonly id?: string
     /**
-     * Survey name.
+     * Survey name. Delivered to every visitor's browser alongside the questions and appearance text, so anyone can read it. Keep customer names and other private details out of it.
      * @minLength 1
      * @maxLength 400
      */
     name?: string
-    /** Survey description. */
+    /** Survey description. Internal only: this is the one survey field that is never delivered to visitors. */
     description?: string
     /** Survey type.
      *

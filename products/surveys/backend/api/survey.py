@@ -2035,8 +2035,19 @@ class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):
 
     class Meta(SurveySerializerCreateUpdateOnly.Meta):
         extra_kwargs = {
-            "name": {"help_text": "Survey name.", "min_length": 1},
-            "description": {"help_text": "Survey description."},
+            "name": {
+                "help_text": (
+                    "Survey name. Delivered to every visitor's browser alongside the questions and appearance "
+                    "text, so anyone can read it. Keep customer names and other private details out of it."
+                ),
+                "min_length": 1,
+            },
+            "description": {
+                "help_text": (
+                    "Survey description. Internal only: this is the one survey field that is never delivered "
+                    "to visitors."
+                )
+            },
             "type": {"help_text": "Survey type."},
             "start_date": {
                 "help_text": "Setting this will launch the survey immediately. Don't add a start_date unless explicitly requested to do so."
