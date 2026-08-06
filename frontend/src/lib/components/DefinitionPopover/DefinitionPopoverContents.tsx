@@ -772,7 +772,7 @@ export function ControlledDefinitionPopover({
                 </DefinitionPopover.Wrapper>
             }
             placement="right"
-            fallbackPlacements={['left']}
+            fallbackPlacements={['bottom', 'top', 'left']}
             middleware={[hide()]} // Hide the definition popover when the reference is off-screen
         />
     )
