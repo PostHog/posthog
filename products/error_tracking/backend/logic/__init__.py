@@ -171,7 +171,11 @@ def _clean_existing_external_context(integration: Integration, external_context:
     cleaned: dict[str, Any] = {}
     for field in required_fields:
         value = external_context.get(field)
-        if value is None or (isinstance(value, str) and not value.strip()):
+        # Only non-blank strings and ints are valid identifiers — build_external_issue_url
+        # interpolates these into URLs, so anything else would persist a broken reference.
+        if isinstance(value, str):
+            value = value.strip()
+        if isinstance(value, bool) or not isinstance(value, str | int) or value == "":
             raise ErrorTrackingExternalReferenceValidationError(
                 f"Missing required external context fields for {integration.kind}: {', '.join(required_fields)}."
             )

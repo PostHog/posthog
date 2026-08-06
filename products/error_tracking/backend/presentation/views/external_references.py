@@ -129,6 +129,10 @@ class ErrorTrackingExternalIssueSearchResponseSerializer(serializers.Serializer)
 
 class ErrorTrackingExternalReferenceViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
     scope_object = "error_tracking"
+    # Custom actions aren't in the default action->scope mapping, so API keys would be
+    # rejected outright without these.
+    scope_object_read_actions = ["list", "retrieve", "search_issues"]
+    scope_object_write_actions = ["create", "link_issue"]
     serializer_class = ErrorTrackingExternalReferenceSerializer
 
     def list(self, request, *args, **kwargs):

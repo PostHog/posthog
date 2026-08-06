@@ -215,7 +215,15 @@ class TestErrorTrackingFacadeAPI(BaseTest):
                 distinct_id=self.user.id,
             )
 
-    def test_link_existing_issue_rejects_incomplete_external_context(self):
+    @parameterized.expand(
+        [
+            ("missing_number", {"repository": "posthog"}),
+            ("boolean_number", {"repository": "posthog", "number": False}),
+            ("list_number", {"repository": "posthog", "number": [42]}),
+            ("blank_repository", {"repository": "   ", "number": 42}),
+        ]
+    )
+    def test_link_existing_issue_rejects_invalid_external_context(self, _name, external_context):
         issue = self._create_issue(team=self.team, name="Checkout TypeError")
         integration = Integration.objects.create(
             team=self.team,
@@ -224,13 +232,13 @@ class TestErrorTrackingFacadeAPI(BaseTest):
             sensitive_config={"access_token": "access-token"},
         )
 
-        # GitHub needs both repository and number; missing number must be rejected.
+        # Identifiers must be non-blank strings or ints; anything else would persist a broken URL.
         with self.assertRaises(api.ExternalReferenceValidationError):
             api.create_external_reference(
                 team_id=self.team.id,
                 issue_id=issue.id,
                 integration_id=integration.id,
-                external_context={"repository": "posthog"},
+                external_context=external_context,
                 distinct_id=self.user.id,
             )
 

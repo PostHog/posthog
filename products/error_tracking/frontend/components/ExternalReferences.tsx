@@ -410,6 +410,9 @@ function ExistingIssueSelect({
     const [loading, setLoading] = useState<boolean>(false)
     const [selectedKey, setSelectedKey] = useState<string | null>(null)
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // Guards against out-of-order responses: a slow search (or one for a previously selected
+    // repository) must not overwrite the results of the latest one.
+    const searchSeqRef = useRef(0)
 
     const runSearch = (query: string): void => {
         if (requiresRepository && !repository) {
@@ -419,12 +422,25 @@ function ExistingIssueSelect({
             clearTimeout(debounceRef.current)
         }
         debounceRef.current = setTimeout(() => {
+            const seq = ++searchSeqRef.current
             setLoading(true)
             api.errorTracking
                 .searchExternalIssues(integrationId, query, requiresRepository ? repository : undefined)
-                .then(({ issues }) => setResults(issues))
-                .catch(() => setResults([]))
-                .finally(() => setLoading(false))
+                .then(({ issues }) => {
+                    if (seq === searchSeqRef.current) {
+                        setResults(issues)
+                    }
+                })
+                .catch(() => {
+                    if (seq === searchSeqRef.current) {
+                        setResults([])
+                    }
+                })
+                .finally(() => {
+                    if (seq === searchSeqRef.current) {
+                        setLoading(false)
+                    }
+                })
         }, 300)
     }
 
@@ -454,9 +470,11 @@ function ExistingIssueSelect({
                     integrationId={integrationId}
                     value={repository}
                     onChange={(value) => {
+                        searchSeqRef.current++ // invalidate any in-flight search for the old repository
                         setRepository(value ?? '')
                         setResults([])
                         setSelectedKey(null)
+                        setLoading(false)
                         onChange?.(null)
                     }}
                 />

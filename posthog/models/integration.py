@@ -3676,6 +3676,11 @@ class GitHubIntegration(GitHubIntegrationBase):
             number = issue.get("number")
             if number is None:
                 continue
+            # Search-syntax operators in the user's query (e.g. "foo OR bar") can escape the
+            # repo: qualifier, so drop anything that isn't actually from the chosen repository.
+            repository_url = issue.get("repository_url") or ""
+            if not repository_url.lower().endswith(f"/repos/{repo_path.lower()}"):
+                continue
             results.append(
                 {
                     "id": str(number),
