@@ -829,7 +829,7 @@ export const addObjectOverrideModalLogic = kea<addObjectOverrideModalLogicType>(
                     return
                 }
                 actions.objectResolvedFromUrl(option, resource)
-            } catch (e) {
+            } catch (e: any) {
                 if (isBreakpoint(e)) {
                     throw e
                 }

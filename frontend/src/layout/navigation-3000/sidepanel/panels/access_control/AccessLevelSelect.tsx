@@ -7,6 +7,8 @@ import { humanizeAccessControlLevel } from './ResourceAccessControlsV2/helpers'
 
 export interface AccessLevelSelectProps {
     size?: LemonSelectProps<any>['size']
+    /** Pass "bottom-end" when the trigger sits at the right edge of a row, so the wider menu
+     * hangs inward instead of off the edge. Left-positioned triggers keep the default. */
     dropdownPlacement?: LemonSelectProps<any>['dropdownPlacement']
     /** The subject's own saved rule; null means no rule ("No override"). */
     level: AccessControlLevel | null

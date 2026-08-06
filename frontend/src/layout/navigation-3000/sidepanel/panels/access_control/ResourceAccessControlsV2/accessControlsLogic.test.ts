@@ -211,9 +211,9 @@ describe('accessControlsLogic', () => {
             expect(getLevelOptionsForResource(resourceLevels).every((o) => o.disabledReason === undefined)).toBe(true)
         })
 
-        it('formats None as "None" and capitalizes others', () => {
+        it('formats None as "No access" and capitalizes others', () => {
             const result = getLevelOptionsForResource(resourceLevels)
-            expect(result.find((o) => o.value === AccessControlLevel.None)?.label).toBe('None')
+            expect(result.find((o) => o.value === AccessControlLevel.None)?.label).toBe('No access')
             expect(result.find((o) => o.value === AccessControlLevel.Viewer)?.label).toBe('Viewer')
         })
 

@@ -147,8 +147,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             (s) => [s.location, s.featureFlags],
             (location: { hash: string; pathname: string; search: string }, featureFlags: FeatureFlagsSet): boolean =>
                 !!featureFlags[FEATURE_FLAGS.ACCESS_CONTROL_DETAIL_PANEL] &&
-                location.pathname.includes('/settings/') &&
-                location.pathname.includes('access-control'),
+                /\/settings\/(environment|project)-access-control$/.test(location.pathname),
         ],
 
         enabledTabs: [

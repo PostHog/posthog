@@ -219,7 +219,6 @@ function ProjectAccessSection({
             </div>
             <AccessLevelSelect
                 size="small"
-                // The trigger sits at the right edge of its row, so hang the menu off that edge
                 dropdownPlacement="bottom-end"
                 level={entry.project.access_level}
                 levels={availableProjectLevels}

@@ -140,7 +140,8 @@ export function getLevelOptionsForResource(
 
         return {
             value: level,
-            label: level === AccessControlLevel.None ? 'None' : toSentenceCase(level),
+            // Matches humanizeAccessControlLevel, so every V2 surface calls the level "No access"
+            label: level === AccessControlLevel.None ? 'No access' : toSentenceCase(level),
             disabledReason,
         }
     })

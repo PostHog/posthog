@@ -44,9 +44,6 @@ function SidePanelAccessDetailForProject({ projectId }: { projectId: string }): 
     const scopeType: AccessDetailSubjectScope = activePanelSubject?.scopeType ?? 'member'
     const subjectId = activePanelSubject?.subjectId
 
-    const entry = panelEntry
-    const loading = panelEntryLoading
-
     return (
         <div className="flex flex-col overflow-hidden grow">
             <SidePanelContentContainer>
@@ -61,9 +58,13 @@ function SidePanelAccessDetailForProject({ projectId }: { projectId: string }): 
                     </div>
                 ) : (
                     <div className="px-3 py-2 space-y-6">
-                        {entry ? (
-                            <AccessControlDetailContent projectId={projectId} scopeType={scopeType} entry={entry} />
-                        ) : loading ? (
+                        {panelEntry ? (
+                            <AccessControlDetailContent
+                                projectId={projectId}
+                                scopeType={scopeType}
+                                entry={panelEntry}
+                            />
+                        ) : panelEntryLoading ? (
                             <LemonSkeleton className="h-24 w-full" />
                         ) : (
                             <p className="text-secondary">{scopeType === 'role' ? 'Role' : 'Member'} not found.</p>

@@ -170,7 +170,13 @@ function AddPropertyRuleModal({
                     </LemonButton>
                     <LemonButton
                         type="primary"
-                        disabledReason={!propertyId ? 'Select a property' : undefined}
+                        disabledReason={
+                            !propertyId
+                                ? 'Select a property'
+                                : existingRule?.access_level === level
+                                  ? 'The rule already has this level'
+                                  : undefined
+                        }
                         onClick={submitRule}
                     >
                         {existingRule ? 'Update rule' : 'Add rule'}
