@@ -68,7 +68,6 @@ from products.replay_vision.backend.scanner_access import (
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.access import has_tasks_access
 
 from ee.hogai.utils.untrusted import as_untrusted_data
 
@@ -880,8 +879,6 @@ class ReplayObservationViewSet(
         # the session route's get_object only object-checks the observation row.
         self.check_object_permissions(self.request, scanner)
         user = cast(User, request.user)
-        if not has_tasks_access(user):
-            raise PermissionDenied("Creating a task requires access to PostHog Desktop.")
         content = _observation_task_content(observation, scanner)
         # Lock the observation row so a client retry or concurrent double submit returns the task the
         # first call minted instead of creating a duplicate to triage.
