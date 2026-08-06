@@ -62,6 +62,7 @@ from products.review_hog.backend.reviewer.tools.github_threads import (
     ReviewThread,
     ThreadAction,
     classify_thread,
+    commit_on_branch,
     fetch_unresolved_threads,
     order_threads,
     reply_to_thread,
@@ -224,11 +225,20 @@ def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResu
 
 
 def _deliver_side_effects(
-    input: ResolveThreadsInput, report_id: str, token: str, installation_id: str | None, verdict: ThreadVerdictArtefact
+    input: ResolveThreadsInput,
+    report_id: str,
+    token: str,
+    installation_id: str | None,
+    verdict: ThreadVerdictArtefact,
+    *,
+    branch: str,
 ) -> ThreadVerdictArtefact:
     """Perform the verdict's undelivered GitHub writes, persisting after each so a crash redoes only
     what's still missing.
 
+    A FIXED verdict's `commit_sha` is the model's echo, so it is verified server-side first
+    (`commit_on_branch`, persisted as `commit_verified`): an unproven SHA delivers the reply without
+    the public commit link and never auto-resolves — the thread stays open for a human.
     The reply lands first (the outcome must be readable even if resolving then fails); the watermark
     advances to our own posted reply so it doesn't re-open triage. A crash between posting the reply
     and recording it (the persist below) leaves the watermark un-advanced, so the retry re-triages the
@@ -237,9 +247,27 @@ def _deliver_side_effects(
     the next run's pre-filter.
     """
     updated = verdict
+    if updated.outcome == ThreadOutcome.FIXED.value and updated.commit_sha and updated.commit_verified is None:
+        verified = commit_on_branch(
+            token=token,
+            owner=input.owner,
+            repo=input.repo,
+            sha=updated.commit_sha,
+            branch=branch,
+            installation_id=installation_id,
+        )
+        if not verified:
+            logger.error(
+                "Fix commit %s claimed for thread %s is not on %s; delivering without the link and leaving the thread open",
+                updated.commit_sha,
+                updated.thread_id,
+                branch,
+            )
+        updated = updated.model_copy(update={"commit_verified": verified})
+        persist_thread_verdict(team_id=input.team_id, report_id=report_id, verdict=updated)
     if not updated.reply_posted:
         body = updated.reply
-        if updated.outcome == ThreadOutcome.FIXED.value and updated.commit_sha:
+        if updated.outcome == ThreadOutcome.FIXED.value and updated.commit_sha and updated.commit_verified:
             body += f"\n\nFix commit: https://github.com/{input.owner}/{input.repo}/commit/{updated.commit_sha}"
         comment_id, comment_url = reply_to_thread(
             token=token, thread_id=updated.thread_id, body=body, installation_id=installation_id
@@ -355,7 +383,12 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
             for _thread, verdict in prepared.redeliver:
                 try:
                     await database_sync_to_async(_deliver_side_effects, thread_sensitive=False)(
-                        input, prepared.report_id, prepared.token, prepared.installation_id, verdict
+                        input,
+                        prepared.report_id,
+                        prepared.token,
+                        prepared.installation_id,
+                        verdict,
+                        branch=prepared.pr_metadata.head_branch,
                     )
                     result.redelivered += 1
                 except Exception:
@@ -435,7 +468,12 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
                 result.outcomes[resolution.outcome.value] = result.outcomes.get(resolution.outcome.value, 0) + 1
                 try:
                     await database_sync_to_async(_deliver_side_effects, thread_sensitive=False)(
-                        input, prepared.report_id, prepared.token, prepared.installation_id, verdict
+                        input,
+                        prepared.report_id,
+                        prepared.token,
+                        prepared.installation_id,
+                        verdict,
+                        branch=prepared.pr_metadata.head_branch,
                     )
                 except Exception:
                     # The verdict row still says reply_posted=False, so the next run redelivers.

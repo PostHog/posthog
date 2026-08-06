@@ -2930,6 +2930,13 @@ implement what is worth doing and safe to do unattended, answer what isn't, and 
    cadence is push cadence), that thread's reply/resolve posted once its commit is visible. Mid-run race (author
    pushed): sync onto the new head once, re-verify, retry; if it moves again, yield — done threads keep their
    outcomes. **CI is out of scope**: the Tasks CI follow-up owns checks; this stage owns threads.
+   _Built 2026-08-06 (off the e2e's commit-provenance escalation):_ the "commit is visible" precondition is now
+   enforced — delivery verifies the turn's echoed `commit_sha` server-side (`commit_on_branch`: exists + reachable
+   from the head branch's current tip, persisted as `thread_verdict.commit_verified`). An unproven SHA delivers the
+   reply **without** the public commit link and never auto-resolves (`should_resolve` gates on it; the delivered
+   verdict settles as SKIP, the thread stays open for a human). Full session-provenance — capturing the true SHA
+   from the signed-commit tooling instead of the model's echo — remains the recorded follow-up (needs Tasks to
+   surface it).
 9. **Persistence & budget** — home is the living `ReviewReport`; runs append `thread_verdict` (net-new content
    schema, latest-wins per thread) plus `commit` / `task_run` / `note` artefacts (their first writers). Idempotency
    is per-thread: unchanged state skips deterministically, any new reply re-opens that thread's triage (pushback on

@@ -49,7 +49,8 @@ live-qualified** (e2e on its own PR #72074, 2026-07-18 — verdicts, findings, a
 `eval/experiments/2026-07-resolution-e2e/FINAL_REPORT.md`): `ResolvePRWorkflow` (`backend/temporal/resolution.py`) drives one warm writable sandbox
 session per PR (one thread per turn, humans → ReviewHog → other bots), persists per-thread `thread_verdict`
 artefacts on the living report, replies/resolves server-side from verdicts (bot threads only; humans keep the
-final word). **Reviewing includes resolving**: a published review chains into the stage when the acting user's
+final word). A FIXED verdict's echoed commit SHA is verified server-side before delivery (`commit_on_branch`);
+an unproven SHA posts the reply without the commit link and never auto-resolves. **Reviewing includes resolving**: a published review chains into the stage when the acting user's
 `resolve_comments` setting is on (default on; the toggle sits with the trigger opt-outs on the Code review scene,
 which also carries a single-active resolution-criteria skill block and a split Review button with
 review-without-resolving / resolve-only side actions). Standalone entry: `POST /api/review_hog/resolve`, the

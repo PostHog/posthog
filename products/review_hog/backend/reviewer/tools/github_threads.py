@@ -18,7 +18,7 @@ from posthog.egress.github.transport import github_request, raise_if_github_rate
 from posthog.egress.limiter.policies import Priority
 
 from products.review_hog.backend.reviewer.artefact_content import ThreadVerdictArtefact
-from products.review_hog.backend.reviewer.tools.github_client import GITHUB_API_BASE, GitHubAPIError
+from products.review_hog.backend.reviewer.tools.github_client import GITHUB_API_BASE, GitHubAPIError, github_api_request
 
 logger = logging.getLogger(__name__)
 
@@ -257,6 +257,34 @@ def resolve_thread(*, token: str, thread_id: str, installation_id: str | None = 
     return bool(thread.get("isResolved"))
 
 
+def commit_on_branch(
+    *, token: str, owner: str, repo: str, sha: str, branch: str, installation_id: str | None = None
+) -> bool:
+    """Whether `sha` exists and is reachable from the current tip of `branch`.
+
+    Guards FIXED delivery: `commit_sha` is the model's echo, so it is verified server-side before it
+    becomes a public "Fix commit" link or auto-resolves a thread. Comparing against the branch NAME
+    makes GitHub resolve the tip at query time, so the session's own just-pushed commits count.
+    A 404/422 is a definitive no (hallucinated SHA, or the branch vanished); other errors propagate
+    so the caller's retry machinery re-checks later.
+    """
+    try:
+        response = github_api_request(
+            "GET",
+            f"/repos/{owner}/{repo}/compare/{branch}...{sha}",
+            token=token,
+            endpoint="/repos/{owner}/{repo}/compare/{basehead}",
+            installation_id=installation_id,
+            # The compare payload carries commit lists + file diffs we don't need; keep it minimal.
+            params={"per_page": 1},
+        )
+    except GitHubAPIError as e:
+        if e.status in (404, 422):
+            return False
+        raise
+    return response.json().get("status") in ("behind", "identical")
+
+
 def _source_rank(thread: ReviewThread) -> int:
     """Triage-order tier for a thread by who opened it: human, ReviewHog itself, or another bot.
 
@@ -293,7 +321,11 @@ def should_resolve(verdict: ThreadVerdictArtefact) -> bool:
 
     Human threads are never resolved by the stage — the human keeps the final word on their own
     thread — and ESCALATE never resolves, for any author (see CONTEXT.md — "Resolution etiquette").
+    A FIXED verdict whose commit failed server-side verification never resolves either: the model's
+    claim is unproven, so the thread stays open for a human. None (unchecked) keeps legacy behavior.
     """
+    if verdict.outcome == "fixed" and verdict.commit_verified is False:
+        return False
     return verdict.author_is_bot and verdict.outcome != "escalate"
 
 

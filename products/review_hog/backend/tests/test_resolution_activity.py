@@ -127,8 +127,9 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         with (
             patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, "https://github.com/x")) as reply,
             patch(f"{_RESOLUTION}.resolve_thread", return_value=True) as resolve,
+            patch(f"{_RESOLUTION}.commit_on_branch", return_value=True),
         ):
-            _deliver_side_effects(self._input(), str(report.id), "token", None, verdict)
+            _deliver_side_effects(self._input(), str(report.id), "token", None, verdict, branch="feature")
 
         assert reply.call_count == 1
         assert resolve.call_count == (1 if expect_resolve else 0)
@@ -144,9 +145,29 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         with (
             patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, None)) as reply,
             patch(f"{_RESOLUTION}.resolve_thread", return_value=True),
+            patch(f"{_RESOLUTION}.commit_on_branch", return_value=True),
         ):
-            _deliver_side_effects(self._input(), str(report.id), "token", None, verdict)
+            _deliver_side_effects(self._input(), str(report.id), "token", None, verdict, branch="feature")
         assert "https://github.com/posthog/posthog/commit/abc123" in reply.call_args.kwargs["body"]
+
+    def test_unverified_commit_withholds_link_and_resolve(self) -> None:
+        # The exact failure this guard exists for: a hallucinated or off-branch SHA must not become
+        # a public "Fix commit" link, and must not auto-close the thread.
+        report = self._report()
+        verdict = _verdict(author_is_bot=True, outcome="fixed", commit_sha="deadbee")
+        with (
+            patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, None)) as reply,
+            patch(f"{_RESOLUTION}.resolve_thread", return_value=True) as resolve,
+            patch(f"{_RESOLUTION}.commit_on_branch", return_value=False),
+        ):
+            _deliver_side_effects(self._input(), str(report.id), "token", None, verdict, branch="feature")
+
+        assert "Fix commit" not in reply.call_args.kwargs["body"]
+        assert resolve.call_count == 0
+        stored = load_thread_verdicts(team_id=self.team.id, report_id=str(report.id))["PRRT_1"]
+        assert stored.commit_verified is False
+        assert stored.reply_posted is True
+        assert stored.resolved is False
 
     def test_failed_resolve_leaves_a_redeliverable_verdict(self) -> None:
         report = self._report()
@@ -154,8 +175,9 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         with (
             patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, None)),
             patch(f"{_RESOLUTION}.resolve_thread", side_effect=RuntimeError("token cannot resolve")),
+            patch(f"{_RESOLUTION}.commit_on_branch", return_value=True),
         ):
-            _deliver_side_effects(self._input(), str(report.id), "token", None, verdict)
+            _deliver_side_effects(self._input(), str(report.id), "token", None, verdict, branch="feature")
         stored = load_thread_verdicts(team_id=self.team.id, report_id=str(report.id))["PRRT_1"]
         # The reply survived (posted once), the resolve stays due — exactly what the pre-filter redelivers.
         assert stored.reply_posted is True

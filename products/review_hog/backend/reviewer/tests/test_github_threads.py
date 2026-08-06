@@ -53,6 +53,7 @@ def _verdict(
     latest_comment_id: int | None = 100,
     reply_posted: bool = True,
     resolved: bool = False,
+    commit_verified: bool | None = None,
 ) -> ThreadVerdictArtefact:
     return ThreadVerdictArtefact(
         thread_id=thread_id,
@@ -63,6 +64,7 @@ def _verdict(
         latest_comment_id=latest_comment_id,
         reply_posted=reply_posted,
         resolved=resolved,
+        commit_verified=commit_verified,
     )
 
 
@@ -97,6 +99,14 @@ class TestGitHubThreads:
                 [100],
                 ThreadAction.SKIP,
             ),
+            # An unproven fix claim never resolves, so the delivered verdict settles as SKIP —
+            # not a perpetual SIDE_EFFECTS redelivery loop.
+            (
+                "bot_fixed_unverified_delivered_skips",
+                {"author_is_bot": True, "outcome": "fixed", "commit_verified": False, "resolved": False},
+                [100],
+                ThreadAction.SKIP,
+            ),
         ]
     )
     def test_classify_thread(self, _name: str, verdict_kwargs: dict | None, comment_ids: list, expected: str) -> None:
@@ -105,14 +115,19 @@ class TestGitHubThreads:
 
     @parameterized.expand(
         [
-            ("human_terminal_never", False, "fixed", False),
-            ("bot_fixed_resolves", True, "fixed", True),
-            ("bot_wont_fix_resolves", True, "wont_fix", True),
-            ("bot_escalate_never", True, "escalate", False),
+            ("human_terminal_never", False, "fixed", False, None),
+            ("bot_fixed_resolves", True, "fixed", True, None),
+            ("bot_wont_fix_resolves", True, "wont_fix", True, None),
+            ("bot_escalate_never", True, "escalate", False, None),
+            ("bot_fixed_verified_resolves", True, "fixed", True, True),
+            ("bot_fixed_unverified_never", True, "fixed", False, False),
         ]
     )
-    def test_should_resolve_etiquette(self, _name: str, author_is_bot: bool, outcome: str, expected: bool) -> None:
-        assert should_resolve(_verdict(author_is_bot=author_is_bot, outcome=outcome)) is expected
+    def test_should_resolve_etiquette(
+        self, _name: str, author_is_bot: bool, outcome: str, expected: bool, commit_verified: bool | None
+    ) -> None:
+        verdict = _verdict(author_is_bot=author_is_bot, outcome=outcome, commit_verified=commit_verified)
+        assert should_resolve(verdict) is expected
 
     def test_order_threads_ranks_humans_then_reviewhog_then_other_bots_oldest_first(self) -> None:
         other_bot = _thread(
