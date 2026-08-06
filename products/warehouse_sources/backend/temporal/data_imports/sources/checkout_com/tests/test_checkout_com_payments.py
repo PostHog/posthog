@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Optional
 
 import pytest
@@ -8,6 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_c
     CheckoutComResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.payments import (
+    MAX_SEARCH_WINDOW,
     checkout_com_payments_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -174,18 +176,26 @@ class TestPaymentsWindowWalking:
         ]
 
     @pytest.mark.parametrize(
-        "start_date, should_use_incremental_field, last_value, expected_from",
+        "start_date, should_use_incremental_field, last_value, expected_from, expected_search_count",
         [
-            (None, False, None, "2023-03-02T00:00:00Z"),
-            ("2024-01-01", False, None, "2024-01-01T00:00:00Z"),
-            ("2024-01-01", True, "2024-02-01T00:00:00Z", "2024-02-01T00:00:00Z"),
+            # A year-long default backfill exceeds MAX_SEARCH_WINDOW, so it's chunked
+            # into 5 requests (4 full 90-day chunks plus a 5-day remainder).
+            (None, False, None, "2023-03-02T00:00:00Z", 5),
+            ("2024-01-01", False, None, "2024-01-01T00:00:00Z", 1),
+            ("2024-01-01", True, "2024-02-01T00:00:00Z", "2024-02-01T00:00:00Z", 1),
         ],
     )
     @mock.patch(SESSION_PATCH)
     def test_range_start_resolution(
-        self, mock_make_session, start_date, should_use_incremental_field, last_value, expected_from
+        self,
+        mock_make_session,
+        start_date,
+        should_use_incremental_field,
+        last_value,
+        expected_from,
+        expected_search_count,
     ):
-        session = _FakeSession(search_responses=[_search_page([])])
+        session = _FakeSession(search_responses=[_search_page([]) for _ in range(expected_search_count)])
         mock_make_session.side_effect = [session]
 
         rows = _rows(
@@ -198,8 +208,31 @@ class TestPaymentsWindowWalking:
         )
 
         assert rows == []
+        assert len(session.searches) == expected_search_count
         assert session.searches[0]["json"]["from"] == expected_from
-        assert session.searches[0]["json"]["to"] == NOW
+        assert session.searches[-1]["json"]["to"] == NOW
+
+    @mock.patch(SESSION_PATCH)
+    def test_default_backfill_is_chunked_to_max_search_window(self, mock_make_session):
+        # The search API 422s on a full one-year range sent as a single request, so the
+        # overall sync range is walked in MAX_SEARCH_WINDOW-sized chunks.
+        session = _FakeSession(search_responses=[_search_page([]) for _ in range(5)])
+        mock_make_session.side_effect = [session]
+
+        _rows(_source("payments"))
+
+        spans = [
+            (
+                datetime.fromisoformat(s["json"]["from"].replace("Z", "+00:00")),
+                datetime.fromisoformat(s["json"]["to"].replace("Z", "+00:00")),
+            )
+            for s in session.searches
+        ]
+        assert all(end - start <= MAX_SEARCH_WINDOW for start, end in spans)
+        # Chunks are contiguous and ascending, covering the full backfill range.
+        assert all(spans[i][1] == spans[i + 1][0] for i in range(len(spans) - 1))
+        assert spans[0][0] == datetime.fromisoformat("2023-03-02T00:00:00+00:00")
+        assert spans[-1][1] == datetime.fromisoformat(NOW.replace("Z", "+00:00"))
 
     @mock.patch(SESSION_PATCH)
     def test_resume_checkpoint_wins_over_watermark(self, mock_make_session):
@@ -261,7 +294,7 @@ class TestPaymentActionsFanout:
         )
         mock_make_session.side_effect = [session]
 
-        rows = _rows(_source("payment_actions"))
+        rows = _rows(_source("payment_actions", start_date="2024-02-28"))
 
         assert rows == [
             {
@@ -305,6 +338,7 @@ class TestPaymentActionsFanout:
             schema_name="payment_actions",
             logger=logger,
             resumable_source_manager=manager,
+            start_date="2024-02-28",
         )
         rows = _rows(response)
 
@@ -340,7 +374,7 @@ class TestReferencedRecordFanout:
         )
         mock_make_session.side_effect = [session]
 
-        rows = _rows(_source(schema_name))
+        rows = _rows(_source(schema_name, start_date="2024-02-28"))
 
         assert rows == [{"id": record_id, "payment_requested_on": "2024-02-29T06:00:00Z"}]
         assert [lookup["url"] for lookup in session.lookups] == [url]
@@ -358,7 +392,7 @@ class TestReferencedRecordFanout:
         mock_make_session.side_effect = [session]
         manager = _FakeManager()
 
-        rows = _rows(_source("customers", manager=manager))
+        rows = _rows(_source("customers", manager=manager, start_date="2024-02-28"))
 
         assert [row["id"] for row in rows] == ["cus_2"]
         # A deleted record doesn't fail the window; it still checkpoints.

@@ -45,6 +45,12 @@ DEFAULT_BACKFILL_DAYS = 365
 # A window that still fills a whole page at this span can't be split further; anything
 # past it is yielded with an error log rather than silently truncated.
 MIN_WINDOW = timedelta(seconds=1)
+# The search endpoint's documented behaviour is a 90-day default lookback when no range
+# is given, with no documented support for much larger custom ranges; a full backfill
+# window (up to `DEFAULT_BACKFILL_DAYS`) sent as one request 422s in practice. Chunking
+# the overall sync range to this span keeps every request within the documented norm;
+# each chunk is still split further on page-fullness as before.
+MAX_SEARCH_WINDOW = timedelta(days=90)
 # Bound one sync's API usage: searches are one call per ~1000 payments, fan-out lookups
 # are one call per payment/customer/instrument. A capped run stops after the last fully
 # processed window, so the next run continues from its watermark.
@@ -165,6 +171,26 @@ def _iter_payment_windows(
     yield from _iter_payment_windows(session, auth, api_base, _Window(start=middle, end=window.end), logger, budget)
 
 
+def _iter_bounded_payment_windows(
+    session: requests.Session,
+    auth: OAuth2Auth,
+    api_base: str,
+    start: datetime,
+    end: datetime,
+    logger: FilteringBoundLogger,
+    budget: _SyncBudget,
+) -> Iterator[tuple[_Window, list[dict[str, Any]]]]:
+    """Walk the full sync range in `MAX_SEARCH_WINDOW`-sized chunks, each further split
+    by `_iter_payment_windows` on page-fullness."""
+    cursor = start
+    while cursor < end:
+        chunk_end = min(cursor + MAX_SEARCH_WINDOW, end)
+        yield from _iter_payment_windows(session, auth, api_base, _Window(start=cursor, end=chunk_end), logger, budget)
+        if budget.exhausted:
+            return
+        cursor = chunk_end
+
+
 def _fanout_get(
     session: requests.Session,
     auth: OAuth2Auth,
@@ -276,9 +302,7 @@ def _get_rows(
 
     seen_ids: set[str] = set()
     chunk: list[dict[str, Any]] = []
-    for window, payments in _iter_payment_windows(
-        session, auth, hosts["api"], _Window(start=start, end=now), logger, budget
-    ):
+    for window, payments in _iter_bounded_payment_windows(session, auth, hosts["api"], start, now, logger, budget):
         for payment in payments:
             if schema_name == "payments":
                 chunk.append(_strip_links(payment))
