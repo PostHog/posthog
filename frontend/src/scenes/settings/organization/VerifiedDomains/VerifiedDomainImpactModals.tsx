@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { CountedPaginatedResponse } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -100,17 +101,17 @@ export function RemoveDomainModal(): JSX.Element {
             }
         >
             <div className="space-y-2">
-                <p>
+                <LemonBanner type="warning">
                     {removeDomainPrompt?.is_verified
                         ? 'This cannot be undone. If you have SAML configured or SSO enforced, it will be immediately disabled.'
                         : 'This cannot be undone.'}
-                </p>
+                </LemonBanner>
                 {showImpact && (
                     <>
                         <p>
-                            Membership is restricted to verified email domains, and this domain admits{' '}
-                            {impactedCount === 1 ? '1 member' : `${impactedCount} members`}. If no other verified domain
-                            covers their email, they will lose access:
+                            Logins are restricted to verified email domains. Removing this domain means{' '}
+                            {impactedCount === 1 ? 'this member' : `these ${impactedCount} members`} can no longer log
+                            in:
                         </p>
                         <ImpactedMembersTable impact={domainImpact} loading={domainImpactLoading} />
                     </>
