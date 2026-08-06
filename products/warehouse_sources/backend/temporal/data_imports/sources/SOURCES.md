@@ -563,6 +563,7 @@ the row lists both.
 | shortcut                         | HTTP                        | requests                                                        | ✅                          |
 | shortio                          | HTTP                        | requests                                                        | ✅                          |
 | shutterstock                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| sigma_computing                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | signoz                           | HTTP                        | requests                                                        | ✅                          |
 | simfin                           | HTTP                        | requests                                                        | ✅                          |
 | similarweb                       | HTTP                        | requests                                                        | ✅                          |
@@ -1306,7 +1307,6 @@ doesn't conflict with concurrent PRs.
 - shopwired
 - shortio
 - sideshift
-- sigma_computing
 - signnow
 - sim
 - simplecast
