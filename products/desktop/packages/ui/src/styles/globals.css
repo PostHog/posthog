@@ -820,6 +820,15 @@ body {
   translate: 50% -50%;
 }
 
+/* No focus rings anywhere inside announcement modals — clicking the scroll
+   body, links, or buttons kept drawing them. The surface has at most three
+   controls, all reachable by Tab; activation feedback comes from hover and
+   pressed states instead. box-shadow also carries Tailwind ring utilities. */
+.quill-dialog__content.announcement-dialog :is(:focus, :focus-visible) {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
 .rich-text-editor-content {
   /* font-family inherited from --font-sans via the global cascade */
   line-height: 1.6;
