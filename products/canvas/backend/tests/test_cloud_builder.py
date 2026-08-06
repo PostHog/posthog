@@ -105,6 +105,15 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertIn('url.hostname.endsWith(".posthog.com")', runtime)
         self.assertIn("serialized.length>16384", runtime)
 
+    def test_runtime_applies_the_host_theme(self) -> None:
+        result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
+
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+        self.assertIn('event.data.type==="set-theme"', runtime)
+        self.assertIn('classList.toggle("dark",dark)', runtime)
+        self.assertIn("colorScheme", runtime)
+        self.assertIn("location.hash", runtime)
+
     def test_freezes_declared_capabilities_into_manifest(self) -> None:
         project = self._project('document.body.textContent = "Hello"')
         project["capabilities"] = {
