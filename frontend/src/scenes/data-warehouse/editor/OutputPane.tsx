@@ -3,7 +3,7 @@ import 'react-data-grid/lib/styles.css'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
 
 import {
@@ -1125,6 +1125,17 @@ const Content = ({
     isEmbeddedMode,
 }: any): JSX.Element | null => {
     const { selectedDirectSource } = useValues(sqlEditorLogic)
+    const [loadingSeconds, setLoadingSeconds] = useState(0)
+    const isLoading = responseLoading || insightLoading
+    useEffect(() => {
+        if (!isLoading) {
+            setLoadingSeconds(0)
+            return
+        }
+        const startedAt = Date.now()
+        const interval = setInterval(() => setLoadingSeconds(Math.floor((Date.now() - startedAt) / 1000)), 1000)
+        return () => clearInterval(interval)
+    }, [isLoading])
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
     const sortedRows = useMemo(() => {
@@ -1220,8 +1231,9 @@ const Content = ({
                     setProgress={setProgress}
                     progress={progress}
                     suggestion={
-                        selectedDirectSource ? (
-                            <p className="text-xs m-0">
+                        // Only worth saying once the query is demonstrably slow.
+                        selectedDirectSource && loadingSeconds >= 60 ? (
+                            <p className="text-xs m-0 text-center">
                                 This query runs live on your{' '}
                                 {getConnectionEngineLabel({
                                     engine: null,
