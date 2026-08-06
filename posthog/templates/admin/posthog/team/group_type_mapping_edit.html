@@ -13,10 +13,6 @@
         <td style="padding: 4px 12px 4px 0; font-weight: bold;">Group type:</td>
         <td style="padding: 4px 0;"><code>{{ mapping.group_type }}</code></td>
     </tr>
-    <tr>
-        <td style="padding: 4px 12px 4px 0; font-weight: bold;">Created at:</td>
-        <td style="padding: 4px 0;">{{ mapping.created_at|default:"-" }}</td>
-    </tr>
 </table>
 
 <form method="post" onsubmit="this.querySelector('input[type=submit]').disabled = true;">
@@ -33,6 +29,11 @@
         <label for="default_columns" style="display: block; margin-bottom: 5px; font-weight: bold;">Default columns (JSON array):</label>
         <input type="text" id="default_columns" name="default_columns" value="{{ default_columns_json }}" style="width: 400px; padding: 8px;" />
         <p style="margin-top: 4px; color: #666; font-size: 12px;">JSON array of column names, e.g. <code>["name", "email"]</code>. Leave blank to clear.</p>
+    </div>
+    <div style="margin: 20px 0;">
+        <label for="created_at" style="display: block; margin-bottom: 5px; font-weight: bold;">Created at (UTC):</label>
+        <input type="text" id="created_at" name="created_at" value="{{ created_at_display }}" style="width: 400px; padding: 8px;" />
+        <p style="margin-top: 4px; color: #666; font-size: 12px;">e.g. <code>2026-01-15 10:30:00</code>. Leave blank to keep unchanged.</p>
     </div>
     <div style="margin-top: 20px;">
         <input type="submit" class="default" value="Save changes" style="padding: 10px 20px;" />
