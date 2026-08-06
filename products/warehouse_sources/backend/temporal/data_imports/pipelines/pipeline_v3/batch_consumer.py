@@ -51,6 +51,19 @@ POLL_BACKOFF_MAX_SECONDS = 30.0
 BATCHES_PER_GROUP_FETCH_FACTOR = 3
 
 
+# EAI_AGAIN ("Temporary failure in name resolution") means the resolver itself is
+# briefly unavailable, not that the queue DB's hostname is invalid — the next
+# connection attempt succeeds once resolution recovers. Self-healing, like the
+# queue DB's own startup/failover connection refusals, so it shouldn't page anyone.
+_DNS_RESOLUTION_TRANSIENT_MARKER = "temporary failure in name resolution"
+
+
+def _is_dns_resolution_transient_error(error: BaseException) -> bool:
+    if not isinstance(error, psycopg.OperationalError):
+        return False
+    return _DNS_RESOLUTION_TRANSIENT_MARKER in str(error).lower()
+
+
 class OwnershipLostError(Exception):
     """Raised when the group lease for a (team_id, schema_id) is no longer held by this consumer."""
 
@@ -431,8 +444,11 @@ class BatchConsumer:
                         # path above, not a real queue-DB outage.
                         await self._handle_poll_timeout(poll_start)
                         continue
-                    logger.exception(self._event("poll_failed_queue_db_unreachable"))
-                    capture_exception(e)
+                    if _is_dns_resolution_transient_error(e):
+                        logger.warning(self._event("poll_failed_queue_db_dns_unavailable"), error=str(e))
+                    else:
+                        logger.exception(self._event("poll_failed_queue_db_unreachable"))
+                        capture_exception(e)
                     self._note_poll_failure("db_unreachable", duration=time.monotonic() - poll_start)
                     await self._wait_or_shutdown(self._poll_retry_delay())
                     continue
@@ -1022,6 +1038,12 @@ class BatchConsumer:
 
             try:
                 await self._recovery_sweep_with_timeout()
+            except psycopg.OperationalError as e:
+                if _is_dns_resolution_transient_error(e):
+                    logger.warning(self._event("recovery_sweep_dns_unavailable"), error=str(e))
+                else:
+                    logger.exception(self._event("recovery_sweep_error"))
+                    capture_exception(e)
             except Exception as e:
                 logger.exception(self._event("recovery_sweep_error"))
                 capture_exception(e)
@@ -1038,6 +1060,12 @@ class BatchConsumer:
                         timeout_seconds=self._config.sweep_timeout_seconds,
                     )
                     await self._drop_conn("_recovery_conn")
+                except psycopg.OperationalError as e:
+                    if _is_dns_resolution_transient_error(e):
+                        logger.warning(self._event("reconcile_sweep_dns_unavailable"), error=str(e))
+                    else:
+                        logger.exception(self._event("reconcile_sweep_error"))
+                        capture_exception(e)
                 except Exception as e:
                     logger.exception(self._event("reconcile_sweep_error"))
                     capture_exception(e)

@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     OwnershipLostError,
+    _is_dns_resolution_transient_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.health import HealthState
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
@@ -576,6 +577,52 @@ class TestRecoverySweep:
         mock_unlock.assert_called_once_with(
             consumer._recovery_conn, batches=[stale_batch], owner_token=consumer._owner_token
         )
+
+
+class TestDnsResolutionTransientErrorClassification:
+    @pytest.mark.parametrize(
+        "message, expected",
+        [
+            ("[Errno -3] Temporary failure in name resolution", True),
+            ("TEMPORARY FAILURE IN NAME RESOLUTION", True),  # case-insensitive
+            ("could not translate host name", False),
+            ("connection to server was lost during table metadata discovery", False),
+        ],
+    )
+    def test_classifies_operational_errors(self, message: str, expected: bool) -> None:
+        assert _is_dns_resolution_transient_error(psycopg.OperationalError(message)) is expected
+
+    def test_ignores_non_operational_errors(self) -> None:
+        # The DNS resolver's EAI_AGAIN only ever surfaces via psycopg.OperationalError;
+        # a generic exception carrying the same text must not be misclassified.
+        assert _is_dns_resolution_transient_error(RuntimeError("Temporary failure in name resolution")) is False
+
+    @pytest.mark.asyncio
+    async def test_recovery_loop_does_not_report_dns_resolution_error(self):
+        # Reproduces the reported issue: a resolver hiccup while reconnecting to the queue
+        # DB during the periodic recovery sweep must be treated as self-healing (logged,
+        # not sent to error tracking) since the sweep already retries every interval.
+        consumer = _make_consumer(recovery_interval_seconds=0.01)
+        swept = asyncio.Event()
+
+        async def raise_dns_error(*args: Any, **kwargs: Any) -> list[PendingBatch]:
+            swept.set()
+            raise psycopg.OperationalError("[Errno -3] Temporary failure in name resolution")
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
+                side_effect=raise_dns_error,
+            ),
+            patch.object(consumer, "_reconcile_failed_runs", new_callable=AsyncMock),
+            patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            loop_task = asyncio.create_task(consumer._recovery_loop())
+            await asyncio.wait_for(swept.wait(), timeout=2.0)
+            consumer._shutdown.set()
+            await asyncio.wait_for(loop_task, timeout=5.0)
+
+        mock_capture.assert_not_called()
 
 
 class TestStartupLiveness:
