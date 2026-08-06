@@ -373,9 +373,8 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
   spaceId: string;
   asOption: boolean;
   /**
-   * What the keyboard calls this row. Defaults to the item's key, and the Pinned
-   * section overrides it: a pinned session is also a row under its own space, and
-   * two options sharing a value would map one highlight index onto both.
+   * What the keyboard calls this row. Defaults to the item's key; the Pinned
+   * section overrides it so a pin can't share a value with a space's row.
    */
   optionValue?: string;
   indent?: string;
@@ -1333,9 +1332,10 @@ const STARRED_SECTION_ID = "channels:starred";
 const CHANNELS_SECTION_ID = "channels:all";
 
 /**
- * What the keyboard calls a pinned row, kept clear of the same session's row
- * under its own space — the list shows both, and an Autocomplete option's value
- * is what a highlight index resolves to.
+ * What the keyboard calls a pinned row. Namespaced so it can never collide with
+ * the same session's row under its space while the two lists disagree about a
+ * pin mid-flight: an Autocomplete option's value is what a highlight index
+ * resolves to, and two rows sharing one would map a keypress onto both.
  */
 const pinnedValue = (taskKey: string) => `pinned:${taskKey}`;
 
@@ -1481,8 +1481,8 @@ export function ChannelsList() {
     [allChannels, expandedSpaceIds, treeOn],
   );
   const tasksBySpace = useRecentSpaceTasks(openSpaceIds);
-  // Pins lead the list, across every space. They stay in their space's own
-  // subtree as well: a pin is where a session is kept, not where it lives.
+  // Pins lead the list, across every space, and leave the subtree of the space
+  // they belong to — `useRecentSpaceTasks` drops them from a space's rows.
   const pinnedTasks = usePinnedSpaceTasks();
   // Pin / archive / command centre for every session row, built once here
   // rather than once per row.

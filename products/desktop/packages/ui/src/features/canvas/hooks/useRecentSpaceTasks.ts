@@ -141,13 +141,17 @@ export function useRecentSpaceTasks(
         pinnedTaskIds,
         ownedBy: null,
       });
+      // Pins lead the whole list in a section of their own, so a space's rows
+      // drop them: the same session again a few rows down under its space says
+      // nothing new, and it costs one of the five rows the space gets.
+      const unpinned = available.filter((item) => !item.pinned);
       // A page that came back short is the whole space, so the count is exact
       // once the archived ones are dropped. A full page falls back to the
       // server's total, which still counts anything archived in it.
       const built: SpaceTasks = {
-        items: available.slice(0, RECENT_TASKS_PER_SPACE),
+        items: unpinned.slice(0, RECENT_TASKS_PER_SPACE),
         total:
-          page.tasks.length < TREE_FETCH_LIMIT ? available.length : page.count,
+          page.tasks.length < TREE_FETCH_LIMIT ? unpinned.length : page.count,
       };
       cache.current.set(spaceId, {
         page,

@@ -55,6 +55,9 @@ vi.mock("@posthog/ui/features/canvas/hooks/useRecentSpaceTasks", () => ({
       spaceIds.map((spaceId) => {
         const items = mocks.tasks
           .filter((task) => task.channel === spaceId)
+          // The real hook drops a space's pinned sessions: they are drawn once,
+          // in the Pinned section above.
+          .filter((task) => !mocks.pinned.some((pin) => pin.id === task.id))
           .map((task) => ({
             key: `task:${task.id}`,
             kind: "task",
@@ -498,17 +501,14 @@ describe("ChannelsList", () => {
       expect(screen.queryByText("Pinned")).toBeNull();
     });
 
-    // The same session is both a pin and a row under its space. Autocomplete
-    // maps a highlight index onto an option value, so the two rows have to be
-    // told apart or one keypress lands on both.
-    it("keeps a pinned session in its space's tree as well", async () => {
+    it("draws a pinned session once, above its space's tree", async () => {
       const user = userEvent.setup();
       mocks.pinned = [PIN];
       renderList();
 
       await user.click(screen.getByLabelText("Expand engineering"));
 
-      expect(screen.getAllByText(PIN.title)).toHaveLength(2);
+      expect(screen.getAllByText(PIN.title)).toHaveLength(1);
     });
 
     it("walks the pinned rows before the spaces", async () => {
