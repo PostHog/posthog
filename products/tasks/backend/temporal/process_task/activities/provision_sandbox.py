@@ -17,12 +17,14 @@ from products.tasks.backend.constants import (
     filter_user_sandbox_env_vars,
 )
 from products.tasks.backend.exceptions import (
+    ComputeBillingLimitError,
     CredentialUnavailableError,
     GitHubAuthenticationError,
     OAuthTokenError,
     TaskNotFoundError,
 )
 from products.tasks.backend.logic.services.agentsh import _get_debug_only_domains, enforced_egress_domains
+from products.tasks.backend.logic.services.compute_quota import is_compute_quota_exhausted
 from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_JWT_STATE_KID_KEY,
     get_primary_sandbox_jwt_kid,
@@ -566,6 +568,9 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
         image_source=prepared.image_source,
         **ctx.to_log_context(),
     ):
+        task = Task.objects.select_related("team", "loop").get(id=ctx.task_id)
+        if not (ctx.state or {}).get("await_user_message") and is_compute_quota_exhausted(task):
+            raise ComputeBillingLimitError({"team_id": ctx.team_id, "task_id": ctx.task_id, "run_id": ctx.run_id})
         _emit_image_source_log(ctx, prepared)
         emit_agent_log(
             ctx.run_id,

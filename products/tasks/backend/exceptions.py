@@ -94,6 +94,19 @@ class SandboxProvisionError(ProcessTaskTransientError):
     pass
 
 
+class ComputeBillingLimitError(ProcessTaskError):
+    def __init__(self, context: dict[str, Any]):
+        from products.tasks.backend.logic.services.compute_quota import COMPUTE_QUOTA_DENIAL_CODE
+
+        super().__init__(
+            "Your organization reached its PostHog Desktop usage limit.",
+            {**context, "reason": COMPUTE_QUOTA_DENIAL_CODE},
+            None,
+            capture=False,
+            non_retryable=True,
+        )
+
+
 class SandboxNotFoundError(ProcessTaskFatalError):
     """Sandbox does not exist."""
 

@@ -53,6 +53,7 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.feature_flags import get_model_access_error
+from products.tasks.backend.exceptions import ComputeBillingLimitError
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
@@ -129,6 +130,7 @@ __all__ = [
     "CODE_INVITE_REDEEMED",
     "SandboxNetworkAccessLevel",
     "SandboxSnapshotStatus",
+    "ComputeBillingLimitError",
     "TaskOriginProduct",
     "TaskRuntime",
     "TaskRunEnvironment",
@@ -3389,6 +3391,10 @@ def signal_task_run_user_message(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
+    from products.tasks.backend.logic.services.compute_quota import is_compute_quota_exhausted  # noqa: PLC0415
+
+    if is_compute_quota_exhausted(run.task):
+        raise ComputeBillingLimitError({"team_id": team_id, "task_id": str(task_id), "run_id": str(run_id)})
     try:
         context = {"actor_slack_user_id": actor_slack_user_id} if actor_slack_user_id else None
         signal_task_followup_message(

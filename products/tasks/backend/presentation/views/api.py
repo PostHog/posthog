@@ -1998,6 +1998,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     message_id=str(request_id) if request_id is not None else None,
                     steer=command_params.get("steer", False),
                 )
+            except tasks_facade.ComputeBillingLimitError:
+                return Response(
+                    TaskRunErrorResponseSerializer(
+                        {
+                            "type": "billing_limit",
+                            "code": "posthog_code_billing_limit_exceeded",
+                            "error": "Your organization reached its PostHog Desktop usage limit.",
+                        }
+                    ).data,
+                    status=status.HTTP_429_TOO_MANY_REQUESTS,
+                )
             except Exception:
                 # A synchronous web request can't retry the way the Temporal
                 # follow-up path does, so a transient signalling failure surfaces
