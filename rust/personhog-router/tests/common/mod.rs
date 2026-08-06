@@ -712,6 +712,15 @@ impl PersonHogLeader for TestLeaderService {
         Err(Status::unimplemented("not exercised by router tests"))
     }
 
+    async fn fold_person_document(
+        &self,
+        request: Request<personhog_proto::personhog::types::v1::FoldPersonDocumentRequest>,
+    ) -> Result<Response<personhog_proto::personhog::types::v1::FoldPersonDocumentResponse>, Status>
+    {
+        require_partition_metadata(&request)?;
+        Err(Status::unimplemented("not exercised by router tests"))
+    }
+
     async fn get_person(
         &self,
         request: Request<GetPersonRequest>,
