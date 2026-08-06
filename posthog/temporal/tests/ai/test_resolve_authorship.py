@@ -72,14 +72,15 @@ class TestResolvePostHogCodeAuthorship(TestCase):
 
     @parameterized.expand(
         [
-            ("no_repo_access_flag_on", ["posthog/other-repo"], None, True, "awaiting_confirmation"),
-            ("no_repo_access_flag_off", ["posthog/other-repo"], None, False, "blocked"),
-            ("expired_refresh_token_flag_on", ["posthog/target-repo"], 1, True, "awaiting_confirmation"),
+            ("no_repo_access_flag_on", ["posthog/other-repo"], None, True, "awaiting_confirmation", "can't author PRs"),
+            ("no_repo_access_flag_off", ["posthog/other-repo"], None, False, "blocked", "can't author PRs"),
+            ("expired_refresh_token_flag_on", ["posthog/target-repo"], 1, True, "awaiting_confirmation", "expired"),
+            ("expired_refresh_token_flag_off", ["posthog/target-repo"], 1, False, "blocked", "expired"),
         ]
     )
     @patch("posthog.temporal.ai.slack_app.activities.messaging.SlackIntegration")
     def test_unusable_personal_github_never_proceeds(
-        self, _name, repos, refresh_token_expires_at, flag_on, expected_status, mock_slack_cls
+        self, _name, repos, refresh_token_expires_at, flag_on, expected_status, expected_text, mock_slack_cls
     ):
         self._add_personal_github(repos=repos, refresh_token_expires_at=refresh_token_expires_at)
         self._add_team_github()
@@ -90,7 +91,7 @@ class TestResolvePostHogCodeAuthorship(TestCase):
             assert self._call() == expected_status
 
         kwargs = mock_slack.client.chat_postMessage.call_args.kwargs
-        assert "can't author PRs in `posthog/target-repo`" in kwargs["text"]
+        assert expected_text in kwargs["text"]
 
     @patch("products.slack_app.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False)
     @patch("posthog.temporal.ai.slack_app.activities.messaging.SlackIntegration")

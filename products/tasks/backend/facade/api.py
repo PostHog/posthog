@@ -3357,6 +3357,24 @@ def user_can_author_repository(user_id: int, repository: str) -> bool:
     return user_github_integration_is_usable(integration)
 
 
+def user_has_usable_personal_github(user_id: int) -> bool:
+    """Whether the user's personal GitHub integration can produce a usable token, ignoring repo access.
+
+    Mirrors the usability checks in `UserGitHubIntegration.get_usable_user_access_token`
+    (missing user access token, expired refresh token) without the network refresh or the
+    row deletion that path performs, so callers can gate before a run reaches the credential
+    path rather than failing partway through it.
+    """
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
+        get_user_github_integration,
+        user_github_integration_is_usable,
+    )
+
+    user = User.objects.filter(id=user_id).first()
+    integration = get_user_github_integration(user, allow_refresh=False)
+    return user_github_integration_is_usable(integration)
+
+
 def _ensure_task_team_github_integration(task: Task) -> bool:
     if task.github_integration_id is not None:
         return True
