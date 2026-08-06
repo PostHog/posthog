@@ -105,6 +105,12 @@ from products.experiments.backend.session_exposure import SessionExposure, resol
 # and has no such predicate, so the window is all that stands between it and the team's whole
 # recent history.
 MAX_DELTA_SCAN_DAYS = 14
+# Tighter again under the exposure fallback. The stamped flag property rides on every client
+# event, so not even the coverage query can prune by event name there, and the full window is
+# read three times per response before the session ceiling can clamp anything. Two days keeps
+# each of those reads inside the query timeout on the largest projects; `date_from` already
+# reports the window actually covered.
+MAX_FALLBACK_DELTA_SCAN_DAYS = 2
 # Ceiling on the exposed sessions one comparison covers, most recent first. Bounds the aggregation
 # state rather than the rows read, and because the cut is on recency across both arms at once, the
 # arms stay covered over the same period — a comparison split across different stretches of time
@@ -155,10 +161,10 @@ MIN_LOG_RATIO_LOWER_BOUND = 0.3
 # that reads as an effect size and collides with the one the results tab computes.
 FAR_MORE_LOG_RATIO = 1.1
 MORE_LOG_RATIO = 0.4
-# Per (team, viewer, experiment, window bucket). The window moves with wall-clock time on a running
-# experiment, so the key it is built from is quantized to this same interval — at any finer
-# resolution the key would change faster than the entry expires and the TTL would never apply,
-# leaving the heaviest read on the tab uncached in practice.
+# Per (team, experiment, window bucket, viewer restriction profile). The window moves with
+# wall-clock time on a running experiment, so the key it is built from is quantized to this same
+# interval — at any finer resolution the key would change faster than the entry expires and the
+# TTL would never apply, leaving the heaviest read on the tab uncached in practice.
 DELTA_CACHE_TTL = 15 * 60
 # Kept beside the scan rather than with the viewset's other constants so the flag and what it gates
 # can't drift.
@@ -288,11 +294,12 @@ def finalize_watch_cards(result: ExperimentWatchResult, accessible_session_ids: 
     """Cut every card down to the recordings this viewer may open, dropping the ones left with none.
 
     Applied on read rather than inside the scan, for the same reason the session buckets do it: the
-    shelf is cached per viewer, so filtering here honors a revocation that lands while an entry is
-    still warm. A card that loses every recording is dropped rather than shown greyed-out — the same
-    rule the scan applies to sessions replay never recorded, since either way there is nothing to
-    watch behind it. `recording_count` is recomputed so it keeps meaning "recordings this card can
-    show you".
+    shelf is cached — and shared across viewers with the same property restrictions — so this cut
+    is what keeps one viewer's entry from leaking another's denied recordings, and it honors a
+    revocation that lands while an entry is still warm. A card that loses every recording is
+    dropped rather than shown greyed-out — the same rule the scan applies to sessions replay never
+    recorded, since either way there is nothing to watch behind it. `recording_count` is recomputed
+    so it keeps meaning "recordings this card can show you".
     """
     accessible = set(accessible_session_ids)
     cards = []
@@ -341,6 +348,8 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
     exposure = resolve_session_exposure(team, experiment, event_names=frozenset(metric_event_names))
     if exposure.is_unmatchable:
         raise SessionEventDeltasUnavailable(CUSTOM_EXPOSURE_UNCOMPARABLE_REASON)
+    if exposure.used_fallback:
+        window_start = max(window_start, window_end - timedelta(days=MAX_FALLBACK_DELTA_SCAN_DAYS))
 
     # The experiment's own metric events never enter the comparison — the module docstring's first
     # rule. They reappear below as shortcut cards, which claim nothing the results tab also claims.
@@ -551,15 +560,21 @@ def _cache_key(
             # to miss the cache rather than be served the answer to the previous configuration.
             experiment.updated_at.isoformat(),
             experiment.feature_flag.updated_at.isoformat() if experiment.feature_flag.updated_at else None,
+            # A saved metric is editable without touching the experiment row, and its events decide
+            # exclusions and shortcut cards the same way an inline metric's do.
+            sorted(updated.isoformat() for updated in experiment.saved_metrics.values_list("updated_at", flat=True)),
             # Property restrictions are compiled into the SQL, so a restriction change has to miss
             # the cache rather than be re-applied on read.
             sorted(get_restricted_properties_for_team(user=user, team=team)),
         ]
     )
     digest = hashlib.sha256(spec.encode()).hexdigest()[:16]
-    # Keyed by viewer, not just by team: the exposure criteria run under the viewer's property
-    # access control, so two viewers can legitimately get different answers.
-    return f"experiment_session_event_deltas_v3_{team.pk}_{user.pk}_{experiment.pk}_{digest}"
+    # Keyed by the viewer's restriction profile, not by the viewer: the property restrictions in
+    # the digest are the only viewer-dependent input to the scan, and per-recording access is
+    # applied on read. One viewer's scan then serves every viewer whose restrictions match, which
+    # on the heaviest read in this family is the difference between paying it once per team per
+    # TTL and once per viewer.
+    return f"experiment_session_event_deltas_v4_{team.pk}_{experiment.pk}_{digest}"
 
 
 def _metric_event_names(metrics: list[MetricEventSource]) -> set[str]:
@@ -671,6 +686,13 @@ def _query_event_deltas(
         group_by=[ast.Field(chain=["person_id"]), ast.Field(chain=["$session_id"])],
     )
 
+    # A (person, session) group can carry no exposure at all: server-side events reuse a client
+    # session's `$session_id` under their own person, so a covered session can hold a second
+    # person who was never exposed in it. Such a group's `session_variant` is NULL and its
+    # `first_exposure` is the epoch default, and both selections below stay correct only because
+    # ClickHouse aggregates skip NULL arguments — countDistinct can't count the NULL toward "saw
+    # two variants", and argMin can't let the epoch-timestamped NULL win. Wrapping these values in
+    # coalesce/assumeNotNull would silently misattribute every person who shares a session.
     if multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
         # Mirrors get_variant_selection_expr across the person's sessions rather than within one.
         variant_expr: ast.Expr = ast.Call(

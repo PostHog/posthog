@@ -52,6 +52,7 @@ from products.experiments.backend.session_context import MAX_SESSION_CONTEXT_BAT
 from products.experiments.backend.session_event_deltas import (
     MAX_CARD_RECORDINGS,
     MAX_DELTA_SCAN_DAYS,
+    MAX_FALLBACK_DELTA_SCAN_DAYS,
     DeltaStrength,
     WatchCardKind,
 )
@@ -1996,9 +1997,11 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
     date_from = serializers.DateTimeField(
         help_text=(
             f"Start of what was actually compared. The requested window is the experiment's run window clamped "
-            f"to its most recent {MAX_DELTA_SCAN_DAYS} days, but a busy experiment reaches the session ceiling "
-            "long before that, and this reports where the compared sessions really begin - often hours rather "
-            "than days back. Display this, not the experiment's own dates."
+            f"to its most recent {MAX_DELTA_SCAN_DAYS} days ({MAX_FALLBACK_DELTA_SCAN_DAYS} when sessions are "
+            "matched on the stamped flag property, which no event name can prune a scan on), but a busy "
+            "experiment reaches the session ceiling long before that, and this reports where the compared "
+            "sessions really begin - often hours rather than days back. Display this, not the experiment's own "
+            "dates."
         )
     )
     date_to = serializers.DateTimeField(

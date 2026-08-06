@@ -389,6 +389,65 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert recorded in pricing_faq["session_ids"]
 
     @rank_anything
+    def test_fallback_comparison_is_clamped_to_its_own_tighter_window(self) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
+        # The stamped flag property rides on every client event, so on the fallback path there is
+        # no event name for the scan to prune on and the window is the only thing bounding it. A
+        # session inside the experiment's window but past the fallback clamp must fall out of the
+        # comparison rather than be read.
+        self._session(variants=[], events=["pricing_faq"], properties={"$feature/checkout-cta": "test"})
+        self._session(variants=[], events=["checkout_start"], properties={"$feature/checkout-cta": "control"})
+        self._session(
+            variants=[],
+            events=["old_event"],
+            properties={"$feature/checkout-cta": "control"},
+            at=NOW - timedelta(days=4),
+        )
+        flush_persons_and_events()
+
+        data = self._post_deltas(experiment).json()
+
+        assert data["used_exposure_fallback"] is True
+        assert datetime.fromisoformat(data["date_from"]) == NOW - timedelta(
+            days=session_event_deltas.MAX_FALLBACK_DELTA_SCAN_DAYS
+        )
+        assert [(arm["key"], arm["persons"]) for arm in data["arms"]] == [("control", 1), ("test", 1)]
+        assert all(card["event"] != "old_event" for card in data["cards"])
+
+    @parameterized.expand([("exclude", "exclude"), ("first_seen", "first_seen")])
+    @rank_anything
+    def test_sharing_a_session_with_someone_elses_exposure_does_not_reattribute_a_person(
+        self, _name: str, handling: str
+    ) -> None:
+        experiment = self._create_experiment(
+            metrics=[PURCHASE_METRIC], exposure_criteria={"multiple_variant_handling": handling}
+        )
+        # Server-side events can reuse a client session's $session_id under their own person, so a
+        # covered session can hold a second person who was never exposed in it. That person's
+        # (person, session) group carries no exposure rows at all, and the attribution must not
+        # read it as "saw another variant" (exclude) or as "their earliest exposure" (first seen).
+        shared = self._session(
+            variants=["control"],
+            events=["checkout_start"],
+            distinct_id="owns_shared_session",
+            at=EXPOSED_AT - timedelta(hours=1),
+        )
+        self._session(variants=["test"], events=["pricing_faq"], distinct_id="strays_into_it", at=EXPOSED_AT)
+        _create_event(
+            team=self.team,
+            event="backend_ping",
+            distinct_id="strays_into_it",
+            timestamp=EXPOSED_AT - timedelta(minutes=30),
+            properties={"$session_id": shared},
+        )
+        flush_persons_and_events()
+
+        data = self._post_deltas(experiment).json()
+
+        assert [(arm["key"], arm["persons"]) for arm in data["arms"]] == [("control", 1), ("test", 1)]
+        assert data["multiple_variant_persons"] == 0
+
+    @rank_anything
     def test_an_action_based_exposure_still_backs_its_cards_with_recordings(self) -> None:
         action = Action.objects.create(
             team=self.team, name="Reached checkout", steps_json=[{"event": "checkout_viewed"}]

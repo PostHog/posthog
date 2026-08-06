@@ -1553,10 +1553,11 @@ class EnterpriseExperimentsViewSet(
             raise ValidationError(str(error))
 
         # Applied to the computed shelf rather than inside the scan, as the session buckets do it:
-        # the shelf is cached per viewer, so filtering on read honors a revocation that lands while
-        # an entry is warm. The resource-level check above grants the replay product, not every
-        # recording in it — without this a viewer denied one recording could still read its id, the
-        # variant it was in, and an event it contains.
+        # the shelf is cached across viewers sharing a restriction profile, so filtering on read is
+        # what keeps one viewer's entry from leaking another's denied recordings, and a revocation
+        # lands even while an entry is warm. The resource-level check above grants the replay
+        # product, not every recording in it — without this a viewer denied one recording could
+        # still read its id, the variant it was in, and an event it contains.
         result = finalize_watch_cards(
             result,
             _accessible_session_ids(request, self.user_access_control, self.team, all_card_session_ids(result)),
