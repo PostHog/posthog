@@ -60,7 +60,6 @@ def _collision(source: str, shared_with: list[str], campaign_name: str = "camp_0
 class TestClearWinner:
     def test_suggests_id_when_ids_match_and_names_do_not(self):
         campaigns = _named_campaigns(10)
-        # Every utm_campaign carries the numeric id, none carry the name.
         utm_events = _utm(*[c.campaign_id for c in campaigns])
 
         suggestions = suggest_campaign_field_preferences(campaigns, utm_events, NO_MAPPINGS)
@@ -77,7 +76,6 @@ class TestClearWinner:
         assert suggestion.triggered_by_collision is False
 
     def test_suggests_name_when_team_wrongly_prefers_id(self):
-        # The reverse direction has to work too, or a bad switch is unrecoverable.
         campaigns = _named_campaigns(10)
         utm_events = _utm(*[c.campaign_name for c in campaigns])
 
@@ -93,7 +91,6 @@ class TestClearWinner:
 
         suggestion = suggest_campaign_field_preferences(campaigns, utm_events, NO_MAPPINGS)[0]
 
-        # Nothing matches by name today, so all 10 x 50 is at risk.
         assert suggestion.spend_at_risk == 500.0
         assert suggestion.total_spend == 500.0
 
@@ -113,8 +110,7 @@ class TestNoSuggestion:
         assert suggest_campaign_field_preferences(campaigns, utm_events, NO_MAPPINGS) == []
 
     def test_silent_when_delta_is_big_but_target_rate_is_low(self):
-        # 0% -> 30% is a +30pp delta but still mostly broken; switching would be
-        # cargo-culting a fix. The floor exists for exactly this shape.
+        # 0% -> 30% clears the delta but is still mostly broken; that's what the floor is for.
         campaigns = _named_campaigns(10)
         utm_events = _utm(*[c.campaign_id for c in campaigns[:3]])
 
@@ -127,10 +123,7 @@ class TestNoSuggestion:
         assert suggest_campaign_field_preferences(campaigns, utm_events, NO_MAPPINGS) == []
 
     def test_silent_when_campaign_ids_are_mostly_empty(self):
-        # Half the rows carry an id, and every id that exists matches — so on the
-        # numbers alone id-matching wins 50% to 0% and would clear both thresholds.
-        # It must still be refused: switching would strand the half of the account
-        # the adapter doesn't populate ids for.
+        # id wins 50% to 0% on the numbers, but switching strands the half with no ids.
         with_ids = [_campaign(f"camp_{i}", f"{1000 + i}") for i in range(5)]
         without_ids = [_campaign(f"camp_{i}", "") for i in range(5, 10)]
         campaigns = [*with_ids, *without_ids]
@@ -139,7 +132,6 @@ class TestNoSuggestion:
         assert suggest_campaign_field_preferences(campaigns, utm_events, NO_MAPPINGS) == []
 
     def test_suggests_id_once_coverage_clears_the_floor(self):
-        # Same shape as above but with 8/10 ids populated — now it is safe to switch.
         with_ids = [_campaign(f"camp_{i}", f"{1000 + i}") for i in range(8)]
         without_ids = [_campaign(f"camp_{i}", "") for i in range(8, 10)]
         campaigns = [*with_ids, *without_ids]
@@ -154,7 +146,6 @@ class TestNoSuggestion:
         assert set(suggestions[0].still_unmatched_examples) == {"camp_8", "camp_9"}
 
     def test_silent_when_there_are_no_utm_events_at_all(self):
-        # Both rates are 0 — that's a broken-URLs problem, not a field-choice one.
         campaigns = _named_campaigns(10)
 
         assert suggest_campaign_field_preferences(campaigns, {}, NO_MAPPINGS) == []
@@ -171,11 +162,8 @@ class TestSourceScoping:
     ignores utm_source does not describe what the table will actually attribute."""
 
     def test_another_platform_traffic_does_not_prop_up_the_name_rate(self):
-        # Google and Meta both run "black_friday", but only Meta's URLs carry it. Counting the
-        # whole catalogue credited Google with Meta's events, so name matching looked like it
-        # worked and the campaign_id suggestion Google needed was suppressed.
+        # An unscoped catalogue credited Google with Meta's events on the shared name.
         campaigns = [_campaign(f"shared_{i}", f"{2000 + i}", spend=500.0) for i in range(6)]
-        # Every name arrives, but tagged as Meta traffic. Google's own ids arrive too.
         utm_events = {
             **{(c.campaign_name, "facebook"): 100 for c in campaigns},
             **{(c.campaign_id, "google"): 100 for c in campaigns},
@@ -186,20 +174,17 @@ class TestSourceScoping:
         assert [s.suggested_match_field for s in suggestions] == ["campaign_id"]
 
     def test_a_custom_source_mapping_is_credited_to_its_integration(self):
-        # The whole point of source_to_integration: once "fb_paid" is mapped to meta, that
-        # traffic has to count for Meta or scoping would zero out a correctly-configured team.
+        # Once "fb_paid" maps to meta its traffic must count, or scoping zeroes out a working team.
         campaigns = _named_campaigns(6, source="meta")
         utm_events = {(c.campaign_name, "fb_paid"): 100 for c in campaigns}
         mapped = TeamMappings(source_to_integration={"fb_paid": "meta"}, campaign_aliases={}, field_preferences={})
 
         suggestions = suggest_campaign_field_preferences(campaigns, utm_events, mapped)
 
-        # Name matching already works, so there is nothing to suggest.
         assert suggestions == []
 
     def test_a_default_alias_is_credited_without_any_mapping(self):
-        # 'facebook' resolves to meta through canonical_source_aliases with no team config,
-        # so scoping must not demand a custom mapping for the common case.
+        # 'facebook' resolves to meta with no team config, so scoping can't demand one.
         campaigns = _named_campaigns(6, source="meta")
         utm_events = {(c.campaign_name, "facebook"): 100 for c in campaigns}
 
@@ -210,7 +195,6 @@ class TestSourceScoping:
 
 class TestRanking:
     def test_ranks_by_what_switching_recovers_not_by_the_current_gap(self):
-        # Ordering follows what the switch reconnects, not how big the hole is.
         # Meta:   20 campaigns x 500 = 10,000 gap, ids match 12/20 -> recovers 6,000.
         # Google: 10 campaigns x 500 =  5,000 gap, ids match  9/10 -> recovers 4,500.
         meta = [_campaign(f"m_{i}", f"{9000 + i}", spend=500.0, source="meta") for i in range(20)]
@@ -224,13 +208,11 @@ class TestRanking:
 
         assert [s.integration for s in suggestions] == ["MetaAds", "GoogleAds"]
         assert [round(s.spend_recovered) for s in suggestions] == [6000, 4500]
-        # Ranked the other way round under the old key: Meta's gap is 10,000 to Google's 5,000,
-        # which happens to agree here — so pin the case where they disagree instead.
+        # Both keys agree in this fixture; the disagreeing case is pinned below.
         assert [round(s.spend_at_risk) for s in suggestions] == [10000, 5000]
 
     def test_a_barely_helpful_switch_does_not_outrank_a_repair(self):
-        # The disagreement case. Big has the larger gap but the switch recovers less of it than
-        # Small's, which nearly fully resolves — keying on spend_at_risk put Big first.
+        # Big has the larger gap but recovers less, so spend_at_risk ranked it first.
         big = [_campaign(f"b_{i}", f"{7000 + i}", spend=1000.0, source="meta") for i in range(10)]
         small = [_campaign(f"s_{i}", f"{6000 + i}", spend=800.0, source="google") for i in range(10)]
         utm_events = {
@@ -250,7 +232,6 @@ class TestRanking:
 class TestCollisionOverride:
     def test_surfaces_collision_even_below_threshold(self):
         campaigns = _named_campaigns(10)
-        # Name matching looks fine on the numbers, so only the collision triggers it.
         utm_events = _utm(*[c.campaign_name for c in campaigns])
         audit = [_collision("google", ["meta"])]
 
@@ -262,16 +243,12 @@ class TestCollisionOverride:
         assert suggestion.suggested_match_field == "campaign_id"
         assert suggestion.colliding_integrations == ["meta"]
         assert suggestion.confidence == COLLISION_CONFIDENCE
-        # A human has to decide this one — it must never ride in the safe batch.
         assert suggestion.safe_to_batch is False
         # The structured field keeps the raw key (asserted above); only the prose is humanised.
         assert "Meta Ads" in suggestion.reason
 
     def test_a_collision_never_suggests_going_back_to_names(self):
-        # The team already matches on campaign_id, which is the cure for a name collision.
-        # Because the target field was derived as "whatever isn't current", the collision
-        # override emitted a suggestion to switch *to* campaign_name — reintroducing the exact
-        # ambiguity it fired about, and misattributing spend across the two platforms.
+        # Already on the cure; "whatever isn't current" suggested switching back to the ambiguity.
         campaigns = _named_campaigns(10)
         utm_events = _utm(*[c.campaign_id for c in campaigns])
         audit = [_collision("google", ["meta"])]
@@ -281,9 +258,7 @@ class TestCollisionOverride:
         assert [s.suggested_match_field for s in suggestions] == []
 
     def test_collision_reason_names_the_other_platform_the_way_a_human_would(self):
-        # The subject integration went through display_name_for_key while the colliding ones were
-        # printed as the raw primary-source keys they arrive as, so one sentence mixed both
-        # vocabularies: "Google Ads shares campaign names with meta".
+        # One sentence mixed both vocabularies: "Google Ads shares campaign names with meta".
         campaigns = _named_campaigns(10)
         utm_events = _utm(*[c.campaign_name for c in campaigns])
         audit = [_collision("google", ["meta"])]
@@ -294,22 +269,18 @@ class TestCollisionOverride:
         assert "with meta" not in suggestion.reason
 
     def test_collision_reason_counts_the_shared_campaigns(self):
-        # The affected set was "names absent from the catalogue", but a collision is about
-        # names that are present and shared, so the evidence read "0 campaign(s) worth $0.00"
-        # in exactly the case it was written for.
+        # An absent-from-catalogue set read "0 campaign(s) worth $0.00" here.
         campaigns = _named_campaigns(10, spend=250.0)
         utm_events = _utm(*[c.campaign_name for c in campaigns])
         audit = [_collision("google", ["meta"])]
 
         suggestion = suggest_campaign_field_preferences(campaigns, utm_events, NO_MAPPINGS, audit)[0]
 
-        # All ten names are in the catalogue, so all ten are exposed to the collision.
         assert "10 campaign(s)" in suggestion.reason
         assert "2,500" in suggestion.reason
 
     def test_spend_delta_wins_over_collision_framing(self):
-        # When the arithmetic already says switch, report that (higher confidence)
-        # rather than downgrading to the collision path.
+        # Arithmetic wins over the collision path: higher confidence.
         campaigns = _named_campaigns(10)
         utm_events = _utm(*[c.campaign_id for c in campaigns])
         audit = [_collision("google", ["meta"])]
@@ -318,7 +289,6 @@ class TestCollisionOverride:
 
         assert suggestion.triggered_by_collision is False
         assert suggestion.confidence > COLLISION_CONFIDENCE
-        # Still reported, so the UI can mention it.
         assert suggestion.colliding_integrations == ["meta"]
 
     def test_non_collision_issues_do_not_trigger(self):
@@ -332,8 +302,7 @@ class TestCollisionOverride:
 
 class TestSpendWeighting:
     def test_spend_decides_not_campaign_count(self):
-        # 9 cheap campaigns match by name, 1 expensive one matches by id. By count
-        # name wins 90/10; by spend id wins 91/9. Spend is what the ROAS column uses.
+        # By count name wins 90/10; by spend id wins 91/9. Spend is what the ROAS column uses.
         cheap = [_campaign(f"cheap_{i}", f"{i}", spend=100.0) for i in range(9)]
         expensive = _campaign("expensive", "99999", spend=9000.0)
         campaigns = [*cheap, expensive]
@@ -345,7 +314,6 @@ class TestSpendWeighting:
         suggestion = suggestions[0]
         assert suggestion.suggested_match_field == "campaign_id"
         assert suggestion.suggested.spend_rate > suggestion.current.spend_rate
-        # And the count rate moved the other way, so the reason says so out loud.
         assert suggestion.suggested.count_rate < suggestion.current.count_rate
         assert "By campaign count the gap is smaller" in suggestion.reason
 
@@ -372,10 +340,8 @@ class TestReporting:
         assert total_suggestion.confidence < 1.0
 
     def test_orders_integrations_by_the_spend_a_switch_recovers(self):
-        # Both integrations match 0% by name here, so `spend_at_risk` and `spend_recovered`
-        # coincide and this fixture alone can't tell which is the sort key. The case where they
-        # disagree is `TestRanking.test_a_barely_helpful_switch_does_not_outrank_a_repair`; this
-        # one only pins that bigger recovery comes first.
+        # Both match 0% by name, so the two spend figures coincide and only the ordering is
+        # pinned here; they disagree in `test_a_barely_helpful_switch_does_not_outrank_a_repair`.
         google = _named_campaigns(10, source="google", spend=100.0)
         meta = _named_campaigns(10, source="meta", spend=900.0)
         utm_events = {
@@ -388,9 +354,8 @@ class TestReporting:
         assert [s.integration for s in suggestions] == ["MetaAds", "GoogleAds"]
 
     def test_mapped_aliases_are_excluded_from_both_rates(self):
-        # campaign_name_mappings rewrite whichever field is preferred, so crediting
-        # the name side for them would inflate the current field's apparent rate and
-        # suppress a switch that is actually warranted.
+        # An alias resolves under either field, so crediting the name side suppresses a warranted
+        # switch.
         campaigns = _named_campaigns(10)
         mappings = TeamMappings(
             source_to_integration={},
@@ -406,10 +371,8 @@ class TestReporting:
         assert suggestions[0].suggested_match_field == "campaign_id"
 
     def test_an_alias_spelled_like_the_campaign_name_is_still_excluded(self):
-        # The test above passes whether or not aliases are excluded: `alias_0` never equals
-        # `camp_0`, so the name rate reads 0 either way. Aliasing each campaign to its own name
-        # is what makes the exclusion observable — counted, the name side reads a perfect 1.0
-        # and no switch is ever suggested; excluded, the id side wins as it should.
+        # Above, `alias_0` never equals `camp_0`, so the name rate reads 0 whether or not aliases
+        # are excluded. Aliasing each campaign to its own name is what makes it observable.
         campaigns = _named_campaigns(10)
         mappings = TeamMappings(
             source_to_integration={},
@@ -425,11 +388,8 @@ class TestReporting:
         assert suggestions[0].suggested_match_field == "campaign_id"
 
     def test_a_mixed_case_utm_value_matches_the_campaign_it_names(self):
-        # Ad platforms keep campaign names in the account's own casing and tracking templates
-        # emit them verbatim, so a perfectly tagged Google account can arrive entirely MixedCase.
-        # The campaign side is lowercased unconditionally, so folding only one side reported an
-        # integration matching 100% of its spend by name as matching 0% — and recommended
-        # switching it to campaign_id, which here covers half.
+        # Platforms emit names in the account's own casing. The campaign side is always
+        # lowercased, so folding one side read a 100%-tagged account as 0% and told it to switch.
         campaigns = [_campaign(f"Camp_{i}", str(1000 + i)) for i in range(10)]
         utm_events = _utm(*[f"Camp_{i}" for i in range(10)], *[str(1000 + i) for i in range(5)])
 
