@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -349,7 +350,21 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             {
                 loadScoutConfigs: async () => {
                     const teamId = teamLogic.values.currentTeamId
-                    return teamId ? await signalsScoutConfigList(String(teamId)) : null
+                    if (!teamId) {
+                        return null
+                    }
+                    try {
+                        return await signalsScoutConfigList(String(teamId))
+                    } catch (error) {
+                        // This logic is kept mounted outside the inbox, so a project id that
+                        // doesn't resolve 404s this fetch on unrelated pages. Return null (the
+                        // "not loaded" state the fleet UI already renders) so a 404 degrades
+                        // quietly. Non-404 failures still throw and surface where the feature is used.
+                        if (error instanceof ApiError && error.status === 404) {
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],

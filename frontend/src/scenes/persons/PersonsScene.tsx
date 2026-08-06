@@ -5,7 +5,6 @@ import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -22,11 +21,10 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { Query } from '~/queries/Query/Query'
 import { ActorsQuery, ProductKey } from '~/queries/schema/schema-general'
-import { ActivityTab, CustomerProfileScope, OnboardingStepKey } from '~/types'
+import { ActivityTab, OnboardingStepKey } from '~/types'
 
 import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
 import { PersonDisplayNameNudgeBanner } from 'products/customer_analytics/frontend/components/PersonDisplayNameNudgeBanner'
-import { customerProfileConfigLogic } from 'products/customer_analytics/frontend/customerProfileConfigLogic'
 
 import { personsSceneLogic } from './personsSceneLogic'
 
@@ -41,7 +39,6 @@ export function PersonsScene(): JSX.Element {
     const { setQuery } = useActions(personsSceneLogic)
     const { resetDeletedDistinctId } = useAsyncActions(personsSceneLogic)
     const { currentTeam, baseCurrency } = useValues(teamLogic)
-    const { loadConfigs } = useActions(customerProfileConfigLogic({ scope: CustomerProfileScope.PERSON }))
     const queryUniqueKey = 'persons-query'
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
 
@@ -50,10 +47,6 @@ export function PersonsScene(): JSX.Element {
     const rawSearch: unknown = (query.source as Partial<ActorsQuery> | undefined)?.search
     const searchTerm = typeof rawSearch === 'string' ? rawSearch.trim() : undefined
     const searchLooksLikeSessionId = !!searchTerm && isUUIDLike(searchTerm)
-
-    useOnMountEffect(() => {
-        loadConfigs()
-    })
 
     const onResetDeletedPerson = (): void => {
         LemonDialog.openForm({

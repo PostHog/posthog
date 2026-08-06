@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -170,6 +171,30 @@ describe('scoutFleetLogic', () => {
 
         expect(mockSignalsScoutConfigList).not.toHaveBeenCalled()
         expect(logic.values.scoutConfigs).toBeNull()
+    })
+
+    it('degrades a project-not-found config fetch to null instead of an error', async () => {
+        // This logic stays mounted outside the inbox, so an unresolvable project 404s the fetch on
+        // unrelated pages. It must resolve quietly rather than escape to error tracking.
+        mockSignalsScoutConfigList.mockRejectedValueOnce(new ApiError('Project not found.', 404))
+
+        logic.actions.loadScoutConfigs()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadScoutConfigsSuccess'])
+            .toNotHaveDispatchedActions(['loadScoutConfigsFailure'])
+        expect(logic.values.scoutConfigs).toBeNull()
+    })
+
+    it('still surfaces a non-404 config fetch failure', async () => {
+        mockSignalsScoutConfigList.mockRejectedValueOnce(new ApiError('boom', 500))
+
+        logic.actions.loadScoutConfigs()
+
+        await expectLogic(logic).toDispatchActions(['loadScoutConfigsFailure'])
+        // The failure keeps the previously loaded configs rather than collapsing them to the
+        // null "not loaded" state a 404 produces.
+        expect(logic.values.scoutConfigs).toEqual([BASE_CONFIG])
     })
 
     it('sends newer queued updates after an earlier request fails', async () => {

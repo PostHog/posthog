@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -161,6 +162,12 @@ export const customerProfileConfigLogic = kea<customerProfileConfigLogicType>([
                         const response = await api.customerProfileConfigs.list(params)
                         return response.results
                     } catch (error) {
+                        // This fires on every Persons page view. When the project id doesn't
+                        // resolve the API 404s, so degrade quietly rather than interrupt a core
+                        // scene with a toast for an optional feature. Other failures stay visible.
+                        if (error instanceof ApiError && error.status === 404) {
+                            return []
+                        }
                         lemonToast.error('Failed to load customer profile configs')
                         throw error
                     }
