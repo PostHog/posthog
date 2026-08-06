@@ -2,6 +2,7 @@ packages:
     - apps/*
     - packages/*
     - tooling/*
+    - tools/*
 
 catalog:
     '@hono/node-server': ^1.13.7
