@@ -42,7 +42,10 @@ class Metric(
         help_text="Identifier-safe run handle, unique per team and reserved forever. Write-once.",
     )
     display_name = models.CharField(max_length=255, blank=True, help_text="Human-friendly label. Mutable, unlike name.")
-    description = models.TextField(help_text="What the metric means and how to interpret it. The load-bearing text.")
+    description = models.TextField(
+        help_text="What the metric means and what it serves, in 1-3 short sentences. The load-bearing text. "
+        "Query mechanics live in the definition; query rationale in reasoning."
+    )
     unit = models.CharField(max_length=64, blank=True, help_text="Unit of the result, e.g. usd, percent, cents.")
     owner = models.ForeignKey(
         "posthog.User",

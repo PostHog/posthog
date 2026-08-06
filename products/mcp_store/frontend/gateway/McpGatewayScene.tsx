@@ -14,7 +14,6 @@ import { GatewayAuditLog } from './GatewayAuditLog'
 import { GatewayServersHome } from './GatewayServersHome'
 import { GatewayTeamAndAgents } from './GatewayTeamAndAgents'
 import { GatewayTeamSettings } from './GatewayTeamSettings'
-import { mcpGatewayLogic } from './mcpGatewayLogic'
 import { GatewayTab, mcpGatewaySceneLogic } from './mcpGatewaySceneLogic'
 
 export const scene: SceneExport = {
@@ -33,7 +32,6 @@ export function McpGatewayScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { activeTab, availableTabs } = useValues(mcpGatewaySceneLogic)
     const { setTab } = useActions(mcpGatewaySceneLogic)
-    const { isAdmin } = useValues(mcpGatewayLogic)
 
     if (!featureFlags[FEATURE_FLAGS.MCP_GATEWAY]) {
         return (
@@ -51,26 +49,22 @@ export function McpGatewayScene(): JSX.Element {
     }
 
     return (
-        <SceneContent>
+        <SceneContent className="mx-auto w-full max-w-[1200px]">
             <SceneTitleSection
                 name={sceneConfigurations[Scene.McpGateway].name}
                 description="Every MCP server your team runs through the gateway. Route people and agents through one control plane."
                 resourceType={{ type: sceneConfigurations[Scene.McpGateway].iconType || 'default_icon_type' }}
             />
-            {isAdmin ? (
-                <LemonTabs
-                    activeKey={activeTab}
-                    onChange={(key) => setTab(key)}
-                    sceneInset
-                    tabs={availableTabs.map((tab) => ({
-                        key: tab,
-                        label: TAB_LABELS[tab],
-                        content: tabContent[tab],
-                    }))}
-                />
-            ) : (
-                <GatewayServersHome />
-            )}
+            <LemonTabs
+                activeKey={activeTab}
+                onChange={(key) => setTab(key)}
+                sceneInset
+                tabs={availableTabs.map((tab) => ({
+                    key: tab,
+                    label: TAB_LABELS[tab],
+                    content: tabContent[tab],
+                }))}
+            />
         </SceneContent>
     )
 }

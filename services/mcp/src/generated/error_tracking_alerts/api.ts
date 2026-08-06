@@ -514,6 +514,12 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(hogFunctionsPartialUpdateBodyExecutionOrderMax)
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
+    base_updated_at: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally.'
+        ),
 })
 
 /**
