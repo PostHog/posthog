@@ -21,7 +21,7 @@ const MetricDragHandle = ({
         <button
             type="button"
             ref={setActivatorNodeRef}
-            className="cursor-grab active:cursor-grabbing text-muted hover:text-default transition-colors border-none bg-transparent p-0 flex-shrink-0"
+            className="touch-none cursor-grab active:cursor-grabbing text-muted hover:text-default transition-colors border-none bg-transparent p-0 flex-shrink-0"
             aria-label={`Reorder ${metricName}`}
             {...listeners}
             {...attributes}
