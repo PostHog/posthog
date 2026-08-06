@@ -2844,15 +2844,28 @@ export const experimentLogic = kea<experimentLogicType>([
                     ...values.experiment.parameters,
                     variant_screenshot_media_ids: variantPreviewMediaIds,
                 }
-                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                    parameters: updatedParameters,
-                    update_feature_flag_params: false,
-                })
+                const response: Experiment = await api.update(
+                    `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
+                    {
+                        ...toConcurrencyPayload(values.unmodifiedExperiment),
+                        parameters: updatedParameters,
+                        update_feature_flag_params: false,
+                    }
+                )
+                actions.setUnmodifiedExperiment(structuredClone(initializeMetricOrdering(response)))
                 actions.setExperiment({
                     parameters: updatedParameters,
                 })
-            } catch {
-                lemonToast.error('Failed to update experiment variant images')
+            } catch (error: any) {
+                if (isExperimentConflictError(error)) {
+                    lemonToast.error(
+                        error.data?.detail ||
+                            'This experiment was changed while you were editing it. Review the latest changes and try again.'
+                    )
+                    actions.loadExperiment()
+                } else {
+                    lemonToast.error('Failed to update experiment variant images')
+                }
             }
         },
         updateExperimentVariantNotes: async ({ variantNotes }) => {
@@ -2861,18 +2874,35 @@ export const experimentLogic = kea<experimentLogicType>([
                     ...values.experiment.parameters,
                     variant_notes: variantNotes,
                 }
-                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                    parameters: updatedParameters,
-                    update_feature_flag_params: false,
-                })
+                const response: Experiment = await api.update(
+                    `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
+                    {
+                        ...toConcurrencyPayload(values.unmodifiedExperiment),
+                        parameters: updatedParameters,
+                        update_feature_flag_params: false,
+                    }
+                )
+                actions.setUnmodifiedExperiment(structuredClone(initializeMetricOrdering(response)))
                 actions.setExperiment({
                     parameters: updatedParameters,
                 })
-            } catch {
-                lemonToast.error('Failed to update experiment variant notes')
+            } catch (error: any) {
+                if (isExperimentConflictError(error)) {
+                    lemonToast.error(
+                        error.data?.detail ||
+                            'This experiment was changed while you were editing it. Review the latest changes and try again.'
+                    )
+                    actions.loadExperiment()
+                } else {
+                    lemonToast.error('Failed to update experiment variant notes')
+                }
             }
         },
         updateDistribution: async ({ variants, rolloutPercentage }) => {
+            // Resending an unchanged holdout would make every stale distribution save read as a
+            // holdout edit server-side; include it only when the selector actually changed it.
+            const holdoutChanged =
+                (values.experiment.holdout_id ?? null) !== (values.unmodifiedExperiment?.holdout_id ?? null)
             actions.updateExperiment({
                 feature_flag: {
                     filters: {
@@ -2882,7 +2912,7 @@ export const experimentLogic = kea<experimentLogicType>([
                             : {}),
                     },
                 },
-                holdout_id: values.experiment.holdout_id,
+                ...(holdoutChanged ? { holdout_id: values.experiment.holdout_id } : {}),
                 update_feature_flag_params: true,
             })
         },

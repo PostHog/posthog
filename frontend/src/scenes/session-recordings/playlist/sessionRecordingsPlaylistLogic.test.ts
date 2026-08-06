@@ -957,6 +957,47 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         otherRecordings: [bRecording],
                     })
             })
+
+            it('clears a stale selection when filters change, instead of deleting recordings the user can no longer see', async () => {
+                await expectLogic(logic)
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ otherRecordings: [aRecording, bRecording] })
+
+                logic.actions.setSelectedRecordingsIds(['abc', 'def'])
+                await expectLogic(logic).toMatchValues({ selectedRecordingsIds: ['abc', 'def'] })
+
+                logic.actions.setFilters({ date_from: '-30d' })
+
+                await expectLogic(logic).toMatchValues({ selectedRecordingsIds: [] })
+            })
+
+            it('ignores a second delete request while one is already in flight', async () => {
+                let resolveDelete: (value: {
+                    success: boolean
+                    deleted_count: number
+                    total_requested: number
+                    failed_ids: string[]
+                }) => void = () => {}
+                jest.spyOn(api.recordings, 'bulkDeleteRecordings').mockReturnValue(
+                    new Promise((resolve) => {
+                        resolveDelete = resolve
+                    })
+                )
+
+                await expectLogic(logic)
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ otherRecordings: [aRecording, bRecording] })
+
+                logic.actions.setSelectedRecordingsIds(['abc', 'def'])
+
+                logic.actions.handleDeleteSelectedRecordings(undefined)
+                logic.actions.handleDeleteSelectedRecordings(undefined)
+
+                resolveDelete({ success: true, deleted_count: 2, total_requested: 2, failed_ids: [] })
+                await expectLogic(logic).toDispatchActions(['addDeletedRecordings'])
+
+                expect(api.recordings.bulkDeleteRecordings).toHaveBeenCalledTimes(1)
+            })
         })
     })
 

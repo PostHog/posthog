@@ -18,8 +18,10 @@ import { beforeUnload, router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { isUUIDLike } from 'lib/utils/guards'
 import { markdownToHtml } from 'lib/utils/markdown'
@@ -36,7 +38,7 @@ import { tagsModel } from '~/models/tagsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import type { Breadcrumb, CommentType, PersonType } from '~/types'
-import { PropertyFilterType, PropertyOperator, Region } from '~/types'
+import { ActivityScope, PropertyFilterType, PropertyOperator, Region } from '~/types'
 
 import {
     businessKnowledgeGapSuggestionsDismissCreate,
@@ -49,6 +51,7 @@ import {
 import { signalsReportsList } from 'products/signals/frontend/generated/api'
 import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
 
+import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
 import { assigneeSelectLogic } from '../../components/Assignee'
 import type { Assignee, TicketAssignee } from '../../components/Assignee'
@@ -179,6 +182,7 @@ export function getEmailReplyBlockedReason(
 export interface supportTicketSceneLogicValues {
     resolveAssignee: (assignee: TicketAssignee) => Assignee // assigneeSelectLogic
     draftModeDefault: boolean // conversationsDraftModeLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     availableTags: string[] // tagsModel
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     assignee: TicketAssignee
@@ -446,6 +450,7 @@ export interface supportTicketSceneLogicMeta {
             ticket: Ticket | null,
             currentTeam: TeamPublicType | TeamType | null
         ) => EmailReplyBlockedReason | null
+        sidePanelContext: (ticket: Ticket | null, featureFlags: FeatureFlagsSet) => SidePanelSceneContext | null
         replyRecipientDescription: (ticket: Ticket | null) => string
         unsavedTicketChanges: (
             priority: TicketPriority | null,
@@ -465,7 +470,6 @@ export interface supportTicketSceneLogicMeta {
         eventsQuery: (ticket: Ticket | null) => DataTableNode | null
         exceptionsQuery: (ticket: Ticket | null) => DataTableNode | null
         latestAiMessage: (chatMessages: ChatMessage[]) => ChatMessage | null
-        sidePanelContext: (ticket: Ticket | null) => SidePanelSceneContext | null
     }
 }
 
@@ -485,6 +489,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         values: [
             teamLogic,
             ['currentTeam'],
+            featureFlagLogic,
+            ['featureFlags'],
             conversationsDraftModeLogic,
             ['draftModeDefault'],
             assigneeSelectLogic,
@@ -847,6 +853,25 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             ): EmailReplyBlockedReason | null =>
                 getEmailReplyBlockedReason(ticket, currentTeam?.conversations_settings),
         ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.ticket, s.featureFlags],
+            (ticket: Ticket | null, featureFlags: FeatureFlagsSet): SidePanelSceneContext | null =>
+                ticket?.id
+                    ? {
+                          access_control_resource: 'ticket',
+                          access_control_resource_id: `${ticket.id}`,
+                          // Scoping the discussion thread to the ticket is still flag-gated; the
+                          // access control fields above are not, so the panel stays gated on
+                          // ticket access either way.
+                          ...(featureFlags[FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC]
+                              ? {
+                                    activity_scope: ActivityScope.TICKET,
+                                    activity_item_id: `${ticket.id}`,
+                                }
+                              : {}),
+                      }
+                    : null,
+        ],
         replyRecipientDescription: [
             (s) => [s.ticket],
             (ticket: Ticket | null): string => {
@@ -1024,17 +1049,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 return null
             },
         ],
-        [SIDE_PANEL_CONTEXT_KEY]: [
-            (s) => [s.ticket],
-            (ticket: Ticket | null): SidePanelSceneContext | null => {
-                return ticket?.id
-                    ? {
-                          access_control_resource: 'ticket',
-                          access_control_resource_id: `${ticket.id}`,
-                      }
-                    : null
-            },
-        ],
     }),
     listeners(({ actions, values, props, cache }) => ({
         loadTicket: async () => {
@@ -1060,7 +1074,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
 
                 impersonationNoticeLogic.findMounted()?.actions.setTicketContext({
                     ticketId: ticket.id,
-                    email: ticket.anonymous_traits?.email || '',
+                    // email_from is the customer's address on email tickets, and it's the only
+                    // place it lives on tickets whose traits were never populated.
+                    email: ticket.anonymous_traits?.email || ticket.email_from || '',
                     region: regionFromUrl(ticket.session_context?.current_url),
                 })
 
