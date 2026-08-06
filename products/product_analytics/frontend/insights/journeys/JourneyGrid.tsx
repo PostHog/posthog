@@ -156,6 +156,10 @@ export function JourneyGrid({
                                 d={ribbonPath(fromX, fromY, thickness, toX, toY, thickness)}
                                 fill={nodeColor}
                                 opacity={ribbonOpacity(ribbon)}
+                                // The transparent stroke widens the hover target without changing the
+                                // drawn shape, so hair-thin ribbons can still be hovered for a tooltip.
+                                stroke="transparent"
+                                strokeWidth={8}
                                 className={`pointer-events-auto hover:opacity-40 transition-opacity ${
                                     onRibbonClick ? 'cursor-pointer' : ''
                                 }`}
@@ -283,55 +287,57 @@ function JourneyCard({
         )
 
     return (
-        <div
-            className={`absolute rounded px-2 py-1.5 transition-opacity ${styles.container} ${
-                onClick ? 'cursor-pointer' : ''
-            } ${dimmed ? 'opacity-40' : ''}`}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                left: x,
-                top: y,
-                width: CARD_WIDTH,
-                height: CARD_HEIGHT,
-                ...(onChain ? { boxShadow: `0 0 0 2px ${nodeColor}` } : {}),
-            }}
-            data-attr={styles.dataAttr}
-            role={onClick ? 'button' : undefined}
-            tabIndex={onClick ? 0 : undefined}
-            onClick={onClick}
-            onMouseEnter={onMouseEnter}
-            onKeyDown={
-                onClick
-                    ? (event) => {
-                          if (event.key === 'Enter' || event.key === ' ') {
-                              event.preventDefault()
-                              onClick()
+        // The whole card is the tooltip trigger — a label-only trigger makes the tooltip vanish
+        // as soon as the pointer moves onto the count or progress bar within the card.
+        <Tooltip title={tooltip}>
+            <div
+                className={`absolute rounded px-2 py-1.5 transition-opacity ${styles.container} ${
+                    onClick ? 'cursor-pointer' : ''
+                } ${dimmed ? 'opacity-40' : ''}`}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    left: x,
+                    top: y,
+                    width: CARD_WIDTH,
+                    height: CARD_HEIGHT,
+                    ...(onChain ? { boxShadow: `0 0 0 2px ${nodeColor}` } : {}),
+                }}
+                data-attr={styles.dataAttr}
+                role={onClick ? 'button' : undefined}
+                tabIndex={onClick ? 0 : undefined}
+                onClick={onClick}
+                onMouseEnter={onMouseEnter}
+                onKeyDown={
+                    onClick
+                        ? (event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault()
+                                  onClick()
+                              }
                           }
-                      }
-                    : undefined
-            }
-        >
-            <Tooltip title={tooltip}>
+                        : undefined
+                }
+            >
                 <div className={`text-xs font-semibold truncate ${styles.text}`}>
                     {midEllipsis(row.label, MAX_LABEL_CHARS)}
                 </div>
-            </Tooltip>
-            <div className="flex items-baseline gap-1.5 mt-0.5">
-                <span className={`text-sm font-semibold ${styles.text}`}>
-                    {humanFriendlyNumber(onChain ? chainCount : row.count)}
-                </span>
-                {!onChain && <span className="text-xs text-secondary">{percentage(row.fraction, 1)}</span>}
-                {onChain && <span className="text-xs text-secondary">on this path</span>}
+                <div className="flex items-baseline gap-1.5 mt-0.5">
+                    <span className={`text-sm font-semibold ${styles.text}`}>
+                        {humanFriendlyNumber(onChain ? chainCount : row.count)}
+                    </span>
+                    {!onChain && <span className="text-xs text-secondary">{percentage(row.fraction, 1)}</span>}
+                    {onChain && <span className="text-xs text-secondary">on this path</span>}
+                </div>
+                {row.kind !== 'dropOff' && (
+                    <LemonProgress
+                        percent={Math.max(2, (onChain ? (chainFraction ?? 0) : row.fraction) * 100)}
+                        strokeColor={row.kind === 'other' ? 'var(--color-gray-400)' : nodeColor}
+                        bgColor="var(--color-fill-secondary)"
+                        smoothing={false}
+                        className="mt-1"
+                    />
+                )}
             </div>
-            {row.kind !== 'dropOff' && (
-                <LemonProgress
-                    percent={Math.max(2, (onChain ? (chainFraction ?? 0) : row.fraction) * 100)}
-                    strokeColor={row.kind === 'other' ? 'var(--color-gray-400)' : nodeColor}
-                    bgColor="var(--color-fill-secondary)"
-                    smoothing={false}
-                    className="mt-1"
-                />
-            )}
-        </div>
+        </Tooltip>
     )
 }
