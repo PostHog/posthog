@@ -109,8 +109,6 @@ export const aiBlobOffloadBelowFloorBytes = new Counter({
 export const aiBlobOffloadBlobBytes = new Histogram({
     name: 'aio_blob_offload_blob_bytes',
     help: 'Decoded size of offloaded blobs',
-    // outcome makes dedup measurable in bytes, not just blob counts: uploaded
-    // bytes are what actually hits S3 PUT.
     labelNames: ['mime_family', 'outcome'],
     buckets: [1024, 8192, 65536, 262144, 1048576, 4194304, 8388608],
 })
