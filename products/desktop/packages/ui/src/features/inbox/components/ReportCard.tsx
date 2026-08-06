@@ -128,7 +128,7 @@ export function ReportCard(props: ReportCardProps) {
       className={cn(
         // The card is its own size container: below ~32rem the actions rail
         // stacks under the content instead of crushing the title column.
-        "@container group flex w-full flex-col gap-3 rounded-(--radius-2) border border-(--gray-6) border-dashed bg-(--color-panel-solid) px-4 py-3.5 transition duration-150 @lg:flex-row @lg:items-stretch hover:border-(--gray-7) hover:bg-(--gray-2)",
+        "@container group flex w-full @lg:flex-row flex-col @lg:items-stretch gap-3 rounded-(--radius-2) border border-(--gray-6) border-dashed bg-(--color-panel-solid) px-4 py-3.5 transition duration-150 hover:border-(--gray-7) hover:bg-(--gray-2)",
         isArchived ? "opacity-90" : "hover:shadow-sm",
         !isArchived &&
           isSelected &&
@@ -239,7 +239,7 @@ export function ReportCard(props: ReportCardProps) {
         </Flex>
       </Link>
 
-      <div className="flex items-center justify-between gap-3 border-border border-t pt-3 @lg:flex-col @lg:items-end @lg:justify-between @lg:shrink-0 @lg:border-t-0 @lg:border-l @lg:pt-0 @lg:pl-3">
+      <div className="flex @lg:shrink-0 @lg:flex-col @lg:items-end items-center @lg:justify-between justify-between gap-3 border-border border-t @lg:border-t-0 @lg:border-l @lg:pt-0 pt-3 @lg:pl-3">
         {props.variant === "archived" ? (
           // Resolved reports are terminal — reference-only, no restore action.
           isResolved ? null : (
@@ -269,7 +269,7 @@ export function ReportCard(props: ReportCardProps) {
               </Text>
             )}
 
-            <div className="flex items-center gap-3.5 @lg:my-auto">
+            <div className="@lg:my-auto flex items-center gap-3.5">
               <div className="flex shrink-0 items-center">
                 <SuggestedReviewerAvatarStack
                   reportId={report.id}

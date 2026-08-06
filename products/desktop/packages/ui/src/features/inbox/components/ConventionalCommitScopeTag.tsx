@@ -28,7 +28,7 @@ export function ConventionalCommitScopeTag({
     <InboxBadge
       variant={compact ? "default" : meta.variant}
       className={cn(
-        "mr-1.5 gap-1 whitespace-nowrap align-middle font-mono font-normal select-none",
+        "mr-1.5 select-none gap-1 whitespace-nowrap align-middle font-mono font-normal",
         compact &&
           "h-5 gap-0.5 border border-(--gray-4) bg-(--gray-2) px-1.5 py-0 text-[11px] text-gray-11 leading-none",
       )}

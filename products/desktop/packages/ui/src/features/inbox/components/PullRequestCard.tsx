@@ -69,7 +69,7 @@ export function PullRequestCard({
       className={cn(
         // The card is its own size container: below ~32rem the actions rail
         // stacks under the content instead of crushing the title column.
-        "@container group flex w-full flex-col gap-3 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-4 py-3.5 transition duration-150 @lg:flex-row @lg:items-start hover:border-(--gray-6) hover:bg-(--gray-2) hover:shadow-sm",
+        "@container group flex w-full @lg:flex-row flex-col @lg:items-start gap-3 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-4 py-3.5 transition duration-150 hover:border-(--gray-6) hover:bg-(--gray-2) hover:shadow-sm",
         isSelected &&
           "border-(--accent-8) bg-(--accent-2) ring-(--accent-8) ring-2 ring-inset",
       )}
@@ -118,10 +118,10 @@ export function PullRequestCard({
         </Flex>
       </Link>
 
-      <div className="flex items-center justify-between gap-3.5 border-border border-t pt-3 @lg:justify-start @lg:self-stretch @lg:border-t-0 @lg:border-l @lg:pt-0 @lg:pl-3">
+      <div className="flex items-center @lg:justify-start justify-between gap-3.5 @lg:self-stretch border-border border-t @lg:border-t-0 @lg:border-l @lg:pt-0 pt-3 @lg:pl-3">
         <div className="flex shrink-0 items-center gap-2">
           {report.implementation_pr_url && (
-            <div className="flex shrink-0 items-center gap-2 @lg:flex-col @lg:items-end @lg:gap-1">
+            <div className="flex shrink-0 @lg:flex-col @lg:items-end items-center @lg:gap-1 gap-2">
               <ReportImplementationPrLink
                 prUrl={report.implementation_pr_url}
                 size="sm"
