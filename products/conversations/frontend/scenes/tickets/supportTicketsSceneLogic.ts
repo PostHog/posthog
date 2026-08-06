@@ -926,6 +926,17 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 actions.setBulkUpdating(false)
             }
         },
+        [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
+            // Flags resolve after mount, so the first load can miss the pill entirely. Reload only
+            // when the value flips, so unrelated flag payloads don't refetch the whole list.
+            if (cache.relatedOpenTicketsEnabled === values.relatedOpenTicketsEnabled) {
+                return
+            }
+            cache.relatedOpenTicketsEnabled = values.relatedOpenTicketsEnabled
+            if (!props.distinctIds?.length) {
+                actions.loadTickets()
+            }
+        },
     })),
     actionToUrl(({ values, props, cache }) => {
         const buildUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] | undefined => {
@@ -1006,7 +1017,9 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             }
         },
     })),
-    afterMount(({ actions, values, props }) => {
+    afterMount(({ actions, values, props, cache }) => {
+        // Seeded so the first flag payload doesn't read as a change (see setFeatureFlags above).
+        cache.relatedOpenTicketsEnabled = values.relatedOpenTicketsEnabled
         const embedded = !!props.distinctIds?.length
         const { searchParams } = router.values
         if (!embedded && searchParams.view) {

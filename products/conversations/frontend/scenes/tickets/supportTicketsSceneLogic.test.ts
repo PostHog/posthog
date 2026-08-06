@@ -417,5 +417,21 @@ describe('supportTicketsSceneLogic', () => {
 
             expect(lastIncludeParam).toBe(expected)
         })
+
+        it('refetches once the flag resolves after the first load', async () => {
+            featureFlagLogic.mount()
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(lastIncludeParam).toBeNull()
+
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.PRODUCT_SUPPORT_RELATED_OPEN_TICKETS]: true,
+                })
+            }).toFinishAllListeners()
+
+            expect(lastIncludeParam).toBe('true')
+        })
     })
 })
