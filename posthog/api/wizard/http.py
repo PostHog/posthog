@@ -61,11 +61,8 @@ OPENAI_SUPPORTED_MODELS = {"o4-mini", "gpt-5-mini", "gpt-5-nano", "gpt-5"}
 # loop lands on. Only requests that reach creation consume it.
 WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP = 15
 
-# The same ceiling for detection scans, on its own counter, and the *only* limit on them: unlike
-# cloud_run there are no outcome-aware DB throttles on top, so every attempt counts whether the scan
-# succeeds, fails, or is cancelled. A scan boots a sandbox but runs no agent, and a user scanning
-# several repositories must not exhaust the budget that gets them through onboarding, so the two
-# budgets are separate and this one is higher.
+# The only limit on detection scans, on its own counter: every attempt counts regardless of
+# outcome, and a user scanning several repositories must not exhaust their onboarding budget.
 WIZARD_REPOSITORY_DETECTION_DAILY_ATTEMPT_CAP = 30
 
 WIZARD_CLOUD_RUN_REQUESTS_TOTAL = Counter(
@@ -156,17 +153,15 @@ class SetupWizardRepositoryDetectionSerializer(serializers.Serializer):
             "must have a connected GitHub integration with access to it."
         )
     )
-    # CharField rather than ChoiceField: the supported set lives in the tasks facade, and 'kind'
-    # as a ChoiceField would mint a collision-prone KindEnum in the OpenAPI schema. validate_kind
-    # below applies the same membership check the facade does.
+    # CharField, not ChoiceField: the supported set lives in the tasks facade, and a ChoiceField
+    # here would mint a collision-prone KindEnum in the OpenAPI schema.
     kind = serializers.CharField(
         max_length=64,
         help_text="Detection flavor to run, e.g. 'error-tracking-source-maps'. Unsupported kinds are rejected.",
     )
 
     def validate_kind(self, value: str) -> str:
-        # Checked here rather than left to create_wizard_repository_detection_run so an unknown kind is rejected
-        # before _reserve_wizard_repository_detection_attempt charges the user's daily budget for it.
+        # Rejected here so an unknown kind never charges the daily attempt budget.
         if value not in tasks_facade.supported_wizard_repository_detection_kinds():
             raise serializers.ValidationError(f"Unknown detection kind: {value}")
         return value
@@ -538,11 +533,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
 
     @staticmethod
     def _reserve_wizard_repository_detection_attempt(user_id: int) -> None:
-        """Atomically consume one of the user's daily detection attempts or raise Throttled.
-
-        The detection counterpart of ``_reserve_cloud_run_attempt``, on its own counter and cap;
-        see that method for why the reservation is atomic and where it sits in the request.
-        """
+        """Detection counterpart of ``_reserve_cloud_run_attempt``, on its own counter and cap."""
         window = int(time.time()) // 86400
         key = f"wizard_repository_detection_attempts:{user_id}:{window}"
         cache.add(key, 0, timeout=86400)
@@ -617,13 +608,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
         Provisions a task-run sandbox that clones the repository and runs the wizard detection
         program the kind selects. The wizard posts the resulting report to the wizard product's
         repository-detections API under the same kind; the app reads it from there later. No
-        agent runs and no pull request is opened.
-
-        Bounded solely by the daily attempt reservation below, on its own counter rather than the
-        cloud wizard run's: each scan still boots a sandbox, but it runs no agent and is triggered
-        per repository, so a user scanning several repositories must not lock themselves out of
-        the setup run. Unlike cloud_run there are no DB-counted throttles on top — every attempt
-        counts, whatever it goes on to do, so one number bounds the sandbox boots.
+        agent runs and no pull request is opened. Bounded by a daily per-user attempt cap,
+        separate from the cloud wizard run's budget.
         """
         if not bool(settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID):
             raise exceptions.NotFound("Running the setup wizard in the cloud is not available.")

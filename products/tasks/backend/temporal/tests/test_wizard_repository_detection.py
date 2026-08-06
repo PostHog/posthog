@@ -23,10 +23,8 @@ from products.tasks.backend.temporal.wizard_repository_detection import (
 
 class TestBuildDetectionCommand(SimpleTestCase):
     def test_registered_kind_builds_subcommand_before_flags_without_headless(self) -> None:
-        # Detection programs are natively non-interactive subcommands; the headless flag is only
-        # declared on the wizard's base command, so leaking it here would crash yargs
-        # strictOptions. The subcommand must come before the flags, and --repository must be
-        # passed explicitly because the sandbox clone's origin remote carries a token URL.
+        # yargs rejects the headless flag (only the base command declares it), and --repository
+        # must be explicit because the sandbox clone's origin remote carries a token URL.
         command = _build_wizard_repository_detection_command(
             "error-tracking-source-maps", "/tmp/workspace/repos/acme/app", 123, "acme/app"
         )
@@ -133,9 +131,8 @@ class TestDetectRepositoryWorkflow:
         assert statuses == ["in_progress", "failed"]
 
     async def test_context_failure_marks_run_failed_instead_of_orphaning_it(self, monkeypatch):
-        # get_task_processing_context fails on real states (no created_by, an inaccessible sandbox
-        # environment) and on the row-not-visible-yet race. Raised outside the try, it escapes the
-        # workflow and leaves the run in QUEUED with no error until the 24h killer sweeps it.
+        # A context failure raised outside the try would escape the workflow and leave the run
+        # in QUEUED with no error until the 24h killer sweeps it.
         calls = self._install_fake_activities(monkeypatch, context_error=RuntimeError("run row not ready"))
 
         result = await WizardRepositoryDetectionWorkflow().run(WizardRepositoryDetectionInput(run_id="run-id"))
@@ -166,6 +163,5 @@ class TestDetectRepositoryWorkflow:
         assert cleanup_sandbox not in [fn for fn, _ in calls]
 
 
-# The async tests above run under pytest-asyncio's auto mode, same as the process_task
-# workflow unit tests.
+# Same pytest-asyncio setup as the process_task workflow unit tests.
 pytestmark = pytest.mark.asyncio

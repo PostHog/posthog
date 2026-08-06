@@ -80,9 +80,8 @@ class TestWorkflowIdPrefix(TestCase):
         assert task_run.workflow_id == started_id
 
     def test_detection_dispatch_records_the_id_it_starts_under(self) -> None:
-        # wizard-repository-detection runs under its own prefix, so without the recorded id TaskRun.workflow_id
-        # resolves to a task-processing id that does not exist. Cancellation reads that miss as
-        # "workflow gone" and tears the sandbox down under the still-running scan.
+        # Without the recorded id, TaskRun.workflow_id resolves to a task-processing id that does
+        # not exist, so cancellation and team deletion would miss the live workflow.
         task_run = self.task.create_run(environment=TaskRun.Environment.CLOUD)
         temporal_client = MagicMock()
         temporal_client.start_workflow = AsyncMock()

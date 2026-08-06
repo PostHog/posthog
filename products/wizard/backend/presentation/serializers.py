@@ -92,9 +92,8 @@ class WizardSessionSerializer(DataclassSerializer):
         }
 
 
-# Bounds on a detection report. A detection is a shallow repo classification (one row per
-# project manifest found), not a document — the caps keep a malformed or hostile push from
-# growing a row the app reads when rendering setup recommendations.
+# Caps keep a malformed or hostile push from growing a row the app reads when rendering
+# setup recommendations.
 MAX_DETECTED_PROJECTS = 200
 MAX_DETECTION_ERROR_MESSAGE_LENGTH = 2000
 
@@ -233,10 +232,8 @@ class UpsertWizardRepositoryDetectionRequestSerializer(DataclassSerializer):
         return str(value) if value is not None else None
 
     def validate_repository(self, value: str) -> str:
-        # This value is half the idempotency anchor and is stored verbatim under a unique
-        # constraint, so anything the shape check lets through splits into a second row instead of
-        # replacing the first. Matches the shape SetupWizardRepositoryDetectionSerializer accepts on the
-        # trigger side, which local (non-cloud) runs would otherwise bypass entirely.
+        # Half the idempotency anchor, stored verbatim under a unique constraint. Matches the
+        # trigger-side shape check, which local (non-cloud) runs would otherwise bypass.
         repository = value.strip()
         parts = repository.split("/")
         if len(parts) != 2 or not all(parts):

@@ -182,10 +182,8 @@ class Task(DeletedMetaFields, models.Model):
         LOOP = "loop", "Loop"
         # "Create fix task" on the MCP analytics tool-quality failure drill-down.
         MCP_ANALYTICS = "mcp_analytics", "MCP Analytics"
-        # Repository detection scans: the wizard's detect programs, run in a sandbox with no agent
-        # and no PR. Its own origin because run-wizard-repository-detection, not process-task,
-        # drives these runs, and they hold a quota separate from the cloud wizard's. The stored
-        # value stays short because this column is a varchar(20).
+        # Wizard detection scans: no agent, no PR, driven by their own workflow with a quota
+        # separate from the cloud wizard's. Stored value kept short because the column is varchar(20).
         WIZARD_REPOSITORY_DETECTION = "repo_detection", "Wizard Repository Detection"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent

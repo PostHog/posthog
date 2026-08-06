@@ -68,13 +68,11 @@ class WizardSession(UUIDModel, TeamScopedRootMixin, CreatedMetaFields):
 class WizardRepositoryDetection(UUIDModel, TeamScopedRootMixin, CreatedMetaFields):
     """What a wizard detection agent found in a repository.
 
-    One row per (team, repository, kind) — each detection run replaces the
-    previous result for that key. `kind` is a free-form discriminator (e.g.
-    'error-tracking-source-maps') so new detection flavors need no migration.
+    One row per (team, repository, kind); each run replaces the previous result for that
+    key. `kind` is free-form so new detection flavors need no migration.
     """
 
-    # db_constraint=False: posthog_team is a hot table — adding a real FK constraint
-    # takes a parent lock that has blocked deploys. App-level enforcement only.
+    # db_constraint=False: a real FK to hot posthog_team takes a parent lock that has blocked deploys.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
 
     # db_constraint=False because posthog_user is a hot table (a constrained FK would lock it).
@@ -90,14 +88,13 @@ class WizardRepositoryDetection(UUIDModel, TeamScopedRootMixin, CreatedMetaField
     repository = models.CharField(max_length=255)
     kind = models.CharField(max_length=64)
 
-    # Exactly one of report/error is set per push: `report` when detection
-    # succeeded, `error` ({type, message}) when it failed. No status column —
+    # Exactly one of report/error is set per push; there is no status column, so
     # `error is null` is the success signal.
     report = models.JSONField(null=True, blank=True)
     error = models.JSONField(null=True, blank=True)
 
-    # TaskRun UUID of the cloud run that produced this result. Plain UUID, not an
-    # FK — TaskRun lives in products/tasks and models must not cross the app boundary.
+    # TaskRun UUID of the cloud run that produced this result. Plain UUID rather than an FK
+    # because TaskRun lives in products/tasks and models must not cross the app boundary.
     task_run_id = models.UUIDField(null=True, blank=True)
 
     updated_at = models.DateTimeField(auto_now=True)

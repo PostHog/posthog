@@ -1,15 +1,10 @@
 """Repository detection workflow.
 
-A wizard-only cloud run: provision a sandbox, clone the repository, run the
-wizard detection program the task's `kind` selects, tear the sandbox down.
-The wizard posts its detection report to the wizard product's
-repository-detections API itself (with the wizard token provisioning injects
-for wizard_config-carrying runs), so nothing flows back through this workflow
-except run status.
-
-Deliberately a sibling of ProcessTaskWorkflow rather than a mode of it: no
-agent server, no PR, no signals, no CI loop — reusing its activities but none
-of its orchestration, so the two evolve independently.
+Provision a sandbox, clone the repository, run the wizard detection program
+the task's `kind` selects, tear the sandbox down. The wizard posts its report
+to the wizard product's repository-detections API itself, so nothing flows
+back through this workflow except run status. A sibling of ProcessTaskWorkflow
+(its activities, none of its orchestration): no agent, no PR, no signals.
 """
 
 import json
@@ -72,19 +67,16 @@ def _build_wizard_repository_detection_command(kind: str, repo_path: str, projec
     program = WIZARD_REPOSITORY_DETECTION_PROGRAMS.get(kind)
     if program is None:
         raise ValueError(f"Unknown detection kind: {kind}")
-    # The wizard reads its access token from the POSTHOG_WIZARD_API_KEY env var injected into the
-    # sandbox (see provision_sandbox), so the token never appears on the command line. Detection
-    # subcommands are natively non-interactive and don't declare the headless flag (yargs rejects
-    # flags a command doesn't declare), so unlike the integrate flow none is passed.
+    # The wizard reads its token from the POSTHOG_WIZARD_API_KEY env var provisioning injects, so
+    # it never appears on the command line. No headless flag: detection subcommands don't declare
+    # it, and yargs rejects flags a command doesn't declare.
     parts = [
         f"cd {shlex.quote(repo_path)} &&",
-        # `timeout` makes an over-budget run exit WIZARD_TIMEOUT_EXIT_CODE (124) with partial
-        # output preserved. -k 30 escalates to SIGKILL 30s after SIGTERM.
+        # `timeout` makes an over-budget run exit WIZARD_TIMEOUT_EXIT_CODE (124); -k escalates to SIGKILL.
         f"timeout -k 30 {WIZARD_RUN_TIMEOUT_SECONDS}",
         f"npx --yes {WIZARD_PACKAGE}",
         *program,
-        # The sandbox clone's origin remote carries a token URL, so pass the repository
-        # explicitly rather than relying on the wizard's git-remote fallback.
+        # The sandbox clone's origin remote carries a token URL, so pass the repository explicitly.
         f"--repository {shlex.quote(repository)}",
         "--install-dir .",
         f"--region {shlex.quote(_wizard_region())}",
@@ -101,11 +93,8 @@ def _build_wizard_repository_detection_command(kind: str, repo_path: str, projec
 @activity.defn
 @asyncify
 def run_wizard_repository_detection(input: RunWizardRepositoryDetectionInput) -> None:
-    """Run the wizard's detection program in the sandbox.
-
-    The wizard posts its report (or its failure) to the repository-detections API itself;
-    this activity only surfaces the console output and fails the run on a non-zero exit.
-    """
+    """Run the wizard's detection program in the sandbox. The wizard posts its report (or
+    failure) itself; this activity surfaces console output and fails the run on non-zero exit."""
     ctx = input.context
     kind = (ctx.wizard_config or {}).get("kind") or ""
 
@@ -168,9 +157,8 @@ class WizardRepositoryDetectionWorkflow(PostHogWorkflow):
     async def run(self, input: WizardRepositoryDetectionInput) -> WizardRepositoryDetectionOutput:
         sandbox_id: str | None = None
         try:
-            # Inside the try so a context failure (TaskInvalidStateError, or the row-not-visible-yet
-            # race exhausting its retries) still terminalizes the run. Outside it, the exception
-            # escapes and the run sits in QUEUED until the 24h killer sweeps it.
+            # Inside the try so a context failure still terminalizes the run instead of leaving
+            # it in QUEUED for the 24h killer.
             context: TaskProcessingContext = await workflow.execute_activity(
                 get_task_processing_context,
                 GetTaskProcessingContextInput(run_id=input.run_id, create_pr=False),
@@ -216,9 +204,8 @@ class WizardRepositoryDetectionWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 run_wizard_repository_detection,
                 RunWizardRepositoryDetectionInput(context=context, sandbox_id=sandbox_id, repository=repository),
-                # Above WIZARD_RUN_TIMEOUT_SECONDS (45 min) so the wizard's own timeout bounds
-                # the run. Not idempotent enough to retry blindly: the wizard upserts its report,
-                # but a retry doubles the scan cost, so fail the run and let the user re-trigger.
+                # Above WIZARD_RUN_TIMEOUT_SECONDS so the wizard's own timeout bounds the run.
+                # No retries: a retry doubles the scan cost, so fail and let the user re-trigger.
                 start_to_close_timeout=timedelta(minutes=50),
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )

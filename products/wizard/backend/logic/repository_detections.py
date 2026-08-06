@@ -13,10 +13,8 @@ def upsert_wizard_repository_detection(
 ) -> tuple[WizardRepositoryDetectionDTO, bool]:
     """Upsert a detection row and return (dto, created).
 
-    Each push fully replaces `report` / `error` / `task_run_id` — the row always
-    reflects the latest detection run for the (repository, kind) key. Concurrent
-    POSTs for a brand-new key can race the unique constraint and surface as a
-    500; the client's normal HTTP retry handles that on the next attempt.
+    Each push fully replaces `report` / `error` / `task_run_id`. Concurrent POSTs for a
+    brand-new key can race the unique constraint into a 500; the client's HTTP retry covers it.
     """
     with transaction.atomic():
         defaults = {

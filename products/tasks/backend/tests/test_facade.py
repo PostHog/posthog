@@ -743,21 +743,20 @@ class TestFacadeReadsAndMappers(TestCase):
                 repository="acme-co/web",
                 kind="error-tracking-source-maps",
             )
-        # Detection runs its own workflow — never process-task, whose agent would boot with no
-        # pending message and idle until the 2h inactivity timeout.
+        # Never process-task: its agent would boot with no pending message and idle to timeout.
         mock_process_task.assert_not_called()
         run = TaskRun.objects.get(task_id=created.task_id)
         mock_detection.assert_called_once_with(str(created.task_id), str(run.id), self.team.id)
-        # The kind drives the detection activity's command; wizard_config's presence is what
-        # makes provisioning inject the wizard's own OAuth token into the sandbox.
+        # wizard_config carries the kind and makes provisioning inject the wizard token.
         self.assertEqual(run.state.get("wizard_config"), {"kind": "error-tracking-source-maps"})
-        # No agent, no PR: seeding either of these would re-enter the integrate-flow machinery.
+        # No agent, no PR: seeding either would re-enter the integrate-flow machinery.
         self.assertIsNone(run.state.get("pending_user_message"))
         self.assertIsNone(run.state.get("wizard_head_branch"))
         task = Task.objects.get(id=created.task_id)
-        # Cloud wizard runs stamp wizard_config too, so the origin is what keeps this run out of the
-        # process-task reconciler and off the cloud-run quota window.
+        # The origin keeps this run on its own workflow and off the cloud-run quota window.
         self.assertEqual(task.origin_product, Task.OriginProduct.WIZARD_REPOSITORY_DETECTION)
+        # internal keeps the scan out of the user-facing task list.
+        self.assertTrue(task.internal)
 
     def test_create_detection_run_rejects_unknown_kind(self):
         Integration.objects.create(team=self.team, kind="github", config={})
@@ -842,8 +841,7 @@ class TestRecentWizardCloudRunTimes(TestCase):
             ("run_patched_to_local", {"environment": TaskRun.Environment.LOCAL}, 1),
             ("non_onboarding_task_with_marker", {"origin_product": Task.OriginProduct.USER_CREATED}, 1),
             ("run_without_wizard_config", {"state": {}}, 0),
-            # A detection scan stamps wizard_config too, so origin is the only thing keeping it out
-            # of the much tighter cloud-run window the user needs to get through onboarding.
+            # Detection scans stamp wizard_config too; origin alone keeps them off the cloud-run window.
             ("detection_run", {"origin_product": Task.OriginProduct.WIZARD_REPOSITORY_DETECTION}, 0),
         ]
     )

@@ -1045,12 +1045,8 @@ def create_wizard_cloud_run(
 
 
 def supported_wizard_repository_detection_kinds() -> frozenset[str]:
-    """Detection kinds ``create_wizard_repository_detection_run`` accepts.
-
-    Exposed so callers can reject an unknown kind up front, before doing anything that costs the
-    user quota. ``create_wizard_repository_detection_run`` re-checks, since it is reachable without going through a
-    caller that pre-validates.
-    """
+    """Detection kinds ``create_wizard_repository_detection_run`` accepts, exposed so callers
+    can reject an unknown kind before charging the user's quota for it."""
     return frozenset(WIZARD_REPOSITORY_DETECTION_PROGRAMS)
 
 
@@ -1061,22 +1057,13 @@ def create_wizard_repository_detection_run(
     repository: str,
     kind: str,
 ) -> contracts.CreatedTaskDTO:
-    """Create a task and start the dedicated run-wizard-repository-detection workflow for it.
+    """Create a task and start the wizard-repository-detection workflow for it.
 
-    ``kind`` selects the wizard detection program (see ``WIZARD_REPOSITORY_DETECTION_PROGRAMS``)
-    and is the same identifier the wizard posts its report under to the wizard product's
-    repository-detections API, using its scoped cloud-run token — so nothing flows back
-    through this task except run status. The detection workflow is a sibling of
-    process-task with none of its agent machinery: no agent boots, no PR is opened.
-
-    ``wizard_config`` carries the kind for the detection activity, and its presence is what
-    makes provisioning inject the wizard's own OAuth token into the sandbox — the same gate a
-    cloud wizard run uses, because a detection scan runs the same wizard binary.
-
-    ``WIZARD_REPOSITORY_DETECTION`` is what separates the two wherever both are visible: the reconciler
-    skips these runs (it only knows how to start process-task) and each origin holds its own quota
-    window. It is a server-set origin, rejected from API task creation, so neither can be forged
-    into the other.
+    ``kind`` selects the wizard detection program and is the key the wizard posts its report
+    under to the wizard product's repository-detections API, with its own scoped token, so
+    nothing flows back through this task except run status. ``wizard_config`` carries the kind
+    and is what makes provisioning inject that token. The server-set origin keeps these runs on
+    their own quota window and their own workflow; ``internal`` keeps them out of the task UI.
     """
     if kind not in WIZARD_REPOSITORY_DETECTION_PROGRAMS:
         raise ValueError(f"Unknown detection kind: {kind}")
@@ -1094,13 +1081,13 @@ def create_wizard_repository_detection_run(
         create_pr=False,
         mode="background",
         start_workflow=False,
+        internal=True,
         wizard_config={"kind": kind},
     )
     latest_run = created.latest_run
     assert latest_run is not None  # create_and_run_task always creates the run row
-    # Same commit-then-dispatch discipline as Task.create_and_run: started before the creating
-    # transaction commits, the workflow's first activity could read the TaskRun row before it
-    # exists. On autocommit the callback fires immediately.
+    # Commit-then-dispatch, same as Task.create_and_run: the workflow's first activity must
+    # find the TaskRun row already committed.
     transaction.on_commit(
         partial(
             execute_wizard_repository_detection_workflow,
@@ -1125,10 +1112,8 @@ def recent_wizard_cloud_run_times(user_id: int, since: datetime) -> list[datetim
     like the run's ``environment`` are deliberately NOT filtered — a run PATCHed from cloud to
     local must keep consuming quota, or flipping it would launder sandbox boots out of the limits.
 
-    Detection runs stamp ``wizard_config`` too (it is what makes provisioning inject the wizard
-    token), so they are excluded by origin. They are bounded instead by their own daily attempt
-    reservation in the detection view, which counts every attempt regardless of outcome and so
-    needs no query here.
+    Detection runs stamp ``wizard_config`` too, so they are excluded by origin; their own
+    daily attempt reservation in the detection view bounds them instead.
 
     Deliberately user-scoped across teams: the throttle is per user, and a user can run the
     wizard on projects in different teams. Returns only timestamps, no run data.
@@ -1290,7 +1275,7 @@ def redispatch_task_run(run_id: str | UUID) -> str:
     """Re-dispatch a QUEUED run whose create-time workflow dispatch was lost. Cross-team janitor call.
 
     Idempotent recover-only wrapper over the temporal client — never fails the run. Returns the
-    outcome (``recovered`` / ``already_running`` / ``left_queue`` / ``skipped_wizard_repository_detection`` / ``error``).
+    outcome (``recovered`` / ``already_running`` / ``left_queue`` / ``error``).
     """
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         redispatch_orphaned_task_run,

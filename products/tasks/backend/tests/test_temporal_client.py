@@ -23,6 +23,7 @@ from products.tasks.backend.temporal.constants import (
     STEERING_PROTOCOL_QUERY,
     STEERING_PROTOCOL_QUERY_TIMEOUT,
 )
+from products.tasks.backend.temporal.wizard_repository_detection import WizardRepositoryDetectionInput
 
 
 @override_settings(DEBUG=False)
@@ -517,10 +518,9 @@ class TestRedispatchOrphanedTaskRun(TestCase):
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.QUEUED)
 
-    def test_skips_detection_run(self) -> None:
-        # A detection run is created with start_workflow=False, so it carries no pending_dispatch
-        # and the fallbacks below would resolve to create_pr=True with "full" MCP scopes. Recovering
-        # one here turns an agentless read-only scan into an agent run that can open a PR.
+    def test_redispatches_detection_run_via_its_own_workflow(self) -> None:
+        # Recovering a detection run as process-task would boot a full agent (create_pr=True,
+        # "full" scopes) in place of an agentless scan.
         detection_task = Task.objects.create(
             team=self.team,
             created_by=self.user,
@@ -533,10 +533,15 @@ class TestRedispatchOrphanedTaskRun(TestCase):
 
         outcome = self._run_reconcile(run, start_workflow)
 
-        self.assertEqual(outcome, "skipped_wizard_repository_detection")
-        start_workflow.assert_not_called()
+        self.assertEqual(outcome, "recovered")
+        assert start_workflow.await_args is not None
+        args = start_workflow.await_args.args
+        kwargs = start_workflow.await_args.kwargs
+        self.assertEqual(args[0], "wizard-repository-detection")
+        self.assertEqual(args[1], WizardRepositoryDetectionInput(run_id=str(run.id)))
+        self.assertEqual(kwargs["id"], f"wizard-repository-detection-{detection_task.id}-{run.id}")
         run.refresh_from_db()
-        self.assertEqual(run.status, TaskRun.Status.QUEUED)
+        self.assertEqual(run.workflow_id, kwargs["id"])
 
     def test_skips_prewarmed_run(self) -> None:
         # Prewarmed runs are owned by the prewarmed reaper (it kills them); re-dispatching one would
