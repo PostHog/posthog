@@ -164,6 +164,16 @@ class TestPathsV2Validation(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaisesMessage(ValidationError, "must be one of the step sources"):
             runner.validate()
 
+    def test_anchor_on_naming_property_source_needs_a_label(self) -> None:
+        runner = self._runner(
+            PathsV2Filter(
+                stepSources=[PathsV2StepSource(event="$pageview", namingProperty="$pathname")],
+                anchor=PathsV2Anchor(type=PathsV2AnchorType.START, item=PathsV2Item(event="$pageview")),
+            )
+        )
+        with self.assertRaisesMessage(ValidationError, "needs a label"):
+            runner.validate()
+
 
 class TestPathsV2QueryRunner(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
