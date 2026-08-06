@@ -67,6 +67,7 @@ def _technology_tags(tags: list[Any]) -> Optional[list[str]]:
         if isinstance(tag, dict)
         and tag.get("type") == "TECHNOLOGY"
         and isinstance(display := tag.get("displayValue"), str)
+        and display.strip()
     ]
     return names[:MAX_TECHNOLOGY_TAGS] or None
 

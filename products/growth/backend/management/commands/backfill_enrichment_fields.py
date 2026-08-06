@@ -78,6 +78,10 @@ class Command(BaseCommand):
         limit: int | None = options["limit"]
         delay: float = options["delay"]
         dry_run: bool = options["dry_run"]
+        if limit is not None and limit < 1:
+            raise CommandError("--limit must be a positive integer")
+        if delay < 0:
+            raise CommandError("--delay must be >= 0")
         pha_client = get_client()
 
         fetches = recent_latest_fetches_qs()

@@ -146,6 +146,8 @@ def test_technology_tags_skips_malformed_entries():
         {"type": "TECHNOLOGY", "displayValue": "AWS"},
         {"type": "TECHNOLOGY"},  # no displayValue
         {"type": "TECHNOLOGY", "displayValue": 123},  # non-string displayValue
+        {"type": "TECHNOLOGY", "displayValue": ""},  # empty displayValue
+        {"type": "TECHNOLOGY", "displayValue": "   "},  # whitespace-only displayValue
         "not-a-dict",
     ]
     fields = transform_harmonic_company(_company(tags=tags))

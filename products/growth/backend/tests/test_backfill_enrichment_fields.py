@@ -44,6 +44,12 @@ class TestBackfillEnrichmentFields(BaseTest):
             with self.assertRaises(CommandError):
                 call_command("backfill_enrichment_fields")
 
+    @parameterized.expand([("negative_limit", ["--limit=-1"]), ("negative_delay", ["--delay=-0.5"])])
+    def test_refuses_invalid_numeric_options(self, _name, args):
+        with patch(f"{_COMMAND_MODULE}.get_instance_region", return_value="US"):
+            with self.assertRaises(CommandError):
+                call_command("backfill_enrichment_fields", *args)
+
     def test_dry_run_writes_nothing(self):
         self._fetch()
         OrganizationEnrichment.objects.create(
