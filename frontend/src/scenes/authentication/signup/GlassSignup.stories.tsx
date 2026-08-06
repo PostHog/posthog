@@ -12,12 +12,12 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { SignupContainer } from './SignupContainer'
 import { signupLogic } from './signupForm/signupLogic'
 
-type PanelOption = '1 — Email' | '2 — Password' | '3 — Profile'
+type PanelOption = '1: Email' | '2: Password' | '3: Profile'
 
 const PANEL_INDEX: Record<PanelOption, 0 | 1 | 2> = {
-    '1 — Email': 0,
-    '2 — Password': 1,
-    '3 — Profile': 2,
+    '1: Email': 0,
+    '2: Password': 1,
+    '3: Profile': 2,
 }
 
 type StoryArgs = {
@@ -59,7 +59,7 @@ const meta: Meta<StoryArgs> = {
         panel: {
             control: 'select',
             name: 'Step',
-            options: ['1 — Email', '2 — Password', '3 — Profile'] satisfies PanelOption[],
+            options: ['1: Email', '2: Password', '3: Profile'] satisfies PanelOption[],
         },
     },
     args: {
@@ -68,7 +68,7 @@ const meta: Meta<StoryArgs> = {
         googleOAuth: true,
         github: true,
         gitlab: true,
-        panel: '1 — Email',
+        panel: '1: Email',
     },
 }
 export default meta
@@ -112,7 +112,7 @@ export const SelfHosted: StoryFn<StoryArgs> = Template.bind({})
 SelfHosted.args = { cloud: false, googleOAuth: false, github: false, gitlab: false }
 
 export const PasswordStep: StoryFn<StoryArgs> = Template.bind({})
-PasswordStep.args = { panel: '2 — Password' }
+PasswordStep.args = { panel: '2: Password' }
 
 export const ProfileStep: StoryFn<StoryArgs> = Template.bind({})
-ProfileStep.args = { panel: '3 — Profile' }
+ProfileStep.args = { panel: '3: Profile' }
