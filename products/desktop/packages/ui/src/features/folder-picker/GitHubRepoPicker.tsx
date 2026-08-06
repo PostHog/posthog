@@ -90,10 +90,10 @@ export function GitHubRepoPicker({
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const [uncontrolledSearchQuery, setUncontrolledSearchQuery] = useState("");
   const [visibleLimit, setVisibleLimit] = useState(COMBOBOX_INITIAL_LIMIT);
-  const [paginationPending, setPaginationPending] = useState(false);
-  const paginationStartCountRef = useRef(0);
+  const [paginationSnapshot, setPaginationSnapshot] = useState<string[] | null>(
+    null,
+  );
   const paginationWasLoadingRef = useRef(false);
-  const paginationRepositoriesRef = useRef<string[]>([]);
   const open = controlledOpen ?? uncontrolledOpen;
   const searchQuery = controlledSearchQuery ?? uncontrolledSearchQuery;
   const remoteMode =
@@ -101,14 +101,9 @@ export function GitHubRepoPicker({
     onSearchQueryChange !== undefined ||
     controlledHasMore !== undefined ||
     onLoadMore !== undefined;
-  const effectiveIsLoadingMore = isLoadingMore || paginationPending;
-  if (paginationPending && repositories.length > 0) {
-    paginationRepositoriesRef.current = Array.from(
-      new Set([...paginationRepositoriesRef.current, ...repositories]),
-    );
-  }
-  const displayedRepositories = paginationPending
-    ? paginationRepositoriesRef.current
+  const effectiveIsLoadingMore = isLoadingMore || paginationSnapshot !== null;
+  const displayedRepositories = paginationSnapshot
+    ? Array.from(new Set([...paginationSnapshot, ...repositories]))
     : repositories;
   const showInlineLoadingState =
     remoteMode && open && isLoading && !effectiveIsLoadingMore;
@@ -133,7 +128,7 @@ export function GitHubRepoPicker({
   );
 
   useEffect(() => {
-    if (!paginationPending) return;
+    if (!paginationSnapshot) return;
 
     if (isLoading || isLoadingMore) {
       paginationWasLoadingRef.current = true;
@@ -142,17 +137,17 @@ export function GitHubRepoPicker({
 
     if (
       paginationWasLoadingRef.current ||
-      repositories.length !== paginationStartCountRef.current ||
+      repositories.length !== paginationSnapshot.length ||
       !hasMore
     ) {
       paginationWasLoadingRef.current = false;
-      setPaginationPending(false);
+      setPaginationSnapshot(null);
     }
   }, [
     hasMore,
     isLoading,
     isLoadingMore,
-    paginationPending,
+    paginationSnapshot,
     repositories.length,
   ]);
 
@@ -166,10 +161,8 @@ export function GitHubRepoPicker({
     if (!hasMore || isLoading || effectiveIsLoadingMore) return;
 
     if (remoteMode) {
-      paginationStartCountRef.current = repositories.length;
       paginationWasLoadingRef.current = false;
-      paginationRepositoriesRef.current = repositories;
-      setPaginationPending(true);
+      setPaginationSnapshot(repositories);
       onLoadMore?.();
       return;
     }
@@ -246,7 +239,7 @@ export function GitHubRepoPicker({
         setUncontrolledOpen(nextOpen);
         onOpenChange?.(nextOpen);
         if (!nextOpen) {
-          setPaginationPending(false);
+          setPaginationSnapshot(null);
           paginationWasLoadingRef.current = false;
           setUncontrolledSearchQuery("");
           onSearchQueryChange?.("");
@@ -255,7 +248,7 @@ export function GitHubRepoPicker({
       }}
       inputValue={searchQuery}
       onInputValueChange={(nextSearchQuery) => {
-        setPaginationPending(false);
+        setPaginationSnapshot(null);
         paginationWasLoadingRef.current = false;
         setUncontrolledSearchQuery(nextSearchQuery);
         onSearchQueryChange?.(nextSearchQuery);

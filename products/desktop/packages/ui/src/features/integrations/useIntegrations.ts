@@ -46,7 +46,6 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 
@@ -144,43 +143,6 @@ function useAllUserGithubRepositories(
 
 const REPOSITORIES_PAGE_SIZE = 50;
 
-function useRetainedRepositoryPickerResult<TRef>(
-  paginationKey: string,
-  result: ReturnType<typeof combineRepositoryPicker<TRef>>,
-  isPaginating: boolean,
-): ReturnType<typeof combineRepositoryPicker<TRef>> {
-  const retainedResultRef = useRef({
-    paginationKey,
-    repositoryMap: result.repositoryMap,
-    hasMore: result.hasMore,
-  });
-
-  if (retainedResultRef.current.paginationKey !== paginationKey) {
-    retainedResultRef.current = {
-      paginationKey,
-      repositoryMap: result.repositoryMap,
-      hasMore: result.hasMore,
-    };
-  } else if (!isPaginating) {
-    retainedResultRef.current.repositoryMap = result.repositoryMap;
-    retainedResultRef.current.hasMore = result.hasMore;
-  } else if (Object.keys(result.repositoryMap).length > 0) {
-    retainedResultRef.current.repositoryMap = {
-      ...retainedResultRef.current.repositoryMap,
-      ...result.repositoryMap,
-    };
-    retainedResultRef.current.hasMore = result.hasMore;
-  }
-
-  if (!isPaginating) return result;
-
-  return {
-    ...result,
-    repositoryMap: retainedResultRef.current.repositoryMap,
-    hasMore: retainedResultRef.current.hasMore,
-  };
-}
-
 function useRepositoryPickerLimit(resetKey: string) {
   const [request, setRequest] = useState({
     key: resetKey,
@@ -206,6 +168,7 @@ export function useGithubRepositories(
   integrationId?: number | null,
 ) {
   const client = useOptionalAuthenticatedClient();
+  const queryClient = useQueryClient();
   const { githubIntegrations } = useIntegrationSelectors();
   const matchingGithubIntegrations = useMemo(
     () =>
@@ -222,12 +185,11 @@ export function useGithubRepositories(
   const queryEnabled =
     enabled && !!client && matchingGithubIntegrations.length > 0;
 
-  const queryResult = useQueries({
+  const { repositoryMap, isPending, isRefreshing, hasMore } = useQueries({
     queries: matchingGithubIntegrations.map((integration) => ({
       queryKey: integrationKeys.repositoryPicker(
         integration.id,
         deferredSearch,
-        requestedLimit,
       ),
       queryFn: async () => {
         if (!client) throw new Error("Not authenticated");
@@ -243,18 +205,32 @@ export function useGithubRepositories(
       },
       enabled: queryEnabled,
       staleTime: 5 * 60 * 1000,
-      placeholderData: (prev: unknown) => prev,
       meta: AUTH_SCOPED_QUERY_META,
     })),
     combine: combineRepositoryPicker<number>,
   });
 
-  const { repositoryMap, isPending, isRefreshing, hasMore } =
-    useRetainedRepositoryPickerResult(
-      paginationKey,
-      queryResult,
-      requestedLimit > REPOSITORIES_PAGE_SIZE,
+  useEffect(() => {
+    if (!queryEnabled || requestedLimit === REPOSITORIES_PAGE_SIZE) return;
+
+    void Promise.all(
+      matchingGithubIntegrations.map((integration) =>
+        queryClient.refetchQueries({
+          queryKey: integrationKeys.repositoryPicker(
+            integration.id,
+            deferredSearch,
+          ),
+          exact: true,
+        }),
+      ),
     );
+  }, [
+    deferredSearch,
+    matchingGithubIntegrations,
+    queryClient,
+    queryEnabled,
+    requestedLimit,
+  ]);
 
   const isFetchingMore =
     requestedLimit > REPOSITORIES_PAGE_SIZE && (isPending || isRefreshing);
@@ -280,18 +256,18 @@ export function useUserGithubRepositories(
   enabled: boolean = true,
 ) {
   const client = useOptionalAuthenticatedClient();
+  const queryClient = useQueryClient();
   const { data: githubIntegrations = [] } = useUserGithubIntegrations();
   const deferredSearch = useDeferredValue(search?.trim() ?? "");
   const paginationKey = `${githubIntegrations.map((integration) => integration.installation_id).join(",")}:${deferredSearch}`;
   const { requestedLimit, loadMore } = useRepositoryPickerLimit(paginationKey);
   const queryEnabled = enabled && !!client && githubIntegrations.length > 0;
 
-  const queryResult = useQueries({
+  const { repositoryMap, isPending, isRefreshing, hasMore } = useQueries({
     queries: githubIntegrations.map((integration) => ({
       queryKey: userGithubIntegrationKeys.repositoryPicker(
         integration.installation_id,
         deferredSearch,
-        requestedLimit,
       ),
       queryFn: async () => {
         if (!client) throw new Error("Not authenticated");
@@ -313,18 +289,32 @@ export function useUserGithubRepositories(
       },
       enabled: queryEnabled,
       staleTime: 5 * 60 * 1000,
-      placeholderData: (prev: unknown) => prev,
       meta: AUTH_SCOPED_QUERY_META,
     })),
     combine: combineRepositoryPicker<UserRepositoryIntegrationRef>,
   });
 
-  const { repositoryMap, isPending, isRefreshing, hasMore } =
-    useRetainedRepositoryPickerResult(
-      paginationKey,
-      queryResult,
-      requestedLimit > REPOSITORIES_PAGE_SIZE,
+  useEffect(() => {
+    if (!queryEnabled || requestedLimit === REPOSITORIES_PAGE_SIZE) return;
+
+    void Promise.all(
+      githubIntegrations.map((integration) =>
+        queryClient.refetchQueries({
+          queryKey: userGithubIntegrationKeys.repositoryPicker(
+            integration.installation_id,
+            deferredSearch,
+          ),
+          exact: true,
+        }),
+      ),
     );
+  }, [
+    deferredSearch,
+    githubIntegrations,
+    queryClient,
+    queryEnabled,
+    requestedLimit,
+  ]);
 
   const isFetchingMore =
     requestedLimit > REPOSITORIES_PAGE_SIZE && (isPending || isRefreshing);
